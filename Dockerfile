@@ -108,6 +108,9 @@ ENV VLLM_PRECOMPILED_WHEEL_VARIANT=cu12
 # -----------------------------------------------------------------------------
 WORKDIR /root/vllmbench
 
+# 复制 vllmbench 源代码到镜像中
+COPY . /root/vllmbench/
+
 # 配置 uv 行为：增加超时容错，使用 Copy 模式避免 Docker 缓存层的硬链接错误
 ENV UV_HTTP_TIMEOUT=500
 ENV UV_LINK_MODE=copy
