@@ -68,7 +68,7 @@
     // pip install -e . 会创建软链接，修改 Python/Triton 代码后立即生效
     // 环境变量 VLLM_USE_PRECOMPILED / VLLM_PRECOMPILED_WHEEL_* 已在 Dockerfile 中设置
     // 关键：先安装构建依赖（不升级torch），再使用 --no-build-isolation 避免重新安装 torch
-    "postCreateCommand": "pip install --no-upgrade cmake ninja packaging 'setuptools>=77.0.3,<81.0.0' 'setuptools-scm>=8.0' wheel jinja2 torch && pip install -e . --no-build-isolation && pip install -r requirements.txt && echo '=== 验证 vLLM 安装 ===' && python3 -c \"import vllm; print('✅ vllm:', vllm.__file__)\" && python3 -c \"import vllm._C; print('✅ vllm._C:', vllm._C.__file__)\"",
+    "postCreateCommand": "pip install cmake ninja packaging 'setuptools>=77.0.3,<81.0.0' 'setuptools-scm>=8.0' wheel jinja2 torch && pip install -e . --no-build-isolation && pip install -r requirements.txt && echo '=== 验证 vLLM 安装 ===' && python3 -c \"import vllm; print('✅ vllm:', vllm.__file__)\" && python3 -c \"import vllm._C; print('✅ vllm._C:', vllm._C.__file__)\"",
     // 容器启动后执行：启用 GPU 持久化模式并打印状态
     "postStartCommand": "bash -lc 'nvidia-smi -pm 1 2>/dev/null || true; nvidia-smi'",
     // 阻止 Dev Container 重写入口命令
