@@ -1,0 +1,75 @@
+{
+    // Dev Container 显示名称
+    "name": "Slidesparse vllm benchmark",
+
+    // 使用本地构建的开发镜像
+    "image": "vllmbench:0.13.0",
+
+    // [重要] 自动检测镜像更新，删除使用旧镜像的容器
+    // 原理：比较现有容器的镜像ID与最新镜像ID，不匹配则删除旧容器
+    "initializeCommand": "bash -c 'LATEST=$(docker images -q vllmbench:0.13.0 2>/dev/null); for CID in $(docker ps -aq --filter label=devcontainer.local_folder=$(pwd)); do CIMG=$(docker inspect $CID --format \"{{.Image}}\" 2>/dev/null); if [[ \"$CIMG\" != *\"$LATEST\"* ]] && [ -n \"$LATEST\" ]; then echo \"🔄 检测到镜像更新，删除旧容器 $CID...\"; docker rm -f $CID 2>/dev/null || true; fi; done; echo \"✅ 镜像检查完成\"'",
+
+    // 容器中的默认用户，使用 root 便于安装系统依赖
+    "remoteUser": "root",
+    // 容器内的工作目录，对应本地仓库挂载位置
+    "workspaceFolder": "/root/vllmbench",
+    
+    // [关键配置] 增强运行参数
+    "runArgs": [
+        // 使用宿主机网络栈：解决 K8s/内网 DNS 解析失败、Copilot 超时等问题
+        "--network=host",
+        
+        // --- GPU 和系统权限配置 ---
+        "--gpus=all",
+        "--privileged",
+        "--cap-add=SYS_ADMIN",
+        "--cap-add=SYS_PTRACE",
+        "--security-opt=seccomp=unconfined",
+        "--security-opt=apparmor=unconfined",
+        "--ipc=host",
+        "--ulimit=memlock=-1:-1",
+        "--ulimit=stack=67108864",
+        "--ulimit=nofile=1048576:1048576",
+        "--volume=/usr/lib/modules:/usr/lib/modules:ro",
+        "--volume=/lib/modules:/lib/modules:ro"
+    ],
+
+    "containerEnv": {
+        "NVIDIA_VISIBLE_DEVICES": "all",
+        "NVIDIA_DRIVER_CAPABILITIES": "compute,utility"
+    },
+
+    // 将本地仓库目录挂载到容器，保持代码同步
+    "mounts": [
+        {
+            "type": "bind",
+            "source": "${localWorkspaceFolder}",
+            "target": "/root/vllmbench"
+        }
+    ],
+
+    "customizations": {
+        "vscode": {
+            "settings": {
+                "python.defaultInterpreterPath": "/usr/bin/python3",
+                "python.analysis.typeCheckingMode": "basic"
+            },
+            "extensions": [
+                "ms-python.python",
+                "ms-python.debugpy",
+                "ms-toolsai.jupyter",
+                "ms-azuretools.vscode-docker",
+                "GitHub.copilot"
+            ]
+        }
+    },
+    
+    // 容器首次创建后执行：可编辑安装 vLLM 源码 + 安装额外依赖
+    // uv pip install -e . 会创建软链接，修改 Python/Triton 代码后立即生效
+    // 环境变量 VLLM_USE_PRECOMPILED / VLLM_PRECOMPILED_WHEEL_* 已在 Dockerfile 中设置
+    "postCreateCommand": "uv pip install --system --editable . && uv pip install --system -r requirements.txt && echo '=== 验证 vLLM 安装 ===' && python3 -c \"import vllm; print('✅ vllm:', vllm.__file__)\" && python3 -c \"import vllm._C; print('✅ vllm._C:', vllm._C.__file__)\"",
+    // 容器启动后执行：启用 GPU 持久化模式并打印状态
+    "postStartCommand": "bash -lc 'nvidia-smi -pm 1 2>/dev/null || true; nvidia-smi'",
+    // 阻止 Dev Container 重写入口命令
+    "overrideCommand": true
+}
