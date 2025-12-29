@@ -3,11 +3,11 @@
     "name": "Slidesparse vllm benchmark",
 
     // 使用本地构建的开发镜像
-    "image": "vllmbench:0.13.0",
+    "image": "bcacdwk/vllmbench:universal",
 
     // [重要] 自动检测镜像更新，删除使用旧镜像的容器
     // 原理：比较现有容器的镜像ID与最新镜像ID，不匹配则删除旧容器
-    "initializeCommand": "bash -c 'LATEST=$(docker images -q vllmbench:0.13.0 2>/dev/null); for CID in $(docker ps -aq --filter label=devcontainer.local_folder=$(pwd)); do CIMG=$(docker inspect $CID --format \"{{.Image}}\" 2>/dev/null); if [[ \"$CIMG\" != *\"$LATEST\"* ]] && [ -n \"$LATEST\" ]; then echo \"🔄 检测到镜像更新，删除旧容器 $CID...\"; docker rm -f $CID 2>/dev/null || true; fi; done; echo \"✅ 镜像检查完成\"'",
+    "initializeCommand": "bash -c 'LATEST=$(docker images -q bcacdwk/vllmbench:universal 2>/dev/null); for CID in $(docker ps -aq --filter label=devcontainer.local_folder=$(pwd)); do CIMG=$(docker inspect $CID --format \"{{.Image}}\" 2>/dev/null); if [[ \"$CIMG\" != *\"$LATEST\"* ]] && [ -n \"$LATEST\" ]; then echo \"🔄 检测到镜像更新，删除旧容器 $CID...\"; docker rm -f $CID 2>/dev/null || true; fi; done; echo \"✅ 镜像检查完成\"'",
 
     // 容器中的默认用户，使用 root 便于安装系统依赖
     "remoteUser": "root",
