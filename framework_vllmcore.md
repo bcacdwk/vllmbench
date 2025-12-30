@@ -368,7 +368,7 @@ v1/
 # vllm/v1/engine/llm_engine.py (简化版)
 
 class LLMEngine:
-    """Legacy LLMEngine for backwards compatibility."""
+    """V1 LLMEngine - 当前推荐的推理引擎实现。"""
     
     def __init__(
         self,
