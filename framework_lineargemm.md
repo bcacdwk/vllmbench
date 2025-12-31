@@ -748,7 +748,7 @@ class Fp8Config(QuantizationConfig):
 
 ### 6.3 Fp8LinearMethod 类
 
-**文件**: `vllm/model_executor/layers/quantization/fp8.py` (行 366 起)
+**文件**: `vllm/model_executor/layers/quantization/fp8.py`
 
 ```python
 class Fp8LinearMethod(LinearMethodBase):
@@ -991,8 +991,8 @@ def scaled_fp8_quant(
         output: 量化后的张量 [M, K]，FP8 E4M3
         scale: 使用的 scale
     """
-    # 分配输出张量
-    out_dtype = current_platform.fp8_dtype()  # torch.float8_e4m3fn
+    shape = input.shape  # 获取输入形状
+    out_dtype = current_platform.fp8_dtype()  # Platform-specific FP8 dtype
     if output is None:
         output = torch.empty(shape, device=input.device, dtype=out_dtype)
     

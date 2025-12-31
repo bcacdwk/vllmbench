@@ -708,7 +708,10 @@ attention/
 - `flashinfer.py` - FlashInfer  
 - `triton_attn.py` - Triton 实现
 - `flex_attention.py` - Flex Attention
-- 以及 ROCm、TPU 等平台特定的实现
+- `cpu_attn.py` - CPU 注意力
+- `pallas.py` - TPU 注意力（Pallas）
+- `rocm_attn.py` - ROCm/AMD 注意力
+- `mla/` - Multi-head Latent Attention
 
 #### Attention 层 (`layer.py`)
 

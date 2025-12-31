@@ -85,7 +85,7 @@ vllmbench/
 │   ├── attention/          # 注意力机制实现
 │   ├── distributed/        # 分布式相关代码
 │   ├── config/             # 配置类定义
-│   ├── compilation/        # 编译优化（CUDA Graph等）
+│   ├── compilation/        # 编译优化（CUDA Graph、算子融合等）
 │   └── ...                 # 其他子模块
 ├── benchmarks/             # 性能基准测试脚本
 ├── tests/                  # 测试用例（非常全面）
