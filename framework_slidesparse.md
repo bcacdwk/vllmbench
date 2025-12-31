@@ -1770,11 +1770,12 @@ def fused_quant_slide_kernel(
         # Per-tensor: 使用预设 scale
         scale = tl.load(scale_ptr)
     
-    # 量化
+    # 量化（添加 epsilon 防止除零）
+    eps = 1e-10
     if use_per_token_scale:
-        x_quant = x / scale[:, None]
+        x_quant = x / (scale[:, None] + eps)
     else:
-        x_quant = x / scale
+        x_quant = x / (scale + eps)
     
     # 裁剪到 FP8 范围
     x_quant = tl.clamp(x_quant, -448.0, 448.0)
@@ -1945,10 +1946,13 @@ def sparse_gemm_cusparselt(
     Returns:
         output: [N, M] 行主序输出（需要后续转置）
     """
-    # TODO: 实现 cuSPARSELt 调用
-    # 这需要:
-    # 1. 添加 cuSPARSELt Python 绑定
-    # 2. 注册 torch.ops._C 函数
+    # TODO(SlideSparse): 实现 cuSPARSELt 调用
+    # 实现步骤:
+    # 1. 在 csrc/ 目录添加 cuSPARSELt C++ 绑定
+    # 2. 在 torch_bindings.cpp 中注册 torch.ops._C 函数
+    # 3. 在 _custom_ops.py 中添加 Python 封装
+    # 参考文档: https://docs.nvidia.com/cuda/cusparselt/
+    # 相关文件: csrc/quantization/sparse/ (待创建)
     
     raise NotImplementedError(
         "cuSPARSELt integration not yet implemented. "
