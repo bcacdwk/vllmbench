@@ -337,11 +337,12 @@ v1/
 │   └── kv_cache_manager.py      # KV Cache 管理
 │
 ├── attention/                   # V1 注意力
-│   ├── backends/                # 注意力后端
-│   │   ├── flash_attn.py        # FlashAttention
-│   │   ├── flashinfer.py        # FlashInfer
-│   │   └── utils.py             # 工具函数
-│   └── ...
+│   └── backends/                # 注意力后端
+│       ├── flash_attn.py        # FlashAttention
+│       ├── flashinfer.py        # FlashInfer
+│       ├── triton_attn.py       # Triton 实现
+│       ├── flex_attention.py    # Flex Attention
+│       └── utils.py             # 工具函数
 │
 ├── sample/                      # 采样器
 │   ├── sampler.py               # 采样实现
@@ -618,11 +619,12 @@ model_executor/
 │       ├── base_config.py       # QuantizationConfig 基类
 │       ├── fp8.py               # ⭐ FP8 量化
 │       ├── awq.py               # AWQ 量化
+│       ├── awq_marlin.py        # AWQ Marlin 格式
 │       ├── gptq.py              # GPTQ 量化
-│       ├── marlin.py            # Marlin 量化（高效 GPTQ）
-│       ├── squeezellm.py        # SqueezeLLM 量化
+│       ├── gptq_marlin.py       # GPTQ Marlin 格式（高效 GPTQ）
 │       ├── bitsandbytes.py      # BitsAndBytes 量化
 │       ├── gguf.py              # GGUF 格式支持
+│       ├── compressed_tensors/  # CompressedTensors 支持
 │       └── utils/               # 量化工具
 │           ├── fp8_utils.py     # FP8 工具
 │           ├── w8a8_utils.py    # W8A8 工具
@@ -647,7 +649,7 @@ vLLM 使用注册表模式管理支持的模型：
 # vllm/model_executor/models/registry.py
 
 # 支持的模型列表（部分）
-_TRANSFORMERS_MODELS = {
+_TEXT_GENERATION_MODELS = {
     # 语言模型
     "LlamaForCausalLM": ("llama", "LlamaForCausalLM"),
     "Qwen2ForCausalLM": ("qwen2", "Qwen2ForCausalLM"),
@@ -692,11 +694,7 @@ attention/
 │
 ├── backends/                # 注意力后端实现
 │   ├── abstract.py          # 抽象基类
-│   ├── flash_attn.py        # ⭐ FlashAttention
-│   ├── flashinfer.py        # FlashInfer
-│   ├── xformers.py          # xFormers
-│   ├── torch_sdpa.py        # PyTorch SDPA
-│   ├── blocksparse_attn.py  # 块稀疏注意力
+│   ├── registry.py          # 后端注册表
 │   └── utils.py             # 工具函数
 │
 ├── layers/                  # 特殊注意力层
@@ -704,6 +702,16 @@ attention/
 │
 └── utils/                   # 工具
 ```
+
+**注意**: V1 架构的注意力后端位于 `vllm/v1/attention/backends/`，包含：
+- `flash_attn.py` - FlashAttention
+- `flashinfer.py` - FlashInfer  
+- `triton_attn.py` - Triton 实现
+- `flex_attention.py` - Flex Attention
+- `cpu_attn.py` - CPU 注意力
+- `pallas.py` - TPU 注意力（Pallas）
+- `rocm_attn.py` - ROCm/AMD 注意力
+- `mla/` - Multi-head Latent Attention
 
 #### Attention 层 (`layer.py`)
 
@@ -853,28 +861,23 @@ distributed/
 ```python
 # vllm/distributed/parallel_state.py
 
-# 全局并行状态
-_TENSOR_MODEL_PARALLEL_GROUP = None
-_PIPELINE_MODEL_PARALLEL_GROUP = None
-_DATA_PARALLEL_GROUP = None
-
 def get_tensor_model_parallel_rank() -> int:
     """获取当前进程的张量并行 rank"""
-    if _TENSOR_MODEL_PARALLEL_GROUP is None:
-        return 0
-    return torch.distributed.get_rank(_TENSOR_MODEL_PARALLEL_GROUP)
+    ...
 
 def get_tensor_model_parallel_world_size() -> int:
     """获取张量并行世界大小"""
-    if _TENSOR_MODEL_PARALLEL_GROUP is None:
-        return 1
-    return torch.distributed.get_world_size(_TENSOR_MODEL_PARALLEL_GROUP)
+    ...
 
+# 通信操作位于 communication_op.py
+# vllm/distributed/communication_op.py
 def tensor_model_parallel_all_reduce(tensor: torch.Tensor) -> torch.Tensor:
     """张量并行 all-reduce 操作"""
-    if get_tensor_model_parallel_world_size() == 1:
-        return tensor
-    return all_reduce(tensor, group=_TENSOR_MODEL_PARALLEL_GROUP)
+    ...
+
+def tensor_model_parallel_all_gather(tensor: torch.Tensor) -> torch.Tensor:
+    """张量并行 all-gather 操作"""
+    ...
 ```
 
 ---

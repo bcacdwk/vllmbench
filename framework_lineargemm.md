@@ -559,9 +559,9 @@ class LinearBase(CustomOp):
 | `UnquantizedLinearMethod` | 无量化 | FP16/BF16 | FP16/BF16 | `linear.py` |
 | `Fp8LinearMethod` | FP8 | FP8 E4M3 | FP8 E4M3 | `quantization/fp8.py` |
 | `AWQLinearMethod` | AWQ | INT4 | FP16 | `quantization/awq.py` |
+| `AWQMarlinLinearMethod` | AWQ Marlin | INT4 | FP16 | `quantization/awq_marlin.py` |
 | `GPTQLinearMethod` | GPTQ | INT4/INT8 | FP16 | `quantization/gptq.py` |
-| `MarlinLinearMethod` | Marlin | INT4 | FP16 | `quantization/gptq_marlin.py` |
-| `SqueezeLLMLinearMethod` | SqueezeLLM | Mixed | FP16 | `quantization/squeezellm.py` |
+| `GPTQMarlinLinearMethod` | GPTQ Marlin | INT4 | FP16 | `quantization/gptq_marlin.py` |
 | `BitsAndBytesLinearMethod` | BnB | INT4/INT8 | FP16 | `quantization/bitsandbytes.py` |
 
 ### 5.2 无量化情况 (UnquantizedLinearMethod)
@@ -748,7 +748,7 @@ class Fp8Config(QuantizationConfig):
 
 ### 6.3 Fp8LinearMethod 类
 
-**文件**: `vllm/model_executor/layers/quantization/fp8.py` (行 366-688)
+**文件**: `vllm/model_executor/layers/quantization/fp8.py`
 
 ```python
 class Fp8LinearMethod(LinearMethodBase):
@@ -991,26 +991,19 @@ def scaled_fp8_quant(
         output: 量化后的张量 [M, K]，FP8 E4M3
         scale: 使用的 scale
     """
-    # 分配输出张量
+    shape = input.shape  # 获取输入形状
+    out_dtype = current_platform.fp8_dtype()  # Platform-specific FP8 dtype
     if output is None:
-        output = torch.empty_like(input, dtype=torch.float8_e4m3fn)
+        output = torch.empty(shape, device=input.device, dtype=out_dtype)
     
-    # 分配 scale 张量
-    if scale is None:
-        if use_per_token_if_dynamic:
-            # Per-token: 每行一个 scale
-            scale = torch.empty(input.shape[0], 1, device=input.device, dtype=torch.float32)
-        else:
-            # Per-tensor: 整个张量一个 scale
-            scale = torch.empty(1, device=input.device, dtype=torch.float32)
-    
-    # 调用底层 CUDA kernel
     if scale is None:
         if use_per_token_if_dynamic:
             # ⭐ 动态 per-token 量化
+            scale = torch.empty((shape[0], 1), device=input.device, dtype=torch.float32)
             torch.ops._C.dynamic_per_token_scaled_fp8_quant(output, input, scale, scale_ub)
         else:
             # ⭐ 动态 per-tensor 量化
+            scale = torch.empty(1, device=input.device, dtype=torch.float32)
             torch.ops._C.dynamic_scaled_fp8_quant(output, input, scale)
     else:
         # ⭐ 静态量化
@@ -1318,26 +1311,24 @@ Model Forward
 ```
 csrc/
 ├── quantization/
-│   ├── fp8/
-│   │   ├── fp8_quant_kernels.cu      # FP8 量化 kernel
-│   │   │   ├── dynamic_scaled_fp8_quant()
-│   │   │   ├── static_scaled_fp8_quant()
-│   │   │   └── dynamic_per_token_scaled_fp8_quant()
-│   │   │
-│   │   └── cutlass_fp8/              # CUTLASS FP8 GEMM
-│   │       └── fp8_gemm_kernels.cu
+│   ├── w8a8/                         # W8A8 量化
+│   │   ├── fp8/                      # FP8 量化 kernel
+│   │   │   ├── nvidia/               # NVIDIA 特定实现
+│   │   │   ├── amd/                  # AMD 特定实现
+│   │   │   └── common.cu             # 通用实现
+│   │   └── int8/                     # INT8 量化
 │   │
-│   ├── awq/
-│   │   └── awq_kernels.cu            # AWQ kernel
+│   ├── awq/                          # AWQ kernel
 │   │
-│   ├── gptq/
-│   │   └── gptq_kernels.cu           # GPTQ kernel
+│   ├── gptq/                         # GPTQ kernel
 │   │
-│   └── marlin/
-│       └── marlin_kernels.cu         # Marlin kernel
+│   ├── gptq_marlin/                  # GPTQ Marlin kernel
+│   │
+│   ├── marlin/                       # Marlin kernel
+│   │
+│   └── fp4/                          # FP4 量化 kernel
 │
-├── cutlass_extensions/
-│   └── gemm/                         # CUTLASS GEMM 扩展
+├── cutlass_extensions/               # CUTLASS GEMM 扩展
 │
 └── torch_bindings.cpp                # PyTorch C++ 绑定
     └── 所有 torch.ops._C.xxx() 的定义
