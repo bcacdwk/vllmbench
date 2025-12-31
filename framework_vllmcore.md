@@ -858,28 +858,23 @@ distributed/
 ```python
 # vllm/distributed/parallel_state.py
 
-# 全局并行状态
-_TENSOR_MODEL_PARALLEL_GROUP = None
-_PIPELINE_MODEL_PARALLEL_GROUP = None
-_DATA_PARALLEL_GROUP = None
-
 def get_tensor_model_parallel_rank() -> int:
     """获取当前进程的张量并行 rank"""
-    if _TENSOR_MODEL_PARALLEL_GROUP is None:
-        return 0
-    return torch.distributed.get_rank(_TENSOR_MODEL_PARALLEL_GROUP)
+    ...
 
 def get_tensor_model_parallel_world_size() -> int:
     """获取张量并行世界大小"""
-    if _TENSOR_MODEL_PARALLEL_GROUP is None:
-        return 1
-    return torch.distributed.get_world_size(_TENSOR_MODEL_PARALLEL_GROUP)
+    ...
 
+# 通信操作位于 communication_op.py
+# vllm/distributed/communication_op.py
 def tensor_model_parallel_all_reduce(tensor: torch.Tensor) -> torch.Tensor:
     """张量并行 all-reduce 操作"""
-    if get_tensor_model_parallel_world_size() == 1:
-        return tensor
-    return all_reduce(tensor, group=_TENSOR_MODEL_PARALLEL_GROUP)
+    ...
+
+def tensor_model_parallel_all_gather(tensor: torch.Tensor) -> torch.Tensor:
+    """张量并行 all-gather 操作"""
+    ...
 ```
 
 ---
