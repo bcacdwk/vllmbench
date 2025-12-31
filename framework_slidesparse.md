@@ -1557,5 +1557,1061 @@ def get_quantization_config(quantization: str) -> type[QuantizationConfig]:
 
 ---
 
+## 5. 关键工作：Kernel 替换与前向传播
+
+本章节详细描述如何修改 vLLM 的前向传播流程，将标准的 `quant + dense_GEMM + dequant` 替换为 SlideSparse 的 `fused_quant_slide + sparse_GEMM + fused_transpose_dequant`。
+
+### 5.1 vLLM 线性层前向传播分析
+
+#### 5.1.1 当前 GEMM 调用链
+
+根据 `framework_lineargemm.md` 的分析，vLLM 的线性层前向传播调用链如下：
+
+```
+模型 forward (如 Qwen2MLP.forward)
+    │
+    ▼
+self.gate_up_proj(x)  # MergedColumnParallelLinear
+    │
+    ▼
+ColumnParallelLinear.forward()
+文件: vllm/model_executor/layers/linear.py (行 557-575)
+    │
+    ▼
+self.quant_method.apply(self, input_, bias)  # 核心 GEMM 调用
+    │
+    ├── UnquantizedLinearMethod.apply()      # 无量化
+    │   └── dispatch_unquantized_gemm()
+    │       └── torch.nn.functional.linear() # cuBLAS
+    │
+    ├── Fp8LinearMethod.apply()              # FP8 量化
+    │   └── Fp8LinearOp.apply()
+    │       ├── ops.scaled_fp8_quant()       # 量化
+    │       └── cutlass_scaled_mm()          # GEMM + Dequant
+    │
+    └── SlideSparseLinearMethod.apply()      # SlideSparse (新增)
+        ├── fused_quant_slide()              # Quant + Slide
+        ├── sparse_gemm_cusparselt()         # Sparse GEMM
+        └── fused_transpose_dequant()        # Transpose + Dequant
+```
+
+#### 5.1.2 关键文件和函数
+
+| 组件 | 文件 | 函数/类 | 行号 |
+|------|------|--------|------|
+| 线性层 forward | `vllm/model_executor/layers/linear.py` | `ColumnParallelLinear.forward()` | 557-575 |
+| 线性层 forward | `vllm/model_executor/layers/linear.py` | `RowParallelLinear.forward()` | 1388-1416 |
+| FP8 量化方法 | `vllm/model_executor/layers/quantization/fp8.py` | `Fp8LinearMethod.apply()` | ~610-687 |
+| FP8 量化操作 | `vllm/_custom_ops.py` | `scaled_fp8_quant()` | 1678-1735 |
+| CUTLASS GEMM | `vllm/_custom_ops.py` | `cutlass_scaled_mm()` | 828-876 |
+| 稀疏压缩 | `vllm/_custom_ops.py` | `cutlass_sparse_compress()` | 920-958 |
+| 稀疏 GEMM | `vllm/_custom_ops.py` | `cutlass_scaled_sparse_mm()` | 961-1000+ |
+
+#### 5.1.3 vLLM 已有的稀疏支持
+
+vLLM 已经实现了 2:4 稀疏的基础支持：
+
+```python
+# vllm/_custom_ops.py
+
+def cutlass_sparse_compress(a: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    """
+    压缩 2:4 稀疏矩阵
+    
+    输入: a [M, K]，满足 2:4 稀疏
+    输出:
+        - a_nzs [M, K/2]: 非零元素
+        - a_meta [M, K/8]: 稀疏元数据（每 4 个非零对应 1 字节）
+    """
+    return torch.ops._C.cutlass_sparse_compress(a)
+
+def cutlass_scaled_sparse_mm(
+    a: torch.Tensor,
+    bt_nzs: torch.Tensor,
+    bt_meta: torch.Tensor,
+    scale_a: torch.Tensor,
+    scale_b: torch.Tensor,
+    out_dtype: torch.dtype,
+    bias: torch.Tensor | None = None,
+) -> torch.Tensor:
+    """
+    执行稀疏矩阵乘法
+    
+    输入:
+        - a [M, K]: 稠密激活
+        - bt_nzs [N, K/2]: 压缩后的权重非零元素
+        - bt_meta [N, K/8]: 权重稀疏元数据
+        - scale_a, scale_b: 量化 scale
+    
+    输出: [M, N]
+    """
+    ...
+```
+
+**重要发现**：vLLM 使用 CUTLASS 实现稀疏 GEMM，这与 cuSPARSELt 是不同的后端。需要评估使用哪个：
+- **CUTLASS Sparse**: 已集成在 vLLM 中，更易使用
+- **cuSPARSELt**: 可能有更好的性能，需要额外集成
+
+### 5.2 SlideSparse Kernel 实现
+
+#### 5.2.1 Kernel 文件组织
+
+建议创建以下文件结构：
+
+```
+vllm/model_executor/layers/quantization/
+├── slidesparse.py                      # SlideSparse 配置和线性方法
+└── slidesparse_kernels/
+    ├── __init__.py                     # 导出所有 kernel
+    ├── fused_quant_slide.py            # Triton: 融合量化+滑动
+    ├── sparse_gemm.py                  # CUDA/CUTLASS: 稀疏 GEMM 封装
+    └── fused_transpose_dequant.py      # Triton: 融合转置+反量化
+```
+
+#### 5.2.2 Fused Quant + Slide Kernel
+
+创建文件：`vllm/model_executor/layers/quantization/slidesparse_kernels/fused_quant_slide.py`
+
+```python
+"""
+Fused Quantization + Slide Triton Kernel
+
+将 BF16 输入激活进行量化（FP8/INT8）并同时执行滑动拓展。
+"""
+
+import torch
+import triton
+import triton.language as tl
+
+
+@triton.autotune(
+    configs=[
+        triton.Config({'BLOCK_M': 32, 'BLOCK_K': 64}, num_warps=2),
+        triton.Config({'BLOCK_M': 64, 'BLOCK_K': 64}, num_warps=4),
+        triton.Config({'BLOCK_M': 128, 'BLOCK_K': 64}, num_warps=4),
+        triton.Config({'BLOCK_M': 64, 'BLOCK_K': 128}, num_warps=4),
+    ],
+    key=['M', 'K', 'K_expanded'],
+)
+@triton.jit
+def fused_quant_slide_kernel(
+    # 输入输出指针
+    input_ptr,          # [M, K] BF16 输入
+    output_ptr,         # [M, K_expanded] FP8 输出
+    scale_ptr,          # [M] 或 [1] per-token/per-tensor scale
+    # 维度信息
+    M,                  # batch × seq_len
+    K,                  # 原始输入维度
+    K_expanded,         # 滑动拓展后的维度
+    # 稀疏参数
+    src_L: tl.constexpr,     # 源稀疏窗口大小 (如 8)
+    tgt_L: tl.constexpr,     # 目标稀疏窗口大小 (如 4)
+    stride: tl.constexpr,    # 滑动步长 (如 2)
+    num_windows: tl.constexpr,  # 窗口数
+    # 步长
+    stride_im,          # input stride for M
+    stride_ik,          # input stride for K
+    stride_om,          # output stride for M
+    stride_ok,          # output stride for K_expanded
+    # 配置
+    use_per_token_scale: tl.constexpr,
+    BLOCK_M: tl.constexpr,
+    BLOCK_K: tl.constexpr,
+):
+    """
+    融合量化+滑动 Kernel
+    
+    算法:
+    1. 对每个源稀疏组 (src_L 个元素)
+    2. 计算动态 scale (如果需要)
+    3. 量化为 FP8
+    4. 按滑动窗口模式写出到目标位置
+    """
+    # 程序 ID
+    pid_m = tl.program_id(0)
+    pid_k = tl.program_id(1)
+    
+    # 计算块起始位置
+    m_start = pid_m * BLOCK_M
+    k_start = pid_k * BLOCK_K
+    
+    # 计算 K 维度在源稀疏组中的位置
+    # k_start 对应的源稀疏组起始
+    src_group_start = (k_start // src_L) * src_L
+    
+    # 加载输入块
+    offs_m = m_start + tl.arange(0, BLOCK_M)
+    offs_k_src = src_group_start + tl.arange(0, src_L)
+    
+    mask_m = offs_m < M
+    mask_k = offs_k_src < K
+    
+    # 加载源数据 [BLOCK_M, src_L]
+    x = tl.load(
+        input_ptr + offs_m[:, None] * stride_im + offs_k_src[None, :] * stride_ik,
+        mask=mask_m[:, None] & mask_k[None, :],
+        other=0.0,
+    )
+    
+    # 计算 scale
+    if use_per_token_scale:
+        # Per-token: 每行计算 max
+        x_max = tl.max(tl.abs(x), axis=1)  # [BLOCK_M]
+        scale = x_max / 448.0  # FP8 E4M3 最大值
+        scale = tl.where(scale > 0, scale, 1.0)
+        
+        # 保存 scale
+        tl.store(
+            scale_ptr + offs_m,
+            scale,
+            mask=mask_m,
+        )
+    else:
+        # Per-tensor: 使用预设 scale
+        scale = tl.load(scale_ptr)
+    
+    # 量化
+    if use_per_token_scale:
+        x_quant = x / scale[:, None]
+    else:
+        x_quant = x / scale
+    
+    # 裁剪到 FP8 范围
+    x_quant = tl.clamp(x_quant, -448.0, 448.0)
+    
+    # 滑动写出
+    # 计算目标位置
+    dst_group_start = (k_start // src_L) * (num_windows * tgt_L)
+    
+    for w in range(num_windows):
+        # 源窗口范围: [w * stride, w * stride + tgt_L)
+        src_start = w * stride
+        # 目标位置: dst_group_start + w * tgt_L
+        dst_start = dst_group_start + w * tgt_L
+        
+        # 提取窗口数据
+        offs_window = tl.arange(0, tgt_L)
+        window_data = tl.load(
+            x_quant + offs_m[:, None] * src_L + (src_start + offs_window)[None, :],
+            mask=mask_m[:, None] & ((src_start + offs_window)[None, :] < src_L),
+            other=0.0,
+        )
+        
+        # 写出到目标位置
+        offs_k_dst = dst_start + offs_window
+        tl.store(
+            output_ptr + offs_m[:, None] * stride_om + offs_k_dst[None, :] * stride_ok,
+            window_data,
+            mask=mask_m[:, None] & (offs_k_dst[None, :] < K_expanded),
+        )
+
+
+def fused_quant_slide(
+    input: torch.Tensor,
+    src_sparsity: tuple[int, int],  # (Z, L') 如 (2, 8)
+    tgt_sparsity: tuple[int, int],  # (Z, L) 如 (2, 4)
+    dtype: torch.dtype = torch.float8_e4m3fn,
+    use_per_token_scale: bool = True,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """
+    融合的量化 + 滑动操作
+    
+    Args:
+        input: [M, K] BF16 输入激活
+        src_sparsity: 源稀疏格式 (Z, L')
+        tgt_sparsity: 目标硬件稀疏格式 (Z, L)
+        dtype: 输出数据类型
+        use_per_token_scale: 是否使用 per-token 量化
+    
+    Returns:
+        output: [M, K'] 量化后的激活
+        scale: [M] 或 [1] 量化 scale
+    """
+    assert input.ndim == 2
+    M, K = input.shape
+    
+    Z_src, L_src = src_sparsity
+    Z_tgt, L_tgt = tgt_sparsity
+    
+    # 计算滑动参数
+    stride = L_tgt - Z_tgt  # 非零元素个数
+    num_windows = (L_src - Z_src) // stride
+    
+    # 计算拓展后的维度
+    num_groups = K // L_src
+    K_expanded = num_groups * num_windows * L_tgt
+    
+    # 分配输出
+    output = torch.empty((M, K_expanded), device=input.device, dtype=dtype)
+    
+    if use_per_token_scale:
+        scale = torch.empty((M,), device=input.device, dtype=torch.float32)
+    else:
+        # 计算全局 scale
+        scale = torch.max(torch.abs(input)) / 448.0
+        scale = scale.unsqueeze(0)
+    
+    # 配置 grid
+    def grid(meta):
+        return (
+            triton.cdiv(M, meta['BLOCK_M']),
+            triton.cdiv(K, L_src),  # 每个源稀疏组一个
+        )
+    
+    # 调用 kernel
+    fused_quant_slide_kernel[grid](
+        input,
+        output,
+        scale,
+        M, K, K_expanded,
+        L_src, L_tgt, stride, num_windows,
+        input.stride(0), input.stride(1),
+        output.stride(0), output.stride(1),
+        use_per_token_scale,
+    )
+    
+    return output, scale
+```
+
+#### 5.2.3 Sparse GEMM 封装
+
+创建文件：`vllm/model_executor/layers/quantization/slidesparse_kernels/sparse_gemm.py`
+
+```python
+"""
+Sparse GEMM Wrapper
+
+封装 CUTLASS 或 cuSPARSELt 的稀疏 GEMM 调用。
+"""
+
+import torch
+from vllm import _custom_ops as ops
+
+
+def sparse_gemm_cutlass(
+    activation: torch.Tensor,      # [M, K'] FP8 量化+滑动后的激活
+    weight_nzs: torch.Tensor,      # [N, K'/2] 压缩后的权重非零元素
+    weight_meta: torch.Tensor,     # [N, K'/8] 权重稀疏元数据
+    scale_a: torch.Tensor,         # 激活 scale
+    scale_b: torch.Tensor,         # 权重 scale
+    out_dtype: torch.dtype = torch.bfloat16,
+    bias: torch.Tensor | None = None,
+) -> torch.Tensor:
+    """
+    使用 CUTLASS 执行稀疏 GEMM
+    
+    注意: CUTLASS 稀疏 GEMM 期望权重是压缩过的，激活是稠密的
+    
+    Args:
+        activation: [M, K'] 稠密激活（已经滑动拓展）
+        weight_nzs: [N, K'/2] 压缩后的权重
+        weight_meta: [N, K'/8] 稀疏元数据
+        scale_a, scale_b: 量化 scale
+        out_dtype: 输出数据类型
+        bias: 可选偏置
+    
+    Returns:
+        output: [M, N] 输出
+    """
+    # 调用 vLLM 已有的 CUTLASS 稀疏 GEMM
+    output = ops.cutlass_scaled_sparse_mm(
+        activation,
+        weight_nzs,
+        weight_meta,
+        scale_a,
+        scale_b,
+        out_dtype,
+        bias,
+    )
+    
+    return output
+
+
+def sparse_gemm_cusparselt(
+    activation: torch.Tensor,      # [M, K'] FP8/INT8
+    weight_compressed: torch.Tensor,  # cuSPARSELt 压缩格式
+    algo_id: int = 0,
+) -> torch.Tensor:
+    """
+    使用 cuSPARSELt 执行稀疏 GEMM
+    
+    注意: 这需要额外的 cuSPARSELt 集成
+    
+    Args:
+        activation: [M, K'] 量化后的激活
+        weight_compressed: cuSPARSELt 压缩格式的权重
+        algo_id: 算法 ID
+    
+    Returns:
+        output: [N, M] 行主序输出（需要后续转置）
+    """
+    # TODO: 实现 cuSPARSELt 调用
+    # 这需要:
+    # 1. 添加 cuSPARSELt Python 绑定
+    # 2. 注册 torch.ops._C 函数
+    
+    raise NotImplementedError(
+        "cuSPARSELt integration not yet implemented. "
+        "Please use CUTLASS sparse GEMM for now."
+    )
+
+
+def compress_weight_for_sparse_gemm(
+    weight: torch.Tensor,
+    backend: str = "cutlass",
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """
+    压缩权重以用于稀疏 GEMM
+    
+    Args:
+        weight: [N, K] 满足 2:4 稀疏的权重
+        backend: "cutlass" 或 "cusparselt"
+    
+    Returns:
+        weight_nzs: 压缩后的非零元素
+        weight_meta: 稀疏元数据
+    """
+    if backend == "cutlass":
+        # CUTLASS 压缩需要转置后的权重
+        weight_t = weight.t().contiguous()
+        weight_nzs, weight_meta = ops.cutlass_sparse_compress(weight_t)
+        return weight_nzs, weight_meta
+    else:
+        raise NotImplementedError(f"Backend {backend} not supported")
+```
+
+#### 5.2.4 Fused Transpose + Dequant Kernel
+
+创建文件：`vllm/model_executor/layers/quantization/slidesparse_kernels/fused_transpose_dequant.py`
+
+```python
+"""
+Fused Transpose + Dequantization Triton Kernel
+
+将 [N, M] 的 GEMM 输出转置为 [M, N] 并反量化为 BF16。
+"""
+
+import torch
+import triton
+import triton.language as tl
+
+
+@triton.autotune(
+    configs=[
+        triton.Config({'BLOCK_M': 32, 'BLOCK_N': 32}, num_warps=2),
+        triton.Config({'BLOCK_M': 64, 'BLOCK_N': 32}, num_warps=4),
+        triton.Config({'BLOCK_M': 32, 'BLOCK_N': 64}, num_warps=4),
+        triton.Config({'BLOCK_M': 64, 'BLOCK_N': 64}, num_warps=4),
+    ],
+    key=['M', 'N'],
+)
+@triton.jit
+def fused_transpose_dequant_kernel(
+    # 输入输出指针
+    input_ptr,          # [N, M] INT32/FP32 输入 (GEMM 输出)
+    output_ptr,         # [M, N] BF16 输出
+    scale_a_ptr,        # 激活 scale
+    scale_b_ptr,        # 权重 scale
+    # 维度
+    M,
+    N,
+    # 步长
+    stride_in,          # input stride for N
+    stride_im,          # input stride for M
+    stride_om,          # output stride for M
+    stride_on,          # output stride for N
+    # scale 类型
+    use_per_token_scale_a: tl.constexpr,
+    use_per_channel_scale_b: tl.constexpr,
+    # 配置
+    BLOCK_M: tl.constexpr,
+    BLOCK_N: tl.constexpr,
+):
+    """
+    融合转置+反量化 Kernel
+    
+    执行:
+    output[m, n] = input[n, m] * scale_a[m] * scale_b[n]
+    """
+    # 程序 ID
+    pid_m = tl.program_id(0)
+    pid_n = tl.program_id(1)
+    
+    # 计算块起始位置
+    m_start = pid_m * BLOCK_M
+    n_start = pid_n * BLOCK_N
+    
+    # 偏移
+    offs_m = m_start + tl.arange(0, BLOCK_M)
+    offs_n = n_start + tl.arange(0, BLOCK_N)
+    
+    mask_m = offs_m < M
+    mask_n = offs_n < N
+    mask = mask_m[:, None] & mask_n[None, :]
+    
+    # 从 [N, M] 读取（转置访问）
+    # input[n, m] -> 读取位置 offs_n[:, None] * stride_in + offs_m[None, :] * stride_im
+    x = tl.load(
+        input_ptr + offs_n[None, :] * stride_in + offs_m[:, None] * stride_im,
+        mask=mask_n[None, :] & mask_m[:, None],
+        other=0.0,
+    )
+    # x 现在是 [BLOCK_M, BLOCK_N]
+    
+    # 转置: x[m, n] = input[n, m]
+    # 上面的读取已经完成了转置
+    
+    # 加载 scale
+    if use_per_token_scale_a:
+        scale_a = tl.load(scale_a_ptr + offs_m, mask=mask_m)  # [BLOCK_M]
+    else:
+        scale_a = tl.load(scale_a_ptr)  # scalar
+    
+    if use_per_channel_scale_b:
+        scale_b = tl.load(scale_b_ptr + offs_n, mask=mask_n)  # [BLOCK_N]
+    else:
+        scale_b = tl.load(scale_b_ptr)  # scalar
+    
+    # 反量化
+    x_fp32 = x.to(tl.float32)
+    if use_per_token_scale_a:
+        x_fp32 = x_fp32 * scale_a[:, None]
+    else:
+        x_fp32 = x_fp32 * scale_a
+    
+    if use_per_channel_scale_b:
+        x_fp32 = x_fp32 * scale_b[None, :]
+    else:
+        x_fp32 = x_fp32 * scale_b
+    
+    # 转换为 BF16
+    x_bf16 = x_fp32.to(tl.bfloat16)
+    
+    # 写出 [M, N]
+    tl.store(
+        output_ptr + offs_m[:, None] * stride_om + offs_n[None, :] * stride_on,
+        x_bf16,
+        mask=mask,
+    )
+
+
+def fused_transpose_dequant(
+    input: torch.Tensor,           # [N, M] GEMM 输出
+    scale_a: torch.Tensor,         # 激活 scale
+    scale_b: torch.Tensor,         # 权重 scale
+    out_dtype: torch.dtype = torch.bfloat16,
+) -> torch.Tensor:
+    """
+    融合的转置 + 反量化操作
+    
+    Args:
+        input: [N, M] GEMM 输出 (INT32 或 FP32)
+        scale_a: 激活量化 scale
+        scale_b: 权重量化 scale
+        out_dtype: 输出数据类型
+    
+    Returns:
+        output: [M, N] 反量化后的输出
+    """
+    assert input.ndim == 2
+    N, M = input.shape
+    
+    # 判断 scale 类型
+    use_per_token_scale_a = scale_a.numel() == M
+    use_per_channel_scale_b = scale_b.numel() == N
+    
+    # 分配输出
+    output = torch.empty((M, N), device=input.device, dtype=out_dtype)
+    
+    # 配置 grid
+    def grid(meta):
+        return (
+            triton.cdiv(M, meta['BLOCK_M']),
+            triton.cdiv(N, meta['BLOCK_N']),
+        )
+    
+    # 调用 kernel
+    fused_transpose_dequant_kernel[grid](
+        input,
+        output,
+        scale_a,
+        scale_b,
+        M, N,
+        input.stride(0), input.stride(1),
+        output.stride(0), output.stride(1),
+        use_per_token_scale_a,
+        use_per_channel_scale_b,
+    )
+    
+    return output
+```
+
+#### 5.2.5 Kernel 模块初始化
+
+创建文件：`vllm/model_executor/layers/quantization/slidesparse_kernels/__init__.py`
+
+```python
+"""
+SlideSparse Kernels Module
+
+导出所有 SlideSparse 相关的 kernel 函数。
+"""
+
+from .fused_quant_slide import fused_quant_slide
+from .sparse_gemm import (
+    sparse_gemm_cutlass,
+    sparse_gemm_cusparselt,
+    compress_weight_for_sparse_gemm,
+)
+from .fused_transpose_dequant import fused_transpose_dequant
+
+__all__ = [
+    "fused_quant_slide",
+    "sparse_gemm_cutlass",
+    "sparse_gemm_cusparselt",
+    "compress_weight_for_sparse_gemm",
+    "fused_transpose_dequant",
+]
+```
+
+### 5.3 修改 SlideSparseLinearMethod.apply()
+
+更新 `vllm/model_executor/layers/quantization/slidesparse.py` 中的 `apply` 方法：
+
+```python
+class SlideSparseLinearMethod(LinearMethodBase):
+    """Linear method for SlideSparse."""
+    
+    def __init__(self, quant_config: SlideSparseConfig):
+        self.quant_config = quant_config
+        # 选择 GEMM 后端
+        self.gemm_backend = quant_config.gemm_backend  # "cutlass" 或 "cusparselt"
+    
+    def apply(
+        self,
+        layer: nn.Module,
+        x: torch.Tensor,
+        bias: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        """
+        执行 SlideSparse 线性变换
+        
+        完整流程:
+        1. Fused Quant + Slide: BF16 [M, K] -> FP8 [M, K']
+        2. Sparse GEMM: FP8 [M, K'] × Compressed [N, K'/2] -> FP32 [M, N]
+        3. Dequant: FP32 [M, N] -> BF16 [M, N]
+        
+        注意: 使用 CUTLASS sparse GEMM 时，输出直接是 [M, N]，不需要转置
+        """
+        from vllm.model_executor.layers.quantization.slidesparse_kernels import (
+            fused_quant_slide,
+            sparse_gemm_cutlass,
+        )
+        
+        # 获取稀疏参数
+        Z = self.quant_config.sparsity_z
+        L = self.quant_config.sparsity_l
+        
+        # 1. Fused Quant + Slide
+        x_quant, scale_a = fused_quant_slide(
+            x,
+            src_sparsity=(Z, L),
+            tgt_sparsity=(2, 4),
+            dtype=self._get_quant_dtype(),
+            use_per_token_scale=True,
+        )
+        
+        # 2. Sparse GEMM (使用 CUTLASS)
+        # CUTLASS sparse GEMM 输出直接是 [M, N]
+        output = sparse_gemm_cutlass(
+            x_quant,
+            layer.weight_nzs,      # 压缩后的权重
+            layer.weight_meta,     # 稀疏元数据
+            scale_a,
+            layer.weight_scale,
+            out_dtype=x.dtype,
+            bias=bias,
+        )
+        
+        return output
+    
+    def process_weights_after_loading(self, layer: nn.Module) -> None:
+        """
+        权重加载后的处理
+        
+        将加载的权重压缩为稀疏格式
+        """
+        from vllm.model_executor.layers.quantization.slidesparse_kernels import (
+            compress_weight_for_sparse_gemm,
+        )
+        
+        # 压缩权重
+        weight = layer.weight.data
+        weight_nzs, weight_meta = compress_weight_for_sparse_gemm(
+            weight,
+            backend="cutlass",
+        )
+        
+        # 替换权重参数
+        del layer.weight
+        layer.register_buffer("weight_nzs", weight_nzs)
+        layer.register_buffer("weight_meta", weight_meta)
+```
+
+### 5.4 启用 SlideSparse 的方式
+
+#### 5.4.1 通过量化配置启用
+
+```python
+from vllm import LLM
+
+# 方式 1: 使用预处理后的模型
+llm = LLM(
+    model="./slidesparse_weights/llama-3.2-1b",
+    quantization="slidesparse",
+    load_format="slidesparse",
+)
+
+# 方式 2: 使用配置文件
+llm = LLM(
+    model="meta-llama/Llama-3.2-1B-Instruct",
+    quantization="slidesparse",
+    quantization_param_path="./slidesparse_config.json",
+)
+```
+
+#### 5.4.2 运行时条件分支（可选方案）
+
+如果需要在运行时根据条件选择是否使用 SlideSparse，可以添加环境变量控制：
+
+```python
+# 在 linear.py 或模型文件中
+import os
+
+USE_SLIDESPARSE = os.getenv("VLLM_USE_SLIDESPARSE", "0") == "1"
+
+class SomeLayer(nn.Module):
+    def forward(self, x):
+        if USE_SLIDESPARSE and hasattr(self.linear, 'weight_nzs'):
+            # 使用 SlideSparse 路径
+            return self.slidesparse_forward(x)
+        else:
+            # 使用标准路径
+            return self.standard_forward(x)
+```
+
+### 5.5 Kernel 替换检查清单
+
+| 任务 | 文件 | 状态 |
+|------|------|------|
+| 创建 fused_quant_slide kernel | `slidesparse_kernels/fused_quant_slide.py` | 待开发 |
+| 创建 sparse_gemm 封装 | `slidesparse_kernels/sparse_gemm.py` | 待开发 |
+| 创建 fused_transpose_dequant kernel | `slidesparse_kernels/fused_transpose_dequant.py` | 待开发 |
+| 创建 kernel 模块 __init__.py | `slidesparse_kernels/__init__.py` | 待开发 |
+| 更新 SlideSparseLinearMethod.apply() | `slidesparse.py` | 待开发 |
+| 添加 process_weights_after_loading | `slidesparse.py` | 待开发 |
+| Triton autotune 调优 | 各 kernel 文件 | 待测试 |
+| 单元测试 | `tests/kernels/test_slidesparse.py` | 待开发 |
+
+---
+
+## 6. 测试与验证
+
+### 6.1 单元测试
+
+#### 6.1.1 Kernel 测试
+
+创建文件：`tests/kernels/test_slidesparse.py`
+
+```python
+"""
+SlideSparse Kernel 单元测试
+"""
+
+import pytest
+import torch
+
+from vllm.model_executor.layers.quantization.slidesparse_kernels import (
+    fused_quant_slide,
+    sparse_gemm_cutlass,
+    fused_transpose_dequant,
+    compress_weight_for_sparse_gemm,
+)
+
+
+class TestFusedQuantSlide:
+    """测试融合量化+滑动 kernel"""
+    
+    @pytest.mark.parametrize("M", [1, 32, 128])
+    @pytest.mark.parametrize("K", [256, 512, 1024])
+    @pytest.mark.parametrize("sparsity", [(2, 8), (2, 6)])
+    def test_output_shape(self, M, K, sparsity):
+        """测试输出形状正确性"""
+        Z, L = sparsity
+        stride = 4 - 2  # 2:4 目标
+        num_windows = (L - Z) // stride
+        K_expanded = (K // L) * num_windows * 4
+        
+        x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
+        output, scale = fused_quant_slide(x, sparsity, (2, 4))
+        
+        assert output.shape == (M, K_expanded)
+        assert output.dtype == torch.float8_e4m3fn
+    
+    def test_quantization_accuracy(self):
+        """测试量化精度"""
+        M, K = 32, 256
+        x = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
+        output, scale = fused_quant_slide(x, (2, 8), (2, 4), use_per_token_scale=False)
+        
+        # 反量化应该近似原始值（考虑滑动重排）
+        # 这需要更复杂的验证逻辑
+
+
+class TestSparseGemm:
+    """测试稀疏 GEMM"""
+    
+    def test_correctness(self):
+        """测试计算正确性"""
+        M, K, N = 32, 512, 256
+        
+        # 创建 2:4 稀疏权重
+        weight = torch.randn(N, K, dtype=torch.bfloat16, device="cuda")
+        # 强制 2:4 稀疏
+        weight = prune_to_2_4(weight)
+        
+        # 压缩权重
+        weight_nzs, weight_meta = compress_weight_for_sparse_gemm(weight)
+        
+        # 创建激活
+        activation = torch.randn(M, K, dtype=torch.float8_e4m3fn, device="cuda")
+        scale_a = torch.ones(1, device="cuda")
+        scale_b = torch.ones(1, device="cuda")
+        
+        # 执行稀疏 GEMM
+        output = sparse_gemm_cutlass(
+            activation, weight_nzs, weight_meta,
+            scale_a, scale_b, torch.bfloat16
+        )
+        
+        assert output.shape == (M, N)
+
+
+def prune_to_2_4(weight: torch.Tensor) -> torch.Tensor:
+    """将权重剪枝为 2:4 稀疏"""
+    N, K = weight.shape
+    assert K % 4 == 0
+    
+    weight_grouped = weight.view(N, -1, 4)
+    _, indices = torch.topk(weight_grouped.abs(), 2, dim=-1)
+    mask = torch.zeros_like(weight_grouped)
+    mask.scatter_(-1, indices, 1)
+    
+    return (weight_grouped * mask).view(N, K)
+```
+
+### 6.2 端到端测试
+
+#### 6.2.1 吞吐量测试脚本
+
+```bash
+#!/bin/bash
+# test_slidesparse_throughput.sh
+
+# 预处理权重
+python tools/slidesparse/preprocess_weights.py \
+    --input-model meta-llama/Llama-3.2-1B-Instruct \
+    --output-dir ./slidesparse_weights/llama-3.2-1b \
+    --sparsity 2:8 \
+    --prune-mode magnitude
+
+# 运行吞吐测试
+vllm bench throughput \
+    --model ./slidesparse_weights/llama-3.2-1b \
+    --quantization slidesparse \
+    --load-format slidesparse \
+    --input-len 128 \
+    --output-len 128 \
+    --num-prompts 100
+
+# 对比 baseline
+vllm bench throughput \
+    --model meta-llama/Llama-3.2-1B-Instruct \
+    --quantization fp8 \
+    --input-len 128 \
+    --output-len 128 \
+    --num-prompts 100
+```
+
+### 6.3 精度评估
+
+#### 6.3.1 PPL 测试
+
+```python
+"""
+SlideSparse 精度评估 - PPL 测试
+"""
+
+from lm_eval import evaluator
+from lm_eval.models.vllm_causallms import VLLM
+
+def evaluate_ppl(model_path, quantization=None, load_format="auto"):
+    """评估模型的 PPL"""
+    model = VLLM(
+        pretrained=model_path,
+        quantization=quantization,
+        load_format=load_format,
+    )
+    
+    results = evaluator.simple_evaluate(
+        model=model,
+        tasks=["wikitext"],
+        num_fewshot=0,
+    )
+    
+    return results["results"]["wikitext"]["word_perplexity"]
+
+
+# 测试
+baseline_ppl = evaluate_ppl("meta-llama/Llama-3.2-1B-Instruct", "fp8")
+slidesparse_ppl = evaluate_ppl(
+    "./slidesparse_weights/llama-3.2-1b",
+    "slidesparse",
+    "slidesparse"
+)
+
+print(f"Baseline PPL: {baseline_ppl:.4f}")
+print(f"SlideSparse PPL: {slidesparse_ppl:.4f}")
+print(f"Degradation: {(slidesparse_ppl - baseline_ppl) / baseline_ppl * 100:.2f}%")
+```
+
+---
+
+## 7. 附录：关键文件路径速查表
+
+### 7.1 vLLM 核心文件
+
+| 功能 | 文件路径 |
+|------|---------|
+| **入口点** | |
+| LLM 类 | `vllm/entrypoints/llm.py` |
+| CLI 入口 | `vllm/entrypoints/cli/main.py` |
+| 吞吐测试 | `vllm/entrypoints/cli/benchmark/throughput.py` |
+| **引擎** | |
+| V1 引擎 | `vllm/v1/engine/llm_engine.py` |
+| GPU 模型运行器 | `vllm/v1/worker/gpu_model_runner.py` |
+| **模型加载** | |
+| 加载器入口 | `vllm/model_executor/model_loader/__init__.py` |
+| 基类 | `vllm/model_executor/model_loader/base_loader.py` |
+| 默认加载器 | `vllm/model_executor/model_loader/default_loader.py` |
+| 工具函数 | `vllm/model_executor/model_loader/utils.py` |
+| **模型定义** | |
+| Llama | `vllm/model_executor/models/llama.py` |
+| Qwen2 | `vllm/model_executor/models/qwen2.py` |
+| 模型注册 | `vllm/model_executor/models/registry.py` |
+| **线性层** | |
+| 线性层定义 | `vllm/model_executor/layers/linear.py` |
+| **量化** | |
+| 量化配置入口 | `vllm/model_executor/layers/quantization/__init__.py` |
+| 基类 | `vllm/model_executor/layers/quantization/base_config.py` |
+| FP8 量化 | `vllm/model_executor/layers/quantization/fp8.py` |
+| **自定义算子** | |
+| 算子绑定 | `vllm/_custom_ops.py` |
+| **CUDA 源码** | |
+| 量化 kernel | `csrc/quantization/` |
+| 稀疏 kernel | `csrc/sparse/` |
+
+### 7.2 SlideSparse 新增文件（计划）
+
+| 功能 | 文件路径 |
+|------|---------|
+| **工具脚本** | |
+| 权重预处理 | `tools/slidesparse/preprocess_weights.py` |
+| 工具函数 | `tools/slidesparse/slidesparse_utils.py` |
+| 算法搜索 | `tools/slidesparse/search_algorithms.py` |
+| **加载器** | |
+| SlideSparse 加载器 | `vllm/model_executor/model_loader/slidesparse_loader.py` |
+| **量化配置** | |
+| SlideSparse 配置 | `vllm/model_executor/layers/quantization/slidesparse.py` |
+| **Kernel** | |
+| 模块入口 | `vllm/model_executor/layers/quantization/slidesparse_kernels/__init__.py` |
+| 融合量化+滑动 | `vllm/model_executor/layers/quantization/slidesparse_kernels/fused_quant_slide.py` |
+| 稀疏 GEMM 封装 | `vllm/model_executor/layers/quantization/slidesparse_kernels/sparse_gemm.py` |
+| 融合转置+反量化 | `vllm/model_executor/layers/quantization/slidesparse_kernels/fused_transpose_dequant.py` |
+| **测试** | |
+| Kernel 测试 | `tests/kernels/test_slidesparse.py` |
+| 端到端测试 | `tests/quantization/test_slidesparse.py` |
+
+### 7.3 关键函数签名速查
+
+```python
+# vllm/model_executor/layers/linear.py
+class ColumnParallelLinear:
+    def forward(self, input_) -> torch.Tensor | tuple[torch.Tensor, Parameter | None]:
+        """执行列并行线性变换"""
+        ...
+
+# vllm/model_executor/layers/quantization/fp8.py
+class Fp8LinearMethod:
+    def apply(self, layer: nn.Module, x: torch.Tensor, bias: torch.Tensor | None = None) -> torch.Tensor:
+        """执行 FP8 量化的线性变换"""
+        ...
+
+# vllm/_custom_ops.py
+def scaled_fp8_quant(
+    input: torch.Tensor,
+    scale: torch.Tensor | None = None,
+    ...
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """FP8 量化"""
+    ...
+
+def cutlass_scaled_mm(
+    a: torch.Tensor,
+    b: torch.Tensor,
+    scale_a: torch.Tensor,
+    scale_b: torch.Tensor,
+    out_dtype: torch.dtype,
+    bias: torch.Tensor | None = None,
+) -> torch.Tensor:
+    """CUTLASS scaled matrix multiplication"""
+    ...
+
+def cutlass_sparse_compress(a: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    """压缩 2:4 稀疏矩阵"""
+    ...
+
+def cutlass_scaled_sparse_mm(
+    a: torch.Tensor,
+    bt_nzs: torch.Tensor,
+    bt_meta: torch.Tensor,
+    scale_a: torch.Tensor,
+    scale_b: torch.Tensor,
+    out_dtype: torch.dtype,
+    bias: torch.Tensor | None = None,
+) -> torch.Tensor:
+    """稀疏矩阵乘法"""
+    ...
+```
+
+---
+
+## 结语
+
+本文档详细描述了 SlideSparse 在 vLLM 框架中的集成方案，包括：
+
+1. **理论基础**：SlideSparse 的核心原理和创新点
+2. **工具开发**：离线权重处理和在线 kernel 的开发流程
+3. **工程实现**：基于 vLLM 的端到端实现方案
+4. **关键工作**：Model Loader 和 Kernel 替换的详细指导
+
+后续开发应按照文档中的检查清单逐步推进，建议优先级：
+
+1. **高优先级**：离线工具开发（权重剪枝、滑动、压缩）
+2. **高优先级**：Triton kernel 开发（fused_quant_slide、fused_transpose_dequant）
+3. **中优先级**：SlideSparse 量化配置和 LinearMethod
+4. **中优先级**：Model Loader 集成
+5. **后续**：性能优化、更多模型支持、cuSPARSELt 集成
+
 
 
