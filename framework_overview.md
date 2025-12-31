@@ -85,7 +85,7 @@ vllmbench/
 │   ├── attention/          # 注意力机制实现
 │   ├── distributed/        # 分布式相关代码
 │   ├── config/             # 配置类定义
-│   ├── compilation/        # 编译优化（torch.compile等）
+│   ├── compilation/        # 编译优化（CUDA Graph等）
 │   └── ...                 # 其他子模块
 ├── benchmarks/             # 性能基准测试脚本
 ├── tests/                  # 测试用例（非常全面）
@@ -124,6 +124,7 @@ vllm/
 │   └── cli/                 # 命令行接口
 │       ├── main.py          # CLI 主入口
 │       ├── serve.py         # serve 命令
+│       ├── openai.py        # OpenAI 兼容命令
 │       └── benchmark/       # benchmark 子命令
 │
 ├── engine/                  # 🔵 推理引擎 (Legacy，现指向 V1)
@@ -140,7 +141,9 @@ vllm/
 │   │   ├── gpu_model_runner.py  # GPU 模型运行器
 │   │   └── ...
 │   ├── core/                # 核心调度逻辑
-│   │   └── sched/           # 调度器
+│   │   ├── sched/           # 调度器
+│   │   ├── kv_cache_manager.py  # KV Cache 管理
+│   │   └── block_pool.py    # 块池管理
 │   ├── attention/           # V1 注意力
 │   ├── sample/              # 采样器
 │   └── spec_decode/         # 投机解码
@@ -167,9 +170,9 @@ vllm/
 │   ├── layer.py             # 注意力层封装
 │   ├── selector.py          # 后端选择器
 │   └── backends/            # 注意力后端
-│       ├── flash_attn.py    # FlashAttention
-│       ├── flashinfer.py    # FlashInfer
-│       └── xformers.py      # xFormers
+│       ├── abstract.py      # 抽象基类
+│       ├── registry.py      # 后端注册表
+│       └── utils.py         # 工具函数
 │
 ├── distributed/             # 分布式支持
 │   ├── parallel_state.py    # 并行状态管理
@@ -178,16 +181,22 @@ vllm/
 ├── config/                  # 配置类
 │   ├── model.py             # 模型配置
 │   ├── cache.py             # KV Cache 配置
-│   └── vllm.py              # 主配置
+│   ├── vllm.py              # 主配置 VllmConfig
+│   ├── parallel.py          # 并行配置
+│   └── scheduler.py         # 调度器配置
 │
 ├── compilation/             # 编译优化
 │   ├── cuda_graph.py        # CUDA Graph 支持
-│   └── counter.py           # 编译计数器
+│   ├── counter.py           # 编译计数器
+│   ├── fusion.py            # 算子融合
+│   └── backends.py          # 编译后端
 │
 ├── platforms/               # 平台适配
 │   ├── cuda.py              # CUDA 支持
 │   ├── rocm.py              # ROCm/AMD 支持
-│   └── cpu.py               # CPU 支持
+│   ├── cpu.py               # CPU 支持
+│   ├── tpu.py               # TPU 支持
+│   └── xpu.py               # XPU/Intel 支持
 │
 ├── lora/                    # LoRA 支持
 ├── multimodal/              # 多模态支持
@@ -222,20 +231,19 @@ vllm/
 
 ```
 benchmarks/
-├── benchmark_throughput.py       # 吞吐量测试（已移至 CLI）
+├── benchmark_throughput.py       # 吞吐量测试
 ├── benchmark_serving.py          # 在线服务测试
 ├── benchmark_latency.py          # 延迟测试
 ├── benchmark_prefix_caching.py   # 前缀缓存测试
 ├── backend_request_func.py       # 请求后端函数
 ├── benchmark_utils.py            # 基准测试工具
 ├── kernels/                      # kernel 级别的 benchmark
-│   ├── benchmark_attention.py    # 注意力 kernel 测试
+│   ├── benchmark_paged_attention.py  # PagedAttention 测试
 │   ├── benchmark_layernorm.py    # LayerNorm 测试
-│   └── benchmark_rope.py         # RoPE 测试
-├── fused_kernels/               # 融合 kernel benchmark
+│   ├── benchmark_rope.py         # RoPE 测试
+│   ├── benchmark_moe.py          # MoE 测试
+│   └── benchmark_fp8_gemm.py     # FP8 GEMM 测试
 ├── cutlass_benchmarks/          # CUTLASS benchmark
-│   ├── w8a8_benchmarks.py       # W8A8 量化测试
-│   └── sparse_matmul/           # 稀疏矩阵乘法
 └── ...
 ```
 
@@ -282,27 +290,23 @@ vLLM 拥有非常全面的测试套件，涵盖了几乎所有功能模块：
 ```
 tests/
 ├── basic_correctness/          # 基础正确性测试
-│   ├── test_basic_correctness.py  # 基础输出正确性
-│   └── test_chunked_prefill.py    # 分块预填充测试
 ├── models/                     # 模型测试
-│   ├── decoder_only/           # 仅解码器模型（GPT类）
-│   │   ├── language/           # 语言模型
-│   │   │   ├── test_llama.py   # Llama 测试
-│   │   │   └── test_qwen.py    # Qwen 测试
-│   │   └── vision_language/    # 视觉语言模型
-│   └── embedding/              # 嵌入模型
+│   ├── language/               # 语言模型测试
+│   │   ├── generation/         # 生成模型测试
+│   │   └── pooling/            # 池化模型测试
+│   ├── multimodal/             # 多模态模型测试
+│   └── quantization/           # 量化模型测试
 ├── kernels/                    # Kernel 测试
-│   ├── test_attention.py       # 注意力 kernel
-│   ├── test_layernorm.py       # LayerNorm kernel
-│   └── test_moe.py             # MoE kernel
+│   ├── attention/              # 注意力 kernel 测试
+│   ├── moe/                    # MoE kernel 测试
+│   └── quantization/           # 量化 kernel 测试
 ├── quantization/               # 量化测试
 │   ├── test_fp8.py             # FP8 量化
-│   ├── test_awq.py             # AWQ 量化
-│   └── test_gptq.py            # GPTQ 量化
+│   ├── test_compressed_tensors.py  # CompressedTensors
+│   └── test_modelopt.py        # ModelOpt 量化
 ├── distributed/                # 分布式测试
 ├── entrypoints/                # 入口点测试
 ├── engine/                     # 引擎测试
-├── samplers/                   # 采样器测试
 ├── lora/                       # LoRA 测试
 ├── multimodal/                 # 多模态测试
 ├── v1/                         # V1 架构测试
@@ -311,8 +315,8 @@ tests/
 
 **运行测试示例**：
 ```bash
-# 运行特定模型测试
-pytest tests/models/decoder_only/language/test_llama.py -v
+# 运行语言模型生成测试
+pytest tests/models/language/generation/ -v
 
 # 运行所有 kernel 测试
 pytest tests/kernels/ -v
@@ -335,16 +339,17 @@ examples/
 │   │   ├── generate.py             # 文本生成
 │   │   ├── chat.py                 # 对话
 │   │   ├── embed.py                # 嵌入生成
-│   │   └── classify.py             # 分类
+│   │   ├── classify.py             # 分类
+│   │   ├── score.py                # 评分
+│   │   └── reward.py               # 奖励模型
 │   ├── vision_language.py          # 视觉语言模型
 │   ├── spec_decode.py              # 投机解码
 │   ├── lora_with_quantization_inference.py  # LoRA + 量化
-│   ├── structured_output.py        # 结构化输出
+│   ├── structured_outputs.py       # 结构化输出
 │   └── data_parallel.py            # 数据并行
 ├── online_serving/                 # 在线服务示例
-│   ├── openai_chat_client.py       # OpenAI API 客户端
-│   └── openai_completion_client.py # 补全 API 客户端
 ├── pooling/                        # 池化示例
+├── others/                         # 其他示例
 ├── template_*.jinja                # 聊天模板
 └── tool_chat_template_*.jinja      # 工具调用模板
 ```
@@ -356,17 +361,16 @@ examples/
 ```
 docs/
 ├── getting_started/           # 入门指南
-│   ├── installation.md        # 安装说明
-│   └── quickstart.md          # 快速开始
 ├── usage/                     # 使用说明
-│   ├── offline_inference.md   # 离线推理
-│   ├── online_serving.md      # 在线服务
-│   └── quantization.md        # 量化使用
+├── serving/                   # 在线服务
 ├── models/                    # 支持的模型
 ├── configuration/             # 配置说明
 ├── deployment/                # 部署指南
 ├── benchmarking/              # 性能测试文档
-└── contributing/              # 贡献指南
+├── contributing/              # 贡献指南
+├── features/                  # 特性说明
+├── design/                    # 设计文档
+└── api/                       # API 文档
 ```
 
 **官方文档网站**: https://docs.vllm.ai/en/stable/usage/
@@ -378,21 +382,20 @@ docs/
 ```
 csrc/
 ├── attention/                     # 注意力 kernel
-│   ├── attention_kernels.cu       # FlashAttention 变体
+│   ├── attention_kernels.cuh      # FlashAttention 变体
 │   ├── paged_attention_v1.cu      # PagedAttention V1
 │   └── paged_attention_v2.cu      # PagedAttention V2
 ├── quantization/                  # 量化 kernel
-│   ├── fp8/                       # FP8 量化
-│   │   ├── fp8_quant_kernels.cu   # FP8 量化 kernel
-│   │   └── fp8_gemm.cu            # FP8 GEMM
+│   ├── w8a8/                      # W8A8 量化
+│   │   ├── fp8/                   # FP8 量化
+│   │   └── int8/                  # INT8 量化
 │   ├── awq/                       # AWQ 量化
 │   ├── gptq/                      # GPTQ 量化
-│   └── marlin/                    # Marlin 量化格式
+│   ├── gptq_marlin/               # GPTQ Marlin 格式
+│   ├── marlin/                    # Marlin 量化格式
+│   └── fp4/                       # FP4 量化
 ├── moe/                           # MoE (Mixture of Experts)
-│   ├── moe_kernels.cu             # MoE 核心 kernel
-│   └── marlin_moe_kernel.cu       # Marlin MoE
 ├── cutlass_extensions/            # CUTLASS 扩展
-│   └── gemm/                      # GEMM 实现
 ├── mamba/                         # Mamba 模型 kernel
 ├── sparse/                        # 稀疏计算 kernel
 ├── activation_kernels.cu          # 激活函数 kernel
@@ -410,7 +413,7 @@ csrc/
 | Rotary Embedding | `pos_encoding_kernels.cu` | RoPE 位置编码 |
 | RMSNorm | `layernorm_kernels.cu` | Root Mean Square LayerNorm |
 | SiLU/GELU | `activation_kernels.cu` | 激活函数 |
-| FP8 Quant | `quantization/fp8/` | FP8 量化/反量化 |
+| FP8 Quant | `quantization/w8a8/fp8/` | FP8 量化/反量化 |
 | CUTLASS GEMM | `cutlass_extensions/` | 高效矩阵乘法 |
 
 ### 2.7 `tools/` - 辅助工具
@@ -436,12 +439,16 @@ tools/
 
 ```
 requirements/
-├── requirements.txt           # 基础依赖
-├── requirements-dev.txt       # 开发依赖
-├── requirements-test.txt      # 测试依赖
-├── requirements-cuda.txt      # CUDA 特定依赖
-├── requirements-rocm.txt      # ROCm/AMD 依赖
-└── requirements-cpu.txt       # CPU 依赖
+├── common.txt             # 基础公共依赖
+├── dev.txt                # 开发依赖
+├── test.txt               # 测试依赖
+├── cuda.txt               # CUDA 特定依赖
+├── rocm.txt               # ROCm/AMD 依赖
+├── cpu.txt                # CPU 依赖
+├── tpu.txt                # TPU 依赖
+├── xpu.txt                # XPU/Intel 依赖
+├── build.txt              # 构建依赖
+└── docs.txt               # 文档依赖
 ```
 
 ---

@@ -337,11 +337,12 @@ v1/
 │   └── kv_cache_manager.py      # KV Cache 管理
 │
 ├── attention/                   # V1 注意力
-│   ├── backends/                # 注意力后端
-│   │   ├── flash_attn.py        # FlashAttention
-│   │   ├── flashinfer.py        # FlashInfer
-│   │   └── utils.py             # 工具函数
-│   └── ...
+│   └── backends/                # 注意力后端
+│       ├── flash_attn.py        # FlashAttention
+│       ├── flashinfer.py        # FlashInfer
+│       ├── triton_attn.py       # Triton 实现
+│       ├── flex_attention.py    # Flex Attention
+│       └── utils.py             # 工具函数
 │
 ├── sample/                      # 采样器
 │   ├── sampler.py               # 采样实现
@@ -618,11 +619,12 @@ model_executor/
 │       ├── base_config.py       # QuantizationConfig 基类
 │       ├── fp8.py               # ⭐ FP8 量化
 │       ├── awq.py               # AWQ 量化
+│       ├── awq_marlin.py        # AWQ Marlin 格式
 │       ├── gptq.py              # GPTQ 量化
-│       ├── marlin.py            # Marlin 量化（高效 GPTQ）
-│       ├── squeezellm.py        # SqueezeLLM 量化
+│       ├── gptq_marlin.py       # GPTQ Marlin 格式（高效 GPTQ）
 │       ├── bitsandbytes.py      # BitsAndBytes 量化
 │       ├── gguf.py              # GGUF 格式支持
+│       ├── compressed_tensors/  # CompressedTensors 支持
 │       └── utils/               # 量化工具
 │           ├── fp8_utils.py     # FP8 工具
 │           ├── w8a8_utils.py    # W8A8 工具
@@ -647,7 +649,7 @@ vLLM 使用注册表模式管理支持的模型：
 # vllm/model_executor/models/registry.py
 
 # 支持的模型列表（部分）
-_TRANSFORMERS_MODELS = {
+_TEXT_GENERATION_MODELS = {
     # 语言模型
     "LlamaForCausalLM": ("llama", "LlamaForCausalLM"),
     "Qwen2ForCausalLM": ("qwen2", "Qwen2ForCausalLM"),
@@ -692,11 +694,7 @@ attention/
 │
 ├── backends/                # 注意力后端实现
 │   ├── abstract.py          # 抽象基类
-│   ├── flash_attn.py        # ⭐ FlashAttention
-│   ├── flashinfer.py        # FlashInfer
-│   ├── xformers.py          # xFormers
-│   ├── torch_sdpa.py        # PyTorch SDPA
-│   ├── blocksparse_attn.py  # 块稀疏注意力
+│   ├── registry.py          # 后端注册表
 │   └── utils.py             # 工具函数
 │
 ├── layers/                  # 特殊注意力层
@@ -704,6 +702,13 @@ attention/
 │
 └── utils/                   # 工具
 ```
+
+**注意**: V1 架构的注意力后端位于 `vllm/v1/attention/backends/`，包含：
+- `flash_attn.py` - FlashAttention
+- `flashinfer.py` - FlashInfer  
+- `triton_attn.py` - Triton 实现
+- `flex_attention.py` - Flex Attention
+- 以及 ROCm、TPU 等平台特定的实现
 
 #### Attention 层 (`layer.py`)
 
