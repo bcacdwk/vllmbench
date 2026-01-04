@@ -67,6 +67,19 @@ MODEL_LEN_BUFFER=128
 # 可选值: DEBUG, INFO, WARNING, ERROR
 VLLM_LOG_LEVEL="WARNING"
 
+# GPU 设备编号 (默认使用 GPU 0)
+GPU_ID=0
+
+# GPU 内存利用率 (0.0-1.0)
+# 默认 0.9，如果遇到内存不足可以降低到 0.85 或 0.8
+GPU_MEMORY_UTILIZATION=0.8
+
+# torch.compile 控制
+# 在不支持的架构上 (如 GB10 sm_121a) 需要禁用 torch.compile
+# 0 = 禁用 (eager mode), 1-3 = 不同级别的编译优化
+# 默认 "auto" 表示自动检测，在不支持的架构上自动禁用
+TORCH_COMPILE_LEVEL="auto"
+
 # ============================================================================
 # 模型定义 (与 model_download.sh 保持一致)
 # ============================================================================
@@ -188,6 +201,12 @@ show_help() {
     echo "Param Overrides (optional):"
     echo "  --M LIST               Override M value list (comma-separated, e.g.: 16,32,64,128)"
     echo "  --N NUM                Override repeat count (Prefill: N_prefill, Decode: N_decode)"
+    echo ""
+    echo "Compilation Options:"
+    echo "  --eager                Force eager mode (disable torch.compile)"
+    echo "                         Required for unsupported GPU architectures like GB10 (sm_121a)"
+    echo "  --compile              Force enable torch.compile (override auto-detection)"
+    echo "                         [default: auto-detect based on GPU architecture]"
     echo ""
     echo "Other Options:"
     echo "  -h, --help             Show this help message"
@@ -416,6 +435,11 @@ run_single_m_test() {
     echo "│ Iterations:"
     echo "│   N_prefill     = ${n_prefill}"
     echo "│   N_decode      = ${n_decode}"
+    if [[ "${ENFORCE_EAGER}" == "true" ]]; then
+    echo "├─────────────────────────────────────────────────────────────┤"
+    echo "│ Compile Mode:"
+    echo "│   --enforce-eager   = true (torch.compile disabled)"
+    fi
     echo "└─────────────────────────────────────────────────────────────┘"
     echo ""
     
@@ -425,8 +449,17 @@ run_single_m_test() {
     # 动态计算 max-num-batched-tokens (= max_num_seqs × max_model_len，确保禁用 chunking)
     local max_num_batched_tokens=$((max_num_seqs * max_model_len))
     
+    # 构建环境变量前缀
+    local env_prefix="CUDA_VISIBLE_DEVICES=${GPU_ID} VLLM_LOGGING_LEVEL=${VLLM_LOG_LEVEL}"
+    
+    # 构建 eager mode 参数 (用于禁用 torch.compile)
+    local eager_flag=""
+    if [[ "${ENFORCE_EAGER:-false}" == "true" ]]; then
+        eager_flag="--enforce-eager"
+    fi
+    
     # 构建命令 (设置环境变量减少日志输出)
-    local cmd="VLLM_LOGGING_LEVEL=${VLLM_LOG_LEVEL} vllm bench throughput \
+    local cmd="${env_prefix} vllm bench throughput \
         --model ${model_path} \
         --dataset-name random \
         --input-len ${prompt_length} \
@@ -435,6 +468,8 @@ run_single_m_test() {
         --max-num-seqs ${max_num_seqs} \
         --max-model-len ${max_model_len} \
         --max-num-batched-tokens ${max_num_batched_tokens} \
+        --gpu-memory-utilization ${GPU_MEMORY_UTILIZATION} \
+        ${eager_flag} \
         --disable-log-stats \
         --output-json ${result_file}"
     
@@ -518,20 +553,28 @@ with open('${result_file}', 'r') as f:
         print_error "Test failed: M=${m_value} (exit code: ${exit_code})"
         echo "ERROR: Test failed for M=${m_value}" >> "${LOG_FILE}"
         
-        # 检测错误类型，返回不同的退出码
-        # 退出码: 1=普通错误, 2=INT8 kernel 不支持架构
-        if grep -q "Int8 not supported on SM" "$output_tmp" 2>/dev/null; then
-            rm -f "$output_tmp"
-            print_error "Detected INT8 kernel not supported on current GPU architecture"
-            return 2  # INT8 不支持
+        # 提取错误信息并记录
+        local error_snippet=""
+        if [[ -f "$output_tmp" ]]; then
+            # 提取最后 20 行作为错误摘要
+            error_snippet=$(tail -20 "$output_tmp" 2>/dev/null || echo "Unable to read error output")
+            echo "ERROR OUTPUT:" >> "${LOG_FILE}"
+            echo "${error_snippet}" >> "${LOG_FILE}"
+            
+            # 打印错误摘要到终端
+            echo ""
+            echo -e "${RED}─── Error Output (last 10 lines) ───${NC}"
+            tail -10 "$output_tmp" 2>/dev/null || echo "Unable to read error output"
+            echo -e "${RED}─────────────────────────────────${NC}"
         fi
         
         rm -f "$output_tmp"
-        return 1  # 普通错误
+        return 1
     fi
 }
 
 # 测试单个模型的所有 M 值
+# 返回值: 0=成功, 1=普通错误, 2=精度不支持(应跳过该精度的其他模型)
 run_model_benchmark() {
     local model_key=$1
     local model_info=$2
@@ -551,7 +594,7 @@ run_model_benchmark() {
     local total_tests=${#M_LIST[@]}
     local current_test=0
     local failed_tests=0
-    local kernel_unsupported=false
+    local first_error_encountered=false
     
     for m_value in "${M_LIST[@]}"; do
         current_test=$((current_test + 1))
@@ -566,29 +609,30 @@ run_model_benchmark() {
         if [[ $test_result -ne 0 ]]; then
             failed_tests=$((failed_tests + 1))
             
-            # INT8 试错策略: 如果检测到 kernel 不支持当前架构 (退出码=2)
-            # 跳过该模型的剩余测试
-            if [[ $test_result -eq 2 ]] && [[ "$quant_type" == "int8" ]]; then
-                kernel_unsupported=true
-                print_warning "INT8 kernel not supported on current GPU architecture, skipping remaining tests for model ${local_dir_name}"
-                echo "SKIP: INT8 kernel not supported on current architecture" >> "${LOG_FILE}"
-                break
+            # 统一试错策略: 首次错误时跳过该模型的剩余测试
+            # 并返回特殊退出码 2 表示应跳过该精度的所有后续模型
+            if [[ "$first_error_encountered" == false ]]; then
+                first_error_encountered=true
+                echo ""
+                print_warning "=================================================="
+                print_warning "⚠️  Error encountered for ${quant_type^^} model: ${local_dir_name}"
+                print_warning "    Skipping remaining tests for this model."
+                print_warning "    Will also skip all other ${quant_type^^} models."
+                print_warning "=================================================="
+                echo "SKIP: ${quant_type^^} test failed, skipping remaining ${quant_type^^} tests" >> "${LOG_FILE}"
+                
+                # 跳过该模型的剩余测试，并返回 2 表示应跳过该精度
+                return 2
             fi
         fi
     done
-    
-    # 如果 kernel 不支持，跳过 CSV 生成
-    if [[ "$kernel_unsupported" == true ]]; then
-        echo ""
-        print_warning "Model ${local_dir_name} skipped: INT8 kernel not supported on current GPU architecture"
-        return 2  # 返回特殊退出码表示架构不支持
-    fi
     
     # 生成该模型的 CSV 结果
     generate_model_csv "$local_dir_name"
     
     echo ""
     print_info "Model ${local_dir_name} completed: ${total_tests} tests, ${failed_tests} failed"
+    return 0
 }
 
 # 生成单个模型的 CSV 结果
@@ -647,11 +691,21 @@ except:
 }
 
 # ============================================================================
-# 量化格式支持检测函数
+# 量化格式支持检测函数 (原生支持预拦截)
+# ============================================================================
+# 设计思路:
+# - INT8 原生支持: CC >= 8.0 (Ampere+), 拦截 V100 等老卡
+# - FP8 原生支持:  CC >= 8.9 (Ada/Hopper+), 拦截 A100 等不支持原生 FP8 的卡
+# 这两个函数是对称的，都是为了避免 vLLM 的 fallback 机制污染 Benchmark 数据
 # ============================================================================
 
-# FP8 支持预检测 (调用 HW_info_utils.py)
-# 返回: 0=支持, 1=不支持
+# INT8 预拦截: 检测 GPU 是否支持原生 INT8 GEMM (CC >= 8.0)
+check_int8_support() {
+    python3 "${HW_INFO_UTILS_PY}" --check-int8 2>/dev/null
+    return $?
+}
+
+# FP8 预拦截: 检测 GPU 是否支持原生 FP8 GEMM (CC >= 8.9)
 check_fp8_support() {
     python3 "${HW_INFO_UTILS_PY}" --check-fp8 2>/dev/null
     return $?
@@ -660,12 +714,30 @@ check_fp8_support() {
 # ============================================================================
 # 批量测试函数
 # ============================================================================
+# 统一试错机制:
+# 1. 预拦截: 检测硬件原生支持 (INT8: CC>=8.0, FP8: CC>=8.9)
+# 2. 运行时试错: 如果任何错误发生，跳过该精度的所有后续模型
+# ============================================================================
 
-# 测试 INT8 模型 (采用试错策略: 尝试运行，crash 则跳过)
+# 测试 INT8 模型
 test_int8_models() {
     local filter=$1
     
+    # INT8 预检测拦截: 如果 GPU 不支持原生 INT8 (V100 等 CC < 8.0)
+    if ! check_int8_support; then
+        print_warning "Skipping all INT8 model tests (GPU does not support native INT8 Tensor Core GEMM)"
+        return 0
+    fi
+    
+    local skip_remaining=false
+    
     for key in $(echo "${!INT8_MODELS[@]}" | tr ' ' '\n' | sort); do
+        # 如果之前的测试失败，跳过剩余的 INT8 模型
+        if [[ "$skip_remaining" == true ]]; then
+            print_warning "Skipping INT8 model ${key} due to previous error"
+            continue
+        fi
+        
         local model_info="${INT8_MODELS[$key]}"
         
         # 过滤
@@ -681,20 +753,36 @@ test_int8_models() {
         fi
         
         run_model_benchmark "$key" "$model_info" "int8"
+        local result=$?
+        
+        # 试错机制: 如果返回 2 表示应跳过该精度的所有后续模型
+        if [[ $result -eq 2 ]]; then
+            skip_remaining=true
+            echo ""
+            print_warning "INT8 test failed, skipping remaining INT8 models"
+        fi
     done
 }
 
-# 测试 FP8 模型 (预检测: 不支持原生 FP8 则直接跳过所有 FP8 测试)
+# 测试 FP8 模型
 test_fp8_models() {
     local filter=$1
     
-    # FP8 预检测拦截: 如果 GPU 不支持原生 FP8，跳过所有 FP8 测试
+    # FP8 预检测拦截: 如果 GPU 不支持原生 FP8 (A100 等 CC < 8.9)
     if ! check_fp8_support; then
         print_warning "Skipping all FP8 model tests (GPU does not support native FP8 GEMM)"
         return 0
     fi
     
+    local skip_remaining=false
+    
     for key in $(echo "${!FP8_MODELS[@]}" | tr ' ' '\n' | sort); do
+        # 如果之前的测试失败，跳过剩余的 FP8 模型
+        if [[ "$skip_remaining" == true ]]; then
+            print_warning "Skipping FP8 model ${key} due to previous error"
+            continue
+        fi
+        
         local model_info="${FP8_MODELS[$key]}"
         
         # 过滤
@@ -710,6 +798,14 @@ test_fp8_models() {
         fi
         
         run_model_benchmark "$key" "$model_info" "fp8"
+        local result=$?
+        
+        # 试错机制: 如果返回 2 表示应跳过该精度的所有后续模型
+        if [[ $result -eq 2 ]]; then
+            skip_remaining=true
+            echo ""
+            print_warning "FP8 test failed, skipping remaining FP8 models"
+        fi
     done
 }
 
@@ -719,8 +815,13 @@ test_specific_model() {
     
     # 检查是否在 INT8 模型列表中
     if [ -n "${INT8_MODELS[$model_key]}" ]; then
+        # INT8 预检测拦截
+        if ! check_int8_support; then
+            print_error "Skipping INT8 model ${model_key} (GPU does not support native INT8 Tensor Core GEMM)"
+            return 1
+        fi
         run_model_benchmark "$model_key" "${INT8_MODELS[$model_key]}" "int8"
-        return 0
+        return $?
     fi
     
     # 检查是否在 FP8 模型列表中
@@ -731,7 +832,7 @@ test_specific_model() {
             return 1
         fi
         run_model_benchmark "$model_key" "${FP8_MODELS[$model_key]}" "fp8"
-        return 0
+        return $?
     fi
     
     print_error "Model not found: $model_key"
@@ -835,6 +936,16 @@ main() {
                 DRY_RUN=true
                 shift
                 ;;
+            --eager)
+                # 强制使用 eager mode (禁用 torch.compile)
+                TORCH_COMPILE_LEVEL="0"
+                shift
+                ;;
+            --compile)
+                # 强制启用 torch.compile (覆盖自动检测)
+                TORCH_COMPILE_LEVEL="force"
+                shift
+                ;;
             -h|--help)
                 show_help
                 exit 0
@@ -851,6 +962,26 @@ main() {
     if [ "$check_only" = true ]; then
         check_all_models
         exit 0
+    fi
+    
+    # ========================================================================
+    # 自动检测是否需要 eager mode (针对不支持的 GPU 架构如 GB10)
+    # ========================================================================
+    ENFORCE_EAGER=false
+    if [[ "${TORCH_COMPILE_LEVEL}" == "auto" ]]; then
+        # 调用 Python 工具检测 (只取 stdout，忽略 PyTorch 警告)
+        local needs_eager=$(python3 "${HW_INFO_UTILS_PY}" --check-triton-support 2>/dev/null | head -1)
+        if [[ "${needs_eager}" == "needs_eager" ]]; then
+            print_warning "Detected unsupported GPU architecture for torch.compile (e.g., GB10 sm_121a)"
+            print_warning "Automatically enabling eager mode (--enforce-eager)"
+            ENFORCE_EAGER=true
+        fi
+    elif [[ "${TORCH_COMPILE_LEVEL}" == "0" ]]; then
+        print_info "Using eager mode (torch.compile disabled via --enforce-eager)"
+        ENFORCE_EAGER=true
+    elif [[ "${TORCH_COMPILE_LEVEL}" == "force" ]]; then
+        print_info "Force enabling torch.compile (ignoring architecture compatibility)"
+        ENFORCE_EAGER=false
     fi
     
     # 根据测试模式选择默认 M_LIST

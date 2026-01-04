@@ -273,6 +273,60 @@ def detect_arch() -> Tuple[str, str, str]:
     return f"SM{major}{minor}", f"sm{major}{minor}", sm_code
 
 
+def check_triton_arch_support() -> Tuple[bool, str]:
+    """
+    检查当前 GPU 架构是否被 Triton/ptxas 支持。
+    
+    某些新架构（如 GB10 的 sm_121a）可能不被当前版本的 ptxas 支持，
+    导致 torch.compile 失败。
+    
+    返回:
+        (supported, reason) 其中:
+        - supported: True 如果架构被支持
+        - reason: 如果不支持，说明原因
+    """
+    major, minor = get_compute_capability()
+    
+    # 已知不被 Triton 支持的架构
+    # GB10 (CC 12.1) 的 sm_121a 目前不被大多数 ptxas 版本支持
+    UNSUPPORTED_ARCHS = {
+        (12, 1): "GB10 (sm_121a) is not yet supported by Triton/ptxas",
+    }
+    
+    if (major, minor) in UNSUPPORTED_ARCHS:
+        return False, UNSUPPORTED_ARCHS[(major, minor)]
+    
+    # CC >= 12.0 的架构可能需要较新版本的工具链
+    if major >= 12:
+        # 尝试检测 ptxas 是否支持
+        try:
+            result = subprocess.run(
+                ["ptxas", "--list-gpu-code"],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            if result.returncode == 0:
+                sm_code = f"sm_{major}{minor}"
+                if sm_code not in result.stdout and f"sm_{major}{minor}a" not in result.stdout:
+                    return False, f"ptxas does not support {sm_code}"
+        except (subprocess.TimeoutExpired, FileNotFoundError, Exception):
+            # 无法检测，保守起见认为不支持
+            return False, f"Cannot verify ptxas support for sm_{major}{minor}"
+    
+    return True, "Architecture is supported"
+
+
+def needs_eager_mode() -> bool:
+    """
+    检查是否需要使用 eager mode（禁用 torch.compile）。
+    
+    当 GPU 架构不被 Triton 支持时返回 True。
+    """
+    supported, _ = check_triton_arch_support()
+    return not supported
+
+
 # ============================================================================
 # PyTorch 信息
 # ============================================================================
@@ -360,8 +414,64 @@ def print_hardware_info_table(info: Optional[Dict[str, Any]] = None) -> None:
 
 
 # ============================================================================
-# 量化格式支持检测
+# 量化格式支持检测 (原生支持预拦截)
 # ============================================================================
+# 设计思路:
+# - INT8 原生支持: CC >= 8.0 (Ampere+), 拦截 V100 等老卡
+# - FP8 原生支持:  CC >= 8.9 (Ada/Hopper+), 拦截 A100 等不支持原生 FP8 的卡
+# 这两个函数是对称的，都是为了避免 vLLM 的 fallback 机制污染 Benchmark 数据
+# ============================================================================
+
+def check_int8_support() -> Tuple[bool, str]:
+    """
+    检测 GPU 是否支持原生 INT8 GEMM 计算。
+    
+    INT8 原生支持要求:
+    - Ampere (A100/A10): CC 8.0+
+    - Ada (4090/L40S): CC 8.9+
+    - Hopper (H100/H200): CC 9.0+
+    - Blackwell (B100/B200): CC 10.0+
+    
+    Volta (V100) 等老架构 (CC < 8.0) 不支持高效的 INT8 Tensor Core GEMM。
+    
+    注意: 这里只检测硬件原生支持，不检测 vLLM kernel 是否覆盖了该架构。
+    kernel 覆盖问题（如 SM100 上的 cutlass_scaled_mm 不支持）由运行时试错机制处理。
+    
+    返回:
+        (is_supported, message): 是否支持及说明信息
+    """
+    major, minor = get_compute_capability()
+    gpu_name = get_gpu_full_name()
+    
+    # INT8 原生支持: CC >= 8.0 (Ampere 开始有高效的 INT8 Tensor Core)
+    if major >= 8:
+        return True, f"GPU {gpu_name} (CC {major}.{minor}) supports native INT8 GEMM"
+    
+    return False, (
+        f"GPU {gpu_name} (CC {major}.{minor}) does not support efficient INT8 Tensor Core GEMM.\n"
+        f"INT8 quantization requires Ampere (A100) or newer architecture.\n"
+        f"Suggestion: Use A100/H100/B100 or newer GPUs for INT8 tests."
+    )
+
+
+def check_int8_support_exit_if_not() -> None:
+    """
+    检测 INT8 支持，如果不支持则打印错误并退出。
+    用于在 shell 脚本中预检测拦截。
+    """
+    supported, message = check_int8_support()
+    if not supported:
+        major, minor = get_compute_capability()
+        gpu_name = get_gpu_full_name()
+        print(f"\n⛔ [FATAL ERROR] INT8 test execution refused!")
+        print(f"Detected GPU: {gpu_name} (Compute Capability {major}.{minor})")
+        print(f"This GPU does not support efficient INT8 Tensor Core GEMM.")
+        print(f"INT8 quantization requires Ampere (CC 8.0+) or newer architecture.")
+        print(f"Please use A100/H100/B100 or newer GPUs for INT8 tests.\n")
+        sys.exit(1)
+    else:
+        print(f"✓ INT8 support check passed: {message}")
+
 
 def check_fp8_support() -> Tuple[bool, str]:
     """
@@ -435,15 +545,40 @@ def main():
         help="Print hardware info as formatted table"
     )
     parser.add_argument(
+        "--check-int8", action="store_true",
+        help="Check if GPU supports native INT8 GEMM (exit 1 if not supported, for V100 etc.)"
+    )
+    parser.add_argument(
         "--check-fp8", action="store_true",
-        help="Check if GPU supports native FP8 GEMM (exit 1 if not supported)"
+        help="Check if GPU supports native FP8 GEMM (exit 1 if not supported, for A100 etc.)"
+    )
+    parser.add_argument(
+        "--check-triton-support", action="store_true",
+        help="Check if GPU architecture is supported by Triton/ptxas. "
+             "Outputs 'needs_eager' if torch.compile should be disabled, 'supported' otherwise."
     )
     
     args = parser.parse_args()
     
-    # FP8 支持检测 (预检测拦截)
+    # INT8 支持检测 (预检测拦截 - 拦截 V100 等老卡)
+    if args.check_int8:
+        check_int8_support_exit_if_not()
+        sys.exit(0)
+    
+    # FP8 支持检测 (预检测拦截 - 拦截 A100 等不支持原生 FP8 的卡)
     if args.check_fp8:
         check_fp8_support_exit_if_not()
+        sys.exit(0)
+    
+    # Triton 架构支持检测
+    if args.check_triton_support:
+        supported, reason = check_triton_arch_support()
+        if supported:
+            print("supported")
+        else:
+            print("needs_eager")
+            # 输出原因到 stderr，不影响 stdout 的解析
+            print(f"Reason: {reason}", file=sys.stderr)
         sys.exit(0)
     
     info = get_hardware_info()
