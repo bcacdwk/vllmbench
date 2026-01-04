@@ -360,6 +360,58 @@ def print_hardware_info_table(info: Optional[Dict[str, Any]] = None) -> None:
 
 
 # ============================================================================
+# 量化格式支持检测
+# ============================================================================
+
+def check_fp8_support() -> Tuple[bool, str]:
+    """
+    检测 GPU 是否支持原生 FP8 GEMM 计算。
+    
+    FP8 原生支持要求:
+    - Hopper (H100/H200): CC 9.0+
+    - Ada (4090/L40S): CC 8.9+
+    - Blackwell (B100/B200): CC 10.0+
+    
+    如果不支持，vLLM 会回退到 Marlin (W8A16) 模式，这会污染 Benchmark 数据。
+    
+    返回:
+        (is_supported, message): 是否支持及说明信息
+    """
+    major, minor = get_compute_capability()
+    gpu_name = get_gpu_full_name()
+    
+    # FP8 原生支持: CC >= 8.9 (Ada) 或 CC >= 9.0 (Hopper) 或 CC >= 10.0 (Blackwell)
+    # 实际上 CC 8.9 是 Ada (4090/L40S)，8.0 是 Ampere (A100)
+    if major > 8 or (major == 8 and minor >= 9):
+        return True, f"GPU {gpu_name} (CC {major}.{minor}) supports native FP8 GEMM"
+    
+    return False, (
+        f"GPU {gpu_name} (CC {major}.{minor}) does not support native FP8 GEMM.\n"
+        f"vLLM will fallback to Marlin (W8A16) mode, which will pollute Benchmark data.\n"
+        f"Suggestion: Use H100/H200/L40S/B100/B200 or skip FP8 tests."
+    )
+
+
+def check_fp8_support_exit_if_not() -> None:
+    """
+    检测 FP8 支持，如果不支持则打印错误并退出。
+    用于在 shell 脚本中预检测拦截。
+    """
+    supported, message = check_fp8_support()
+    if not supported:
+        major, minor = get_compute_capability()
+        gpu_name = get_gpu_full_name()
+        print(f"\n⛔ [FATAL ERROR] FP8 test execution refused!")
+        print(f"Detected GPU: {gpu_name} (Compute Capability {major}.{minor})")
+        print(f"This GPU does not support native FP8 GEMM computation.")
+        print(f"vLLM might fallback to Marlin (W8A16) mode, which will pollute Benchmark data.")
+        print(f"Please use H100/H200/L40S/B100/B200 or skip FP8 tests.\n")
+        sys.exit(1)
+    else:
+        print(f"✓ FP8 support check passed: {message}")
+
+
+# ============================================================================
 # CLI 接口
 # ============================================================================
 
@@ -382,8 +434,17 @@ def main():
         "--table", action="store_true",
         help="Print hardware info as formatted table"
     )
+    parser.add_argument(
+        "--check-fp8", action="store_true",
+        help="Check if GPU supports native FP8 GEMM (exit 1 if not supported)"
+    )
     
     args = parser.parse_args()
+    
+    # FP8 支持检测 (预检测拦截)
+    if args.check_fp8:
+        check_fp8_support_exit_if_not()
+        sys.exit(0)
     
     info = get_hardware_info()
     

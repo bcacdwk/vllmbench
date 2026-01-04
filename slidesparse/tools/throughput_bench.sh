@@ -16,6 +16,8 @@
 # 示例:
 #   ./throughput_bench.sh --model qwen2.5-0.5b-int8 --prefill --M 16,32,64,128,256
 #   ./throughput_bench.sh --model llama3.2-1b-int8 --decode --M 1,2,4,8,16
+#   ./throughput_bench.sh --model qwen2.5-0.5b-fp8 --prefill --M 16,32,64,128,256
+#   ./throughput_bench.sh --model llama3.2-1b-fp8 --decode --M 1,2,4,8,16
 #   ./throughput_bench.sh --all --prefill --M 16,256
 #   ./throughput_bench.sh --all --decode --M 1,16
 # ============================================================================
@@ -458,14 +460,16 @@ run_single_m_test() {
     print_info "Starting test..."
     local start_time=$(date +%s)
     local exit_code=0
+    local output_tmp=$(mktemp)
     
-    # 运行并实时输出到终端和日志
-    eval $cmd 2>&1 | tee -a "${LOG_FILE}" || exit_code=$?
+    # 运行并捕获输出到临时文件和日志
+    eval $cmd 2>&1 | tee -a "${LOG_FILE}" "$output_tmp" || exit_code=$?
     
     local end_time=$(date +%s)
     local duration=$((end_time - start_time))
     
     if [[ $exit_code -eq 0 ]] && [[ -f "$result_file" ]]; then
+        rm -f "$output_tmp"
         print_success "Test completed! Duration: ${duration}s"
         
         # 解析并显示结果
@@ -513,7 +517,17 @@ with open('${result_file}', 'r') as f:
     else
         print_error "Test failed: M=${m_value} (exit code: ${exit_code})"
         echo "ERROR: Test failed for M=${m_value}" >> "${LOG_FILE}"
-        return 1
+        
+        # 检测错误类型，返回不同的退出码
+        # 退出码: 1=普通错误, 2=INT8 kernel 不支持架构
+        if grep -q "Int8 not supported on SM" "$output_tmp" 2>/dev/null; then
+            rm -f "$output_tmp"
+            print_error "Detected INT8 kernel not supported on current GPU architecture"
+            return 2  # INT8 不支持
+        fi
+        
+        rm -f "$output_tmp"
+        return 1  # 普通错误
     fi
 }
 
@@ -537,6 +551,7 @@ run_model_benchmark() {
     local total_tests=${#M_LIST[@]}
     local current_test=0
     local failed_tests=0
+    local kernel_unsupported=false
     
     for m_value in "${M_LIST[@]}"; do
         current_test=$((current_test + 1))
@@ -545,10 +560,29 @@ run_model_benchmark() {
         echo "[${current_test}/${total_tests}] Testing M=${m_value}"
         echo "=============================================="
         
-        if ! run_single_m_test "$model_key" "$model_info" "$quant_type" "$m_value"; then
+        run_single_m_test "$model_key" "$model_info" "$quant_type" "$m_value"
+        local test_result=$?
+        
+        if [[ $test_result -ne 0 ]]; then
             failed_tests=$((failed_tests + 1))
+            
+            # INT8 试错策略: 如果检测到 kernel 不支持当前架构 (退出码=2)
+            # 跳过该模型的剩余测试
+            if [[ $test_result -eq 2 ]] && [[ "$quant_type" == "int8" ]]; then
+                kernel_unsupported=true
+                print_warning "INT8 kernel not supported on current GPU architecture, skipping remaining tests for model ${local_dir_name}"
+                echo "SKIP: INT8 kernel not supported on current architecture" >> "${LOG_FILE}"
+                break
+            fi
         fi
     done
+    
+    # 如果 kernel 不支持，跳过 CSV 生成
+    if [[ "$kernel_unsupported" == true ]]; then
+        echo ""
+        print_warning "Model ${local_dir_name} skipped: INT8 kernel not supported on current GPU architecture"
+        return 2  # 返回特殊退出码表示架构不支持
+    fi
     
     # 生成该模型的 CSV 结果
     generate_model_csv "$local_dir_name"
@@ -613,10 +647,21 @@ except:
 }
 
 # ============================================================================
+# 量化格式支持检测函数
+# ============================================================================
+
+# FP8 支持预检测 (调用 HW_info_utils.py)
+# 返回: 0=支持, 1=不支持
+check_fp8_support() {
+    python3 "${HW_INFO_UTILS_PY}" --check-fp8 2>/dev/null
+    return $?
+}
+
+# ============================================================================
 # 批量测试函数
 # ============================================================================
 
-# 测试 INT8 模型
+# 测试 INT8 模型 (采用试错策略: 尝试运行，crash 则跳过)
 test_int8_models() {
     local filter=$1
     
@@ -639,9 +684,15 @@ test_int8_models() {
     done
 }
 
-# 测试 FP8 模型
+# 测试 FP8 模型 (预检测: 不支持原生 FP8 则直接跳过所有 FP8 测试)
 test_fp8_models() {
     local filter=$1
+    
+    # FP8 预检测拦截: 如果 GPU 不支持原生 FP8，跳过所有 FP8 测试
+    if ! check_fp8_support; then
+        print_warning "Skipping all FP8 model tests (GPU does not support native FP8 GEMM)"
+        return 0
+    fi
     
     for key in $(echo "${!FP8_MODELS[@]}" | tr ' ' '\n' | sort); do
         local model_info="${FP8_MODELS[$key]}"
@@ -674,6 +725,11 @@ test_specific_model() {
     
     # 检查是否在 FP8 模型列表中
     if [ -n "${FP8_MODELS[$model_key]}" ]; then
+        # FP8 预检测拦截
+        if ! check_fp8_support; then
+            print_error "Skipping FP8 model ${model_key} (GPU does not support native FP8 GEMM)"
+            return 1
+        fi
         run_model_benchmark "$model_key" "${FP8_MODELS[$model_key]}" "fp8"
         return 0
     fi
