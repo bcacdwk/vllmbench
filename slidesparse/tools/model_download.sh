@@ -112,47 +112,47 @@ print_error() {
 show_help() {
     echo "SlideSparse Model Download Script"
     echo ""
-    echo "用法: $0 [选项]"
+    echo "Usage: $0 [options]"
     echo ""
-    echo "选项:"
-    echo "  -a, --all           下载所有模型 (INT8 + FP8)"
-    echo "  -i, --int8          仅下载 INT8 (quantized.w8a8) 模型"
-    echo "  -f, --fp8           仅下载 FP8 (FP8-dynamic) 模型"
-    echo "  -q, --qwen          仅下载 Qwen2.5 系列"
-    echo "  -l, --llama         仅下载 Llama3.2 系列"
-    echo "  -m, --model NAME    下载指定模型"
-    echo "  -c, --check         检查已下载模型状态"
-    echo "  -s, --size          显示模型预估大小"
-    echo "  -h, --help          显示此帮助信息"
+    echo "Options:"
+    echo "  -a, --all           Download all models (INT8 + FP8)"
+    echo "  -i, --int8          Download INT8 (quantized.w8a8) models only"
+    echo "  -f, --fp8           Download FP8 (FP8-dynamic) models only"
+    echo "  -q, --qwen          Download Qwen2.5 series only"
+    echo "  -l, --llama         Download Llama3.2 series only"
+    echo "  -m, --model NAME    Download specific model"
+    echo "  -c, --check         Check downloaded model status"
+    echo "  -s, --size          Show estimated model sizes"
+    echo "  -h, --help          Show this help message"
     echo ""
-    echo "可用模型列表:"
+    echo "Available Models:"
     echo ""
-    echo "  INT8 模型 (quantized.w8a8):"
+    echo "  INT8 Models (quantized.w8a8):"
     for key in "${!INT8_MODELS[@]}"; do
         echo "    - $key"
     done | sort
     echo ""
-    echo "  FP8 模型 (FP8-dynamic):"
+    echo "  FP8 Models (FP8-dynamic):"
     for key in "${!FP8_MODELS[@]}"; do
         echo "    - $key"
     done | sort
     echo ""
-    echo "示例:"
-    echo "  $0 --all                         # 下载全部模型"
-    echo "  $0 --int8                        # 下载所有 INT8 模型"
-    echo "  $0 --fp8 --qwen                  # 下载 Qwen FP8 模型"
-    echo "  $0 --model qwen2.5-7b-int8       # 下载指定模型"
-    echo "  $0 --check                       # 检查下载状态"
+    echo "Examples:"
+    echo "  $0 --all                         # Download all models"
+    echo "  $0 --int8                        # Download all INT8 models"
+    echo "  $0 --fp8 --qwen                  # Download Qwen FP8 models"
+    echo "  $0 --model qwen2.5-7b-int8       # Download specific model"
+    echo "  $0 --check                       # Check download status"
 }
 
 # 创建目录结构
 setup_directories() {
-    print_info "检查目录结构..."
+    print_info "Checking directory structure..."
     
     # 创建 checkpoints 根目录
     if [ ! -d "$CHECKPOINT_DIR" ]; then
         mkdir -p "$CHECKPOINT_DIR"
-        print_success "创建 checkpoints 目录: $CHECKPOINT_DIR"
+        print_success "Created checkpoints directory: $CHECKPOINT_DIR"
     fi
 }
 
@@ -167,14 +167,14 @@ download_model() {
     local hf_path="${HF_ORG}/${hf_name}"
     local local_dir="${CHECKPOINT_DIR}/${local_dir_name}"
     
-    print_header "下载模型: ${local_dir_name}"
-    print_info "HuggingFace 路径: ${hf_path}"
-    print_info "本地保存路径: ${local_dir}"
+    print_header "Downloading: ${local_dir_name}"
+    print_info "HuggingFace path: ${hf_path}"
+    print_info "Local path: ${local_dir}"
     echo ""
     
     # 检查是否已下载
     if [ -d "$local_dir" ] && [ -f "${local_dir}/config.json" ]; then
-        print_warning "模型已存在，跳过下载: ${local_dir_name}"
+        print_warning "Model exists, skipping: ${local_dir_name}"
         echo ""
         return 0
     fi
@@ -183,13 +183,13 @@ download_model() {
     mkdir -p "$local_dir"
     
     # 使用 hf download 下载
-    print_info "开始下载..."
+    print_info "Starting download..."
     if hf download \
         "${hf_path}" \
         --local-dir "${local_dir}"; then
-        print_success "下载完成: ${local_dir_name}"
+        print_success "Download completed: ${local_dir_name}"
     else
-        print_error "下载失败: ${local_dir_name}"
+        print_error "Download failed: ${local_dir_name}"
         return 1
     fi
     
@@ -208,19 +208,19 @@ check_model_status() {
         echo -e "  ${GREEN}✓${NC} ${local_dir_name} - ${size}"
         return 0
     else
-        echo -e "  ${RED}✗${NC} ${local_dir_name} - 未下载"
+        echo -e "  ${RED}✗${NC} ${local_dir_name} - not downloaded"
         return 1
     fi
 }
 
 # 检查所有模型状态
 check_all_models() {
-    print_header "模型下载状态检查"
+    print_header "Model Download Status"
     
     local downloaded=0
     local missing=0
     
-    echo "INT8 模型 (quantized.w8a8):"
+    echo "INT8 Models (quantized.w8a8):"
     echo "-----------------------------------------"
     for key in $(echo "${!INT8_MODELS[@]}" | tr ' ' '\n' | sort); do
         if check_model_status "${INT8_MODELS[$key]}"; then
@@ -231,7 +231,7 @@ check_all_models() {
     done
     
     echo ""
-    echo "FP8 模型 (FP8-dynamic):"
+    echo "FP8 Models (FP8-dynamic):"
     echo "-----------------------------------------"
     for key in $(echo "${!FP8_MODELS[@]}" | tr ' ' '\n' | sort); do
         if check_model_status "${FP8_MODELS[$key]}"; then
@@ -243,33 +243,33 @@ check_all_models() {
     
     echo ""
     echo "-----------------------------------------"
-    echo -e "总计: ${GREEN}${downloaded} 已下载${NC}, ${RED}${missing} 未下载${NC}"
+    echo -e "Total: ${GREEN}${downloaded} downloaded${NC}, ${RED}${missing} missing${NC}"
     echo ""
     
     # 显示 checkpoints 总大小
     if [ -d "$CHECKPOINT_DIR" ]; then
         local total_size=$(du -sh "$CHECKPOINT_DIR" 2>/dev/null | cut -f1)
-        print_info "Checkpoints 目录总大小: ${total_size}"
+        print_info "Checkpoints directory size: ${total_size}"
     fi
 }
 
 # 显示模型预估大小
 show_model_sizes() {
-    print_header "模型预估大小"
-    echo "注意: 以下为大致估算值，实际大小可能有所不同"
+    print_header "Estimated Model Sizes"
+    echo "Note: These are rough estimates, actual sizes may vary"
     echo ""
-    echo "模型规模参考:"
-    echo "  - 0.5B 模型: ~1-2 GB"
-    echo "  - 1B 模型:   ~2-3 GB"
-    echo "  - 1.5B 模型: ~3-4 GB"
-    echo "  - 3B 模型:   ~6-8 GB"
-    echo "  - 7B 模型:   ~14-16 GB"
-    echo "  - 14B 模型:  ~28-32 GB"
+    echo "Model size reference:"
+    echo "  - 0.5B model: ~1-2 GB"
+    echo "  - 1B model:   ~2-3 GB"
+    echo "  - 1.5B model: ~3-4 GB"
+    echo "  - 3B model:   ~6-8 GB"
+    echo "  - 7B model:   ~14-16 GB"
+    echo "  - 14B model:  ~28-32 GB"
     echo ""
-    echo "预估总大小 (全部模型):"
-    echo "  - INT8 全部: ~65-80 GB"
-    echo "  - FP8 全部:  ~65-80 GB"
-    echo "  - 总计:      ~130-160 GB"
+    echo "Estimated total size (all models):"
+    echo "  - INT8 all:  ~65-80 GB"
+    echo "  - FP8 all:   ~65-80 GB"
+    echo "  - Total:     ~130-160 GB"
 }
 
 # 下载 INT8 模型
@@ -334,8 +334,8 @@ download_specific_model() {
         return 0
     fi
     
-    print_error "未找到模型: $model_key"
-    echo "使用 --help 查看可用模型列表"
+    print_error "Model not found: $model_key"
+    echo "Use --help to see available models"
     return 1
 }
 
@@ -348,8 +348,8 @@ main() {
     if ! command -v hf &> /dev/null; then
         # 回退检查旧版命令
         if ! command -v huggingface-cli &> /dev/null; then
-            print_error "huggingface CLI 未安装"
-            print_info "请运行: pip install -U huggingface_hub"
+            print_error "HuggingFace CLI not installed"
+            print_info "Please run: pip install -U huggingface_hub"
             exit 1
         fi
     fi
@@ -408,8 +408,8 @@ main() {
                 exit 0
                 ;;
             *)
-                print_error "未知选项: $1"
-                echo "使用 --help 查看帮助"
+                print_error "Unknown option: $1"
+                echo "Run '$0 --help' for help"
                 exit 1
                 ;;
         esac
@@ -446,19 +446,19 @@ main() {
     
     # 执行下载
     if [ "$download_int8" = true ]; then
-        print_header "开始下载 INT8 (quantized.w8a8) 模型"
+        print_header "Starting download of INT8 (quantized.w8a8) models"
         download_int8_models "$filter"
     fi
     
     if [ "$download_fp8" = true ]; then
-        print_header "开始下载 FP8 (FP8-dynamic) 模型"
+        print_header "Starting download of FP8 (FP8-dynamic) models"
         download_fp8_models "$filter"
     fi
     
     # 显示最终状态
     check_all_models
     
-    print_success "模型下载任务完成!"
+    print_success "Model download task completed!"
 }
 
 # 运行主程序
