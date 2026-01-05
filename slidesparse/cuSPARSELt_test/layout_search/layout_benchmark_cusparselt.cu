@@ -1,6 +1,35 @@
 // cuSPARSELt Layout 性能测试
 // 提供 Python API，测试不同 layout 组合的 SpMM 性能
 // 支持的数据类型：int8, fp8e4m3
+//
+// =====================================
+// cuSPARSELt API 约束 (基于官方文档):
+// =====================================
+//
+// 1. 稀疏矩阵 (Structured Matrix) 维度约束:
+//    - rows, cols, ld 必须是以下的倍数:
+//      32 if CUDA_R_8I, CUDA_R_8F_E4M3, CUDA_R_8F_E5M2, CUDA_R_4F_E2M1
+//      16 if CUDA_R_16F, CUDA_R_16BF
+//      8  if CUDA_R_32F
+//
+// 2. 稠密矩阵 (Dense Matrix) 维度约束:
+//    - rows, cols, ld 必须是以下的倍数:
+//      16 if CUDA_R_8I, CUDA_R_8F_E4M3, CUDA_R_8F_E5M2, CUDA_R_4F_E2M1
+//      8  if CUDA_R_16F, CUDA_R_16BF
+//      4  if CUDA_R_32F
+//
+// 3. op 和 order 的绑定约束 (针对 INT8/FP8):
+//    - opA/opB = TN if orderA/orderB = Col/Col
+//    - opA/opB = NT if orderA/orderB = Row/Row
+//    - opA/opB = NN if orderA/orderB = Row/Col
+//    - opA/opB = TT if orderA/orderB = Col/Row
+//    (如果 B 是稀疏矩阵则相反)
+//
+// 4. 数据类型支持:
+//    - INT8:  Input A/B=CUDA_R_8I, Output C/D=CUDA_R_8I 或 CUDA_R_32I
+//    - FP8:   Input A/B=CUDA_R_8F_E4M3, Output=CUDA_R_16F/BF/32F 或 CUDA_R_8F_E4M3
+//
+// 5. 内存对齐: alignment 必须是 16 的倍数
 
 #include <torch/extension.h>
 #include <ATen/cuda/CUDAContext.h>

@@ -1,21 +1,21 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-cuSPARSELt 算法离线搜索
+cuBLASLt 算法离线搜索
 
 架构说明：
 =========
 - Python 端：负责外层 NK 循环、参数解析、GPU 检测、数据生成、结果落盘
-- C++ 端：负责内层 M 循环、算法枚举、cuSPARSELt API 调用、精确计时
+- C++ 端：负责内层 M 循环、算法枚举、cuBLASLt API 调用、精确计时
 
 1. Python 控制外层 NK 循环，方便做进度条、异常捕获、断点续跑
 2. C++ 控制内层 M 循环和算法枚举，避免跨进程通信开销
 3. JSON 在 Python 端生成
 4. torch.utils.cpp_extension.load 自动检测 GPU 架构，无需手动指定 -arch
 
-显存优化：
-- 预分配最大尺寸的张量，复用 buffer 避免反复 malloc/free
-- 搜索结束后显式释放并调用 empty_cache()
+固定 Layout:
+- T/N + Col/Col + Col (权重W在左)
+- W[N,K]^T_col * A[K,M]_col = C[N,M]_col
 
 运行示例:
 CUDA_VISIBLE_DEVICES=0 python3 alg_search.py --dtype int8 --verify --compile
@@ -29,7 +29,6 @@ import ctypes.util
 import datetime
 import json
 import os
-import platform
 import subprocess
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional
@@ -117,31 +116,26 @@ def get_gpu_short_name() -> str:
     return short_name
 
 
-# === cuSPARSELt 动态库加载（必须在加载自定义 .so 之前完成）===
-_CUSPARSELT_LOADED = False
+# === cuBLASLt 动态库加载（必须在加载自定义 .so 之前完成）===
+_CUBLASLT_LOADED = False
 
-def ensure_cusparselt_loaded() -> None:
-    """优先加载系统或环境变量指定的 cuSPARSELt，避免符号冲突。"""
-    global _CUSPARSELT_LOADED
-    if _CUSPARSELT_LOADED:
+def ensure_cublaslt_loaded() -> None:
+    """优先加载系统或环境变量指定的 cuBLASLt，避免符号冲突。"""
+    global _CUBLASLT_LOADED
+    if _CUBLASLT_LOADED:
         return
 
     preferred_paths = []
-    env_path = os.environ.get("CUSPARSELT_PATH")
+    env_path = os.environ.get("CUBLASLT_PATH")
     if env_path:
         preferred_paths.append(env_path)
 
-    arch = platform.machine()
-    preferred_paths.extend(
-        [
-            "/usr/lib/aarch64-linux-gnu/libcusparseLt.so.0",
-            "/usr/lib/aarch64-linux-gnu/libcusparseLt/13/libcusparseLt.so.0",
-            "/usr/lib/x86_64-linux-gnu/libcusparseLt.so.0",
-            "/usr/lib/x86_64-linux-gnu/libcusparseLt/13/libcusparseLt.so.0",
-            "/usr/local/cuda/lib64/libcusparseLt.so.0",
-        ]
-    )
-    found = ctypes.util.find_library("cusparseLt")
+    preferred_paths.extend([
+        "/usr/lib/aarch64-linux-gnu/libcublasLt.so",
+        "/usr/lib/x86_64-linux-gnu/libcublasLt.so",
+        "/usr/local/cuda/lib64/libcublasLt.so",
+    ])
+    found = ctypes.util.find_library("cublasLt")
     if found:
         preferred_paths.append(found)
 
@@ -150,14 +144,14 @@ def ensure_cusparselt_loaded() -> None:
             continue
         try:
             lib = ctypes.CDLL(path, mode=ctypes.RTLD_GLOBAL)
-            getattr(lib, "cusparseLtMatmulAlgSelectionDestroy")
-            _CUSPARSELT_LOADED = True
+            getattr(lib, "cublasLtCreate")
+            _CUBLASLT_LOADED = True
             return
         except (OSError, AttributeError):
             continue
 
     raise OSError(
-        "无法找到兼容的 libcusparseLt，请设置 CUSPARSELT_PATH 或安装 CUDA 12.9+。"
+        "无法找到兼容的 libcublasLt，请设置 CUBLASLT_PATH 或确保 CUDA 已正确安装。"
     )
 
 # === 扩展编译/加载（跨架构支持）===
@@ -169,9 +163,9 @@ def load_extension(verbose: bool = True, force_compile: bool = False) -> object:
     
     根据当前 GPU 设备加载或编译对应的 .so 文件。
     不同设备的 .so 文件可以在同一目录共存：
-    - alg_search_cusparselt_A100_cc80.so
-    - alg_search_cusparselt_H100_cc90.so
-    - alg_search_cusparselt_B200_cc100.so
+    - alg_search_cublaslt_A100_cc80.so
+    - alg_search_cublaslt_H100_cc90.so
+    - alg_search_cublaslt_B200_cc100.so
     
     Args:
         verbose: 是否显示进度信息
@@ -181,8 +175,8 @@ def load_extension(verbose: bool = True, force_compile: bool = False) -> object:
         编译好的扩展模块
     """
     if verbose:
-        print("[1/4] 加载 cuSPARSELt 库...", end=" ", flush=True)
-    ensure_cusparselt_loaded()
+        print("[1/4] 加载 cuBLASLt 库...", end=" ", flush=True)
+    ensure_cublaslt_loaded()
     if verbose:
         print("✓", flush=True)
     
@@ -190,10 +184,10 @@ def load_extension(verbose: bool = True, force_compile: bool = False) -> object:
     gpu_short_name = get_gpu_short_name()
     _, _, sm_code = detect_arch()
     prop = torch.cuda.get_device_properties(0)
-    ext_name = f"alg_search_cusparselt_{gpu_short_name}_cc{prop.major}{prop.minor}"
+    ext_name = f"alg_search_cublaslt_{gpu_short_name}_cc{prop.major}{prop.minor}"
     so_pattern = f"{ext_name}*.so"
     
-    src_path = Path(__file__).parent / "alg_search_cusparselt.cu"
+    src_path = Path(__file__).parent / "alg_search_cublaslt.cu"
     build_dir = Path(__file__).parent / "build_so_files"
     build_dir.mkdir(parents=True, exist_ok=True)
     
@@ -228,7 +222,7 @@ def load_extension(verbose: bool = True, force_compile: bool = False) -> object:
             name=ext_name,
             sources=[str(src_path)],
             extra_cuda_cflags=["-O3", f"-arch={sm_code}"],
-            extra_ldflags=["-lcusparseLt", "-lnvrtc", "-ldl"],
+            extra_ldflags=["-lcublasLt", "-lcublas"],
             verbose=False,
             build_directory=str(build_dir),
             with_cuda=True,
@@ -352,7 +346,7 @@ def run_search(ext, dtype: str, nk_list: List[Tuple[int, int]], m_list: List[int
     """
     运行算法搜索。
     
-    固定布局: T/N + C/C + C (权重W在左，稀疏矩阵，Column Major 输出)
+    固定布局: T/N + Col/Col + Col (权重W在左，Column Major 输出)
     每个 NK 组合生成新的随机数据
     """
     layout = "TNCCcol"  # 固定布局: TN+CC+Col
@@ -370,12 +364,9 @@ def run_search(ext, dtype: str, nk_list: List[Tuple[int, int]], m_list: List[int
         W = torch.randn(N, K, device="cuda", dtype=torch.bfloat16)
         A = torch.randn(max_M, K, device="cuda", dtype=torch.bfloat16)
 
-        # 先做 2:4 剪枝
-        W_pruned = ext.prune_24(W, layout)
-
-        # 调用搜索
+        # 调用搜索（cuBLASLt 不需要剪枝）
         out = ext.search_topk(
-            W_pruned,
+            W,
             A,
             m_list,
             layout,
@@ -387,15 +378,14 @@ def run_search(ext, dtype: str, nk_list: List[Tuple[int, int]], m_list: List[int
             3,
         )
         
-        # 显示压缩算法ID和每个 M 的有效算法数
-        compress_alg_id = out["compress_alg_id"]
+        # 显示返回的算法数和每个 M 的有效算法数
+        max_alg_count = out["max_returned_alg_count"]
         num_valid_per_m = out["num_valid_algs_per_M"].cpu().tolist()
         
         if verbose:
-            print(f"      → 最大有效算法ID: {compress_alg_id}，正在通过 id={compress_alg_id} 进行压缩")
-            # 显示每个 M 的有效算法数（取第一个作为代表，应该都一样）
+            # 显示每个 M 的有效算法数（取第一个作为代表）
             first_valid = num_valid_per_m[0] if num_valid_per_m else 0
-            print(f"      → 每个 M 的有效算法数: {first_valid} ✓")
+            print(f"      → 启发式搜索返回: {max_alg_count} 个算法，有效算法数: {first_valid} ✓")
         
         results.append({
             "nk_id": nk_id,
@@ -405,7 +395,7 @@ def run_search(ext, dtype: str, nk_list: List[Tuple[int, int]], m_list: List[int
         })
         
         # 释放当前 NK 的张量
-        del W, A, W_pruned
+        del W, A
     
     torch.cuda.empty_cache()
     
@@ -451,8 +441,8 @@ def save_outputs(out_dir: Path, gpu_short_name: str, arch_name: str, dtype: str,
     cuda_driver_ver = get_nvidia_smi_cuda_version()  # nvidia-smi 显示的 CUDA 版本
     cuda_runtime_ver = get_cuda_runtime_version()    # PyTorch 编译时的 CUDA 版本
     
-    # 获取最大有效算法 ID（所有 MNK 组合都相同）
-    max_alg_id = search_ret["results"][0]["raw"]["compress_alg_id"] if search_ret["results"] else -1
+    # 获取最大返回算法数（cuBLASLt 启发式搜索返回的数量）
+    max_alg_count = search_ret["results"][0]["raw"]["max_returned_alg_count"] if search_ret["results"] else 0
     
     meta = {
         "gpu_name": prop.name,
@@ -460,7 +450,7 @@ def save_outputs(out_dir: Path, gpu_short_name: str, arch_name: str, dtype: str,
         "arch_name": arch_name,
         "layout": layout,
         "dtype": dtype,
-        "max_alg_id": max_alg_id,
+        "max_returned_alg_count": max_alg_count,
         "warmup": warmup,
         "repeat": repeat,
         "verify": verify,
@@ -477,7 +467,7 @@ def save_outputs(out_dir: Path, gpu_short_name: str, arch_name: str, dtype: str,
     header_info = [
         f"# GPU: {prop.name}",
         f"# CC: {prop.major}.{prop.minor}",
-        f"# max_alg_id: {max_alg_id}",
+        f"# max_returned_alg_count: {max_alg_count}",
         f"# torch: {torch.__version__}",
         f"# CUDA driver: {cuda_driver_ver}, runtime: {cuda_runtime_ver}",
         f"# layout: {layout}, dtype: {dtype}, warmup={warmup}, repeat={repeat}, verify={verify}",
@@ -591,9 +581,9 @@ SUPPORTED_DTYPES = ["int8", "fp8e4m3"]
 
 def probe_dtype_support(ext, dtype: str, layout: str = "TNCCcol") -> Tuple[bool, str]:
     """
-    通过实际调用 cuSPARSELt 来探测 dtype 是否被当前 GPU 支持。
+    通过实际调用 cuBLASLt 来探测 dtype 是否被当前 GPU 支持。
     
-    使用最小尺寸（32x32）的矩阵进行快速测试，避免硬编码的架构判断。
+    使用最小尺寸的矩阵进行快速测试，避免硬编码的架构判断。
     
     Args:
         ext: 编译好的 CUDA 扩展模块
@@ -605,7 +595,7 @@ def probe_dtype_support(ext, dtype: str, layout: str = "TNCCcol") -> Tuple[bool,
         - supported: 是否支持
         - message: 成功或失败的详细信息
     """
-    # 最小测试尺寸（满足 cuSPARSELt 对齐要求：N 需 32 对齐，K/M 需 16 对齐）
+    # 最小测试尺寸（满足对齐要求：INT8 需 4 对齐，FP8 需 16 对齐）
     N, K, M = 32, 32, 16
     
     try:
@@ -613,12 +603,9 @@ def probe_dtype_support(ext, dtype: str, layout: str = "TNCCcol") -> Tuple[bool,
         W = torch.randn(N, K, device="cuda", dtype=torch.bfloat16)
         A = torch.randn(M, K, device="cuda", dtype=torch.bfloat16)
         
-        # 执行 2:4 剪枝
-        W_pruned = ext.prune_24(W, layout)
-        
         # 尝试搜索（只做 1 次 warmup，1 次 repeat，不验证）
         out = ext.search_topk(
-            W_pruned, A,
+            W, A,
             [M],           # M_list
             layout,
             dtype,
@@ -639,8 +626,8 @@ def probe_dtype_support(ext, dtype: str, layout: str = "TNCCcol") -> Tuple[bool,
     except Exception as e:
         error_msg = str(e)
         # 提取关键错误信息
-        if "CUSPARSE_STATUS" in error_msg:
-            return False, f"cuSPARSELt 不支持 dtype={dtype}: {error_msg}"
+        if "CUBLAS" in error_msg:
+            return False, f"cuBLASLt 不支持 dtype={dtype}: {error_msg}"
         elif "不支持的数据类型" in error_msg:
             return False, f"dtype={dtype} 不被支持"
         else:
@@ -689,7 +676,7 @@ def check_dtype_support(ext, dtype: str, arch_name: str, verbose: bool = True) -
 # === 主流程 ===
 
 def parse_args():
-    p = argparse.ArgumentParser(description="cuSPARSELt 算法离线搜索 v1.0")
+    p = argparse.ArgumentParser(description="cuBLASLt 算法离线搜索 v1.0")
     p.add_argument("--dtype", default="int8", choices=SUPPORTED_DTYPES, help="数据类型")
     p.add_argument("--warmup", type=int, default=25)
     p.add_argument("--repeat", type=int, default=100)
@@ -707,7 +694,7 @@ def main():
 
     # === 显示配置信息 ===
     print("="*60)
-    print("cuSPARSELt 算法离线搜索 v1.0")
+    print("cuBLASLt 算法离线搜索 v1.0")
     print("="*60)
     
     arch_name, arch_suffix, sm_code = detect_arch()
@@ -728,7 +715,7 @@ def main():
 
     ext = load_extension(verbose=True, force_compile=args.compile)
 
-    # === 预测试 dtype 兼容性（通过实际调用 cuSPARSELt）===
+    # === 预测试 dtype 兼容性（通过实际调用 cuBLASLt）===
     try:
         check_dtype_support(ext, args.dtype, arch_name, verbose=True)
     except ValueError as e:
