@@ -498,7 +498,8 @@ run_single_m_test() {
     local output_tmp=$(mktemp)
     
     # 运行并捕获输出到临时文件和日志
-    eval $cmd 2>&1 | tee -a "${LOG_FILE}" "$output_tmp" || exit_code=$?
+    # 使用 sed 过滤 ANSI 转义码，避免日志文件出现乱码
+    eval $cmd 2>&1 | tee "$output_tmp" | sed 's/\x1b\[[0-9;]*m//g' >> "${LOG_FILE}" || exit_code=$?
     
     local end_time=$(date +%s)
     local duration=$((end_time - start_time))

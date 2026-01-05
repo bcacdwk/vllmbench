@@ -1,0 +1,134 @@
+==============================================
+SlideSparse vLLM Throughput Benchmark Log
+==============================================
+Start Time: 2026-01-04 21:32:20
+Test Mode: decode (testing Decode phase)
+
+Hardware Information:
+┌─────────────────────────────────────────────────────────────┐
+│                    Hardware Information                      │
+├─────────────────────────────────────────────────────────────┤
+│ GPU:              NVIDIA H100 PCIe                          │
+│ GPU Count:        4                                         │
+│ GPU Memory:       79.2 GB                                    │
+│ Compute Cap:      9.0 (Hopper)                              ││
+│ SM Code:          sm_90                                     │
+├─────────────────────────────────────────────────────────────┤
+│ CUDA Driver:      13.0                                      │
+│ CUDA Runtime:     12.9                                      │
+│ NVIDIA Driver:    580.105.08                                │
+│ PyTorch:          2.9.0+cu129                               │
+└─────────────────────────────────────────────────────────────┘
+
+User Config:
+  M_list (M_decode): 1 2 4 8 16
+  N_decode: 512
+  max-num-batched-tokens: dynamic (= max_num_seqs x max_model_len)
+  vLLM log level: WARNING
+==============================================
+
+
+========== M=1 ==========
+Time: 2026-01-04 21:32:24
+Params: prompt_len=16, output_len=512, num_prompts=1, max_num_seqs=1
+Command: CUDA_VISIBLE_DEVICES=0 VLLM_LOGGING_LEVEL=WARNING vllm bench throughput         --model /root/vllmbench/checkpoints/Llama3.2-1B-FP8         --dataset-name random         --input-len 16         --output-len 512         --num-prompts 1         --max-num-seqs 1         --max-model-len 656         --max-num-batched-tokens 656         --gpu-memory-utilization 0.8                  --disable-log-stats         --output-json /root/vllmbench/slidesparse/tools/throughput_bench_results/decode/H100_cc90/20260104_213217/result_json/Llama3.2-1B-FP8_M1.json
+
+When dataset path is not set, it will default to random dataset
+(EngineCore_DP0 pid=57951) Loading safetensors checkpoint shards:   0% Completed | 0/1 [00:00<?, ?it/s]
+(EngineCore_DP0 pid=57951) Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  5.70it/s]
+(EngineCore_DP0 pid=57951) Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  5.70it/s]
+(EngineCore_DP0 pid=57951) 
+(EngineCore_DP0 pid=57951) 2026-01-04 21:32:47,462 - INFO - autotuner.py:256 - flashinfer.jit: [Autotuner]: Autotuning process starts ...
+(EngineCore_DP0 pid=57951) 2026-01-04 21:32:47,485 - INFO - autotuner.py:262 - flashinfer.jit: [Autotuner]: Autotuning process ends
+(EngineCore_DP0 pid=57951) Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):   0%|          | 0/2 [00:00<?, ?it/s]Capturing CUDA graphs (mixed prefill-decode, PIECEWISE): 100%|██████████| 2/2 [00:00<00:00, 100.41it/s]
+(EngineCore_DP0 pid=57951) Capturing CUDA graphs (decode, FULL):   0%|          | 0/1 [00:00<?, ?it/s]Capturing CUDA graphs (decode, FULL): 100%|██████████| 1/1 [00:00<00:00, 67.06it/s]
+Adding requests:   0%|          | 0/1 [00:00<?, ?it/s]Adding requests: 100%|██████████| 1/1 [00:00<00:00, 1834.78it/s]
+Processed prompts:   0%|          | 0/1 [00:00<?, ?it/s, est. speed input: 0.00 toks/s, output: 0.00 toks/s]Processed prompts: 100%|██████████| 1/1 [00:01<00:00,  1.06s/it, est. speed input: 15.04 toks/s, output: 481.30 toks/s]Processed prompts: 100%|██████████| 1/1 [00:01<00:00,  1.06s/it, est. speed input: 15.04 toks/s, output: 481.30 toks/s]Processed prompts: 100%|██████████| 1/1 [00:01<00:00,  1.06s/it, est. speed input: 15.04 toks/s, output: 481.30 toks/s]
+[rank0]:[W104 21:32:50.285931900 ProcessGroupNCCL.cpp:1524] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+Throughput: 0.94 requests/s, 495.53 total tokens/s, 480.52 output tokens/s
+Total num prompt tokens:  16
+Total num output tokens:  512
+
+========== M=2 ==========
+Time: 2026-01-04 21:32:52
+Params: prompt_len=16, output_len=512, num_prompts=2, max_num_seqs=2
+Command: CUDA_VISIBLE_DEVICES=0 VLLM_LOGGING_LEVEL=WARNING vllm bench throughput         --model /root/vllmbench/checkpoints/Llama3.2-1B-FP8         --dataset-name random         --input-len 16         --output-len 512         --num-prompts 2         --max-num-seqs 2         --max-model-len 656         --max-num-batched-tokens 1312         --gpu-memory-utilization 0.8                  --disable-log-stats         --output-json /root/vllmbench/slidesparse/tools/throughput_bench_results/decode/H100_cc90/20260104_213217/result_json/Llama3.2-1B-FP8_M2.json
+
+When dataset path is not set, it will default to random dataset
+(EngineCore_DP0 pid=58822) Loading safetensors checkpoint shards:   0% Completed | 0/1 [00:00<?, ?it/s]
+(EngineCore_DP0 pid=58822) Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  5.65it/s]
+(EngineCore_DP0 pid=58822) Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  5.64it/s]
+(EngineCore_DP0 pid=58822) 
+(EngineCore_DP0 pid=58822) 2026-01-04 21:33:14,983 - INFO - autotuner.py:256 - flashinfer.jit: [Autotuner]: Autotuning process starts ...
+(EngineCore_DP0 pid=58822) 2026-01-04 21:33:14,988 - INFO - autotuner.py:262 - flashinfer.jit: [Autotuner]: Autotuning process ends
+(EngineCore_DP0 pid=58822) Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):   0%|          | 0/3 [00:00<?, ?it/s]Capturing CUDA graphs (mixed prefill-decode, PIECEWISE): 100%|██████████| 3/3 [00:00<00:00, 68.11it/s]
+(EngineCore_DP0 pid=58822) Capturing CUDA graphs (decode, FULL):   0%|          | 0/2 [00:00<?, ?it/s]Capturing CUDA graphs (decode, FULL): 100%|██████████| 2/2 [00:00<00:00, 18.21it/s]Capturing CUDA graphs (decode, FULL): 100%|██████████| 2/2 [00:00<00:00, 18.18it/s]
+Adding requests:   0%|          | 0/2 [00:00<?, ?it/s]Adding requests: 100%|██████████| 2/2 [00:00<00:00, 1390.22it/s]
+Processed prompts:   0%|          | 0/2 [00:00<?, ?it/s, est. speed input: 0.00 toks/s, output: 0.00 toks/s]Processed prompts:  50%|█████     | 1/2 [00:01<00:01,  1.11s/it, est. speed input: 14.47 toks/s, output: 462.98 toks/s]Processed prompts: 100%|██████████| 2/2 [00:01<00:00,  1.11s/it, est. speed input: 28.88 toks/s, output: 924.03 toks/s]Processed prompts: 100%|██████████| 2/2 [00:01<00:00,  1.80it/s, est. speed input: 28.88 toks/s, output: 924.03 toks/s]
+[rank0]:[W104 21:33:17.974665741 ProcessGroupNCCL.cpp:1524] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+Throughput: 1.80 requests/s, 950.18 total tokens/s, 921.39 output tokens/s
+Total num prompt tokens:  32
+Total num output tokens:  1024
+
+========== M=4 ==========
+Time: 2026-01-04 21:33:20
+Params: prompt_len=16, output_len=512, num_prompts=4, max_num_seqs=4
+Command: CUDA_VISIBLE_DEVICES=0 VLLM_LOGGING_LEVEL=WARNING vllm bench throughput         --model /root/vllmbench/checkpoints/Llama3.2-1B-FP8         --dataset-name random         --input-len 16         --output-len 512         --num-prompts 4         --max-num-seqs 4         --max-model-len 656         --max-num-batched-tokens 2624         --gpu-memory-utilization 0.8                  --disable-log-stats         --output-json /root/vllmbench/slidesparse/tools/throughput_bench_results/decode/H100_cc90/20260104_213217/result_json/Llama3.2-1B-FP8_M4.json
+
+When dataset path is not set, it will default to random dataset
+(EngineCore_DP0 pid=59679) Loading safetensors checkpoint shards:   0% Completed | 0/1 [00:00<?, ?it/s]
+(EngineCore_DP0 pid=59679) Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  5.69it/s]
+(EngineCore_DP0 pid=59679) Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  5.69it/s]
+(EngineCore_DP0 pid=59679) 
+(EngineCore_DP0 pid=59679) 2026-01-04 21:33:43,219 - INFO - autotuner.py:256 - flashinfer.jit: [Autotuner]: Autotuning process starts ...
+(EngineCore_DP0 pid=59679) 2026-01-04 21:33:43,224 - INFO - autotuner.py:262 - flashinfer.jit: [Autotuner]: Autotuning process ends
+(EngineCore_DP0 pid=59679) Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):   0%|          | 0/4 [00:00<?, ?it/s]Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):  25%|██▌       | 1/4 [00:00<00:00,  7.77it/s]Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):  75%|███████▌  | 3/4 [00:00<00:00, 14.12it/s]Capturing CUDA graphs (mixed prefill-decode, PIECEWISE): 100%|██████████| 4/4 [00:00<00:00, 14.38it/s]
+(EngineCore_DP0 pid=59679) Capturing CUDA graphs (decode, FULL):   0%|          | 0/3 [00:00<?, ?it/s]Capturing CUDA graphs (decode, FULL): 100%|██████████| 3/3 [00:00<00:00, 92.39it/s]
+Adding requests:   0%|          | 0/4 [00:00<?, ?it/s]Adding requests: 100%|██████████| 4/4 [00:00<00:00, 1732.83it/s]
+Processed prompts:   0%|          | 0/4 [00:00<?, ?it/s, est. speed input: 0.00 toks/s, output: 0.00 toks/s]Processed prompts:  25%|██▌       | 1/4 [00:01<00:03,  1.10s/it, est. speed input: 14.54 toks/s, output: 465.29 toks/s]Processed prompts: 100%|██████████| 4/4 [00:01<00:00,  1.10s/it, est. speed input: 58.04 toks/s, output: 1857.18 toks/s]Processed prompts: 100%|██████████| 4/4 [00:01<00:00,  3.63it/s, est. speed input: 58.04 toks/s, output: 1857.18 toks/s]
+[rank0]:[W104 21:33:46.336509831 ProcessGroupNCCL.cpp:1524] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+Throughput: 3.61 requests/s, 1908.28 total tokens/s, 1850.46 output tokens/s
+Total num prompt tokens:  64
+Total num output tokens:  2048
+
+========== M=8 ==========
+Time: 2026-01-04 21:33:48
+Params: prompt_len=16, output_len=512, num_prompts=8, max_num_seqs=8
+Command: CUDA_VISIBLE_DEVICES=0 VLLM_LOGGING_LEVEL=WARNING vllm bench throughput         --model /root/vllmbench/checkpoints/Llama3.2-1B-FP8         --dataset-name random         --input-len 16         --output-len 512         --num-prompts 8         --max-num-seqs 8         --max-model-len 656         --max-num-batched-tokens 5248         --gpu-memory-utilization 0.8                  --disable-log-stats         --output-json /root/vllmbench/slidesparse/tools/throughput_bench_results/decode/H100_cc90/20260104_213217/result_json/Llama3.2-1B-FP8_M8.json
+
+When dataset path is not set, it will default to random dataset
+(EngineCore_DP0 pid=60555) Loading safetensors checkpoint shards:   0% Completed | 0/1 [00:00<?, ?it/s]
+(EngineCore_DP0 pid=60555) Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  5.68it/s]
+(EngineCore_DP0 pid=60555) Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  5.68it/s]
+(EngineCore_DP0 pid=60555) 
+(EngineCore_DP0 pid=60555) 2026-01-04 21:34:10,977 - INFO - autotuner.py:256 - flashinfer.jit: [Autotuner]: Autotuning process starts ...
+(EngineCore_DP0 pid=60555) 2026-01-04 21:34:10,982 - INFO - autotuner.py:262 - flashinfer.jit: [Autotuner]: Autotuning process ends
+(EngineCore_DP0 pid=60555) Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):   0%|          | 0/5 [00:00<?, ?it/s]Capturing CUDA graphs (mixed prefill-decode, PIECEWISE): 100%|██████████| 5/5 [00:00<00:00, 77.19it/s]
+(EngineCore_DP0 pid=60555) Capturing CUDA graphs (decode, FULL):   0%|          | 0/4 [00:00<?, ?it/s]Capturing CUDA graphs (decode, FULL): 100%|██████████| 4/4 [00:00<00:00, 96.09it/s]
+Adding requests:   0%|          | 0/8 [00:00<?, ?it/s]Adding requests: 100%|██████████| 8/8 [00:00<00:00, 2166.20it/s]
+Processed prompts:   0%|          | 0/8 [00:00<?, ?it/s, est. speed input: 0.00 toks/s, output: 0.00 toks/s]Processed prompts:  12%|█▎        | 1/8 [00:01<00:07,  1.14s/it, est. speed input: 14.05 toks/s, output: 449.68 toks/s]Processed prompts: 100%|██████████| 8/8 [00:01<00:00,  1.14s/it, est. speed input: 112.17 toks/s, output: 3589.29 toks/s]Processed prompts: 100%|██████████| 8/8 [00:01<00:00,  7.01it/s, est. speed input: 112.17 toks/s, output: 3589.29 toks/s]
+[rank0]:[W104 21:34:13.954583493 ProcessGroupNCCL.cpp:1524] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+Throughput: 6.98 requests/s, 3684.02 total tokens/s, 3572.38 output tokens/s
+Total num prompt tokens:  128
+Total num output tokens:  4096
+
+========== M=16 ==========
+Time: 2026-01-04 21:34:16
+Params: prompt_len=16, output_len=512, num_prompts=16, max_num_seqs=16
+Command: CUDA_VISIBLE_DEVICES=0 VLLM_LOGGING_LEVEL=WARNING vllm bench throughput         --model /root/vllmbench/checkpoints/Llama3.2-1B-FP8         --dataset-name random         --input-len 16         --output-len 512         --num-prompts 16         --max-num-seqs 16         --max-model-len 656         --max-num-batched-tokens 10496         --gpu-memory-utilization 0.8                  --disable-log-stats         --output-json /root/vllmbench/slidesparse/tools/throughput_bench_results/decode/H100_cc90/20260104_213217/result_json/Llama3.2-1B-FP8_M16.json
+
+When dataset path is not set, it will default to random dataset
+(EngineCore_DP0 pid=61434) Loading safetensors checkpoint shards:   0% Completed | 0/1 [00:00<?, ?it/s]
+(EngineCore_DP0 pid=61434) Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  5.67it/s]
+(EngineCore_DP0 pid=61434) Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  5.67it/s]
+(EngineCore_DP0 pid=61434) 
+(EngineCore_DP0 pid=61434) 2026-01-04 21:34:42,372 - INFO - autotuner.py:256 - flashinfer.jit: [Autotuner]: Autotuning process starts ...
+(EngineCore_DP0 pid=61434) 2026-01-04 21:34:42,377 - INFO - autotuner.py:262 - flashinfer.jit: [Autotuner]: Autotuning process ends
+(EngineCore_DP0 pid=61434) Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):   0%|          | 0/7 [00:00<?, ?it/s]Capturing CUDA graphs (mixed prefill-decode, PIECEWISE): 100%|██████████| 7/7 [00:00<00:00, 78.55it/s]
+(EngineCore_DP0 pid=61434) Capturing CUDA graphs (decode, FULL):   0%|          | 0/5 [00:00<?, ?it/s]Capturing CUDA graphs (decode, FULL): 100%|██████████| 5/5 [00:00<00:00, 101.63it/s]
+Adding requests:   0%|          | 0/16 [00:00<?, ?it/s]Adding requests: 100%|██████████| 16/16 [00:00<00:00, 2159.09it/s]
+Processed prompts:   0%|          | 0/16 [00:00<?, ?it/s, est. speed input: 0.00 toks/s, output: 0.00 toks/s]Processed prompts:   6%|▋         | 1/16 [00:01<00:18,  1.24s/it, est. speed input: 12.93 toks/s, output: 413.86 toks/s]Processed prompts: 100%|██████████| 16/16 [00:01<00:00,  1.24s/it, est. speed input: 206.40 toks/s, output: 6604.81 toks/s]Processed prompts: 100%|██████████| 16/16 [00:01<00:00, 12.90it/s, est. speed input: 206.40 toks/s, output: 6604.81 toks/s]
+[rank0]:[W104 21:34:45.463940843 ProcessGroupNCCL.cpp:1524] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+Throughput: 12.81 requests/s, 6761.07 total tokens/s, 6556.19 output tokens/s
+Total num prompt tokens:  256
+Total num output tokens:  8192
