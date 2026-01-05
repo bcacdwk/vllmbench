@@ -67,12 +67,20 @@ MODEL_LEN_BUFFER=128
 # 可选值: DEBUG, INFO, WARNING, ERROR
 VLLM_LOG_LEVEL="WARNING"
 
-# GPU 设备编号 (默认使用 GPU 0)
-GPU_ID=0
+# GPU 设备编号 (逗号分隔，支持多 GPU)
+# 单卡: GPU_ID="0"
+# 多卡: GPU_ID="0,1" 或 GPU_ID="2,3"
+# 与 TENSOR_PARALLEL_SIZE 配合使用
+GPU_ID="0,1"
 
 # GPU 内存利用率 (0.0-1.0)
 # 默认 0.9，如果遇到内存不足可以降低到 0.85 或 0.8
 GPU_MEMORY_UTILIZATION=0.8
+
+# Tensor Parallelism 配置
+# 默认 1 (单卡)，可设置为 2, 4, 8 等使用多卡并行
+# 14B 模型在 16GB 显存卡上需要至少 TP=2
+TENSOR_PARALLEL_SIZE=1
 
 # torch.compile 控制
 # 在不支持的架构上 (如 GB10 sm_121a) 需要禁用 torch.compile
@@ -152,6 +160,62 @@ log_and_echo() {
     echo "$1" | tee -a "${LOG_FILE}"
 }
 
+# 按模型大小排序 (提取 XXb 中的数字进行数值排序)
+# 输入: 模型 key 列表 (通过管道)
+# 输出: 按模型大小排序后的列表
+sort_by_model_size() {
+    # 提取模型 key 中的数字 (如 qwen2.5-0.5b-int8 -> 0.5)
+    # 使用 awk 进行数值排序
+    awk -F'-' '{
+        line = $0
+        for (i=1; i<=NF; i++) {
+            if (tolower($i) ~ /^[0-9.]+b$/) {
+                size = $i
+                gsub(/[bB]/, "", size)
+                print size, line
+                break
+            }
+        }
+    }' | sort -t' ' -k1 -n | cut -d' ' -f2-
+}
+
+# 根据 TENSOR_PARALLEL_SIZE 和 GPU_ID 计算实际使用的 GPU 列表
+# 输出: CUDA_VISIBLE_DEVICES 的值 (e.g., "0,1")
+# 副作用: 设置 ACTUAL_TP_SIZE 为实际使用的 GPU 数量
+get_gpu_devices_for_tp() {
+    local tp_size=${TENSOR_PARALLEL_SIZE}
+    local gpu_ids=${GPU_ID}
+    
+    # 单卡模式: 直接返回第一个 GPU
+    if [[ ${tp_size} -le 1 ]]; then
+        local first_gpu=$(echo "${gpu_ids}" | cut -d',' -f1)
+        ACTUAL_TP_SIZE=1
+        echo "${first_gpu}"
+        return
+    fi
+    
+    # 多卡模式: 解析 GPU_ID 列表
+    IFS=',' read -ra gpu_array <<< "${gpu_ids}"
+    local available_count=${#gpu_array[@]}
+    
+    if [[ ${available_count} -lt ${tp_size} ]]; then
+        # GPU 数量不足，警告并使用所有可用的
+        print_warning "GPU_ID specifies ${available_count} GPUs but TP=${tp_size} requested. Using all ${available_count} available GPUs." >&2
+        ACTUAL_TP_SIZE=${available_count}
+        echo "${gpu_ids}"
+    elif [[ ${available_count} -gt ${tp_size} ]]; then
+        # GPU 数量过多，取前 tp_size 个
+        local selected_gpus=$(echo "${gpu_ids}" | cut -d',' -f1-${tp_size})
+        print_warning "GPU_ID specifies ${available_count} GPUs but TP=${tp_size}. Using first ${tp_size}: ${selected_gpus}" >&2
+        ACTUAL_TP_SIZE=${tp_size}
+        echo "${selected_gpus}"
+    else
+        # 数量匹配
+        ACTUAL_TP_SIZE=${tp_size}
+        echo "${gpu_ids}"
+    fi
+}
+
 # ============================================================================
 # 硬件信息获取函数 (通过 Python 工具脚本)
 # ============================================================================
@@ -207,6 +271,10 @@ show_help() {
     echo "                         Required for unsupported GPU architectures like GB10 (sm_121a)"
     echo "  --compile              Force enable torch.compile (override auto-detection)"
     echo "                         [default: auto-detect based on GPU architecture]"
+    echo ""
+    echo "Hardware Options:"
+    echo "  --tp NUM               Tensor parallelism size (default: 1)"
+    echo "                         Use --tp 2 for 14B models on 16GB GPUs"
     echo ""
     echo "Other Options:"
     echo "  -h, --help             Show this help message"
@@ -431,6 +499,9 @@ run_single_m_test() {
     echo "│   --num-prompts     = ${num_prompts}"
     echo "│   --max-num-seqs    = ${max_num_seqs}"
     echo "│   --max-model-len   = ${max_model_len}"
+    if [[ ${TENSOR_PARALLEL_SIZE} -gt 1 ]]; then
+    echo "│   --tensor-parallel = ${TENSOR_PARALLEL_SIZE}"
+    fi
     echo "├─────────────────────────────────────────────────────────────┤"
     echo "│ Iterations:"
     echo "│   N_prefill     = ${n_prefill}"
@@ -449,13 +520,26 @@ run_single_m_test() {
     # 动态计算 max-num-batched-tokens (= max_num_seqs × max_model_len，确保禁用 chunking)
     local max_num_batched_tokens=$((max_num_seqs * max_model_len))
     
+    # 计算实际使用的 GPU 列表 (先调用函数设置 ACTUAL_TP_SIZE)
+    ACTUAL_TP_SIZE=1  # 初始化
+    local gpu_devices=$(get_gpu_devices_for_tp)
+    # 重新计算 ACTUAL_TP_SIZE (因为子 shell 中的设置不会传回)
+    IFS=',' read -ra _gpu_arr <<< "${gpu_devices}"
+    ACTUAL_TP_SIZE=${#_gpu_arr[@]}
+    
     # 构建环境变量前缀
-    local env_prefix="CUDA_VISIBLE_DEVICES=${GPU_ID} VLLM_LOGGING_LEVEL=${VLLM_LOG_LEVEL}"
+    local env_prefix="CUDA_VISIBLE_DEVICES=${gpu_devices} VLLM_LOGGING_LEVEL=${VLLM_LOG_LEVEL}"
     
     # 构建 eager mode 参数 (用于禁用 torch.compile)
     local eager_flag=""
     if [[ "${ENFORCE_EAGER:-false}" == "true" ]]; then
         eager_flag="--enforce-eager"
+    fi
+    
+    # 构建 TP 参数
+    local tp_flag=""
+    if [[ ${ACTUAL_TP_SIZE} -gt 1 ]]; then
+        tp_flag="--tensor-parallel-size ${ACTUAL_TP_SIZE}"
     fi
     
     # 构建命令 (设置环境变量减少日志输出)
@@ -469,6 +553,7 @@ run_single_m_test() {
         --max-model-len ${max_model_len} \
         --max-num-batched-tokens ${max_num_batched_tokens} \
         --gpu-memory-utilization ${GPU_MEMORY_UTILIZATION} \
+        ${tp_flag} \
         ${eager_flag} \
         --disable-log-stats \
         --output-json ${result_file}"
@@ -732,7 +817,7 @@ test_int8_models() {
     
     local skip_remaining=false
     
-    for key in $(echo "${!INT8_MODELS[@]}" | tr ' ' '\n' | sort); do
+    for key in $(echo "${!INT8_MODELS[@]}" | tr ' ' '\n' | sort_by_model_size); do
         # 如果之前的测试失败，跳过剩余的 INT8 模型
         if [[ "$skip_remaining" == true ]]; then
             print_warning "Skipping INT8 model ${key} due to previous error"
@@ -777,7 +862,7 @@ test_fp8_models() {
     
     local skip_remaining=false
     
-    for key in $(echo "${!FP8_MODELS[@]}" | tr ' ' '\n' | sort); do
+    for key in $(echo "${!FP8_MODELS[@]}" | tr ' ' '\n' | sort_by_model_size); do
         # 如果之前的测试失败，跳过剩余的 FP8 模型
         if [[ "$skip_remaining" == true ]]; then
             print_warning "Skipping FP8 model ${key} due to previous error"
@@ -946,6 +1031,11 @@ main() {
                 # 强制启用 torch.compile (覆盖自动检测)
                 TORCH_COMPILE_LEVEL="force"
                 shift
+                ;;
+            --tp)
+                # Tensor parallelism size
+                TENSOR_PARALLEL_SIZE="$2"
+                shift 2
                 ;;
             -h|--help)
                 show_help

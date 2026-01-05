@@ -1,0 +1,757 @@
+==============================================
+SlideSparse vLLM Throughput Benchmark Log
+==============================================
+Start Time: 2026-01-04 23:13:06
+Test Mode: prefill (testing Prefill phase)
+
+Hardware Information:
+┌─────────────────────────────────────────────────────────────┐
+│                    Hardware Information                      │
+├─────────────────────────────────────────────────────────────┤
+│ GPU:              NVIDIA GeForce RTX 5080                   │
+│ GPU Count:        2                                         │
+│ GPU Memory:       15.5 GB                                    │
+│ Compute Cap:      12.0 (Blackwell)                             │
+│ SM Code:          sm_120                                    │
+├─────────────────────────────────────────────────────────────┤
+│ CUDA Driver:      13.0                                      │
+│ CUDA Runtime:     12.9                                      │
+│ NVIDIA Driver:    580.95.05                                 │
+│ PyTorch:          2.9.0+cu129                               │
+└─────────────────────────────────────────────────────────────┘
+
+User Config:
+  M_list (M_prefill): 16 256
+  N_prefill: 128
+  max-num-batched-tokens: dynamic (= max_num_seqs x max_model_len)
+  vLLM log level: WARNING
+==============================================
+
+
+========== M=16 ==========
+Time: 2026-01-04 23:13:08
+Params: prompt_len=16, output_len=1, num_prompts=128, max_num_seqs=1
+Command: CUDA_VISIBLE_DEVICES=0 VLLM_LOGGING_LEVEL=WARNING vllm bench throughput         --model /root/vllmbench/checkpoints/Qwen2.5-0.5B-INT8         --dataset-name random         --input-len 16         --output-len 1         --num-prompts 128         --max-num-seqs 1         --max-model-len 145         --max-num-batched-tokens 145         --gpu-memory-utilization 0.8                           --disable-log-stats         --output-json /root/vllmbench/slidesparse/tools/throughput_bench_results/prefill/GeForce_cc120/20260104_231304/result_json/Qwen2.5-0.5B-INT8_M16.json
+
+When dataset path is not set, it will default to random dataset
+(EngineCore_DP0 pid=156450) Loading safetensors checkpoint shards:   0% Completed | 0/1 [00:00<?, ?it/s]
+(EngineCore_DP0 pid=156450) Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00, 12.91it/s]
+(EngineCore_DP0 pid=156450) 
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866] EngineCore failed to start.
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866] Traceback (most recent call last):
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]   File "/root/vllmbench/vllm/v1/engine/core.py", line 857, in run_engine_core
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]     engine_core = EngineCoreProc(*args, **kwargs)
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]   File "/root/vllmbench/vllm/v1/engine/core.py", line 637, in __init__
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]     super().__init__(
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]   File "/root/vllmbench/vllm/v1/engine/core.py", line 109, in __init__
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]     num_gpu_blocks, num_cpu_blocks, kv_cache_config = self._initialize_kv_caches(
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]                                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]   File "/root/vllmbench/vllm/v1/engine/core.py", line 240, in _initialize_kv_caches
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]     available_gpu_memory = self.model_executor.determine_available_memory()
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]   File "/root/vllmbench/vllm/v1/executor/abstract.py", line 126, in determine_available_memory
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]     return self.collective_rpc("determine_available_memory")
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]   File "/root/vllmbench/vllm/v1/executor/uniproc_executor.py", line 75, in collective_rpc
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]     result = run_method(self.driver_worker, method, args, kwargs)
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]   File "/root/vllmbench/vllm/v1/serial_utils.py", line 461, in run_method
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]     return func(*args, **kwargs)
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/utils/_contextlib.py", line 120, in decorate_context
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]     return func(*args, **kwargs)
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]   File "/root/vllmbench/vllm/v1/worker/gpu_worker.py", line 340, in determine_available_memory
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]     self.model_runner.profile_run()
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]   File "/root/vllmbench/vllm/v1/worker/gpu_model_runner.py", line 4474, in profile_run
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]     hidden_states, last_hidden_states = self._dummy_run(
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]                                         ^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/utils/_contextlib.py", line 120, in decorate_context
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]     return func(*args, **kwargs)
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]   File "/root/vllmbench/vllm/v1/worker/gpu_model_runner.py", line 4198, in _dummy_run
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]     outputs = self.model(
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]               ^^^^^^^^^^^
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]   File "/root/vllmbench/vllm/compilation/cuda_graph.py", line 220, in __call__
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]     return self.runnable(*args, **kwargs)
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py", line 1775, in _wrapped_call_impl
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]     return self._call_impl(*args, **kwargs)
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py", line 1786, in _call_impl
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]     return forward_call(*args, **kwargs)
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]   File "/root/vllmbench/vllm/model_executor/models/qwen2.py", line 583, in forward
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]     hidden_states = self.model(
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]                     ^^^^^^^^^^^
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]   File "/root/vllmbench/vllm/compilation/decorators.py", line 526, in __call__
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]     output = TorchCompileWithNoGuardsWrapper.__call__(self, *args, **kwargs)
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]   File "/root/vllmbench/vllm/compilation/wrapper.py", line 218, in __call__
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]     return self._call_with_optional_nvtx_range(
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]   File "/root/vllmbench/vllm/compilation/wrapper.py", line 109, in _call_with_optional_nvtx_range
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]     return callable_fn(*args, **kwargs)
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/_dynamo/eval_frame.py", line 832, in compile_wrapper
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]     return fn(*args, **kwargs)
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]            ^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]   File "/root/vllmbench/vllm/model_executor/models/qwen2.py", line 418, in forward
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]     def forward(
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/_dynamo/eval_frame.py", line 1044, in _fn
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]     return fn(*args, **kwargs)
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]            ^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]   File "/root/vllmbench/vllm/compilation/caching.py", line 54, in __call__
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]     return self.optimized_call(*args, **kwargs)
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/fx/graph_module.py", line 837, in call_wrapped
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]     return self._wrapped_call(self, *args, **kwargs)
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/fx/graph_module.py", line 413, in __call__
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]     raise e
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/fx/graph_module.py", line 400, in __call__
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]     return super(self.cls, obj).__call__(*args, **kwargs)  # type: ignore[misc]
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py", line 1775, in _wrapped_call_impl
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]     return self._call_impl(*args, **kwargs)
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py", line 1786, in _call_impl
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]     return forward_call(*args, **kwargs)
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]   File "<eval_with_key>.50", line 274, in forward
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]     submod_0 = self.submod_0(l_input_ids_, s72, l_self_modules_embed_tokens_parameters_weight_, l_self_modules_layers_modules_0_modules_input_layernorm_parameters_weight_, l_self_modules_layers_modules_0_modules_self_attn_modules_qkv_proj_parameters_weight_, l_self_modules_layers_modules_0_modules_self_attn_modules_qkv_proj_parameters_weight_scale_, l_self_modules_layers_modules_0_modules_self_attn_modules_qkv_proj_parameters_bias_, l_positions_, l_self_modules_layers_modules_0_modules_self_attn_modules_rotary_emb_buffers_cos_sin_cache_);  l_input_ids_ = l_self_modules_embed_tokens_parameters_weight_ = l_self_modules_layers_modules_0_modules_input_layernorm_parameters_weight_ = l_self_modules_layers_modules_0_modules_self_attn_modules_qkv_proj_parameters_weight_ = l_self_modules_layers_modules_0_modules_self_attn_modules_qkv_proj_parameters_weight_scale_ = l_self_modules_layers_modules_0_modules_self_attn_modules_qkv_proj_parameters_bias_ = None
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]   File "/root/vllmbench/vllm/compilation/cuda_graph.py", line 220, in __call__
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]     return self.runnable(*args, **kwargs)
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]   File "/root/vllmbench/vllm/compilation/piecewise_backend.py", line 178, in __call__
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]     return range_entry.runnable(*args)
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/_inductor/standalone_compile.py", line 63, in __call__
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]     return self._compiled_fn(*args)
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/_dynamo/eval_frame.py", line 1044, in _fn
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]     return fn(*args, **kwargs)
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]            ^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/_functorch/aot_autograd.py", line 1130, in forward
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]     return compiled_fn(full_args)
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 353, in runtime_wrapper
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]     all_outs = call_func_at_runtime_with_args(
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/_functorch/_aot_autograd/utils.py", line 129, in call_func_at_runtime_with_args
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]     out = normalize_as_list(f(args))
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]                             ^^^^^^^
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 526, in wrapper
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]     return compiled_fn(runtime_args)
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/_inductor/output_code.py", line 613, in __call__
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]     return self.current_callable(inputs)
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/_inductor/utils.py", line 2962, in run
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]     out = model(new_inputs)
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]           ^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]   File "/tmp/torchinductor_root/kg/ckg2n5fr3xvdl7e4my523yubgtwr26udh2l62he23zfdyr75po3d.py", line 600, in call
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]     torch.ops._C.cutlass_scaled_mm.default(buf8, buf0, arg4_1, buf3, arg5_1, arg6_1)
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/_ops.py", line 841, in __call__
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]     return self._op(*args, **kwargs)
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=156450) ERROR 01-04 23:13:23 [core.py:866] RuntimeError: Int8 not supported on SM120. Use FP8 quantization instead, or run on older arch (SM < 100).
+(EngineCore_DP0 pid=156450) Process EngineCore_DP0:
+(EngineCore_DP0 pid=156450) Traceback (most recent call last):
+(EngineCore_DP0 pid=156450)   File "/usr/lib/python3.12/multiprocessing/process.py", line 314, in _bootstrap
+(EngineCore_DP0 pid=156450)     self.run()
+(EngineCore_DP0 pid=156450)   File "/usr/lib/python3.12/multiprocessing/process.py", line 108, in run
+(EngineCore_DP0 pid=156450)     self._target(*self._args, **self._kwargs)
+(EngineCore_DP0 pid=156450)   File "/root/vllmbench/vllm/v1/engine/core.py", line 870, in run_engine_core
+(EngineCore_DP0 pid=156450)     raise e
+(EngineCore_DP0 pid=156450)   File "/root/vllmbench/vllm/v1/engine/core.py", line 857, in run_engine_core
+(EngineCore_DP0 pid=156450)     engine_core = EngineCoreProc(*args, **kwargs)
+(EngineCore_DP0 pid=156450)                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=156450)   File "/root/vllmbench/vllm/v1/engine/core.py", line 637, in __init__
+(EngineCore_DP0 pid=156450)     super().__init__(
+(EngineCore_DP0 pid=156450)   File "/root/vllmbench/vllm/v1/engine/core.py", line 109, in __init__
+(EngineCore_DP0 pid=156450)     num_gpu_blocks, num_cpu_blocks, kv_cache_config = self._initialize_kv_caches(
+(EngineCore_DP0 pid=156450)                                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=156450)   File "/root/vllmbench/vllm/v1/engine/core.py", line 240, in _initialize_kv_caches
+(EngineCore_DP0 pid=156450)     available_gpu_memory = self.model_executor.determine_available_memory()
+(EngineCore_DP0 pid=156450)                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=156450)   File "/root/vllmbench/vllm/v1/executor/abstract.py", line 126, in determine_available_memory
+(EngineCore_DP0 pid=156450)     return self.collective_rpc("determine_available_memory")
+(EngineCore_DP0 pid=156450)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=156450)   File "/root/vllmbench/vllm/v1/executor/uniproc_executor.py", line 75, in collective_rpc
+(EngineCore_DP0 pid=156450)     result = run_method(self.driver_worker, method, args, kwargs)
+(EngineCore_DP0 pid=156450)              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=156450)   File "/root/vllmbench/vllm/v1/serial_utils.py", line 461, in run_method
+(EngineCore_DP0 pid=156450)     return func(*args, **kwargs)
+(EngineCore_DP0 pid=156450)            ^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=156450)   File "/usr/local/lib/python3.12/dist-packages/torch/utils/_contextlib.py", line 120, in decorate_context
+(EngineCore_DP0 pid=156450)     return func(*args, **kwargs)
+(EngineCore_DP0 pid=156450)            ^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=156450)   File "/root/vllmbench/vllm/v1/worker/gpu_worker.py", line 340, in determine_available_memory
+(EngineCore_DP0 pid=156450)     self.model_runner.profile_run()
+(EngineCore_DP0 pid=156450)   File "/root/vllmbench/vllm/v1/worker/gpu_model_runner.py", line 4474, in profile_run
+(EngineCore_DP0 pid=156450)     hidden_states, last_hidden_states = self._dummy_run(
+(EngineCore_DP0 pid=156450)                                         ^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=156450)   File "/usr/local/lib/python3.12/dist-packages/torch/utils/_contextlib.py", line 120, in decorate_context
+(EngineCore_DP0 pid=156450)     return func(*args, **kwargs)
+(EngineCore_DP0 pid=156450)            ^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=156450)   File "/root/vllmbench/vllm/v1/worker/gpu_model_runner.py", line 4198, in _dummy_run
+(EngineCore_DP0 pid=156450)     outputs = self.model(
+(EngineCore_DP0 pid=156450)               ^^^^^^^^^^^
+(EngineCore_DP0 pid=156450)   File "/root/vllmbench/vllm/compilation/cuda_graph.py", line 220, in __call__
+(EngineCore_DP0 pid=156450)     return self.runnable(*args, **kwargs)
+(EngineCore_DP0 pid=156450)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=156450)   File "/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py", line 1775, in _wrapped_call_impl
+(EngineCore_DP0 pid=156450)     return self._call_impl(*args, **kwargs)
+(EngineCore_DP0 pid=156450)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=156450)   File "/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py", line 1786, in _call_impl
+(EngineCore_DP0 pid=156450)     return forward_call(*args, **kwargs)
+(EngineCore_DP0 pid=156450)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=156450)   File "/root/vllmbench/vllm/model_executor/models/qwen2.py", line 583, in forward
+(EngineCore_DP0 pid=156450)     hidden_states = self.model(
+(EngineCore_DP0 pid=156450)                     ^^^^^^^^^^^
+(EngineCore_DP0 pid=156450)   File "/root/vllmbench/vllm/compilation/decorators.py", line 526, in __call__
+(EngineCore_DP0 pid=156450)     output = TorchCompileWithNoGuardsWrapper.__call__(self, *args, **kwargs)
+(EngineCore_DP0 pid=156450)              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=156450)   File "/root/vllmbench/vllm/compilation/wrapper.py", line 218, in __call__
+(EngineCore_DP0 pid=156450)     return self._call_with_optional_nvtx_range(
+(EngineCore_DP0 pid=156450)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=156450)   File "/root/vllmbench/vllm/compilation/wrapper.py", line 109, in _call_with_optional_nvtx_range
+(EngineCore_DP0 pid=156450)     return callable_fn(*args, **kwargs)
+(EngineCore_DP0 pid=156450)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=156450)   File "/usr/local/lib/python3.12/dist-packages/torch/_dynamo/eval_frame.py", line 832, in compile_wrapper
+(EngineCore_DP0 pid=156450)     return fn(*args, **kwargs)
+(EngineCore_DP0 pid=156450)            ^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=156450)   File "/root/vllmbench/vllm/model_executor/models/qwen2.py", line 418, in forward
+(EngineCore_DP0 pid=156450)     def forward(
+(EngineCore_DP0 pid=156450)   File "/usr/local/lib/python3.12/dist-packages/torch/_dynamo/eval_frame.py", line 1044, in _fn
+(EngineCore_DP0 pid=156450)     return fn(*args, **kwargs)
+(EngineCore_DP0 pid=156450)            ^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=156450)   File "/root/vllmbench/vllm/compilation/caching.py", line 54, in __call__
+(EngineCore_DP0 pid=156450)     return self.optimized_call(*args, **kwargs)
+(EngineCore_DP0 pid=156450)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=156450)   File "/usr/local/lib/python3.12/dist-packages/torch/fx/graph_module.py", line 837, in call_wrapped
+(EngineCore_DP0 pid=156450)     return self._wrapped_call(self, *args, **kwargs)
+(EngineCore_DP0 pid=156450)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=156450)   File "/usr/local/lib/python3.12/dist-packages/torch/fx/graph_module.py", line 413, in __call__
+(EngineCore_DP0 pid=156450)     raise e
+(EngineCore_DP0 pid=156450)   File "/usr/local/lib/python3.12/dist-packages/torch/fx/graph_module.py", line 400, in __call__
+(EngineCore_DP0 pid=156450)     return super(self.cls, obj).__call__(*args, **kwargs)  # type: ignore[misc]
+(EngineCore_DP0 pid=156450)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=156450)   File "/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py", line 1775, in _wrapped_call_impl
+(EngineCore_DP0 pid=156450)     return self._call_impl(*args, **kwargs)
+(EngineCore_DP0 pid=156450)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=156450)   File "/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py", line 1786, in _call_impl
+(EngineCore_DP0 pid=156450)     return forward_call(*args, **kwargs)
+(EngineCore_DP0 pid=156450)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=156450)   File "<eval_with_key>.50", line 274, in forward
+(EngineCore_DP0 pid=156450)     submod_0 = self.submod_0(l_input_ids_, s72, l_self_modules_embed_tokens_parameters_weight_, l_self_modules_layers_modules_0_modules_input_layernorm_parameters_weight_, l_self_modules_layers_modules_0_modules_self_attn_modules_qkv_proj_parameters_weight_, l_self_modules_layers_modules_0_modules_self_attn_modules_qkv_proj_parameters_weight_scale_, l_self_modules_layers_modules_0_modules_self_attn_modules_qkv_proj_parameters_bias_, l_positions_, l_self_modules_layers_modules_0_modules_self_attn_modules_rotary_emb_buffers_cos_sin_cache_);  l_input_ids_ = l_self_modules_embed_tokens_parameters_weight_ = l_self_modules_layers_modules_0_modules_input_layernorm_parameters_weight_ = l_self_modules_layers_modules_0_modules_self_attn_modules_qkv_proj_parameters_weight_ = l_self_modules_layers_modules_0_modules_self_attn_modules_qkv_proj_parameters_weight_scale_ = l_self_modules_layers_modules_0_modules_self_attn_modules_qkv_proj_parameters_bias_ = None
+(EngineCore_DP0 pid=156450)                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=156450)   File "/root/vllmbench/vllm/compilation/cuda_graph.py", line 220, in __call__
+(EngineCore_DP0 pid=156450)     return self.runnable(*args, **kwargs)
+(EngineCore_DP0 pid=156450)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=156450)   File "/root/vllmbench/vllm/compilation/piecewise_backend.py", line 178, in __call__
+(EngineCore_DP0 pid=156450)     return range_entry.runnable(*args)
+(EngineCore_DP0 pid=156450)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=156450)   File "/usr/local/lib/python3.12/dist-packages/torch/_inductor/standalone_compile.py", line 63, in __call__
+(EngineCore_DP0 pid=156450)     return self._compiled_fn(*args)
+(EngineCore_DP0 pid=156450)            ^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=156450)   File "/usr/local/lib/python3.12/dist-packages/torch/_dynamo/eval_frame.py", line 1044, in _fn
+(EngineCore_DP0 pid=156450)     return fn(*args, **kwargs)
+(EngineCore_DP0 pid=156450)            ^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=156450)   File "/usr/local/lib/python3.12/dist-packages/torch/_functorch/aot_autograd.py", line 1130, in forward
+(EngineCore_DP0 pid=156450)     return compiled_fn(full_args)
+(EngineCore_DP0 pid=156450)            ^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=156450)   File "/usr/local/lib/python3.12/dist-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 353, in runtime_wrapper
+(EngineCore_DP0 pid=156450)     all_outs = call_func_at_runtime_with_args(
+(EngineCore_DP0 pid=156450)                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=156450)   File "/usr/local/lib/python3.12/dist-packages/torch/_functorch/_aot_autograd/utils.py", line 129, in call_func_at_runtime_with_args
+(EngineCore_DP0 pid=156450)     out = normalize_as_list(f(args))
+(EngineCore_DP0 pid=156450)                             ^^^^^^^
+(EngineCore_DP0 pid=156450)   File "/usr/local/lib/python3.12/dist-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 526, in wrapper
+(EngineCore_DP0 pid=156450)     return compiled_fn(runtime_args)
+(EngineCore_DP0 pid=156450)            ^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=156450)   File "/usr/local/lib/python3.12/dist-packages/torch/_inductor/output_code.py", line 613, in __call__
+(EngineCore_DP0 pid=156450)     return self.current_callable(inputs)
+(EngineCore_DP0 pid=156450)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=156450)   File "/usr/local/lib/python3.12/dist-packages/torch/_inductor/utils.py", line 2962, in run
+(EngineCore_DP0 pid=156450)     out = model(new_inputs)
+(EngineCore_DP0 pid=156450)           ^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=156450)   File "/tmp/torchinductor_root/kg/ckg2n5fr3xvdl7e4my523yubgtwr26udh2l62he23zfdyr75po3d.py", line 600, in call
+(EngineCore_DP0 pid=156450)     torch.ops._C.cutlass_scaled_mm.default(buf8, buf0, arg4_1, buf3, arg5_1, arg6_1)
+(EngineCore_DP0 pid=156450)   File "/usr/local/lib/python3.12/dist-packages/torch/_ops.py", line 841, in __call__
+(EngineCore_DP0 pid=156450)     return self._op(*args, **kwargs)
+(EngineCore_DP0 pid=156450)            ^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=156450) RuntimeError: Int8 not supported on SM120. Use FP8 quantization instead, or run on older arch (SM < 100).
+[rank0]:[W104 23:13:23.241175547 ProcessGroupNCCL.cpp:1524] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+Traceback (most recent call last):
+  File "/usr/local/bin/vllm", line 7, in <module>
+    sys.exit(main())
+             ^^^^^^
+  File "/root/vllmbench/vllm/entrypoints/cli/main.py", line 73, in main
+    args.dispatch_function(args)
+  File "/root/vllmbench/vllm/entrypoints/cli/benchmark/throughput.py", line 21, in cmd
+    main(args)
+  File "/root/vllmbench/vllm/benchmarks/throughput.py", line 730, in main
+    elapsed_time, request_outputs = run_vllm(
+                                    ^^^^^^^^^
+  File "/root/vllmbench/vllm/benchmarks/throughput.py", line 51, in run_vllm
+    llm = LLM(**dataclasses.asdict(engine_args))
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/entrypoints/llm.py", line 351, in __init__
+    self.llm_engine = LLMEngine.from_engine_args(
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/v1/engine/llm_engine.py", line 183, in from_engine_args
+    return cls(
+           ^^^^
+  File "/root/vllmbench/vllm/v1/engine/llm_engine.py", line 109, in __init__
+    self.engine_core = EngineCoreClient.make_client(
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/v1/engine/core_client.py", line 93, in make_client
+    return SyncMPClient(vllm_config, executor_class, log_stats)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/v1/engine/core_client.py", line 648, in __init__
+    super().__init__(
+  File "/root/vllmbench/vllm/v1/engine/core_client.py", line 477, in __init__
+    with launch_core_engines(vllm_config, executor_class, log_stats) as (
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/contextlib.py", line 144, in __exit__
+    next(self.gen)
+  File "/root/vllmbench/vllm/v1/engine/utils.py", line 903, in launch_core_engines
+    wait_for_engine_startup(
+  File "/root/vllmbench/vllm/v1/engine/utils.py", line 960, in wait_for_engine_startup
+    raise RuntimeError(
+RuntimeError: Engine core initialization failed. See root cause above. Failed core proc(s): {}
+ERROR: Test failed for M=16
+ERROR OUTPUT:
+    return cls(
+           ^^^^
+  File "/root/vllmbench/vllm/v1/engine/llm_engine.py", line 109, in __init__
+    self.engine_core = EngineCoreClient.make_client(
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/v1/engine/core_client.py", line 93, in make_client
+    return SyncMPClient(vllm_config, executor_class, log_stats)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/v1/engine/core_client.py", line 648, in __init__
+    super().__init__(
+  File "/root/vllmbench/vllm/v1/engine/core_client.py", line 477, in __init__
+    with launch_core_engines(vllm_config, executor_class, log_stats) as (
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/contextlib.py", line 144, in __exit__
+    next(self.gen)
+  File "/root/vllmbench/vllm/v1/engine/utils.py", line 903, in launch_core_engines
+    wait_for_engine_startup(
+  File "/root/vllmbench/vllm/v1/engine/utils.py", line 960, in wait_for_engine_startup
+    raise RuntimeError(
+RuntimeError: Engine core initialization failed. See root cause above. Failed core proc(s): {}
+SKIP: INT8 test failed, skipping remaining INT8 tests
+
+========== M=16 ==========
+Time: 2026-01-04 23:13:26
+Params: prompt_len=16, output_len=1, num_prompts=128, max_num_seqs=1
+Command: CUDA_VISIBLE_DEVICES=0 VLLM_LOGGING_LEVEL=WARNING vllm bench throughput         --model /root/vllmbench/checkpoints/Qwen2.5-0.5B-FP8         --dataset-name random         --input-len 16         --output-len 1         --num-prompts 128         --max-num-seqs 1         --max-model-len 145         --max-num-batched-tokens 145         --gpu-memory-utilization 0.8                           --disable-log-stats         --output-json /root/vllmbench/slidesparse/tools/throughput_bench_results/prefill/GeForce_cc120/20260104_231304/result_json/Qwen2.5-0.5B-FP8_M16.json
+
+When dataset path is not set, it will default to random dataset
+(EngineCore_DP0 pid=156970) Loading safetensors checkpoint shards:   0% Completed | 0/1 [00:00<?, ?it/s]
+(EngineCore_DP0 pid=156970) Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00, 14.09it/s]
+(EngineCore_DP0 pid=156970) 
+(EngineCore_DP0 pid=156970) 2026-01-04 23:13:41,186 - INFO - autotuner.py:256 - flashinfer.jit: [Autotuner]: Autotuning process starts ...
+(EngineCore_DP0 pid=156970) 2026-01-04 23:13:41,190 - INFO - autotuner.py:262 - flashinfer.jit: [Autotuner]: Autotuning process ends
+(EngineCore_DP0 pid=156970) Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):   0%|          | 0/2 [00:00<?, ?it/s]Capturing CUDA graphs (mixed prefill-decode, PIECEWISE): 100%|██████████| 2/2 [00:00<00:00, 87.55it/s]
+(EngineCore_DP0 pid=156970) Capturing CUDA graphs (decode, FULL):   0%|          | 0/1 [00:00<?, ?it/s]Capturing CUDA graphs (decode, FULL): 100%|██████████| 1/1 [00:00<00:00,  8.01it/s]Capturing CUDA graphs (decode, FULL): 100%|██████████| 1/1 [00:00<00:00,  8.00it/s]
+Adding requests:   0%|          | 0/128 [00:00<?, ?it/s]Adding requests: 100%|██████████| 128/128 [00:00<00:00, 4292.63it/s]
+Processed prompts:   0%|          | 0/128 [00:00<?, ?it/s, est. speed input: 0.00 toks/s, output: 0.00 toks/s]Processed prompts:  12%|█▎        | 16/128 [00:00<00:00, 159.66it/s, est. speed input: 2554.77 toks/s, output: 159.66 toks/s]Processed prompts:  30%|███       | 39/128 [00:00<00:00, 199.76it/s, est. speed input: 3100.43 toks/s, output: 193.77 toks/s]Processed prompts:  48%|████▊     | 62/128 [00:00<00:00, 212.14it/s, est. speed input: 3277.35 toks/s, output: 204.83 toks/s]Processed prompts:  66%|██████▋   | 85/128 [00:00<00:00, 218.66it/s, est. speed input: 3372.53 toks/s, output: 210.78 toks/s]Processed prompts:  84%|████████▎ | 107/128 [00:00<00:00, 217.53it/s, est. speed input: 3387.95 toks/s, output: 211.74 toks/s]Processed prompts: 100%|██████████| 128/128 [00:00<00:00, 217.53it/s, est. speed input: 3358.96 toks/s, output: 209.93 toks/s]Processed prompts: 100%|██████████| 128/128 [00:00<00:00, 209.90it/s, est. speed input: 3358.96 toks/s, output: 209.93 toks/s]
+[rank0]:[W104 23:13:42.793524059 ProcessGroupNCCL.cpp:1524] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+Throughput: 199.62 requests/s, 3393.62 total tokens/s, 199.62 output tokens/s
+Total num prompt tokens:  2048
+Total num output tokens:  128
+
+========== M=256 ==========
+Time: 2026-01-04 23:13:44
+Params: prompt_len=256, output_len=1, num_prompts=128, max_num_seqs=1
+Command: CUDA_VISIBLE_DEVICES=0 VLLM_LOGGING_LEVEL=WARNING vllm bench throughput         --model /root/vllmbench/checkpoints/Qwen2.5-0.5B-FP8         --dataset-name random         --input-len 256         --output-len 1         --num-prompts 128         --max-num-seqs 1         --max-model-len 385         --max-num-batched-tokens 385         --gpu-memory-utilization 0.8                           --disable-log-stats         --output-json /root/vllmbench/slidesparse/tools/throughput_bench_results/prefill/GeForce_cc120/20260104_231304/result_json/Qwen2.5-0.5B-FP8_M256.json
+
+When dataset path is not set, it will default to random dataset
+(EngineCore_DP0 pid=157496) Loading safetensors checkpoint shards:   0% Completed | 0/1 [00:00<?, ?it/s]
+(EngineCore_DP0 pid=157496) Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00, 14.36it/s]
+(EngineCore_DP0 pid=157496) 
+(EngineCore_DP0 pid=157496) 2026-01-04 23:14:02,691 - INFO - autotuner.py:256 - flashinfer.jit: [Autotuner]: Autotuning process starts ...
+(EngineCore_DP0 pid=157496) 2026-01-04 23:14:02,696 - INFO - autotuner.py:262 - flashinfer.jit: [Autotuner]: Autotuning process ends
+(EngineCore_DP0 pid=157496) Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):   0%|          | 0/2 [00:00<?, ?it/s]Capturing CUDA graphs (mixed prefill-decode, PIECEWISE): 100%|██████████| 2/2 [00:00<00:00, 88.19it/s]
+(EngineCore_DP0 pid=157496) Capturing CUDA graphs (decode, FULL):   0%|          | 0/1 [00:00<?, ?it/s]Capturing CUDA graphs (decode, FULL): 100%|██████████| 1/1 [00:00<00:00,  7.86it/s]Capturing CUDA graphs (decode, FULL): 100%|██████████| 1/1 [00:00<00:00,  7.85it/s]
+Adding requests:   0%|          | 0/128 [00:00<?, ?it/s]Adding requests: 100%|██████████| 128/128 [00:00<00:00, 1563.37it/s]
+Processed prompts:   0%|          | 0/128 [00:00<?, ?it/s, est. speed input: 0.00 toks/s, output: 0.00 toks/s]Processed prompts:  21%|██        | 27/128 [00:00<00:00, 260.50it/s, est. speed input: 66694.19 toks/s, output: 260.51 toks/s]Processed prompts:  42%|████▏     | 54/128 [00:00<00:00, 226.97it/s, est. speed input: 59249.77 toks/s, output: 231.44 toks/s]Processed prompts:  60%|██████    | 77/128 [00:00<00:00, 218.88it/s, est. speed input: 57363.50 toks/s, output: 224.07 toks/s]Processed prompts:  78%|███████▊  | 100/128 [00:00<00:00, 214.87it/s, est. speed input: 56391.90 toks/s, output: 220.28 toks/s]Processed prompts:  95%|█████████▌| 122/128 [00:00<00:00, 212.53it/s, est. speed input: 55802.25 toks/s, output: 217.98 toks/s]Processed prompts: 100%|██████████| 128/128 [00:00<00:00, 212.53it/s, est. speed input: 55661.69 toks/s, output: 217.43 toks/s]Processed prompts: 100%|██████████| 128/128 [00:00<00:00, 217.40it/s, est. speed input: 55661.69 toks/s, output: 217.43 toks/s]
+[rank0]:[W104 23:14:04.518006378 ProcessGroupNCCL.cpp:1524] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+Throughput: 190.39 requests/s, 48929.05 total tokens/s, 190.39 output tokens/s
+Total num prompt tokens:  32768
+Total num output tokens:  128
+
+========== M=16 ==========
+Time: 2026-01-04 23:14:05
+Params: prompt_len=16, output_len=1, num_prompts=128, max_num_seqs=1
+Command: CUDA_VISIBLE_DEVICES=0 VLLM_LOGGING_LEVEL=WARNING vllm bench throughput         --model /root/vllmbench/checkpoints/Llama3.2-1B-FP8         --dataset-name random         --input-len 16         --output-len 1         --num-prompts 128         --max-num-seqs 1         --max-model-len 145         --max-num-batched-tokens 145         --gpu-memory-utilization 0.8                           --disable-log-stats         --output-json /root/vllmbench/slidesparse/tools/throughput_bench_results/prefill/GeForce_cc120/20260104_231304/result_json/Llama3.2-1B-FP8_M16.json
+
+When dataset path is not set, it will default to random dataset
+(EngineCore_DP0 pid=158087) Loading safetensors checkpoint shards:   0% Completed | 0/1 [00:00<?, ?it/s]
+(EngineCore_DP0 pid=158087) Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  7.37it/s]
+(EngineCore_DP0 pid=158087) Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  7.36it/s]
+(EngineCore_DP0 pid=158087) 
+(EngineCore_DP0 pid=158087) 2026-01-04 23:14:22,411 - INFO - autotuner.py:256 - flashinfer.jit: [Autotuner]: Autotuning process starts ...
+(EngineCore_DP0 pid=158087) 2026-01-04 23:14:22,414 - INFO - autotuner.py:262 - flashinfer.jit: [Autotuner]: Autotuning process ends
+(EngineCore_DP0 pid=158087) Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):   0%|          | 0/2 [00:00<?, ?it/s]Capturing CUDA graphs (mixed prefill-decode, PIECEWISE): 100%|██████████| 2/2 [00:00<00:00, 116.53it/s]
+(EngineCore_DP0 pid=158087) Capturing CUDA graphs (decode, FULL):   0%|          | 0/1 [00:00<?, ?it/s]Capturing CUDA graphs (decode, FULL): 100%|██████████| 1/1 [00:00<00:00,  8.14it/s]Capturing CUDA graphs (decode, FULL): 100%|██████████| 1/1 [00:00<00:00,  8.13it/s]
+Adding requests:   0%|          | 0/128 [00:00<?, ?it/s]Adding requests: 100%|██████████| 128/128 [00:00<00:00, 5705.63it/s]
+Processed prompts:   0%|          | 0/128 [00:00<?, ?it/s, est. speed input: 0.00 toks/s, output: 0.00 toks/s]Processed prompts:  11%|█         | 14/128 [00:00<00:00, 136.61it/s, est. speed input: 2186.04 toks/s, output: 136.62 toks/s]Processed prompts:  26%|██▌       | 33/128 [00:00<00:00, 164.62it/s, est. speed input: 2567.08 toks/s, output: 160.44 toks/s]Processed prompts:  41%|████      | 52/128 [00:00<00:00, 173.67it/s, est. speed input: 2695.20 toks/s, output: 168.45 toks/s]Processed prompts:  55%|█████▌    | 71/128 [00:00<00:00, 178.49it/s, est. speed input: 2764.77 toks/s, output: 172.79 toks/s]Processed prompts:  70%|███████   | 90/128 [00:00<00:00, 181.06it/s, est. speed input: 2805.62 toks/s, output: 175.35 toks/s]Processed prompts:  85%|████████▌ | 109/128 [00:00<00:00, 182.39it/s, est. speed input: 2831.27 toks/s, output: 176.95 toks/s]Processed prompts: 100%|██████████| 128/128 [00:00<00:00, 183.27it/s, est. speed input: 2849.86 toks/s, output: 178.12 toks/s]Processed prompts: 100%|██████████| 128/128 [00:00<00:00, 183.27it/s, est. speed input: 2849.86 toks/s, output: 178.12 toks/s]Processed prompts: 100%|██████████| 128/128 [00:00<00:00, 178.09it/s, est. speed input: 2849.86 toks/s, output: 178.12 toks/s]
+[rank0]:[W104 23:14:24.219405623 ProcessGroupNCCL.cpp:1524] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+Throughput: 172.51 requests/s, 2932.60 total tokens/s, 172.51 output tokens/s
+Total num prompt tokens:  2048
+Total num output tokens:  128
+
+========== M=256 ==========
+Time: 2026-01-04 23:14:25
+Params: prompt_len=256, output_len=1, num_prompts=128, max_num_seqs=1
+Command: CUDA_VISIBLE_DEVICES=0 VLLM_LOGGING_LEVEL=WARNING vllm bench throughput         --model /root/vllmbench/checkpoints/Llama3.2-1B-FP8         --dataset-name random         --input-len 256         --output-len 1         --num-prompts 128         --max-num-seqs 1         --max-model-len 385         --max-num-batched-tokens 385         --gpu-memory-utilization 0.8                           --disable-log-stats         --output-json /root/vllmbench/slidesparse/tools/throughput_bench_results/prefill/GeForce_cc120/20260104_231304/result_json/Llama3.2-1B-FP8_M256.json
+
+When dataset path is not set, it will default to random dataset
+(EngineCore_DP0 pid=158676) Loading safetensors checkpoint shards:   0% Completed | 0/1 [00:00<?, ?it/s]
+(EngineCore_DP0 pid=158676) Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  7.32it/s]
+(EngineCore_DP0 pid=158676) Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  7.32it/s]
+(EngineCore_DP0 pid=158676) 
+(EngineCore_DP0 pid=158676) 2026-01-04 23:14:42,157 - INFO - autotuner.py:256 - flashinfer.jit: [Autotuner]: Autotuning process starts ...
+(EngineCore_DP0 pid=158676) 2026-01-04 23:14:42,160 - INFO - autotuner.py:262 - flashinfer.jit: [Autotuner]: Autotuning process ends
+(EngineCore_DP0 pid=158676) Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):   0%|          | 0/2 [00:00<?, ?it/s]Capturing CUDA graphs (mixed prefill-decode, PIECEWISE): 100%|██████████| 2/2 [00:00<00:00, 115.70it/s]
+(EngineCore_DP0 pid=158676) Capturing CUDA graphs (decode, FULL):   0%|          | 0/1 [00:00<?, ?it/s]Capturing CUDA graphs (decode, FULL): 100%|██████████| 1/1 [00:00<00:00,  8.13it/s]Capturing CUDA graphs (decode, FULL): 100%|██████████| 1/1 [00:00<00:00,  8.12it/s]
+Adding requests:   0%|          | 0/128 [00:00<?, ?it/s]Adding requests: 100%|██████████| 128/128 [00:00<00:00, 1717.67it/s]
+Processed prompts:   0%|          | 0/128 [00:00<?, ?it/s, est. speed input: 0.00 toks/s, output: 0.00 toks/s]Processed prompts:  16%|█▌        | 20/128 [00:00<00:00, 189.37it/s, est. speed input: 48482.06 toks/s, output: 189.37 toks/s]Processed prompts:  30%|███       | 39/128 [00:00<00:00, 168.01it/s, est. speed input: 43775.43 toks/s, output: 170.98 toks/s]Processed prompts:  44%|████▍     | 56/128 [00:00<00:00, 162.74it/s, est. speed input: 42540.13 toks/s, output: 166.17 toks/s]Processed prompts:  57%|█████▋    | 73/128 [00:00<00:00, 159.99it/s, est. speed input: 41881.14 toks/s, output: 163.59 toks/s]Processed prompts:  70%|███████   | 90/128 [00:00<00:00, 158.44it/s, est. speed input: 41480.01 toks/s, output: 162.03 toks/s]Processed prompts:  83%|████████▎ | 106/128 [00:00<00:00, 157.58it/s, est. speed input: 41229.86 toks/s, output: 161.05 toks/s]Processed prompts:  95%|█████████▌| 122/128 [00:00<00:00, 157.07it/s, est. speed input: 41054.63 toks/s, output: 160.37 toks/s]Processed prompts: 100%|██████████| 128/128 [00:00<00:00, 157.07it/s, est. speed input: 40997.52 toks/s, output: 160.14 toks/s]Processed prompts: 100%|██████████| 128/128 [00:00<00:00, 160.13it/s, est. speed input: 40997.52 toks/s, output: 160.14 toks/s]
+[rank0]:[W104 23:14:44.084549592 ProcessGroupNCCL.cpp:1524] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+Throughput: 146.20 requests/s, 37573.66 total tokens/s, 146.20 output tokens/s
+Total num prompt tokens:  32768
+Total num output tokens:  128
+
+========== M=16 ==========
+Time: 2026-01-04 23:14:45
+Params: prompt_len=16, output_len=1, num_prompts=128, max_num_seqs=1
+Command: CUDA_VISIBLE_DEVICES=0 VLLM_LOGGING_LEVEL=WARNING vllm bench throughput         --model /root/vllmbench/checkpoints/Qwen2.5-1.5B-FP8         --dataset-name random         --input-len 16         --output-len 1         --num-prompts 128         --max-num-seqs 1         --max-model-len 145         --max-num-batched-tokens 145         --gpu-memory-utilization 0.8                           --disable-log-stats         --output-json /root/vllmbench/slidesparse/tools/throughput_bench_results/prefill/GeForce_cc120/20260104_231304/result_json/Qwen2.5-1.5B-FP8_M16.json
+
+When dataset path is not set, it will default to random dataset
+(EngineCore_DP0 pid=159257) Loading safetensors checkpoint shards:   0% Completed | 0/1 [00:00<?, ?it/s]
+(EngineCore_DP0 pid=159257) Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  5.79it/s]
+(EngineCore_DP0 pid=159257) Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  5.78it/s]
+(EngineCore_DP0 pid=159257) 
+(EngineCore_DP0 pid=159257) 2026-01-04 23:15:06,933 - INFO - autotuner.py:256 - flashinfer.jit: [Autotuner]: Autotuning process starts ...
+(EngineCore_DP0 pid=159257) 2026-01-04 23:15:06,938 - INFO - autotuner.py:262 - flashinfer.jit: [Autotuner]: Autotuning process ends
+(EngineCore_DP0 pid=159257) Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):   0%|          | 0/2 [00:00<?, ?it/s]Capturing CUDA graphs (mixed prefill-decode, PIECEWISE): 100%|██████████| 2/2 [00:00<00:00, 67.91it/s]
+(EngineCore_DP0 pid=159257) Capturing CUDA graphs (decode, FULL):   0%|          | 0/1 [00:00<?, ?it/s]Capturing CUDA graphs (decode, FULL): 100%|██████████| 1/1 [00:00<00:00,  8.97it/s]Capturing CUDA graphs (decode, FULL): 100%|██████████| 1/1 [00:00<00:00,  8.96it/s]
+Adding requests:   0%|          | 0/128 [00:00<?, ?it/s]Adding requests: 100%|██████████| 128/128 [00:00<00:00, 4345.30it/s]
+Processed prompts:   0%|          | 0/128 [00:00<?, ?it/s, est. speed input: 0.00 toks/s, output: 0.00 toks/s]Processed prompts:   9%|▊         | 11/128 [00:00<00:01, 106.43it/s, est. speed input: 1703.06 toks/s, output: 106.43 toks/s]Processed prompts:  19%|█▉        | 24/128 [00:00<00:00, 117.85it/s, est. speed input: 1858.30 toks/s, output: 116.14 toks/s]Processed prompts:  29%|██▉       | 37/128 [00:00<00:00, 121.91it/s, est. speed input: 1914.69 toks/s, output: 119.67 toks/s]Processed prompts:  39%|███▉      | 50/128 [00:00<00:00, 123.75it/s, est. speed input: 1942.24 toks/s, output: 121.39 toks/s]Processed prompts:  49%|████▉     | 63/128 [00:00<00:00, 124.81it/s, est. speed input: 1959.20 toks/s, output: 122.45 toks/s]Processed prompts:  59%|█████▉    | 76/128 [00:00<00:00, 125.46it/s, est. speed input: 1970.53 toks/s, output: 123.16 toks/s]Processed prompts:  70%|██████▉   | 89/128 [00:00<00:00, 125.86it/s, est. speed input: 1978.55 toks/s, output: 123.66 toks/s]Processed prompts:  80%|███████▉  | 102/128 [00:00<00:00, 126.21it/s, est. speed input: 1985.14 toks/s, output: 124.07 toks/s]Processed prompts:  90%|████████▉ | 115/128 [00:00<00:00, 126.30it/s, est. speed input: 1989.50 toks/s, output: 124.34 toks/s]Processed prompts: 100%|██████████| 128/128 [00:01<00:00, 126.41it/s, est. speed input: 1993.15 toks/s, output: 124.57 toks/s]Processed prompts: 100%|██████████| 128/128 [00:01<00:00, 126.41it/s, est. speed input: 1993.15 toks/s, output: 124.57 toks/s]Processed prompts: 100%|██████████| 128/128 [00:01<00:00, 124.56it/s, est. speed input: 1993.15 toks/s, output: 124.57 toks/s]
+[rank0]:[W104 23:15:09.092217768 ProcessGroupNCCL.cpp:1524] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+Throughput: 120.90 requests/s, 2055.30 total tokens/s, 120.90 output tokens/s
+Total num prompt tokens:  2048
+Total num output tokens:  128
+
+========== M=256 ==========
+Time: 2026-01-04 23:15:10
+Params: prompt_len=256, output_len=1, num_prompts=128, max_num_seqs=1
+Command: CUDA_VISIBLE_DEVICES=0 VLLM_LOGGING_LEVEL=WARNING vllm bench throughput         --model /root/vllmbench/checkpoints/Qwen2.5-1.5B-FP8         --dataset-name random         --input-len 256         --output-len 1         --num-prompts 128         --max-num-seqs 1         --max-model-len 385         --max-num-batched-tokens 385         --gpu-memory-utilization 0.8                           --disable-log-stats         --output-json /root/vllmbench/slidesparse/tools/throughput_bench_results/prefill/GeForce_cc120/20260104_231304/result_json/Qwen2.5-1.5B-FP8_M256.json
+
+When dataset path is not set, it will default to random dataset
+(EngineCore_DP0 pid=160053) Loading safetensors checkpoint shards:   0% Completed | 0/1 [00:00<?, ?it/s]
+(EngineCore_DP0 pid=160053) Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  5.80it/s]
+(EngineCore_DP0 pid=160053) Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  5.80it/s]
+(EngineCore_DP0 pid=160053) 
+(EngineCore_DP0 pid=160053) 2026-01-04 23:15:30,223 - INFO - autotuner.py:256 - flashinfer.jit: [Autotuner]: Autotuning process starts ...
+(EngineCore_DP0 pid=160053) 2026-01-04 23:15:30,227 - INFO - autotuner.py:262 - flashinfer.jit: [Autotuner]: Autotuning process ends
+(EngineCore_DP0 pid=160053) Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):   0%|          | 0/2 [00:00<?, ?it/s]Capturing CUDA graphs (mixed prefill-decode, PIECEWISE): 100%|██████████| 2/2 [00:00<00:00, 70.25it/s]
+(EngineCore_DP0 pid=160053) Capturing CUDA graphs (decode, FULL):   0%|          | 0/1 [00:00<?, ?it/s]Capturing CUDA graphs (decode, FULL): 100%|██████████| 1/1 [00:00<00:00,  8.96it/s]Capturing CUDA graphs (decode, FULL): 100%|██████████| 1/1 [00:00<00:00,  8.96it/s]
+Adding requests:   0%|          | 0/128 [00:00<?, ?it/s]Adding requests: 100%|██████████| 128/128 [00:00<00:00, 1467.96it/s]
+Processed prompts:   0%|          | 0/128 [00:00<?, ?it/s, est. speed input: 0.00 toks/s, output: 0.00 toks/s]Processed prompts:  12%|█▏        | 15/128 [00:00<00:00, 148.34it/s, est. speed input: 37978.27 toks/s, output: 148.34 toks/s]Processed prompts:  23%|██▎       | 30/128 [00:00<00:00, 119.92it/s, est. speed input: 31610.11 toks/s, output: 123.47 toks/s]Processed prompts:  34%|███▎      | 43/128 [00:00<00:00, 113.65it/s, est. speed input: 30112.52 toks/s, output: 117.62 toks/s]Processed prompts:  43%|████▎     | 55/128 [00:00<00:00, 110.85it/s, est. speed input: 29418.11 toks/s, output: 114.91 toks/s]Processed prompts:  52%|█████▏    | 67/128 [00:00<00:00, 109.23it/s, est. speed input: 28992.04 toks/s, output: 113.25 toks/s]Processed prompts:  61%|██████    | 78/128 [00:00<00:00, 108.20it/s, est. speed input: 28712.75 toks/s, output: 112.16 toks/s]Processed prompts:  70%|██████▉   | 89/128 [00:00<00:00, 107.48it/s, est. speed input: 28503.14 toks/s, output: 111.34 toks/s]Processed prompts:  78%|███████▊  | 100/128 [00:00<00:00, 106.72it/s, est. speed input: 28315.95 toks/s, output: 110.61 toks/s]Processed prompts:  87%|████████▋ | 111/128 [00:01<00:00, 106.59it/s, est. speed input: 28201.75 toks/s, output: 110.16 toks/s]Processed prompts:  95%|█████████▌| 122/128 [00:01<00:00, 106.44it/s, est. speed input: 28105.13 toks/s, output: 109.78 toks/s]Processed prompts: 100%|██████████| 128/128 [00:01<00:00, 106.44it/s, est. speed input: 28060.30 toks/s, output: 109.61 toks/s]Processed prompts: 100%|██████████| 128/128 [00:01<00:00, 109.60it/s, est. speed input: 28060.30 toks/s, output: 109.61 toks/s]
+[rank0]:[W104 23:15:32.559399736 ProcessGroupNCCL.cpp:1524] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+Throughput: 101.85 requests/s, 26175.63 total tokens/s, 101.85 output tokens/s
+Total num prompt tokens:  32768
+Total num output tokens:  128
+
+========== M=16 ==========
+Time: 2026-01-04 23:15:33
+Params: prompt_len=16, output_len=1, num_prompts=128, max_num_seqs=1
+Command: CUDA_VISIBLE_DEVICES=0 VLLM_LOGGING_LEVEL=WARNING vllm bench throughput         --model /root/vllmbench/checkpoints/Llama3.2-3B-FP8         --dataset-name random         --input-len 16         --output-len 1         --num-prompts 128         --max-num-seqs 1         --max-model-len 145         --max-num-batched-tokens 145         --gpu-memory-utilization 0.8                           --disable-log-stats         --output-json /root/vllmbench/slidesparse/tools/throughput_bench_results/prefill/GeForce_cc120/20260104_231304/result_json/Llama3.2-3B-FP8_M16.json
+
+When dataset path is not set, it will default to random dataset
+(EngineCore_DP0 pid=160662) Loading safetensors checkpoint shards:   0% Completed | 0/1 [00:00<?, ?it/s]
+(EngineCore_DP0 pid=160662) Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  3.17it/s]
+(EngineCore_DP0 pid=160662) Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  3.16it/s]
+(EngineCore_DP0 pid=160662) 
+(EngineCore_DP0 pid=160662) 2026-01-04 23:15:53,844 - INFO - autotuner.py:256 - flashinfer.jit: [Autotuner]: Autotuning process starts ...
+(EngineCore_DP0 pid=160662) 2026-01-04 23:15:53,849 - INFO - autotuner.py:262 - flashinfer.jit: [Autotuner]: Autotuning process ends
+(EngineCore_DP0 pid=160662) Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):   0%|          | 0/2 [00:00<?, ?it/s]Capturing CUDA graphs (mixed prefill-decode, PIECEWISE): 100%|██████████| 2/2 [00:00<00:00, 63.08it/s]
+(EngineCore_DP0 pid=160662) Capturing CUDA graphs (decode, FULL):   0%|          | 0/1 [00:00<?, ?it/s]Capturing CUDA graphs (decode, FULL): 100%|██████████| 1/1 [00:00<00:00,  8.86it/s]Capturing CUDA graphs (decode, FULL): 100%|██████████| 1/1 [00:00<00:00,  8.85it/s]
+Adding requests:   0%|          | 0/128 [00:00<?, ?it/s]Adding requests: 100%|██████████| 128/128 [00:00<00:00, 4376.01it/s]
+Processed prompts:   0%|          | 0/128 [00:00<?, ?it/s, est. speed input: 0.00 toks/s, output: 0.00 toks/s]Processed prompts:   7%|▋         | 9/128 [00:00<00:01, 83.19it/s, est. speed input: 1331.04 toks/s, output: 83.19 toks/s]Processed prompts:  15%|█▍        | 19/128 [00:00<00:01, 91.85it/s, est. speed input: 1448.22 toks/s, output: 90.51 toks/s]Processed prompts:  23%|██▎       | 29/128 [00:00<00:01, 94.71it/s, est. speed input: 1488.33 toks/s, output: 93.02 toks/s]Processed prompts:  30%|███       | 39/128 [00:00<00:00, 96.11it/s, est. speed input: 1509.10 toks/s, output: 94.32 toks/s]Processed prompts:  38%|███▊      | 49/128 [00:00<00:00, 97.00it/s, est. speed input: 1522.55 toks/s, output: 95.16 toks/s]Processed prompts:  46%|████▌     | 59/128 [00:00<00:00, 97.52it/s, est. speed input: 1531.45 toks/s, output: 95.71 toks/s]Processed prompts:  54%|█████▍    | 69/128 [00:00<00:00, 97.85it/s, est. speed input: 1537.79 toks/s, output: 96.11 toks/s]Processed prompts:  62%|██████▏   | 79/128 [00:00<00:00, 98.00it/s, est. speed input: 1542.19 toks/s, output: 96.39 toks/s]Processed prompts:  70%|██████▉   | 89/128 [00:00<00:00, 98.24it/s, est. speed input: 1546.38 toks/s, output: 96.65 toks/s]Processed prompts:  77%|███████▋  | 99/128 [00:01<00:00, 98.27it/s, est. speed input: 1549.09 toks/s, output: 96.82 toks/s]Processed prompts:  85%|████████▌ | 109/128 [00:01<00:00, 98.30it/s, est. speed input: 1551.31 toks/s, output: 96.96 toks/s]Processed prompts:  93%|█████████▎| 119/128 [00:01<00:00, 98.52it/s, est. speed input: 1554.03 toks/s, output: 97.13 toks/s]Processed prompts: 100%|██████████| 128/128 [00:01<00:00, 98.52it/s, est. speed input: 1555.10 toks/s, output: 97.19 toks/s]Processed prompts: 100%|██████████| 128/128 [00:01<00:00, 97.19it/s, est. speed input: 1555.10 toks/s, output: 97.19 toks/s]
+[rank0]:[W104 23:15:56.326952985 ProcessGroupNCCL.cpp:1524] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+Throughput: 94.95 requests/s, 1614.22 total tokens/s, 94.95 output tokens/s
+Total num prompt tokens:  2048
+Total num output tokens:  128
+
+========== M=256 ==========
+Time: 2026-01-04 23:15:57
+Params: prompt_len=256, output_len=1, num_prompts=128, max_num_seqs=1
+Command: CUDA_VISIBLE_DEVICES=0 VLLM_LOGGING_LEVEL=WARNING vllm bench throughput         --model /root/vllmbench/checkpoints/Llama3.2-3B-FP8         --dataset-name random         --input-len 256         --output-len 1         --num-prompts 128         --max-num-seqs 1         --max-model-len 385         --max-num-batched-tokens 385         --gpu-memory-utilization 0.8                           --disable-log-stats         --output-json /root/vllmbench/slidesparse/tools/throughput_bench_results/prefill/GeForce_cc120/20260104_231304/result_json/Llama3.2-3B-FP8_M256.json
+
+When dataset path is not set, it will default to random dataset
+(EngineCore_DP0 pid=161297) Loading safetensors checkpoint shards:   0% Completed | 0/1 [00:00<?, ?it/s]
+(EngineCore_DP0 pid=161297) Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  3.18it/s]
+(EngineCore_DP0 pid=161297) Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  3.18it/s]
+(EngineCore_DP0 pid=161297) 
+(EngineCore_DP0 pid=161297) 2026-01-04 23:16:17,422 - INFO - autotuner.py:256 - flashinfer.jit: [Autotuner]: Autotuning process starts ...
+(EngineCore_DP0 pid=161297) 2026-01-04 23:16:17,427 - INFO - autotuner.py:262 - flashinfer.jit: [Autotuner]: Autotuning process ends
+(EngineCore_DP0 pid=161297) Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):   0%|          | 0/2 [00:00<?, ?it/s]Capturing CUDA graphs (mixed prefill-decode, PIECEWISE): 100%|██████████| 2/2 [00:00<00:00, 62.24it/s]
+(EngineCore_DP0 pid=161297) Capturing CUDA graphs (decode, FULL):   0%|          | 0/1 [00:00<?, ?it/s]Capturing CUDA graphs (decode, FULL): 100%|██████████| 1/1 [00:00<00:00,  8.89it/s]Capturing CUDA graphs (decode, FULL): 100%|██████████| 1/1 [00:00<00:00,  8.89it/s]
+Adding requests:   0%|          | 0/128 [00:00<?, ?it/s]Adding requests: 100%|██████████| 128/128 [00:00<00:00, 1732.57it/s]
+Processed prompts:   0%|          | 0/128 [00:00<?, ?it/s, est. speed input: 0.00 toks/s, output: 0.00 toks/s]Processed prompts:   8%|▊         | 10/128 [00:00<00:01, 96.59it/s, est. speed input: 24728.12 toks/s, output: 96.59 toks/s]Processed prompts:  16%|█▌        | 20/128 [00:00<00:01, 84.17it/s, est. speed input: 21972.20 toks/s, output: 85.83 toks/s]Processed prompts:  23%|██▎       | 29/128 [00:00<00:01, 81.09it/s, est. speed input: 21249.04 toks/s, output: 83.00 toks/s]Processed prompts:  30%|██▉       | 38/128 [00:00<00:01, 79.63it/s, est. speed input: 20889.26 toks/s, output: 81.60 toks/s]Processed prompts:  36%|███▌      | 46/128 [00:00<00:01, 78.95it/s, est. speed input: 20701.99 toks/s, output: 80.87 toks/s]Processed prompts:  42%|████▏     | 54/128 [00:00<00:00, 78.37it/s, est. speed input: 20554.96 toks/s, output: 80.29 toks/s]Processed prompts:  48%|████▊     | 62/128 [00:00<00:00, 78.04it/s, est. speed input: 20453.81 toks/s, output: 79.90 toks/s]Processed prompts:  55%|█████▍    | 70/128 [00:00<00:00, 77.84it/s, est. speed input: 20378.96 toks/s, output: 79.60 toks/s]Processed prompts:  61%|██████    | 78/128 [00:00<00:00, 77.69it/s, est. speed input: 20317.80 toks/s, output: 79.37 toks/s]Processed prompts:  67%|██████▋   | 86/128 [00:01<00:00, 77.58it/s, est. speed input: 20267.98 toks/s, output: 79.17 toks/s]Processed prompts:  73%|███████▎  | 94/128 [00:01<00:00, 77.52it/s, est. speed input: 20228.30 toks/s, output: 79.02 toks/s]Processed prompts:  80%|███████▉  | 102/128 [00:01<00:00, 77.39it/s, est. speed input: 20188.59 toks/s, output: 78.86 toks/s]Processed prompts:  86%|████████▌ | 110/128 [00:01<00:00, 77.34it/s, est. speed input: 20157.73 toks/s, output: 78.74 toks/s]Processed prompts:  92%|█████████▏| 118/128 [00:01<00:00, 77.35it/s, est. speed input: 20133.60 toks/s, output: 78.65 toks/s]Processed prompts:  98%|█████████▊| 126/128 [00:01<00:00, 77.36it/s, est. speed input: 20112.48 toks/s, output: 78.56 toks/s]Processed prompts: 100%|██████████| 128/128 [00:01<00:00, 77.36it/s, est. speed input: 20107.01 toks/s, output: 78.54 toks/s]Processed prompts: 100%|██████████| 128/128 [00:01<00:00, 78.54it/s, est. speed input: 20107.01 toks/s, output: 78.54 toks/s]
+[rank0]:[W104 23:16:20.262942110 ProcessGroupNCCL.cpp:1524] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+Throughput: 75.06 requests/s, 19291.03 total tokens/s, 75.06 output tokens/s
+Total num prompt tokens:  32768
+Total num output tokens:  128
+
+========== M=16 ==========
+Time: 2026-01-04 23:16:21
+Params: prompt_len=16, output_len=1, num_prompts=128, max_num_seqs=1
+Command: CUDA_VISIBLE_DEVICES=0 VLLM_LOGGING_LEVEL=WARNING vllm bench throughput         --model /root/vllmbench/checkpoints/Qwen2.5-3B-FP8         --dataset-name random         --input-len 16         --output-len 1         --num-prompts 128         --max-num-seqs 1         --max-model-len 145         --max-num-batched-tokens 145         --gpu-memory-utilization 0.8                           --disable-log-stats         --output-json /root/vllmbench/slidesparse/tools/throughput_bench_results/prefill/GeForce_cc120/20260104_231304/result_json/Qwen2.5-3B-FP8_M16.json
+
+When dataset path is not set, it will default to random dataset
+(EngineCore_DP0 pid=161898) Loading safetensors checkpoint shards:   0% Completed | 0/1 [00:00<?, ?it/s]
+(EngineCore_DP0 pid=161898) Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  3.19it/s]
+(EngineCore_DP0 pid=161898) Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  3.18it/s]
+(EngineCore_DP0 pid=161898) 
+(EngineCore_DP0 pid=161898) 2026-01-04 23:16:44,904 - INFO - autotuner.py:256 - flashinfer.jit: [Autotuner]: Autotuning process starts ...
+(EngineCore_DP0 pid=161898) 2026-01-04 23:16:44,910 - INFO - autotuner.py:262 - flashinfer.jit: [Autotuner]: Autotuning process ends
+(EngineCore_DP0 pid=161898) Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):   0%|          | 0/2 [00:00<?, ?it/s]Capturing CUDA graphs (mixed prefill-decode, PIECEWISE): 100%|██████████| 2/2 [00:00<00:00, 48.05it/s]
+(EngineCore_DP0 pid=161898) Capturing CUDA graphs (decode, FULL):   0%|          | 0/1 [00:00<?, ?it/s]Capturing CUDA graphs (decode, FULL): 100%|██████████| 1/1 [00:00<00:00,  8.56it/s]Capturing CUDA graphs (decode, FULL): 100%|██████████| 1/1 [00:00<00:00,  8.55it/s]
+Adding requests:   0%|          | 0/128 [00:00<?, ?it/s]Adding requests: 100%|██████████| 128/128 [00:00<00:00, 4205.34it/s]
+Processed prompts:   0%|          | 0/128 [00:00<?, ?it/s, est. speed input: 0.00 toks/s, output: 0.00 toks/s]Processed prompts:   5%|▌         | 7/128 [00:00<00:01, 66.62it/s, est. speed input: 1066.02 toks/s, output: 66.62 toks/s]Processed prompts:  12%|█▏        | 15/128 [00:00<00:01, 73.02it/s, est. speed input: 1152.84 toks/s, output: 72.05 toks/s]Processed prompts:  18%|█▊        | 23/128 [00:00<00:01, 75.15it/s, est. speed input: 1182.82 toks/s, output: 73.92 toks/s]Processed prompts:  24%|██▍       | 31/128 [00:00<00:01, 76.17it/s, est. speed input: 1197.96 toks/s, output: 74.87 toks/s]Processed prompts:  30%|███       | 39/128 [00:00<00:01, 76.80it/s, est. speed input: 1207.70 toks/s, output: 75.48 toks/s]Processed prompts:  37%|███▋      | 47/128 [00:00<00:01, 77.14it/s, est. speed input: 1213.86 toks/s, output: 75.87 toks/s]Processed prompts:  43%|████▎     | 55/128 [00:00<00:00, 77.27it/s, est. speed input: 1217.67 toks/s, output: 76.10 toks/s]Processed prompts:  49%|████▉     | 63/128 [00:00<00:00, 77.45it/s, est. speed input: 1221.13 toks/s, output: 76.32 toks/s]Processed prompts:  55%|█████▌    | 71/128 [00:00<00:00, 77.57it/s, est. speed input: 1223.80 toks/s, output: 76.49 toks/s]Processed prompts:  62%|██████▏   | 79/128 [00:01<00:00, 77.69it/s, est. speed input: 1226.15 toks/s, output: 76.63 toks/s]Processed prompts:  68%|██████▊   | 87/128 [00:01<00:00, 77.77it/s, est. speed input: 1228.06 toks/s, output: 76.75 toks/s]Processed prompts:  74%|███████▍  | 95/128 [00:01<00:00, 77.77it/s, est. speed input: 1229.42 toks/s, output: 76.84 toks/s]Processed prompts:  80%|████████  | 103/128 [00:01<00:00, 77.83it/s, est. speed input: 1230.77 toks/s, output: 76.92 toks/s]Processed prompts:  87%|████████▋ | 111/128 [00:01<00:00, 77.84it/s, est. speed input: 1231.85 toks/s, output: 76.99 toks/s]Processed prompts:  93%|█████████▎| 119/128 [00:01<00:00, 77.81it/s, est. speed input: 1232.65 toks/s, output: 77.04 toks/s]Processed prompts:  99%|█████████▉| 127/128 [00:01<00:00, 77.92it/s, est. speed input: 1233.78 toks/s, output: 77.11 toks/s]Processed prompts: 100%|██████████| 128/128 [00:01<00:00, 77.92it/s, est. speed input: 1233.83 toks/s, output: 77.11 toks/s]Processed prompts: 100%|██████████| 128/128 [00:01<00:00, 77.11it/s, est. speed input: 1233.83 toks/s, output: 77.11 toks/s]
+[rank0]:[W104 23:16:47.764374950 ProcessGroupNCCL.cpp:1524] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+Throughput: 75.65 requests/s, 1286.05 total tokens/s, 75.65 output tokens/s
+Total num prompt tokens:  2048
+Total num output tokens:  128
+
+========== M=256 ==========
+Time: 2026-01-04 23:16:49
+Params: prompt_len=256, output_len=1, num_prompts=128, max_num_seqs=1
+Command: CUDA_VISIBLE_DEVICES=0 VLLM_LOGGING_LEVEL=WARNING vllm bench throughput         --model /root/vllmbench/checkpoints/Qwen2.5-3B-FP8         --dataset-name random         --input-len 256         --output-len 1         --num-prompts 128         --max-num-seqs 1         --max-model-len 385         --max-num-batched-tokens 385         --gpu-memory-utilization 0.8                           --disable-log-stats         --output-json /root/vllmbench/slidesparse/tools/throughput_bench_results/prefill/GeForce_cc120/20260104_231304/result_json/Qwen2.5-3B-FP8_M256.json
+
+When dataset path is not set, it will default to random dataset
+(EngineCore_DP0 pid=162795) Loading safetensors checkpoint shards:   0% Completed | 0/1 [00:00<?, ?it/s]
+(EngineCore_DP0 pid=162795) Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  3.15it/s]
+(EngineCore_DP0 pid=162795) Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  3.15it/s]
+(EngineCore_DP0 pid=162795) 
+(EngineCore_DP0 pid=162795) 2026-01-04 23:17:11,118 - INFO - autotuner.py:256 - flashinfer.jit: [Autotuner]: Autotuning process starts ...
+(EngineCore_DP0 pid=162795) 2026-01-04 23:17:11,123 - INFO - autotuner.py:262 - flashinfer.jit: [Autotuner]: Autotuning process ends
+(EngineCore_DP0 pid=162795) Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):   0%|          | 0/2 [00:00<?, ?it/s]Capturing CUDA graphs (mixed prefill-decode, PIECEWISE): 100%|██████████| 2/2 [00:00<00:00, 49.53it/s]
+(EngineCore_DP0 pid=162795) Capturing CUDA graphs (decode, FULL):   0%|          | 0/1 [00:00<?, ?it/s]Capturing CUDA graphs (decode, FULL): 100%|██████████| 1/1 [00:00<00:00,  8.54it/s]Capturing CUDA graphs (decode, FULL): 100%|██████████| 1/1 [00:00<00:00,  8.53it/s]
+Adding requests:   0%|          | 0/128 [00:00<?, ?it/s]Adding requests: 100%|██████████| 128/128 [00:00<00:00, 1452.40it/s]
+Processed prompts:   0%|          | 0/128 [00:00<?, ?it/s, est. speed input: 0.00 toks/s, output: 0.00 toks/s]Processed prompts:   8%|▊         | 10/128 [00:00<00:01, 89.98it/s, est. speed input: 23037.86 toks/s, output: 89.99 toks/s]Processed prompts:  15%|█▍        | 19/128 [00:00<00:01, 74.34it/s, est. speed input: 19569.28 toks/s, output: 76.44 toks/s]Processed prompts:  21%|██        | 27/128 [00:00<00:01, 70.35it/s, est. speed input: 18640.30 toks/s, output: 72.81 toks/s]Processed prompts:  27%|██▋       | 35/128 [00:00<00:01, 68.45it/s, est. speed input: 18175.18 toks/s, output: 71.00 toks/s]Processed prompts:  33%|███▎      | 42/128 [00:00<00:01, 67.45it/s, est. speed input: 17919.16 toks/s, output: 70.00 toks/s]Processed prompts:  38%|███▊      | 49/128 [00:00<00:01, 66.79it/s, est. speed input: 17740.71 toks/s, output: 69.30 toks/s]Processed prompts:  44%|████▍     | 56/128 [00:00<00:01, 66.45it/s, est. speed input: 17620.10 toks/s, output: 68.83 toks/s]Processed prompts:  49%|████▉     | 63/128 [00:00<00:00, 66.19it/s, est. speed input: 17524.41 toks/s, output: 68.45 toks/s]Processed prompts:  55%|█████▍    | 70/128 [00:01<00:00, 66.00it/s, est. speed input: 17447.43 toks/s, output: 68.15 toks/s]Processed prompts:  60%|██████    | 77/128 [00:01<00:00, 65.76it/s, est. speed input: 17376.07 toks/s, output: 67.87 toks/s]Processed prompts:  66%|██████▌   | 84/128 [00:01<00:00, 65.63it/s, est. speed input: 17319.82 toks/s, output: 67.66 toks/s]Processed prompts:  71%|███████   | 91/128 [00:01<00:00, 65.60it/s, est. speed input: 17276.91 toks/s, output: 67.49 toks/s]Processed prompts:  77%|███████▋  | 98/128 [00:01<00:00, 65.51it/s, est. speed input: 17235.59 toks/s, output: 67.33 toks/s]Processed prompts:  82%|████████▏ | 105/128 [00:01<00:00, 65.49it/s, est. speed input: 17202.35 toks/s, output: 67.20 toks/s]Processed prompts:  88%|████████▊ | 112/128 [00:01<00:00, 65.54it/s, est. speed input: 17177.36 toks/s, output: 67.10 toks/s]Processed prompts:  93%|█████████▎| 119/128 [00:01<00:00, 65.55it/s, est. speed input: 17153.92 toks/s, output: 67.01 toks/s]Processed prompts:  98%|█████████▊| 126/128 [00:01<00:00, 65.56it/s, est. speed input: 17133.44 toks/s, output: 66.93 toks/s]Processed prompts: 100%|██████████| 128/128 [00:01<00:00, 65.56it/s, est. speed input: 17126.53 toks/s, output: 66.90 toks/s]Processed prompts: 100%|██████████| 128/128 [00:01<00:00, 66.90it/s, est. speed input: 17126.53 toks/s, output: 66.90 toks/s]
+[rank0]:[W104 23:17:14.271355492 ProcessGroupNCCL.cpp:1524] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+Throughput: 63.89 requests/s, 16420.70 total tokens/s, 63.89 output tokens/s
+Total num prompt tokens:  32768
+Total num output tokens:  128
+
+========== M=16 ==========
+Time: 2026-01-04 23:17:15
+Params: prompt_len=16, output_len=1, num_prompts=128, max_num_seqs=1
+Command: CUDA_VISIBLE_DEVICES=0 VLLM_LOGGING_LEVEL=WARNING vllm bench throughput         --model /root/vllmbench/checkpoints/Qwen2.5-7B-FP8         --dataset-name random         --input-len 16         --output-len 1         --num-prompts 128         --max-num-seqs 1         --max-model-len 145         --max-num-batched-tokens 145         --gpu-memory-utilization 0.8                           --disable-log-stats         --output-json /root/vllmbench/slidesparse/tools/throughput_bench_results/prefill/GeForce_cc120/20260104_231304/result_json/Qwen2.5-7B-FP8_M16.json
+
+When dataset path is not set, it will default to random dataset
+(EngineCore_DP0 pid=163530) Loading safetensors checkpoint shards:   0% Completed | 0/2 [00:00<?, ?it/s]
+(EngineCore_DP0 pid=163530) Loading safetensors checkpoint shards:  50% Completed | 1/2 [00:00<00:00,  3.05it/s]
+(EngineCore_DP0 pid=163530) Loading safetensors checkpoint shards: 100% Completed | 2/2 [00:00<00:00,  2.38it/s]
+(EngineCore_DP0 pid=163530) Loading safetensors checkpoint shards: 100% Completed | 2/2 [00:00<00:00,  2.46it/s]
+(EngineCore_DP0 pid=163530) 
+(EngineCore_DP0 pid=163530) 2026-01-04 23:17:38,893 - INFO - autotuner.py:256 - flashinfer.jit: [Autotuner]: Autotuning process starts ...
+(EngineCore_DP0 pid=163530) 2026-01-04 23:17:38,898 - INFO - autotuner.py:262 - flashinfer.jit: [Autotuner]: Autotuning process ends
+(EngineCore_DP0 pid=163530) Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):   0%|          | 0/2 [00:00<?, ?it/s]Capturing CUDA graphs (mixed prefill-decode, PIECEWISE): 100%|██████████| 2/2 [00:00<00:00, 42.26it/s]
+(EngineCore_DP0 pid=163530) Capturing CUDA graphs (decode, FULL):   0%|          | 0/1 [00:00<?, ?it/s]Capturing CUDA graphs (decode, FULL): 100%|██████████| 1/1 [00:00<00:00,  8.29it/s]Capturing CUDA graphs (decode, FULL): 100%|██████████| 1/1 [00:00<00:00,  8.28it/s]
+Adding requests:   0%|          | 0/128 [00:00<?, ?it/s]Adding requests: 100%|██████████| 128/128 [00:00<00:00, 4087.61it/s]
+Processed prompts:   0%|          | 0/128 [00:00<?, ?it/s, est. speed input: 0.00 toks/s, output: 0.00 toks/s]Processed prompts:   4%|▍         | 5/128 [00:00<00:02, 48.80it/s, est. speed input: 780.89 toks/s, output: 48.80 toks/s]Processed prompts:   9%|▊         | 11/128 [00:00<00:02, 53.61it/s, est. speed input: 846.40 toks/s, output: 52.90 toks/s]Processed prompts:  13%|█▎        | 17/128 [00:00<00:02, 55.14it/s, est. speed input: 868.10 toks/s, output: 54.26 toks/s]Processed prompts:  18%|█▊        | 23/128 [00:00<00:01, 55.92it/s, est. speed input: 879.62 toks/s, output: 54.98 toks/s]Processed prompts:  23%|██▎       | 29/128 [00:00<00:01, 56.25it/s, est. speed input: 885.58 toks/s, output: 55.35 toks/s]Processed prompts:  27%|██▋       | 35/128 [00:00<00:01, 56.51it/s, est. speed input: 890.08 toks/s, output: 55.63 toks/s]Processed prompts:  32%|███▏      | 41/128 [00:00<00:01, 56.66it/s, est. speed input: 893.11 toks/s, output: 55.82 toks/s]Processed prompts:  37%|███▋      | 47/128 [00:00<00:01, 56.79it/s, est. speed input: 895.60 toks/s, output: 55.97 toks/s]Processed prompts:  41%|████▏     | 53/128 [00:00<00:01, 56.86it/s, est. speed input: 897.48 toks/s, output: 56.09 toks/s]Processed prompts:  46%|████▌     | 59/128 [00:01<00:01, 56.84it/s, est. speed input: 898.58 toks/s, output: 56.16 toks/s]Processed prompts:  51%|█████     | 65/128 [00:01<00:01, 56.83it/s, est. speed input: 899.54 toks/s, output: 56.22 toks/s]Processed prompts:  55%|█████▌    | 71/128 [00:01<00:01, 56.85it/s, est. speed input: 900.46 toks/s, output: 56.28 toks/s]Processed prompts:  60%|██████    | 77/128 [00:01<00:00, 56.94it/s, est. speed input: 901.52 toks/s, output: 56.34 toks/s]Processed prompts:  65%|██████▍   | 83/128 [00:01<00:00, 56.96it/s, est. speed input: 902.26 toks/s, output: 56.39 toks/s]Processed prompts:  70%|██████▉   | 89/128 [00:01<00:00, 56.97it/s, est. speed input: 902.93 toks/s, output: 56.43 toks/s]Processed prompts:  74%|███████▍  | 95/128 [00:01<00:00, 57.06it/s, est. speed input: 903.75 toks/s, output: 56.48 toks/s]Processed prompts:  79%|███████▉  | 101/128 [00:01<00:00, 57.10it/s, est. speed input: 904.41 toks/s, output: 56.53 toks/s]Processed prompts:  84%|████████▎ | 107/128 [00:01<00:00, 57.12it/s, est. speed input: 904.98 toks/s, output: 56.56 toks/s]Processed prompts:  88%|████████▊ | 113/128 [00:01<00:00, 57.13it/s, est. speed input: 905.48 toks/s, output: 56.59 toks/s]Processed prompts:  93%|█████████▎| 119/128 [00:02<00:00, 57.10it/s, est. speed input: 905.82 toks/s, output: 56.61 toks/s]Processed prompts:  98%|█████████▊| 125/128 [00:02<00:00, 57.12it/s, est. speed input: 906.26 toks/s, output: 56.64 toks/s]Processed prompts: 100%|██████████| 128/128 [00:02<00:00, 57.12it/s, est. speed input: 906.44 toks/s, output: 56.65 toks/s]Processed prompts: 100%|██████████| 128/128 [00:02<00:00, 56.65it/s, est. speed input: 906.44 toks/s, output: 56.65 toks/s]
+[rank0]:[W104 23:17:42.316425508 ProcessGroupNCCL.cpp:1524] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+Throughput: 55.84 requests/s, 949.25 total tokens/s, 55.84 output tokens/s
+Total num prompt tokens:  2048
+Total num output tokens:  128
+
+========== M=256 ==========
+Time: 2026-01-04 23:17:43
+Params: prompt_len=256, output_len=1, num_prompts=128, max_num_seqs=1
+Command: CUDA_VISIBLE_DEVICES=0 VLLM_LOGGING_LEVEL=WARNING vllm bench throughput         --model /root/vllmbench/checkpoints/Qwen2.5-7B-FP8         --dataset-name random         --input-len 256         --output-len 1         --num-prompts 128         --max-num-seqs 1         --max-model-len 385         --max-num-batched-tokens 385         --gpu-memory-utilization 0.8                           --disable-log-stats         --output-json /root/vllmbench/slidesparse/tools/throughput_bench_results/prefill/GeForce_cc120/20260104_231304/result_json/Qwen2.5-7B-FP8_M256.json
+
+When dataset path is not set, it will default to random dataset
+(EngineCore_DP0 pid=164526) Loading safetensors checkpoint shards:   0% Completed | 0/2 [00:00<?, ?it/s]
+(EngineCore_DP0 pid=164526) Loading safetensors checkpoint shards:  50% Completed | 1/2 [00:00<00:00,  3.19it/s]
+(EngineCore_DP0 pid=164526) Loading safetensors checkpoint shards: 100% Completed | 2/2 [00:00<00:00,  2.48it/s]
+(EngineCore_DP0 pid=164526) Loading safetensors checkpoint shards: 100% Completed | 2/2 [00:00<00:00,  2.57it/s]
+(EngineCore_DP0 pid=164526) 
+(EngineCore_DP0 pid=164526) 2026-01-04 23:18:04,581 - INFO - autotuner.py:256 - flashinfer.jit: [Autotuner]: Autotuning process starts ...
+(EngineCore_DP0 pid=164526) 2026-01-04 23:18:04,593 - INFO - autotuner.py:262 - flashinfer.jit: [Autotuner]: Autotuning process ends
+(EngineCore_DP0 pid=164526) Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):   0%|          | 0/2 [00:00<?, ?it/s]Capturing CUDA graphs (mixed prefill-decode, PIECEWISE): 100%|██████████| 2/2 [00:00<00:00, 43.54it/s]
+(EngineCore_DP0 pid=164526) Capturing CUDA graphs (decode, FULL):   0%|          | 0/1 [00:00<?, ?it/s]Capturing CUDA graphs (decode, FULL): 100%|██████████| 1/1 [00:00<00:00,  8.42it/s]Capturing CUDA graphs (decode, FULL): 100%|██████████| 1/1 [00:00<00:00,  8.41it/s]
+Adding requests:   0%|          | 0/128 [00:00<?, ?it/s]Adding requests: 100%|██████████| 128/128 [00:00<00:00, 1473.85it/s]
+Processed prompts:   0%|          | 0/128 [00:00<?, ?it/s, est. speed input: 0.00 toks/s, output: 0.00 toks/s]Processed prompts:   5%|▍         | 6/128 [00:00<00:02, 59.69it/s, est. speed input: 15280.99 toks/s, output: 59.69 toks/s]Processed prompts:   9%|▉         | 12/128 [00:00<00:02, 48.09it/s, est. speed input: 12682.02 toks/s, output: 49.54 toks/s]Processed prompts:  13%|█▎        | 17/128 [00:00<00:02, 45.63it/s, est. speed input: 12094.65 toks/s, output: 47.24 toks/s]Processed prompts:  17%|█▋        | 22/128 [00:00<00:02, 44.56it/s, est. speed input: 11818.71 toks/s, output: 46.17 toks/s]Processed prompts:  21%|██        | 27/128 [00:00<00:02, 43.96it/s, est. speed input: 11653.72 toks/s, output: 45.52 toks/s]Processed prompts:  25%|██▌       | 32/128 [00:00<00:02, 43.72it/s, est. speed input: 11558.53 toks/s, output: 45.15 toks/s]Processed prompts:  29%|██▉       | 37/128 [00:00<00:02, 43.59it/s, est. speed input: 11492.42 toks/s, output: 44.89 toks/s]Processed prompts:  33%|███▎      | 42/128 [00:00<00:01, 43.64it/s, est. speed input: 11456.37 toks/s, output: 44.75 toks/s]Processed prompts:  37%|███▋      | 47/128 [00:01<00:01, 43.72it/s, est. speed input: 11433.11 toks/s, output: 44.66 toks/s]Processed prompts:  41%|████      | 52/128 [00:01<00:01, 43.84it/s, est. speed input: 11419.16 toks/s, output: 44.61 toks/s]Processed prompts:  45%|████▍     | 57/128 [00:01<00:01, 43.96it/s, est. speed input: 11411.27 toks/s, output: 44.58 toks/s]Processed prompts:  48%|████▊     | 62/128 [00:01<00:01, 44.11it/s, est. speed input: 11408.27 toks/s, output: 44.56 toks/s]Processed prompts:  52%|█████▏    | 67/128 [00:01<00:01, 44.32it/s, est. speed input: 11413.37 toks/s, output: 44.58 toks/s]Processed prompts:  56%|█████▋    | 72/128 [00:01<00:01, 44.46it/s, est. speed input: 11416.95 toks/s, output: 44.60 toks/s]Processed prompts:  60%|██████    | 77/128 [00:01<00:01, 44.65it/s, est. speed input: 11425.29 toks/s, output: 44.63 toks/s]Processed prompts:  64%|██████▍   | 82/128 [00:01<00:01, 44.78it/s, est. speed input: 11432.22 toks/s, output: 44.66 toks/s]Processed prompts:  68%|██████▊   | 87/128 [00:01<00:00, 44.97it/s, est. speed input: 11443.34 toks/s, output: 44.70 toks/s]Processed prompts:  72%|███████▏  | 92/128 [00:02<00:00, 45.12it/s, est. speed input: 11453.92 toks/s, output: 44.74 toks/s]Processed prompts:  76%|███████▌  | 97/128 [00:02<00:00, 45.22it/s, est. speed input: 11463.22 toks/s, output: 44.78 toks/s]Processed prompts:  80%|███████▉  | 102/128 [00:02<00:00, 45.34it/s, est. speed input: 11473.52 toks/s, output: 44.82 toks/s]Processed prompts:  84%|████████▎ | 107/128 [00:02<00:00, 45.39it/s, est. speed input: 11481.85 toks/s, output: 44.85 toks/s]Processed prompts:  88%|████████▊ | 112/128 [00:02<00:00, 45.39it/s, est. speed input: 11487.77 toks/s, output: 44.87 toks/s]Processed prompts:  91%|█████████▏| 117/128 [00:02<00:00, 45.41it/s, est. speed input: 11493.99 toks/s, output: 44.90 toks/s]Processed prompts:  95%|█████████▌| 122/128 [00:02<00:00, 45.43it/s, est. speed input: 11500.14 toks/s, output: 44.92 toks/s]Processed prompts:  99%|█████████▉| 127/128 [00:02<00:00, 45.46it/s, est. speed input: 11506.27 toks/s, output: 44.95 toks/s]Processed prompts: 100%|██████████| 128/128 [00:02<00:00, 45.46it/s, est. speed input: 11507.38 toks/s, output: 44.95 toks/s]Processed prompts: 100%|██████████| 128/128 [00:02<00:00, 44.95it/s, est. speed input: 11507.38 toks/s, output: 44.95 toks/s]
+[rank0]:[W104 23:18:08.625008783 ProcessGroupNCCL.cpp:1524] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+Throughput: 43.59 requests/s, 11203.68 total tokens/s, 43.59 output tokens/s
+Total num prompt tokens:  32768
+Total num output tokens:  128
+
+========== M=16 ==========
+Time: 2026-01-04 23:18:09
+Params: prompt_len=16, output_len=1, num_prompts=128, max_num_seqs=1
+Command: CUDA_VISIBLE_DEVICES=0 VLLM_LOGGING_LEVEL=WARNING vllm bench throughput         --model /root/vllmbench/checkpoints/Qwen2.5-14B-FP8         --dataset-name random         --input-len 16         --output-len 1         --num-prompts 128         --max-num-seqs 1         --max-model-len 145         --max-num-batched-tokens 145         --gpu-memory-utilization 0.8                           --disable-log-stats         --output-json /root/vllmbench/slidesparse/tools/throughput_bench_results/prefill/GeForce_cc120/20260104_231304/result_json/Qwen2.5-14B-FP8_M16.json
+
+When dataset path is not set, it will default to random dataset
+(EngineCore_DP0 pid=165226) ERROR 01-04 23:18:18 [gpu_model_runner.py:3657] Failed to load model - not enough GPU memory. Try lowering --gpu-memory-utilization to free memory for weights, increasing --tensor-parallel-size, or using --quantization. See https://docs.vllm.ai/en/latest/configuration/conserving_memory/ for more tips. (original error: CUDA out of memory. Tried to allocate 1.45 GiB. GPU 0 has a total capacity of 15.46 GiB of which 953.75 MiB is free. Including non-PyTorch memory, this process has 14.31 GiB memory in use. Of the allocated memory 13.94 GiB is allocated by PyTorch, and 12.46 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables))
+(EngineCore_DP0 pid=165226) ERROR 01-04 23:18:18 [core.py:866] EngineCore failed to start.
+(EngineCore_DP0 pid=165226) ERROR 01-04 23:18:18 [core.py:866] Traceback (most recent call last):
+(EngineCore_DP0 pid=165226) ERROR 01-04 23:18:18 [core.py:866]   File "/root/vllmbench/vllm/v1/engine/core.py", line 857, in run_engine_core
+(EngineCore_DP0 pid=165226) ERROR 01-04 23:18:18 [core.py:866]     engine_core = EngineCoreProc(*args, **kwargs)
+(EngineCore_DP0 pid=165226) ERROR 01-04 23:18:18 [core.py:866]                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=165226) ERROR 01-04 23:18:18 [core.py:866]   File "/root/vllmbench/vllm/v1/engine/core.py", line 637, in __init__
+(EngineCore_DP0 pid=165226) ERROR 01-04 23:18:18 [core.py:866]     super().__init__(
+(EngineCore_DP0 pid=165226) ERROR 01-04 23:18:18 [core.py:866]   File "/root/vllmbench/vllm/v1/engine/core.py", line 102, in __init__
+(EngineCore_DP0 pid=165226) ERROR 01-04 23:18:18 [core.py:866]     self.model_executor = executor_class(vllm_config)
+(EngineCore_DP0 pid=165226) ERROR 01-04 23:18:18 [core.py:866]                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=165226) ERROR 01-04 23:18:18 [core.py:866]   File "/root/vllmbench/vllm/v1/executor/abstract.py", line 101, in __init__
+(EngineCore_DP0 pid=165226) ERROR 01-04 23:18:18 [core.py:866]     self._init_executor()
+(EngineCore_DP0 pid=165226) ERROR 01-04 23:18:18 [core.py:866]   File "/root/vllmbench/vllm/v1/executor/uniproc_executor.py", line 48, in _init_executor
+(EngineCore_DP0 pid=165226) ERROR 01-04 23:18:18 [core.py:866]     self.driver_worker.load_model()
+(EngineCore_DP0 pid=165226) ERROR 01-04 23:18:18 [core.py:866]   File "/root/vllmbench/vllm/v1/worker/gpu_worker.py", line 289, in load_model
+(EngineCore_DP0 pid=165226) ERROR 01-04 23:18:18 [core.py:866]     self.model_runner.load_model(eep_scale_up=eep_scale_up)
+(EngineCore_DP0 pid=165226) ERROR 01-04 23:18:18 [core.py:866]   File "/root/vllmbench/vllm/v1/worker/gpu_model_runner.py", line 3658, in load_model
+(EngineCore_DP0 pid=165226) ERROR 01-04 23:18:18 [core.py:866]     raise e
+(EngineCore_DP0 pid=165226) ERROR 01-04 23:18:18 [core.py:866]   File "/root/vllmbench/vllm/v1/worker/gpu_model_runner.py", line 3581, in load_model
+(EngineCore_DP0 pid=165226) ERROR 01-04 23:18:18 [core.py:866]     self.model = model_loader.load_model(
+(EngineCore_DP0 pid=165226) ERROR 01-04 23:18:18 [core.py:866]                  ^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=165226) ERROR 01-04 23:18:18 [core.py:866]   File "/root/vllmbench/vllm/model_executor/model_loader/base_loader.py", line 49, in load_model
+(EngineCore_DP0 pid=165226) ERROR 01-04 23:18:18 [core.py:866]     model = initialize_model(
+(EngineCore_DP0 pid=165226) ERROR 01-04 23:18:18 [core.py:866]             ^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=165226) ERROR 01-04 23:18:18 [core.py:866]   File "/root/vllmbench/vllm/model_executor/model_loader/utils.py", line 48, in initialize_model
+(EngineCore_DP0 pid=165226) ERROR 01-04 23:18:18 [core.py:866]     return model_class(vllm_config=vllm_config, prefix=prefix)
+(EngineCore_DP0 pid=165226) ERROR 01-04 23:18:18 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=165226) ERROR 01-04 23:18:18 [core.py:866]   File "/root/vllmbench/vllm/model_executor/models/qwen2.py", line 551, in __init__
+(EngineCore_DP0 pid=165226) ERROR 01-04 23:18:18 [core.py:866]     self.lm_head = ParallelLMHead(
+(EngineCore_DP0 pid=165226) ERROR 01-04 23:18:18 [core.py:866]                    ^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=165226) ERROR 01-04 23:18:18 [core.py:866]   File "/root/vllmbench/vllm/model_executor/layers/vocab_parallel_embedding.py", line 523, in __init__
+(EngineCore_DP0 pid=165226) ERROR 01-04 23:18:18 [core.py:866]     super().__init__(
+(EngineCore_DP0 pid=165226) ERROR 01-04 23:18:18 [core.py:866]   File "/root/vllmbench/vllm/model_executor/layers/vocab_parallel_embedding.py", line 301, in __init__
+(EngineCore_DP0 pid=165226) ERROR 01-04 23:18:18 [core.py:866]     self.quant_method.create_weights(
+(EngineCore_DP0 pid=165226) ERROR 01-04 23:18:18 [core.py:866]   File "/root/vllmbench/vllm/model_executor/layers/vocab_parallel_embedding.py", line 46, in create_weights
+(EngineCore_DP0 pid=165226) ERROR 01-04 23:18:18 [core.py:866]     torch.empty(
+(EngineCore_DP0 pid=165226) ERROR 01-04 23:18:18 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/utils/_device.py", line 103, in __torch_function__
+(EngineCore_DP0 pid=165226) ERROR 01-04 23:18:18 [core.py:866]     return func(*args, **kwargs)
+(EngineCore_DP0 pid=165226) ERROR 01-04 23:18:18 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=165226) ERROR 01-04 23:18:18 [core.py:866] torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 1.45 GiB. GPU 0 has a total capacity of 15.46 GiB of which 953.75 MiB is free. Including non-PyTorch memory, this process has 14.31 GiB memory in use. Of the allocated memory 13.94 GiB is allocated by PyTorch, and 12.46 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+(EngineCore_DP0 pid=165226) Process EngineCore_DP0:
+(EngineCore_DP0 pid=165226) Traceback (most recent call last):
+(EngineCore_DP0 pid=165226)   File "/usr/lib/python3.12/multiprocessing/process.py", line 314, in _bootstrap
+(EngineCore_DP0 pid=165226)     self.run()
+(EngineCore_DP0 pid=165226)   File "/usr/lib/python3.12/multiprocessing/process.py", line 108, in run
+(EngineCore_DP0 pid=165226)     self._target(*self._args, **self._kwargs)
+(EngineCore_DP0 pid=165226)   File "/root/vllmbench/vllm/v1/engine/core.py", line 870, in run_engine_core
+(EngineCore_DP0 pid=165226)     raise e
+(EngineCore_DP0 pid=165226)   File "/root/vllmbench/vllm/v1/engine/core.py", line 857, in run_engine_core
+(EngineCore_DP0 pid=165226)     engine_core = EngineCoreProc(*args, **kwargs)
+(EngineCore_DP0 pid=165226)                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=165226)   File "/root/vllmbench/vllm/v1/engine/core.py", line 637, in __init__
+(EngineCore_DP0 pid=165226)     super().__init__(
+(EngineCore_DP0 pid=165226)   File "/root/vllmbench/vllm/v1/engine/core.py", line 102, in __init__
+(EngineCore_DP0 pid=165226)     self.model_executor = executor_class(vllm_config)
+(EngineCore_DP0 pid=165226)                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=165226)   File "/root/vllmbench/vllm/v1/executor/abstract.py", line 101, in __init__
+(EngineCore_DP0 pid=165226)     self._init_executor()
+(EngineCore_DP0 pid=165226)   File "/root/vllmbench/vllm/v1/executor/uniproc_executor.py", line 48, in _init_executor
+(EngineCore_DP0 pid=165226)     self.driver_worker.load_model()
+(EngineCore_DP0 pid=165226)   File "/root/vllmbench/vllm/v1/worker/gpu_worker.py", line 289, in load_model
+(EngineCore_DP0 pid=165226)     self.model_runner.load_model(eep_scale_up=eep_scale_up)
+(EngineCore_DP0 pid=165226)   File "/root/vllmbench/vllm/v1/worker/gpu_model_runner.py", line 3658, in load_model
+(EngineCore_DP0 pid=165226)     raise e
+(EngineCore_DP0 pid=165226)   File "/root/vllmbench/vllm/v1/worker/gpu_model_runner.py", line 3581, in load_model
+(EngineCore_DP0 pid=165226)     self.model = model_loader.load_model(
+(EngineCore_DP0 pid=165226)                  ^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=165226)   File "/root/vllmbench/vllm/model_executor/model_loader/base_loader.py", line 49, in load_model
+(EngineCore_DP0 pid=165226)     model = initialize_model(
+(EngineCore_DP0 pid=165226)             ^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=165226)   File "/root/vllmbench/vllm/model_executor/model_loader/utils.py", line 48, in initialize_model
+(EngineCore_DP0 pid=165226)     return model_class(vllm_config=vllm_config, prefix=prefix)
+(EngineCore_DP0 pid=165226)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=165226)   File "/root/vllmbench/vllm/model_executor/models/qwen2.py", line 551, in __init__
+(EngineCore_DP0 pid=165226)     self.lm_head = ParallelLMHead(
+(EngineCore_DP0 pid=165226)                    ^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=165226)   File "/root/vllmbench/vllm/model_executor/layers/vocab_parallel_embedding.py", line 523, in __init__
+(EngineCore_DP0 pid=165226)     super().__init__(
+(EngineCore_DP0 pid=165226)   File "/root/vllmbench/vllm/model_executor/layers/vocab_parallel_embedding.py", line 301, in __init__
+(EngineCore_DP0 pid=165226)     self.quant_method.create_weights(
+(EngineCore_DP0 pid=165226)   File "/root/vllmbench/vllm/model_executor/layers/vocab_parallel_embedding.py", line 46, in create_weights
+(EngineCore_DP0 pid=165226)     torch.empty(
+(EngineCore_DP0 pid=165226)   File "/usr/local/lib/python3.12/dist-packages/torch/utils/_device.py", line 103, in __torch_function__
+(EngineCore_DP0 pid=165226)     return func(*args, **kwargs)
+(EngineCore_DP0 pid=165226)            ^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=165226) torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 1.45 GiB. GPU 0 has a total capacity of 15.46 GiB of which 953.75 MiB is free. Including non-PyTorch memory, this process has 14.31 GiB memory in use. Of the allocated memory 13.94 GiB is allocated by PyTorch, and 12.46 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+[rank0]:[W104 23:18:19.991826606 ProcessGroupNCCL.cpp:1524] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+Traceback (most recent call last):
+  File "/usr/local/bin/vllm", line 7, in <module>
+    sys.exit(main())
+             ^^^^^^
+  File "/root/vllmbench/vllm/entrypoints/cli/main.py", line 73, in main
+    args.dispatch_function(args)
+  File "/root/vllmbench/vllm/entrypoints/cli/benchmark/throughput.py", line 21, in cmd
+    main(args)
+  File "/root/vllmbench/vllm/benchmarks/throughput.py", line 730, in main
+    elapsed_time, request_outputs = run_vllm(
+                                    ^^^^^^^^^
+  File "/root/vllmbench/vllm/benchmarks/throughput.py", line 51, in run_vllm
+    llm = LLM(**dataclasses.asdict(engine_args))
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/entrypoints/llm.py", line 351, in __init__
+    self.llm_engine = LLMEngine.from_engine_args(
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/v1/engine/llm_engine.py", line 183, in from_engine_args
+    return cls(
+           ^^^^
+  File "/root/vllmbench/vllm/v1/engine/llm_engine.py", line 109, in __init__
+    self.engine_core = EngineCoreClient.make_client(
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/v1/engine/core_client.py", line 93, in make_client
+    return SyncMPClient(vllm_config, executor_class, log_stats)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/v1/engine/core_client.py", line 648, in __init__
+    super().__init__(
+  File "/root/vllmbench/vllm/v1/engine/core_client.py", line 477, in __init__
+    with launch_core_engines(vllm_config, executor_class, log_stats) as (
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/contextlib.py", line 144, in __exit__
+    next(self.gen)
+  File "/root/vllmbench/vllm/v1/engine/utils.py", line 903, in launch_core_engines
+    wait_for_engine_startup(
+  File "/root/vllmbench/vllm/v1/engine/utils.py", line 960, in wait_for_engine_startup
+    raise RuntimeError(
+RuntimeError: Engine core initialization failed. See root cause above. Failed core proc(s): {}
+ERROR: Test failed for M=16
+ERROR OUTPUT:
+    return cls(
+           ^^^^
+  File "/root/vllmbench/vllm/v1/engine/llm_engine.py", line 109, in __init__
+    self.engine_core = EngineCoreClient.make_client(
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/v1/engine/core_client.py", line 93, in make_client
+    return SyncMPClient(vllm_config, executor_class, log_stats)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/v1/engine/core_client.py", line 648, in __init__
+    super().__init__(
+  File "/root/vllmbench/vllm/v1/engine/core_client.py", line 477, in __init__
+    with launch_core_engines(vllm_config, executor_class, log_stats) as (
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/contextlib.py", line 144, in __exit__
+    next(self.gen)
+  File "/root/vllmbench/vllm/v1/engine/utils.py", line 903, in launch_core_engines
+    wait_for_engine_startup(
+  File "/root/vllmbench/vllm/v1/engine/utils.py", line 960, in wait_for_engine_startup
+    raise RuntimeError(
+RuntimeError: Engine core initialization failed. See root cause above. Failed core proc(s): {}
+SKIP: FP8 test failed, skipping remaining FP8 tests
