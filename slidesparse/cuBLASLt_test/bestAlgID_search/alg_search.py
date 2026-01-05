@@ -24,6 +24,7 @@ CUDA_VISIBLE_DEVICES=0 python3 alg_search.py --dtype fp8e4m3 --verify
 """
 
 import argparse
+import base64
 import ctypes
 import ctypes.util
 import datetime
@@ -286,23 +287,24 @@ def default_m_list() -> List[int]:
 
 # === JSON 查询辅助函数 ===
 
-def lookup_best_alg(json_data: Dict, N: int, K: int, M: int) -> Optional[int]:
+def lookup_best_alg(json_data: Dict, N: int, K: int, M: int) -> Optional[str]:
     """
-    从 JSON 数据中查询最佳算法 ID。
+    从 JSON 数据中查询最佳算法配置（与 cuSPARSELt 对齐）。
     
     查询逻辑：
     1. 用 (N, K) 在 nk_entries 中找到对应条目
     2. 在 m_thresholds 中找到 <= query_M 的最大值
-    3. 返回该 M 对应的 alg_by_m[m][0]（最佳算法）
+    3. 返回该 M 对应的 alg_by_m[m][0]（最佳算法的 base64 编码）
     
     Args:
         json_data: 加载的 JSON 数据
-        N: 稀疏矩阵 W 的行数
+        N: 权重矩阵 W 的行数
         K: 共享维度
-        M: 稠密矩阵 A 的行数（查询的 batch size）
+        M: 矩阵 A 的行数（查询的 batch size）
     
     Returns:
-        最佳算法 ID，如果找不到返回 None
+        最佳算法的 base64 编码字符串（64B cublasLtMatmulAlgo_t 数据），
+        如果找不到返回 None
     """
     nk_key = f"({N},{K})"
     nk_entries = json_data.get("nk_entries", {})
@@ -331,12 +333,23 @@ def lookup_best_alg(json_data: Dict, N: int, K: int, M: int) -> Optional[int]:
     
     m_key = str(selected_m)
     if m_key in alg_by_m:
-        # 简化格式: alg_by_m[m_key] = [best_id, 2nd_id, 3rd_id]
+        # 简化格式: alg_by_m[m_key] = [best_b64, 2nd_b64, 3rd_b64]
         alg_list = alg_by_m[m_key]
         if isinstance(alg_list, list) and len(alg_list) > 0:
             return alg_list[0]
     
     return None
+
+
+def decode_algo_data(algo_data_b64: str) -> bytes:
+    """
+    解码 base64 编码的 algo_data，返回 64 字节的原始数据。
+    
+    运行时使用：
+        algo_bytes = decode_algo_data(best_b64)
+        # 然后将 algo_bytes 直接 memcpy 到 cublasLtMatmulAlgo_t 结构体
+    """
+    return base64.b64decode(algo_data_b64)
 
 
 # === 运行一次 layout 的搜索 ===
@@ -475,7 +488,7 @@ def save_outputs(out_dir: Path, gpu_short_name: str, arch_name: str, dtype: str,
         f"# NK_list: {search_ret['NK_list']}",
     ]
     lines.extend(header_info)
-    lines.append("M,N,K,best_id1,lat_us1,tops1,best_id2,lat_us2,tops2,best_id3,lat_us3,tops3")
+    lines.append("M,N,K,best_id1,lat_us1,tops1,ws1,best_id2,lat_us2,tops2,ws2,best_id3,lat_us3,tops3,ws3")
 
     # 收集所有数据行，用于排序
     csv_rows = []  # [(M, nk_idx, csv_line_str), ...]
@@ -485,12 +498,14 @@ def save_outputs(out_dir: Path, gpu_short_name: str, arch_name: str, dtype: str,
         topk_id = raw["topk_alg_id"].cpu()
         topk_lat = raw["topk_lat_us"].cpu()
         topk_tops = raw["topk_tops"].cpu()
+        topk_workspace = raw["topk_workspace"].cpu()
         valid = raw["valid_mask"].cpu()
 
         for m_i, M in enumerate(search_ret["M_list"]):
             algs = topk_id[m_i]
             lats = topk_lat[m_i]
             tops = topk_tops[m_i]
+            wss = topk_workspace[m_i]
             vmask = valid[m_i]
 
             csv_values = [str(M), str(res["N"]), str(res["K"])]
@@ -500,9 +515,10 @@ def save_outputs(out_dir: Path, gpu_short_name: str, arch_name: str, dtype: str,
                         str(int(algs[k].item())),
                         f"{float(lats[k].item()):.3f}",
                         f"{float(tops[k].item()):.6f}",
+                        str(int(wss[k].item())),
                     ])
                 else:
-                    csv_values.extend(["", "", ""])
+                    csv_values.extend(["", "", "", ""])
             csv_rows.append((M, nk_idx, ",".join(csv_values)))
 
     # 排序：先按 M 升序，M 相同时按 nk_idx（即 nk_list 顺序）
@@ -512,15 +528,15 @@ def save_outputs(out_dir: Path, gpu_short_name: str, arch_name: str, dtype: str,
 
     csv_path.write_text("\n".join(lines))
 
-    # === JSON 生成（简化版：只保留 top3 算法 ID）===
-    # 格式设计：
+    # === JSON 生成（简化版：只保留 top3 的 64B algo_data）===
+    # 格式设计（与 cuSPARSELt 对齐）：
     # {
     #   "meta": {...},
     #   "nk_entries": {
     #     "(N,K)": {
     #       "m_thresholds": [m1, m2, ...],  # 升序排列的 M 值
     #       "alg_by_m": {
-    #         "m1": [best_id, 2nd_id, 3rd_id],
+    #         "m1": [best_b64, 2nd_b64, 3rd_b64],  # base64 编码的 64B 数据
     #         "m2": [...],
     #         ...
     #       }
@@ -528,10 +544,11 @@ def save_outputs(out_dir: Path, gpu_short_name: str, arch_name: str, dtype: str,
     #   }
     # }
     # 
-    # 查询逻辑：
+    # 查询逻辑（与 cuSPARSELt 一致）：
     # 1. 用 (N, K) 找到 nk_entry
     # 2. 在 m_thresholds 中找到 <= query_M 的最大值 m_key
-    # 3. 返回 alg_by_m[m_key][0] 作为最佳算法
+    # 3. 返回 alg_by_m[m_key][0] 作为最佳算法的 base64 数据
+    # 4. 运行时直接 base64.decode() 得到 cublasLtMatmulAlgo_t
     
     nk_entries = {}
     
@@ -540,22 +557,27 @@ def save_outputs(out_dir: Path, gpu_short_name: str, arch_name: str, dtype: str,
         nk_key = f"({N},{K})"
         
         raw = res["raw"]
-        topk_id = raw["topk_alg_id"].cpu()
+        topk_algo_data = raw["topk_algo_data"].cpu()  # [num_M, topk, 64]
         valid = raw["valid_mask"].cpu()
 
         m_thresholds = []
         alg_by_m = {}
         
         for m_i, M in enumerate(search_ret["M_list"]):
-            algs = topk_id[m_i]
             vmask = valid[m_i]
 
             # 只有当有有效结果时才记录
             if vmask[0]:
                 m_thresholds.append(M)
-                # 简化格式：只记录 top3 的 alg_id
-                top3_ids = [int(algs[k].item()) for k in range(3) if vmask[k]]
-                alg_by_m[str(M)] = top3_ids
+                # 简化格式：只记录 top3 的 algo_data (base64)
+                top3_b64 = []
+                for k in range(3):
+                    if vmask[k]:
+                        # 提取 64B 原始数据并 base64 编码
+                        algo_bytes = bytes(topk_algo_data[m_i, k].numpy().tolist())
+                        algo_b64 = base64.b64encode(algo_bytes).decode('ascii')
+                        top3_b64.append(algo_b64)
+                alg_by_m[str(M)] = top3_b64
         
         nk_entries[nk_key] = {
             "m_thresholds": m_thresholds,

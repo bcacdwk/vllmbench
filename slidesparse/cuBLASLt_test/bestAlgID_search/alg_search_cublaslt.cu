@@ -2,28 +2,6 @@
 // 固定的layout: 权重W在左，T/N + C/C GEMM，输出矩阵order固定为 Column 主序
 // C[N,M]_col = W[N,K]^T_col * A[K,M]_col
 // 支持的数据类型：int8, fp8e4m3
-//
-// =====================================
-// cuBLASLt API 约束 (基于官方文档):
-// =====================================
-//
-// INT8 IMMA 内核要求:
-//   - 所有矩阵指针必须 4 字节对齐 (16 字节对齐性能更佳)
-//   - Leading dimensions 必须是 4 的倍数
-//   - 只支持 TN 格式: A 必须转置, B 不转置
-//   - m 和 k 必须是 4 的倍数
-//   - scaleType 为 CUDA_R_32I 时, alpha/beta 只能是 0 或 1
-//   - computeType: CUBLAS_COMPUTE_32I
-//
-// FP8 内核要求:
-//   - 所有矩阵维度必须满足 16 字节对齐
-//   - TN 格式是首选
-//   - computeType 必须是 CUBLAS_COMPUTE_32F
-//   - scaleType 必须是 CUDA_R_32F
-//
-// 数据类型支持:
-//   - INT8: Input=CUDA_R_8I, Output=CUDA_R_32I, Scale=CUDA_R_32I
-//   - FP8:  Input=CUDA_R_8F_E4M3, Output=CUDA_R_32F, Scale=CUDA_R_32F
 
 #include <torch/extension.h>
 #include <ATen/cuda/CUDAContext.h>
@@ -46,26 +24,25 @@
 namespace py = pybind11;
 
 // ===== 工具宏 =====
-#define CHECK_CUDA_ERR(expr)                                                   \
-  do {                                                                         \
-    cudaError_t _status = (expr);                                              \
-    if (_status != cudaSuccess) {                                              \
-      std::ostringstream _oss;                                                 \
-      _oss << "CUDA 调用失败: " << cudaGetErrorString(_status)                 \
-           << " (code " << _status << ")";                                     \
-      throw std::runtime_error(_oss.str());                                    \
-    }                                                                          \
+#define CHECK_CUDA_ERR(expr)                                                                        \
+  do {                                                                                              \
+    cudaError_t _status = (expr);                                                                  \
+    if (_status != cudaSuccess) {                                                                  \
+      std::ostringstream _oss;                                                                     \
+      _oss << "CUDA 调用失败: " << cudaGetErrorString(_status) << " (code " << _status << ")";  \
+      throw std::runtime_error(_oss.str());                                                        \
+    }                                                                                              \
   } while (0)
 
-#define CHECK_CUBLAS_ERR(expr)                                                 \
-  do {                                                                         \
-    cublasStatus_t _status = (expr);                                           \
-    if (_status != CUBLAS_STATUS_SUCCESS) {                                    \
-      std::ostringstream _oss;                                                 \
-      _oss << "cuBLASLt 调用失败: " << cublasLtGetStatusString(_status)        \
-           << " (code " << static_cast<int>(_status) << ")";                   \
-      throw std::runtime_error(_oss.str());                                    \
-    }                                                                          \
+#define CHECK_CUBLAS_ERR(expr)                                                                      \
+  do {                                                                                              \
+    cublasStatus_t _status = (expr);                                                               \
+    if (_status != CUBLAS_STATUS_SUCCESS) {                                                        \
+      std::ostringstream _oss;                                                                     \
+      _oss << "cuBLASLt 调用失败: " << cublasLtGetStatusString(_status)                           \
+           << " (code " << static_cast<int>(_status) << ")";                                      \
+      throw std::runtime_error(_oss.str());                                                        \
+    }                                                                                              \
   } while (0)
 
 // ===== dtype 相关 =====
@@ -95,17 +72,6 @@ static cudaDataType scale_type_from_dtype(const std::string &dtype) {
   throw std::invalid_argument("不支持的数据类型: " + dtype);
 }
 
-static int dtype_size(const std::string &dtype) {
-  if (dtype == "int8" || dtype == "fp8e4m3") return 1;
-  return 1;
-}
-
-static int out_dtype_size(const std::string &dtype) {
-  if (dtype == "int8") return 4;  // int32
-  if (dtype == "fp8e4m3") return 4;  // float32
-  return 4;
-}
-
 // ===== 简单量化：将 BF16/FP16 张量量化到 INT8 =====
 static std::pair<torch::Tensor, double> quantize_int8(torch::Tensor x) {
   auto abs_max = x.abs().max().item<double>();
@@ -126,13 +92,23 @@ static torch::Tensor to_fp8_e4m3(torch::Tensor x) {
 }
 
 // ===== 搜索结果记录 =====
+// 与 cuSPARSELt 对齐：存储算法配置
+// 关键区别：cuBLASLt 需要完整的 64 字节不透明结构体（而非简单的 int alg_id）
 struct AlgRecord {
-  int alg_id{-1};
+  int alg_id{-1};             // 算法 ID（用于调试/显示）
   float lat_us{0.f};
   float tops{0.f};
   int64_t workspace{0};
   bool valid{false};
   float max_abs_err{0.f};
+  
+  // cuBLASLt 特有：64 字节不透明结构体（运行时直接加载使用）
+  // 验证大小：static_assert(sizeof(cublasLtMatmulAlgo_t) == 64)
+  uint8_t algo_data[64];
+  
+  AlgRecord() {
+    memset(algo_data, 0, sizeof(algo_data));
+  }
 };
 
 // ===== search_topk =====
@@ -193,10 +169,6 @@ py::dict search_topk(torch::Tensor W_bf16, torch::Tensor A_bf16,
     throw std::invalid_argument("不支持的数据类型: " + dtype + "。支持: int8, fp8e4m3");
   }
 
-  // 获取最大 M 用于确定可用算法数
-  int64_t max_M = 0;
-  for (auto m : M_list) max_M = std::max(max_M, m);
-
   // === cuBLASLt 初始化 ===
   cublasLtHandle_t handle;
   CHECK_CUBLAS_ERR(cublasLtCreate(&handle));
@@ -204,23 +176,20 @@ py::dict search_topk(torch::Tensor W_bf16, torch::Tensor A_bf16,
   cudaStream_t stream = at::cuda::getDefaultCUDAStream();
 
   // 固定布局: T/N + Col/Col + Col
-  // W 逻辑维度 [N,K], opW=T 所以存储为 [K,N] (转置后)
-  // A 逻辑维度 [K,M], opA=N 所以存储为 [K,M]
-  // C 逻辑维度 [N,M]
   cublasOperation_t opW = CUBLAS_OP_T;
   cublasOperation_t opA = CUBLAS_OP_N;
   cublasLtOrder_t orderW = CUBLASLT_ORDER_COL;
   cublasLtOrder_t orderA = CUBLASLT_ORDER_COL;
   cublasLtOrder_t orderC = CUBLASLT_ORDER_COL;
 
-  // W 存储维度: [K,N] (因为 opW=T)
   int64_t num_W_rows = K;  // 存储的行数
   int64_t num_W_cols = N;  // 存储的列数
-  int64_t ldw = num_W_rows; // Col major: leading dim = rows
+  int64_t ldw = K;         // Col major: leading dim = 存储的行数
 
   // 为结果分配存储
+  // 与 cuSPARSELt 对齐：存储 topk 的完整算法配置
   int64_t numM = static_cast<int64_t>(M_list.size());
-  torch::Tensor topk_alg = torch::full({numM, topk}, -1, torch::dtype(torch::kInt32));
+  torch::Tensor topk_alg_id = torch::full({numM, topk}, -1, torch::dtype(torch::kInt32));
   torch::Tensor topk_lat = torch::zeros({numM, topk}, torch::dtype(torch::kFloat32));
   torch::Tensor topk_tops = torch::zeros({numM, topk}, torch::dtype(torch::kFloat32));
   torch::Tensor topk_workspace = torch::zeros({numM, topk}, torch::dtype(torch::kInt64));
@@ -228,11 +197,19 @@ py::dict search_topk(torch::Tensor W_bf16, torch::Tensor A_bf16,
   torch::Tensor num_valid = torch::zeros({numM}, torch::dtype(torch::kInt32));
   torch::Tensor verify_err = torch::zeros({numM}, torch::dtype(torch::kFloat32));
   std::vector<int> verify_failed_ids;
+  
+  // cuBLASLt 特有：存储 64 字节不透明结构体
+  // 验证大小
+  static_assert(sizeof(cublasLtMatmulAlgo_t) == 64, "cublasLtMatmulAlgo_t size mismatch");
+  torch::Tensor topk_algo_data = torch::zeros({numM, topk, 64}, torch::dtype(torch::kUInt8));
 
-  // Workspace 分配
-  size_t workspace_size = 32 * 1024 * 1024;  // 32 MB
-  void *d_workspace = nullptr;
-  CHECK_CUDA_ERR(cudaMalloc(&d_workspace, workspace_size));
+  std::vector<AlgRecord> records;
+  
+  // === Workspace 回退机制 ===
+  // 与 cuSPARSELt 对齐：预分配一个初始 workspace，如果某个算法需要更大的空间，动态扩展
+  size_t current_workspace_size = 32 * 1024 * 1024;  // 32 MB 初始大小
+  void *shared_workspace = nullptr;
+  CHECK_CUDA_ERR(cudaMalloc(&shared_workspace, current_workspace_size));
 
   // 最大算法数（cuBLASLt 启发式搜索返回的最大数量）
   int max_returned_alg_count = 0;
@@ -240,31 +217,31 @@ py::dict search_topk(torch::Tensor W_bf16, torch::Tensor A_bf16,
   for (int64_t m_index = 0; m_index < numM; ++m_index) {
     int64_t M = M_list[m_index];
     
-    // A 存储维度: [K,M] (因为 opA=N)
+    // A 矩阵：PyTorch [M,K] Row Major = Col Major [K,M]
     int64_t num_A_rows = K;
     int64_t num_A_cols = M;
-    int64_t lda = num_A_rows; // Col major
+    int64_t lda = K;  // Col major: leading dim = 存储的行数
 
-    // C 存储维度: [N,M]
+    // C 存储维度: [N,M] Col Major
     int64_t num_C_rows = N;
     int64_t num_C_cols = M;
-    int64_t ldc = num_C_rows; // Col major
+    int64_t ldc = N;  // Col major: leading dim = N
 
-    // 分配设备内存
-    size_t W_size = static_cast<size_t>(N) * K * dtype_size(dtype);
-    size_t A_size = static_cast<size_t>(K) * M * dtype_size(dtype);
-    size_t C_size = static_cast<size_t>(N) * M * out_dtype_size(dtype);
-
-    void *dW = nullptr, *dA = nullptr, *dC = nullptr;
-    CHECK_CUDA_ERR(cudaMalloc(&dW, W_size));
-    CHECK_CUDA_ERR(cudaMalloc(&dA, A_size));
-    CHECK_CUDA_ERR(cudaMalloc(&dC, C_size));
-
-    // 拷贝数据到设备
-    CHECK_CUDA_ERR(cudaMemcpy(dW, W_q.data_ptr(), W_size, cudaMemcpyHostToDevice));
+    // B 切片（与 cuSPARSELt 命名对齐：这里取 A_q 的前 M 行）
     auto A_slice = A_q.narrow(0, 0, M).contiguous();
-    CHECK_CUDA_ERR(cudaMemcpy(dA, A_slice.data_ptr(), A_size, cudaMemcpyHostToDevice));
-    CHECK_CUDA_ERR(cudaMemset(dC, 0, C_size));
+
+    // 输出 C 与 D（就地）
+    // 关键：cuBLASLt 以 Column Major 存储 C 矩阵
+    // 逻辑形状 [N, M]，Column Major 存储意味着 leading dim = N
+    // PyTorch 默认 Row Major，为了兼容，我们创建 [M, N] 的 tensor
+    // 这样 PyTorch 的 Row Major [M, N] 等价于 Column Major [N, M]
+    torch::Tensor C_out;
+    if (dtype == "int8") {
+      // Column Major [N, M] 等价于 Row Major [M, N] 的转置
+      C_out = torch::zeros({M, N}, torch::dtype(torch::kInt32).device(W_q.device()));
+    } else {
+      C_out = torch::zeros({M, N}, torch::dtype(torch::kFloat32).device(W_q.device()));
+    }
 
     // 创建矩阵乘法描述符
     cublasLtMatmulDesc_t matmulDesc = nullptr;
@@ -291,10 +268,11 @@ py::dict search_topk(torch::Tensor W_bf16, torch::Tensor A_bf16,
     cublasLtMatmulPreference_t preference = nullptr;
     CHECK_CUBLAS_ERR(cublasLtMatmulPreferenceCreate(&preference));
     CHECK_CUBLAS_ERR(cublasLtMatmulPreferenceSetAttribute(
-        preference, CUBLASLT_MATMUL_PREF_MAX_WORKSPACE_BYTES, &workspace_size, sizeof(workspace_size)));
+        preference, CUBLASLT_MATMUL_PREF_MAX_WORKSPACE_BYTES, &current_workspace_size, sizeof(current_workspace_size)));
 
     // 获取可用算法（启发式搜索）
-    const int max_algo_count = 64;  // 请求更多算法
+    // 与 cuSPARSELt 不同：cuBLASLt 使用启发式搜索返回候选算法，cuSPARSELt 使用 ID 遍历
+    const int max_algo_count = 64;  // 请求最多 64 个算法
     cublasLtMatmulHeuristicResult_t heuristicResult[max_algo_count];
     int returnedAlgoCount = 0;
 
@@ -317,7 +295,6 @@ py::dict search_topk(torch::Tensor W_bf16, torch::Tensor A_bf16,
       cublasLtMatrixLayoutDestroy(layoutA);
       cublasLtMatrixLayoutDestroy(layoutC);
       cublasLtMatmulDescDestroy(matmulDesc);
-      cudaFree(dW); cudaFree(dA); cudaFree(dC);
       continue;
     }
 
@@ -325,20 +302,13 @@ py::dict search_topk(torch::Tensor W_bf16, torch::Tensor A_bf16,
       max_returned_alg_count = returnedAlgoCount;
     }
 
-    // CUDA events for timing
-    cudaEvent_t start_event, stop_event;
-    CHECK_CUDA_ERR(cudaEventCreate(&start_event));
-    CHECK_CUDA_ERR(cudaEventCreate(&stop_event));
-
-    std::vector<AlgRecord> records;
-
     // alpha/beta 根据 dtype 选择
     float alpha_f = 1.0f, beta_f = 0.0f;
     int32_t alpha_int = 1, beta_int = 0;
     const void *alpha_ptr = (dtype == "int8") ? (const void*)&alpha_int : (const void*)&alpha_f;
     const void *beta_ptr = (dtype == "int8") ? (const void*)&beta_int : (const void*)&beta_f;
 
-    // 遍历所有返回的算法
+    // 遍历所有返回的算法（与 cuSPARSELt 的 alg_id 遍历对齐）
     for (int alg_idx = 0; alg_idx < returnedAlgoCount; ++alg_idx) {
       if (heuristicResult[alg_idx].state != CUBLAS_STATUS_SUCCESS) {
         continue;
@@ -350,134 +320,187 @@ py::dict search_topk(torch::Tensor W_bf16, torch::Tensor A_bf16,
       }
 
       const cublasLtMatmulAlgo_t *algo = &heuristicResult[alg_idx].algo;
-      size_t ws_size = heuristicResult[alg_idx].workspaceSize;
+      size_t workspace_size = heuristicResult[alg_idx].workspaceSize;
 
-      // Warmup
-      bool warmup_success = true;
-      for (int w = 0; w < warmup; ++w) {
-        cublasStatus_t st = cublasLtMatmul(
-            handle,
-            matmulDesc,
-            alpha_ptr,
-            dW, layoutW,
-            dA, layoutA,
-            beta_ptr,
-            dC, layoutC,
-            dC, layoutC,
-            algo,
-            d_workspace,
-            ws_size,
-            stream);
-        if (st != CUBLAS_STATUS_SUCCESS) {
-          warmup_success = false;
-          break;
+      // === Workspace 回退机制 ===
+      // 与 cuSPARSELt 对齐：如果当前共享 workspace 不够大，扩展它
+      if (workspace_size > current_workspace_size) {
+        if (shared_workspace != nullptr) {
+          cudaFree(shared_workspace);
+          shared_workspace = nullptr;
         }
+        // 尝试分配更大的 workspace
+        cudaError_t alloc_st = cudaMalloc(&shared_workspace, workspace_size);
+        if (alloc_st != cudaSuccess) {
+          // 分配失败，跳过此算法
+          continue;
+        }
+        current_workspace_size = workspace_size;
       }
-      CHECK_CUDA_ERR(cudaStreamSynchronize(stream));
 
-      if (!warmup_success) {
-        continue;
+      // 使用共享 workspace（大小已保证足够）
+      void *workspace = (workspace_size > 0) ? shared_workspace : nullptr;
+
+      bool success = true;
+
+      // 预热（显式传入 stream，保证一致性）
+      if (warmup > 0) {
+        for (int i = 0; i < warmup; ++i) {
+          cublasStatus_t st = cublasLtMatmul(
+              handle,
+              matmulDesc,
+              alpha_ptr,
+              W_q.data_ptr(), layoutW,
+              A_slice.data_ptr(), layoutA,
+              beta_ptr,
+              C_out.data_ptr(), layoutC,
+              C_out.data_ptr(), layoutC,
+              algo,
+              workspace,
+              workspace_size,
+              stream);
+          if (st != CUBLAS_STATUS_SUCCESS) {
+            success = false;
+            break;
+          }
+        }
+        // 确保预热完成
+        CHECK_CUDA_ERR(cudaStreamSynchronize(stream));
       }
 
-      // Benchmark
-      CHECK_CUDA_ERR(cudaEventRecord(start_event, stream));
-      for (int r = 0; r < repeat; ++r) {
-        cublasLtMatmul(
-            handle,
-            matmulDesc,
-            alpha_ptr,
-            dW, layoutW,
-            dA, layoutA,
-            beta_ptr,
-            dC, layoutC,
-            dC, layoutC,
-            algo,
-            d_workspace,
-            ws_size,
-            stream);
-      }
-      CHECK_CUDA_ERR(cudaEventRecord(stop_event, stream));
-      CHECK_CUDA_ERR(cudaEventSynchronize(stop_event));
-
+      // 正式计时：包住整个 repeat loop 一次，避免 event 开销污染小 M 测量
+      cudaEvent_t start = nullptr, stop = nullptr;
       float total_ms = 0.0f;
-      CHECK_CUDA_ERR(cudaEventElapsedTime(&total_ms, start_event, stop_event));
-      float avg_us = (total_ms * 1000.0f) / repeat;
+      if (success) {
+        CHECK_CUDA_ERR(cudaEventCreate(&start));
+        CHECK_CUDA_ERR(cudaEventCreate(&stop));
 
-      // 计算 TOPS
-      double flops = 2.0 * static_cast<double>(M) * static_cast<double>(N) * static_cast<double>(K);
-      double tops = (flops / (avg_us * 1e-6)) / 1e12;
-
-      AlgRecord rec;
-      rec.alg_id = alg_idx;
-      rec.lat_us = avg_us;
-      rec.tops = static_cast<float>(tops);
-      rec.workspace = static_cast<int64_t>(ws_size);
-      rec.valid = true;
-
-      // 校验（如需）
-      if (verify) {
-        // 拷贝结果回 CPU
-        torch::Tensor C_host;
-        if (dtype == "int8") {
-          C_host = torch::empty({N, M}, torch::dtype(torch::kInt32));
-        } else {
-          C_host = torch::empty({N, M}, torch::dtype(torch::kFloat32));
+        // 开始计时（只记录一次 start）
+        CHECK_CUDA_ERR(cudaEventRecord(start, stream));
+        
+        for (int r = 0; r < repeat; ++r) {
+          cublasStatus_t st = cublasLtMatmul(
+              handle,
+              matmulDesc,
+              alpha_ptr,
+              W_q.data_ptr(), layoutW,
+              A_slice.data_ptr(), layoutA,
+              beta_ptr,
+              C_out.data_ptr(), layoutC,
+              C_out.data_ptr(), layoutC,
+              algo,
+              workspace,
+              workspace_size,
+              stream);
+          if (st != CUBLAS_STATUS_SUCCESS) {
+            success = false;
+            break;
+          }
         }
-        CHECK_CUDA_ERR(cudaMemcpy(C_host.data_ptr(), dC, C_size, cudaMemcpyDeviceToHost));
+        
+        // 结束计时（只记录一次 stop，只同步一次）
+        CHECK_CUDA_ERR(cudaEventRecord(stop, stream));
+        CHECK_CUDA_ERR(cudaEventSynchronize(stop));
+        CHECK_CUDA_ERR(cudaEventElapsedTime(&total_ms, start, stop));
+        CHECK_CUDA_ERR(cudaEventDestroy(start));
+        CHECK_CUDA_ERR(cudaEventDestroy(stop));
+      }
 
-        // 使用量化后的数据做 FP32 参考计算
-        auto A_slice_v = A_q.narrow(0, 0, M);
-        auto A_fp32 = A_slice_v.to(torch::kFloat32);
-        auto W_fp32 = W_q.to(torch::kFloat32);
-        auto ref = torch::matmul(W_fp32, A_fp32.transpose(0, 1));  // [N, M]
+      if (success) {
+        AlgRecord rec;
+        // 提取算法 ID（用于调试/显示）
+        int algo_id = 0;
+        cublasLtMatmulAlgoConfigGetAttribute(algo, CUBLASLT_ALGO_CONFIG_ID,
+                                              &algo_id, sizeof(algo_id), nullptr);
+        rec.alg_id = algo_id;
+        rec.lat_us = (total_ms * 1000.0f) / static_cast<float>(repeat);
+        double ops = 2.0 * static_cast<double>(M) * static_cast<double>(N) *
+                     static_cast<double>(K);
+        double tops = ops / (rec.lat_us / 1e6) / 1e12;
+        rec.tops = static_cast<float>(tops);
+        rec.workspace = static_cast<int64_t>(workspace_size);
+        rec.valid = true;
+        
+        // 保存完整的 64 字节算法数据（cuBLASLt 特有）
+        memcpy(rec.algo_data, algo, sizeof(cublasLtMatmulAlgo_t));
 
-        // 将输出转为 FP32 比较
-        torch::Tensor out_fp32 = C_host.to(torch::kFloat32);
-
-        // 计算相对误差
-        auto ref_abs = ref.abs().clamp_min(1.0f);
-        auto rel_diff = ((out_fp32 - ref) / ref_abs).abs();
-        float max_rel_err = rel_diff.max().item<float>();
-        rec.max_abs_err = max_rel_err;
-
-        constexpr float tol = 0.05f;
-        constexpr float critical_tol = 1.00f;
-
-        if (max_rel_err > critical_tol || std::isnan(max_rel_err)) {
-          rec.valid = false;
-          verify_failed_ids.push_back(alg_idx);
-        } else if (max_rel_err > tol) {
-          verify_failed_ids.push_back(alg_idx);
+        // 校验（如需）
+        if (verify) {
+          // 使用量化后的数据做 FP32 参考计算
+          // 这样才能和 cuBLASLt 的 INT8 GEMM 结果对比
+          auto A_slice_v = A_q.narrow(0, 0, M);
+          auto A_fp32 = A_slice_v.to(torch::kFloat32);
+          auto W_fp32 = W_q.to(torch::kFloat32);
+          auto ref = torch::matmul(W_fp32, A_fp32.transpose(0, 1));  // [N, M], Row Major
+          
+          // 将输出转为 FP32 比较
+          // C_out 的创建已经考虑了布局：
+          //   - Column Major 时创建为 [M, N]，转置后得到 [N, M]
+          torch::Tensor out_fp32 = C_out.to(torch::kFloat32).t().contiguous();
+          
+          // 计算相对误差（相对于参考值的绝对值）
+          auto ref_abs = ref.abs().clamp_min(1.0f);  // 避免除以0
+          auto rel_diff = ((out_fp32 - ref) / ref_abs).abs();
+          float max_rel_err = rel_diff.max().item<float>();
+          rec.max_abs_err = max_rel_err;  // 存储的是相对误差
+          
+          // 相对误差容限：5%
+          constexpr float tol = 0.05f;
+          constexpr float critical_tol = 1.00f;  // 超过 100% 认为计算有严重问题
+          
+          if (max_rel_err > critical_tol || std::isnan(max_rel_err)) {
+            // 严重错误：输出 warning，跳过当前 M 剩余算法
+            std::cerr << "[WARNING] M=" << M << " alg_id=" << algo_id 
+                      << " 相对误差=" << (max_rel_err * 100.0f) << "% > 100%，跳过剩余算法" << std::endl;
+            rec.valid = false;
+            verify_failed_ids.push_back(algo_id);
+            break;  // 跳出 alg_idx 循环，进入下一个 M
+          } else if (max_rel_err > tol) {
+            // 超过容限但未达到严重级别：记录但不跳过
+            std::cout << "[INFO] M=" << M << " alg_id=" << algo_id 
+                      << " 相对误差=" << (max_rel_err * 100.0f) << "% > 5%" << std::endl;
+            rec.valid = true;
+            verify_failed_ids.push_back(algo_id);
+          }
+        }
+        
+        if (rec.valid) {
+          records.push_back(rec);
         }
       }
 
-      if (rec.valid) {
-        records.push_back(rec);
-      }
+      // 注意：不再释放 workspace，因为使用共享 workspace
     }
 
-    CHECK_CUDA_ERR(cudaEventDestroy(start_event));
-    CHECK_CUDA_ERR(cudaEventDestroy(stop_event));
-
-    // 排序（按延迟升序，即吞吐量降序）
-    std::sort(records.begin(), records.end(),
+    // 当前 M 取出记录并排序
+    std::vector<AlgRecord> filtered;
+    for (auto &r : records) {
+      if (r.valid) filtered.push_back(r);
+    }
+    std::sort(filtered.begin(), filtered.end(),
               [](const AlgRecord &a, const AlgRecord &b) {
                 return a.lat_us < b.lat_us;
               });
 
-    // 填充 topk 结果
-    int fill = std::min(static_cast<int>(records.size()), topk);
+    int fill = std::min(static_cast<int>(filtered.size()), topk);
     for (int i = 0; i < fill; ++i) {
-      topk_alg.index_put_({m_index, i}, records[i].alg_id);
-      topk_lat.index_put_({m_index, i}, records[i].lat_us);
-      topk_tops.index_put_({m_index, i}, records[i].tops);
-      topk_workspace.index_put_({m_index, i}, records[i].workspace);
+      topk_alg_id.index_put_({m_index, i}, filtered[i].alg_id);
+      topk_lat.index_put_({m_index, i}, filtered[i].lat_us);
+      topk_tops.index_put_({m_index, i}, filtered[i].tops);
+      topk_workspace.index_put_({m_index, i}, filtered[i].workspace);
       valid_mask.index_put_({m_index, i}, static_cast<uint8_t>(1));
+      
+      // 保存 64 字节算法数据（cuBLASLt 特有）
+      auto algo_data_accessor = topk_algo_data.accessor<uint8_t, 3>();
+      for (int b = 0; b < 64; ++b) {
+        algo_data_accessor[m_index][i][b] = filtered[i].algo_data[b];
+      }
+      
       if (verify && i == 0) {
-        verify_err.index_put_({m_index}, records[i].max_abs_err);
+        verify_err.index_put_({m_index}, filtered[i].max_abs_err);
       }
     }
-    num_valid.index_put_({m_index}, static_cast<int>(records.size()));
+    num_valid.index_put_({m_index}, static_cast<int>(filtered.size()));
 
     // 清理当前 M 的资源
     cublasLtMatmulPreferenceDestroy(preference);
@@ -485,27 +508,36 @@ py::dict search_topk(torch::Tensor W_bf16, torch::Tensor A_bf16,
     cublasLtMatrixLayoutDestroy(layoutA);
     cublasLtMatrixLayoutDestroy(layoutC);
     cublasLtMatmulDescDestroy(matmulDesc);
-    cudaFree(dW);
-    cudaFree(dA);
-    cudaFree(dC);
+    // 注意：cublasLtMatmulDesc_t 需要显式销毁
+    records.clear();
+  }
+
+  // === 释放共享 workspace ===
+  if (shared_workspace != nullptr) {
+    cudaFree(shared_workspace);
+    shared_workspace = nullptr;
   }
 
   // 清理
-  if (d_workspace) cudaFree(d_workspace);
   cublasLtDestroy(handle);
 
   // 构造返回
+  // 与 cuSPARSELt 对齐的输出格式
   py::dict out;
   out["M_list"] = torch::tensor(M_list, torch::dtype(torch::kInt32));
   out["NK"] = torch::tensor({static_cast<int32_t>(N), static_cast<int32_t>(K)},
                              torch::dtype(torch::kInt32));
-  out["topk_alg_id"] = topk_alg;
+  out["topk_alg_id"] = topk_alg_id;
   out["topk_lat_us"] = topk_lat;
   out["topk_tops"] = topk_tops;
   out["topk_workspace"] = topk_workspace;
   out["valid_mask"] = valid_mask;
-  out["max_returned_alg_count"] = max_returned_alg_count;  // cuBLASLt 返回的最大算法数
-  out["num_valid_algs_per_M"] = num_valid;
+  out["max_returned_alg_count"] = max_returned_alg_count;  // 启发式搜索返回的最大算法数
+  out["num_valid_algs_per_M"] = num_valid;                 // 每个 M 的有效算法数
+  
+  // cuBLASLt 特有：64 字节不透明结构体
+  out["topk_algo_data"] = topk_algo_data;
+  
   if (verify) {
     out["verify_max_abs_err"] = verify_err;
     out["verify_failed_algs"] = torch::tensor(verify_failed_ids,
