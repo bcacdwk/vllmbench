@@ -13,9 +13,9 @@ cuSPARSELt 算法离线搜索
 3. JSON 在 Python 端生成
 4. torch.utils.cpp_extension.load 自动检测 GPU 架构，无需手动指定 -arch
 
-显存优化：
-- 预分配最大尺寸的张量，复用 buffer 避免反复 malloc/free
-- 搜索结束后显式释放并调用 empty_cache()
+固定 Layout:
+- T/N + Col/Col + Col (权重W在左，稀疏矩阵)
+- W[N,K]^T_col * A[K,M]_col = C[N,M]_col
 
 运行示例:
 CUDA_VISIBLE_DEVICES=0 python3 alg_search.py --dtype int8 --verify --compile
@@ -29,7 +29,6 @@ import ctypes.util
 import datetime
 import json
 import os
-import platform
 import subprocess
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional
@@ -131,16 +130,13 @@ def ensure_cusparselt_loaded() -> None:
     if env_path:
         preferred_paths.append(env_path)
 
-    arch = platform.machine()
-    preferred_paths.extend(
-        [
-            "/usr/lib/aarch64-linux-gnu/libcusparseLt.so.0",
-            "/usr/lib/aarch64-linux-gnu/libcusparseLt/13/libcusparseLt.so.0",
-            "/usr/lib/x86_64-linux-gnu/libcusparseLt.so.0",
-            "/usr/lib/x86_64-linux-gnu/libcusparseLt/13/libcusparseLt.so.0",
-            "/usr/local/cuda/lib64/libcusparseLt.so.0",
-        ]
-    )
+    preferred_paths.extend([
+        "/usr/lib/aarch64-linux-gnu/libcusparseLt.so.0",
+        "/usr/lib/aarch64-linux-gnu/libcusparseLt/13/libcusparseLt.so.0",
+        "/usr/lib/x86_64-linux-gnu/libcusparseLt.so.0",
+        "/usr/lib/x86_64-linux-gnu/libcusparseLt/13/libcusparseLt.so.0",
+        "/usr/local/cuda/lib64/libcusparseLt.so.0",
+    ])
     found = ctypes.util.find_library("cusparseLt")
     if found:
         preferred_paths.append(found)
@@ -292,14 +288,14 @@ def default_m_list() -> List[int]:
 
 # === JSON 查询辅助函数 ===
 
-def lookup_best_alg(json_data: Dict, N: int, K: int, M: int) -> Optional[int]:
+def lookup_best_alg(json_data: Dict, N: int, K: int, M: int) -> Optional[Dict]:
     """
-    从 JSON 数据中查询最佳算法 ID。
+    从 JSON 数据中查询最佳算法配置。
     
     查询逻辑：
     1. 用 (N, K) 在 nk_entries 中找到对应条目
     2. 在 m_thresholds 中找到 <= query_M 的最大值
-    3. 返回该 M 对应的 alg_by_m[m][0]（最佳算法）
+    3. 返回该 M 对应的 alg_by_m[m][0]（最佳配置）
     
     Args:
         json_data: 加载的 JSON 数据
@@ -308,7 +304,8 @@ def lookup_best_alg(json_data: Dict, N: int, K: int, M: int) -> Optional[int]:
         M: 稠密矩阵 A 的行数（查询的 batch size）
     
     Returns:
-        最佳算法 ID，如果找不到返回 None
+        最佳配置字典 {"alg_id": int, "split_k": int, "workspace": int}，
+        如果找不到返回 None
     """
     nk_key = f"({N},{K})"
     nk_entries = json_data.get("nk_entries", {})
@@ -337,10 +334,15 @@ def lookup_best_alg(json_data: Dict, N: int, K: int, M: int) -> Optional[int]:
     
     m_key = str(selected_m)
     if m_key in alg_by_m:
-        # 简化格式: alg_by_m[m_key] = [best_id, 2nd_id, 3rd_id]
         alg_list = alg_by_m[m_key]
         if isinstance(alg_list, list) and len(alg_list) > 0:
-            return alg_list[0]
+            first_entry = alg_list[0]
+            # 支持新格式 {"alg_id": int, "split_k": int} 和旧格式 int
+            if isinstance(first_entry, dict):
+                return first_entry
+            else:
+                # 兼容旧格式（仅 alg_id）
+                return {"alg_id": first_entry, "split_k": 1}
     
     return None
 
@@ -352,7 +354,7 @@ def run_search(ext, dtype: str, nk_list: List[Tuple[int, int]], m_list: List[int
     """
     运行算法搜索。
     
-    固定布局: T/N + C/C + C (权重W在左，稀疏矩阵，Column Major 输出)
+    固定布局: T/N + Col/Col + Col (权重W在左，稀疏矩阵，Column Major 输出)
     每个 NK 组合生成新的随机数据
     """
     layout = "TNCCcol"  # 固定布局: TN+CC+Col
@@ -485,7 +487,7 @@ def save_outputs(out_dir: Path, gpu_short_name: str, arch_name: str, dtype: str,
         f"# NK_list: {search_ret['NK_list']}",
     ]
     lines.extend(header_info)
-    lines.append("M,N,K,best_id1,lat_us1,tops1,best_id2,lat_us2,tops2,best_id3,lat_us3,tops3")
+    lines.append("M,N,K,best_id1,split_k1,lat_us1,tops1,ws1,best_id2,split_k2,lat_us2,tops2,ws2,best_id3,split_k3,lat_us3,tops3,ws3")
 
     # 收集所有数据行，用于排序
     csv_rows = []  # [(M, nk_idx, csv_line_str), ...]
@@ -493,14 +495,18 @@ def save_outputs(out_dir: Path, gpu_short_name: str, arch_name: str, dtype: str,
     for nk_idx, res in enumerate(search_ret["results"]):
         raw = res["raw"]
         topk_id = raw["topk_alg_id"].cpu()
+        topk_split_k = raw["topk_split_k"].cpu()
         topk_lat = raw["topk_lat_us"].cpu()
         topk_tops = raw["topk_tops"].cpu()
+        topk_workspace = raw["topk_workspace"].cpu()
         valid = raw["valid_mask"].cpu()
 
         for m_i, M in enumerate(search_ret["M_list"]):
             algs = topk_id[m_i]
+            split_ks = topk_split_k[m_i]
             lats = topk_lat[m_i]
             tops = topk_tops[m_i]
+            wss = topk_workspace[m_i]
             vmask = valid[m_i]
 
             csv_values = [str(M), str(res["N"]), str(res["K"])]
@@ -508,11 +514,13 @@ def save_outputs(out_dir: Path, gpu_short_name: str, arch_name: str, dtype: str,
                 if vmask[k]:
                     csv_values.extend([
                         str(int(algs[k].item())),
+                        str(int(split_ks[k].item())),
                         f"{float(lats[k].item()):.3f}",
                         f"{float(tops[k].item()):.6f}",
+                        str(int(wss[k].item())),
                     ])
                 else:
-                    csv_values.extend(["", "", ""])
+                    csv_values.extend(["", "", "", "", ""])  # 5 个空字段
             csv_rows.append((M, nk_idx, ",".join(csv_values)))
 
     # 排序：先按 M 升序，M 相同时按 nk_idx（即 nk_list 顺序）
@@ -522,7 +530,7 @@ def save_outputs(out_dir: Path, gpu_short_name: str, arch_name: str, dtype: str,
 
     csv_path.write_text("\n".join(lines))
 
-    # === JSON 生成（简化版：只保留 top3 算法 ID）===
+    # === JSON 生成（完整版：保存 alg_id、split_k、workspace 配置）===
     # 格式设计：
     # {
     #   "meta": {...},
@@ -530,7 +538,11 @@ def save_outputs(out_dir: Path, gpu_short_name: str, arch_name: str, dtype: str,
     #     "(N,K)": {
     #       "m_thresholds": [m1, m2, ...],  # 升序排列的 M 值
     #       "alg_by_m": {
-    #         "m1": [best_id, 2nd_id, 3rd_id],
+    #         "m1": [
+    #           {"alg_id": id1, "split_k": sk1, "workspace": ws1},  # best
+    #           {"alg_id": id2, "split_k": sk2, "workspace": ws2},  # 2nd
+    #           {"alg_id": id3, "split_k": sk3, "workspace": ws3},  # 3rd
+    #         ],
     #         "m2": [...],
     #         ...
     #       }
@@ -541,7 +553,7 @@ def save_outputs(out_dir: Path, gpu_short_name: str, arch_name: str, dtype: str,
     # 查询逻辑：
     # 1. 用 (N, K) 找到 nk_entry
     # 2. 在 m_thresholds 中找到 <= query_M 的最大值 m_key
-    # 3. 返回 alg_by_m[m_key][0] 作为最佳算法
+    # 3. 返回 alg_by_m[m_key][0] 作为最佳配置（包含 alg_id、split_k、workspace）
     
     nk_entries = {}
     
@@ -551,6 +563,8 @@ def save_outputs(out_dir: Path, gpu_short_name: str, arch_name: str, dtype: str,
         
         raw = res["raw"]
         topk_id = raw["topk_alg_id"].cpu()
+        topk_split_k = raw["topk_split_k"].cpu()
+        topk_workspace = raw["topk_workspace"].cpu()
         valid = raw["valid_mask"].cpu()
 
         m_thresholds = []
@@ -558,14 +572,23 @@ def save_outputs(out_dir: Path, gpu_short_name: str, arch_name: str, dtype: str,
         
         for m_i, M in enumerate(search_ret["M_list"]):
             algs = topk_id[m_i]
+            split_ks = topk_split_k[m_i]
+            wss = topk_workspace[m_i]
             vmask = valid[m_i]
 
             # 只有当有有效结果时才记录
             if vmask[0]:
                 m_thresholds.append(M)
-                # 简化格式：只记录 top3 的 alg_id
-                top3_ids = [int(algs[k].item()) for k in range(3) if vmask[k]]
-                alg_by_m[str(M)] = top3_ids
+                # 完整格式：记录 top3 的完整配置 {alg_id, split_k, workspace}
+                top3_configs = []
+                for k in range(3):
+                    if vmask[k]:
+                        top3_configs.append({
+                            "alg_id": int(algs[k].item()),
+                            "split_k": int(split_ks[k].item()),
+                            "workspace": int(wss[k].item()),
+                        })
+                alg_by_m[str(M)] = top3_configs
         
         nk_entries[nk_key] = {
             "m_thresholds": m_thresholds,
@@ -593,7 +616,7 @@ def probe_dtype_support(ext, dtype: str, layout: str = "TNCCcol") -> Tuple[bool,
     """
     通过实际调用 cuSPARSELt 来探测 dtype 是否被当前 GPU 支持。
     
-    使用最小尺寸（32x32）的矩阵进行快速测试，避免硬编码的架构判断。
+    使用最小尺寸的矩阵进行快速测试，避免硬编码的架构判断。
     
     Args:
         ext: 编译好的 CUDA 扩展模块
@@ -605,7 +628,7 @@ def probe_dtype_support(ext, dtype: str, layout: str = "TNCCcol") -> Tuple[bool,
         - supported: 是否支持
         - message: 成功或失败的详细信息
     """
-    # 最小测试尺寸（满足 cuSPARSELt 对齐要求：N 需 32 对齐，K/M 需 16 对齐）
+    # 最小测试尺寸（满足对齐要求：N 需 32 对齐，K/M 需 16 对齐）
     N, K, M = 32, 32, 16
     
     try:
@@ -672,7 +695,7 @@ def check_dtype_support(ext, dtype: str, arch_name: str, verbose: bool = True) -
     if verbose:
         print(f"[预测试] 检测 dtype={dtype} 在 {arch_name} 上的支持情况...", end=" ", flush=True)
     
-    supported, message = probe_dtype_support(ext, dtype)
+    """supported, message = probe_dtype_support(ext, dtype)
     
     if supported:
         if verbose:
@@ -684,7 +707,7 @@ def check_dtype_support(ext, dtype: str, arch_name: str, verbose: bool = True) -
             f"数据类型 {dtype.upper()} 在当前 GPU ({arch_name}) 上不可用。\n"
             f"原因: {message}\n"
         )
-
+"""
 
 # === 主流程 ===
 

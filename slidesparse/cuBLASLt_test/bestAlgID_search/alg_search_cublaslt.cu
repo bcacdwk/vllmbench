@@ -205,9 +205,9 @@ py::dict search_topk(torch::Tensor W_bf16, torch::Tensor A_bf16,
 
   std::vector<AlgRecord> records;
   
-  // === Workspace 回退机制 ===
-  // 与 cuSPARSELt 对齐：预分配一个初始 workspace，如果某个算法需要更大的空间，动态扩展
-  size_t current_workspace_size = 32 * 1024 * 1024;  // 32 MB 初始大小
+  // === Workspace 配置 ===
+  // 放宽限制：预分配 512MB workspace，确保不遗漏高性能算法
+  size_t current_workspace_size = 512 * 1024 * 1024;  // 512 MB
   void *shared_workspace = nullptr;
   CHECK_CUDA_ERR(cudaMalloc(&shared_workspace, current_workspace_size));
 
@@ -267,12 +267,20 @@ py::dict search_topk(torch::Tensor W_bf16, torch::Tensor A_bf16,
     // 创建算法偏好
     cublasLtMatmulPreference_t preference = nullptr;
     CHECK_CUBLAS_ERR(cublasLtMatmulPreferenceCreate(&preference));
+    
+    // 设置最大 workspace 为 512MB
     CHECK_CUBLAS_ERR(cublasLtMatmulPreferenceSetAttribute(
         preference, CUBLASLT_MATMUL_PREF_MAX_WORKSPACE_BYTES, &current_workspace_size, sizeof(current_workspace_size)));
+    
+    // 允许所有 Reduction 方案（不进行位掩码限制）
+    // CUBLASLT_REDUCTION_SCHEME_MASK 全 1 表示允许所有方案
+    uint32_t reduction_scheme_mask = CUBLASLT_REDUCTION_SCHEME_MASK;
+    CHECK_CUBLAS_ERR(cublasLtMatmulPreferenceSetAttribute(
+        preference, CUBLASLT_MATMUL_PREF_REDUCTION_SCHEME_MASK, &reduction_scheme_mask, sizeof(reduction_scheme_mask)));
 
     // 获取可用算法（启发式搜索）
     // 与 cuSPARSELt 不同：cuBLASLt 使用启发式搜索返回候选算法，cuSPARSELt 使用 ID 遍历
-    const int max_algo_count = 64;  // 请求最多 64 个算法
+    const int max_algo_count = 128;  // 请求最多 128 个算法
     cublasLtMatmulHeuristicResult_t heuristicResult[max_algo_count];
     int returnedAlgoCount = 0;
 

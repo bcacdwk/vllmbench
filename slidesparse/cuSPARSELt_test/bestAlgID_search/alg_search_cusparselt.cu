@@ -215,8 +215,10 @@ torch::Tensor prune_24(torch::Tensor W_bf16, const std::string &layout) {
 }
 
 // ===== 搜索结果记录 =====
+// 与 cuBLASLt 对齐：存储算法配置和 Split-K 参数
 struct AlgRecord {
-  int alg_id{-1};
+  int alg_id{-1};             // 算法 ID
+  int split_k{1};             // Split-K 值：1=不切分, >1=传统Split-K, -1=Segment-K (H100+)
   float lat_us{0.f};
   float tops{0.f};
   int64_t workspace{0};
@@ -383,8 +385,10 @@ py::dict search_topk(torch::Tensor W_pruned_bf16, torch::Tensor A_bf16,
       compress_buffer, stream));
 
   // 为结果分配存储
+  // 与 cuBLASLt 对齐：存储 topk 的完整算法配置
   int64_t numM = static_cast<int64_t>(M_list.size());
   torch::Tensor topk_alg = torch::full({numM, topk}, -1, torch::dtype(torch::kInt32));
+  torch::Tensor topk_split_k = torch::full({numM, topk}, 1, torch::dtype(torch::kInt32));  // cuSPARSELt 特有：Split-K 值
   torch::Tensor topk_lat = torch::zeros({numM, topk}, torch::dtype(torch::kFloat32));
   torch::Tensor topk_tops = torch::zeros({numM, topk}, torch::dtype(torch::kFloat32));
   torch::Tensor topk_workspace = torch::zeros({numM, topk}, torch::dtype(torch::kInt64));
@@ -451,172 +455,219 @@ py::dict search_topk(torch::Tensor W_pruned_bf16, torch::Tensor A_bf16,
     float alpha = 1.0f;
     float beta = 0.0f;
 
+    // === 双层网格搜索：外层遍历 alg_id，内层遍历 split_k_val ===
+    // split_k_val 候选列表：
+    //   1: 不切分 (Baseline)
+    //   2, 4, 8, 16, 32, 64: 传统 Split-K
+    //   -1: Segment-K (H100/SM9.0+ 架构特殊优化)
+    // 测试顺序：先测 1，然后 2/4/8/16/32/64 直到失败或到 64，最后测 -1
+    
     for (int alg_id = 0; alg_id <= max_alg_id; ++alg_id) {
       if (std::find(blacklist_ids.begin(), blacklist_ids.end(), alg_id) !=
           blacklist_ids.end()) {
         continue;
       }
 
-      cusparseLtMatmulAlgSelection_t alg_sel;
-      cusparseStatus_t sel_status = cusparseLtMatmulAlgSelectionInit(
-          &handle, &alg_sel, &matmul_m, CUSPARSELT_MATMUL_ALG_DEFAULT);
-      if (sel_status != CUSPARSE_STATUS_SUCCESS) {
-        break;
+      // 构建 split_k 候选列表：{1, 2, 4, 8, 16, 32, 64, -1}
+      std::vector<int> split_k_candidates = {1};  // 总是先测试不切分
+      for (int sk = 2; sk <= 64; sk *= 2) {
+        split_k_candidates.push_back(sk);
       }
-      cusparseStatus_t set_status = cusparseLtMatmulAlgSetAttribute(
-          &handle, &alg_sel, CUSPARSELT_MATMUL_ALG_CONFIG_ID, &alg_id,
-          sizeof(alg_id));
-      if (set_status != CUSPARSE_STATUS_SUCCESS) {
-        cusparseLtMatmulAlgSelectionDestroy(&alg_sel);
-        continue;
-      }
+      split_k_candidates.push_back(-1);  // 最后测试 Segment-K
 
-      cusparseLtMatmulPlan_t plan;
-      cusparseStatus_t plan_status = cusparseLtMatmulPlanInit(
-          &handle, &plan, &matmul_m, &alg_sel);
-      if (plan_status != CUSPARSE_STATUS_SUCCESS) {
-        cusparseLtMatmulAlgSelectionDestroy(&alg_sel);
-        continue;
-      }
-
-      // === Workspace 回退机制 ===
-      // 查询当前算法所需 workspace 大小
-      size_t workspace_size = 0;
-      cusparseLtMatmulGetWorkspace(&handle, &plan, &workspace_size);
+      bool split_k_failed = false;  // 用于跟踪 Split-K 是否开始失败
       
-      // 如果当前共享 workspace 不够大，扩展它
-      if (workspace_size > current_workspace_size) {
-        if (shared_workspace != nullptr) {
-          cudaFree(shared_workspace);
-          shared_workspace = nullptr;
+      for (int split_k_val : split_k_candidates) {
+        // 如果传统 Split-K (>1) 开始失败，跳过后续的倍增值，但仍然测试 -1
+        if (split_k_failed && split_k_val > 1 && split_k_val != -1) {
+          continue;
         }
-        // 尝试分配更大的 workspace
-        cudaError_t alloc_st = cudaMalloc(&shared_workspace, workspace_size);
-        if (alloc_st != cudaSuccess) {
-          // 分配失败，跳过此算法
-          cusparseLtMatmulPlanDestroy(&plan);
+
+        cusparseLtMatmulAlgSelection_t alg_sel;
+        cusparseStatus_t sel_status = cusparseLtMatmulAlgSelectionInit(
+            &handle, &alg_sel, &matmul_m, CUSPARSELT_MATMUL_ALG_DEFAULT);
+        if (sel_status != CUSPARSE_STATUS_SUCCESS) {
+          break;  // 算法选择初始化失败，跳出 split_k 循环
+        }
+        
+        // 设置算法 ID
+        cusparseStatus_t set_status = cusparseLtMatmulAlgSetAttribute(
+            &handle, &alg_sel, CUSPARSELT_MATMUL_ALG_CONFIG_ID, &alg_id,
+            sizeof(alg_id));
+        if (set_status != CUSPARSE_STATUS_SUCCESS) {
           cusparseLtMatmulAlgSelectionDestroy(&alg_sel);
           continue;
         }
-        current_workspace_size = workspace_size;
-      }
+
+        // === 设置 Split-K 属性 ===
+        // CUSPARSELT_MATMUL_SPLIT_K:
+        //   1: 不切分 (默认)
+        //   >1: 传统 Split-K
+        //   -1: Segment-K (H100/SM9.0+ 特有优化，A100 不支持会返回错误)
+        cusparseStatus_t split_k_status = cusparseLtMatmulAlgSetAttribute(
+            &handle, &alg_sel, CUSPARSELT_MATMUL_SPLIT_K, &split_k_val,
+            sizeof(split_k_val));
+        if (split_k_status != CUSPARSE_STATUS_SUCCESS) {
+          // Split-K 设置失败（例如在 A100 上尝试 -1）
+          cusparseLtMatmulAlgSelectionDestroy(&alg_sel);
+          if (split_k_val > 1) {
+            split_k_failed = true;  // 标记传统 Split-K 开始失败
+          }
+          continue;
+        }
+
+        cusparseLtMatmulPlan_t plan;
+        cusparseStatus_t plan_status = cusparseLtMatmulPlanInit(
+            &handle, &plan, &matmul_m, &alg_sel);
+        if (plan_status != CUSPARSE_STATUS_SUCCESS) {
+          // PlanInit 失败（算法+Split-K 组合不兼容）
+          cusparseLtMatmulAlgSelectionDestroy(&alg_sel);
+          if (split_k_val > 1) {
+            split_k_failed = true;  // 标记传统 Split-K 开始失败
+          }
+          continue;
+        }
+
+        // === Workspace 回退机制 ===
+        // 查询当前算法所需 workspace 大小（Split-K/Segment-K 对 workspace 需求不同）
+        size_t workspace_size = 0;
+        cusparseLtMatmulGetWorkspace(&handle, &plan, &workspace_size);
+        
+        // 如果当前共享 workspace 不够大，扩展它
+        if (workspace_size > current_workspace_size) {
+          if (shared_workspace != nullptr) {
+            cudaFree(shared_workspace);
+            shared_workspace = nullptr;
+          }
+          // 尝试分配更大的 workspace
+          cudaError_t alloc_st = cudaMalloc(&shared_workspace, workspace_size);
+          if (alloc_st != cudaSuccess) {
+            // 分配失败，跳过此组合
+            cusparseLtMatmulPlanDestroy(&plan);
+            cusparseLtMatmulAlgSelectionDestroy(&alg_sel);
+            continue;
+          }
+          current_workspace_size = workspace_size;
+        }
       
       // 使用共享 workspace（大小已保证足够）
       void *workspace = (workspace_size > 0) ? shared_workspace : nullptr;
 
-      bool success = true;
+        bool success = true;
 
-      // 预热（显式传入 stream，保证一致性）
-      if (warmup > 0) {
-        for (int i = 0; i < warmup; ++i) {
-          cusparseStatus_t st = cusparseLtMatmul(
-              &handle, &plan, &alpha, W_compressed.data_ptr(), A_slice.data_ptr(),
-              &beta, C_out.data_ptr(), C_out.data_ptr(), workspace, &stream, 1);
-          if (st != CUSPARSE_STATUS_SUCCESS) {
-            success = false;
-            break;
+        // 预热（显式传入 stream，保证一致性）
+        if (warmup > 0) {
+          for (int i = 0; i < warmup; ++i) {
+            cusparseStatus_t st = cusparseLtMatmul(
+                &handle, &plan, &alpha, W_compressed.data_ptr(), A_slice.data_ptr(),
+                &beta, C_out.data_ptr(), C_out.data_ptr(), workspace, &stream, 1);
+            if (st != CUSPARSE_STATUS_SUCCESS) {
+              success = false;
+              break;
+            }
           }
+          // 确保预热完成
+          CHECK_CUDA_ERR(cudaStreamSynchronize(stream));
         }
-        // 确保预热完成
-        CHECK_CUDA_ERR(cudaStreamSynchronize(stream));
-      }
 
-      // 正式计时：包住整个 repeat loop 一次，避免 event 开销污染小 M 测量
-      cudaEvent_t start = nullptr, stop = nullptr;
-      float total_ms = 0.0f;
-      if (success) {
-        CHECK_CUDA_ERR(cudaEventCreate(&start));
-        CHECK_CUDA_ERR(cudaEventCreate(&stop));
+        // 正式计时：包住整个 repeat loop 一次，避免 event 开销污染小 M 测量
+        cudaEvent_t start = nullptr, stop = nullptr;
+        float total_ms = 0.0f;
+        if (success) {
+          CHECK_CUDA_ERR(cudaEventCreate(&start));
+          CHECK_CUDA_ERR(cudaEventCreate(&stop));
 
-        // 开始计时（只记录一次 start）
-        CHECK_CUDA_ERR(cudaEventRecord(start, stream));
-        
-        for (int r = 0; r < repeat; ++r) {
-          cusparseStatus_t st = cusparseLtMatmul(
-              &handle, &plan, &alpha, W_compressed.data_ptr(),
-              A_slice.data_ptr(), &beta, C_out.data_ptr(), C_out.data_ptr(),
-              workspace, &stream, 1);  // 显式传入 stream
-          if (st != CUSPARSE_STATUS_SUCCESS) {
-            success = false;
-            break;
+          // 开始计时（只记录一次 start）
+          CHECK_CUDA_ERR(cudaEventRecord(start, stream));
+          
+          for (int r = 0; r < repeat; ++r) {
+            cusparseStatus_t st = cusparseLtMatmul(
+                &handle, &plan, &alpha, W_compressed.data_ptr(),
+                A_slice.data_ptr(), &beta, C_out.data_ptr(), C_out.data_ptr(),
+                workspace, &stream, 1);  // 显式传入 stream
+            if (st != CUSPARSE_STATUS_SUCCESS) {
+              success = false;
+              break;
+            }
           }
+          
+          // 结束计时（只记录一次 stop，只同步一次）
+          CHECK_CUDA_ERR(cudaEventRecord(stop, stream));
+          CHECK_CUDA_ERR(cudaEventSynchronize(stop));
+          CHECK_CUDA_ERR(cudaEventElapsedTime(&total_ms, start, stop));
+          CHECK_CUDA_ERR(cudaEventDestroy(start));
+          CHECK_CUDA_ERR(cudaEventDestroy(stop));
         }
-        
-        // 结束计时（只记录一次 stop，只同步一次）
-        CHECK_CUDA_ERR(cudaEventRecord(stop, stream));
-        CHECK_CUDA_ERR(cudaEventSynchronize(stop));
-        CHECK_CUDA_ERR(cudaEventElapsedTime(&total_ms, start, stop));
-        CHECK_CUDA_ERR(cudaEventDestroy(start));
-        CHECK_CUDA_ERR(cudaEventDestroy(stop));
-      }
 
-      if (success) {
-        AlgRecord rec;
-        rec.alg_id = alg_id;
-        rec.lat_us = (total_ms * 1000.0f) / static_cast<float>(repeat);
-        double ops = 2.0 * static_cast<double>(M) * static_cast<double>(N) *
-                     static_cast<double>(K);
-        double tops = ops / (rec.lat_us / 1e6) / 1e12;
-        rec.tops = static_cast<float>(tops);
-        rec.workspace = static_cast<int64_t>(workspace_size);
-        rec.valid = true;
+        if (success) {
+          AlgRecord rec;
+          rec.alg_id = alg_id;
+          rec.split_k = split_k_val;  // 记录 Split-K 值
+          rec.lat_us = (total_ms * 1000.0f) / static_cast<float>(repeat);
+          double ops = 2.0 * static_cast<double>(M) * static_cast<double>(N) *
+                       static_cast<double>(K);
+          double tops = ops / (rec.lat_us / 1e6) / 1e12;
+          rec.tops = static_cast<float>(tops);
+          rec.workspace = static_cast<int64_t>(workspace_size);
+          rec.valid = true;
 
-        // 校验（如需）
-        if (verify) {
-          // 使用量化后的数据做 FP32 参考计算
-          // 这样才能和 cuSPARSELt 的 INT8 GEMM 结果对比
-          auto A_slice_v = A_q.narrow(0, 0, M);
-          auto A_fp32 = A_slice_v.to(torch::kFloat32);
-          auto W_fp32 = W_q.to(torch::kFloat32);
-          auto ref = torch::matmul(W_fp32, A_fp32.transpose(0, 1));  // [N, M], Row Major
+          // 校验（如需）
+          if (verify) {
+            // 使用量化后的数据做 FP32 参考计算
+            // 这样才能和 cuSPARSELt 的 INT8 GEMM 结果对比
+            auto A_slice_v = A_q.narrow(0, 0, M);
+            auto A_fp32 = A_slice_v.to(torch::kFloat32);
+            auto W_fp32 = W_q.to(torch::kFloat32);
+            auto ref = torch::matmul(W_fp32, A_fp32.transpose(0, 1));  // [N, M], Row Major
           
-          // 将输出转为 FP32 比较
-          // C_out 的创建已经考虑了布局：
-          //   - Column Major 时创建为 [M, N]，转置后得到 [N, M]
-          //   - Row Major 时直接创建为 [N, M]
-          torch::Tensor out_fp32;
-          if (is_col_major) {
-            // C_out 是 [M, N]，转置得到 [N, M] 与 ref 对齐
-            out_fp32 = C_out.to(torch::kFloat32).t().contiguous();
-          } else {
-            // Row Major: 直接使用
-            out_fp32 = C_out.to(torch::kFloat32);
+            // 将输出转为 FP32 比较
+            // C_out 的创建已经考虑了布局：
+            //   - Column Major 时创建为 [M, N]，转置后得到 [N, M]
+            //   - Row Major 时直接创建为 [N, M]
+            torch::Tensor out_fp32;
+            if (is_col_major) {
+              // C_out 是 [M, N]，转置得到 [N, M] 与 ref 对齐
+              out_fp32 = C_out.to(torch::kFloat32).t().contiguous();
+            } else {
+              // Row Major: 直接使用
+              out_fp32 = C_out.to(torch::kFloat32);
+            }
+            
+            // 计算相对误差（相对于参考值的绝对值）
+            auto ref_abs = ref.abs().clamp_min(1.0f);  // 避免除以0
+            auto rel_diff = ((out_fp32 - ref) / ref_abs).abs();
+            float max_rel_err = rel_diff.max().item<float>();
+            rec.max_abs_err = max_rel_err;  // 存储的是相对误差
+            
+            // 相对误差容限：5%
+            constexpr float tol = 0.05f;
+            constexpr float critical_tol = 1.00f;  // 超过 100% 认为计算有严重问题
+            
+            if (max_rel_err > critical_tol || std::isnan(max_rel_err)) {
+              // 严重错误：输出 warning，跳过当前组合
+              std::cerr << "[WARNING] M=" << M << " alg_id=" << alg_id << " split_k=" << split_k_val
+                        << " 相对误差=" << (max_rel_err * 100.0f) << "% > 100%" << std::endl;
+              rec.valid = false;
+              verify_failed_ids.push_back(alg_id);
+              cusparseLtMatmulPlanDestroy(&plan);
+              cusparseLtMatmulAlgSelectionDestroy(&alg_sel);
+              continue;  // 跳过当前 split_k 组合
+            } else if (max_rel_err > tol) {
+              // 超过容限但未达到严重级别：记录但不跳过
+              std::cout << "[INFO] M=" << M << " alg_id=" << alg_id << " split_k=" << split_k_val
+                        << " 相对误差=" << (max_rel_err * 100.0f) << "% > 5%" << std::endl;
+              rec.valid = true;
+              verify_failed_ids.push_back(alg_id);
+            }
           }
-          
-          // 计算相对误差（相对于参考值的绝对值）
-          auto ref_abs = ref.abs().clamp_min(1.0f);  // 避免除以0
-          auto rel_diff = ((out_fp32 - ref) / ref_abs).abs();
-          float max_rel_err = rel_diff.max().item<float>();
-          rec.max_abs_err = max_rel_err;  // 存储的是相对误差
-          
-          // 相对误差容限：5%
-          constexpr float tol = 0.05f;
-          constexpr float critical_tol = 1.00f;  // 超过 100% 认为计算有严重问题
-          
-          if (max_rel_err > critical_tol || std::isnan(max_rel_err)) {
-            // 严重错误：输出 warning，跳过当前 M 剩余算法
-            std::cerr << "[WARNING] M=" << M << " alg_id=" << alg_id 
-                      << " 相对误差=" << (max_rel_err * 100.0f) << "% > 100%，跳过剩余算法" << std::endl;
-            rec.valid = false;
-            verify_failed_ids.push_back(alg_id);
-            cusparseLtMatmulPlanDestroy(&plan);
-            cusparseLtMatmulAlgSelectionDestroy(&alg_sel);
-            break;  // 跳出 alg_id 循环，进入下一个 M
-          } else if (max_rel_err > tol) {
-            // 超过容限但未达到严重级别：记录但不跳过
-            std::cout << "[INFO] M=" << M << " alg_id=" << alg_id 
-                      << " 相对误差=" << (max_rel_err * 100.0f) << "% > 5%" << std::endl;
-            rec.valid = true;
-            verify_failed_ids.push_back(alg_id);
-          }
+          records.push_back(rec);
         }
-        records.push_back(rec);
-      }
 
-      // 注意：不再释放 workspace，因为使用共享 workspace
-      cusparseLtMatmulPlanDestroy(&plan);
-      cusparseLtMatmulAlgSelectionDestroy(&alg_sel);
-    }
+        // 注意：不再释放 workspace，因为使用共享 workspace
+        cusparseLtMatmulPlanDestroy(&plan);
+        cusparseLtMatmulAlgSelectionDestroy(&alg_sel);
+      }  // end split_k_val loop
+    }  // end alg_id loop
 
     // 当前 M 取出记录并排序
     std::vector<AlgRecord> filtered;
@@ -631,6 +682,7 @@ py::dict search_topk(torch::Tensor W_pruned_bf16, torch::Tensor A_bf16,
     int fill = std::min(static_cast<int>(filtered.size()), topk);
     for (int i = 0; i < fill; ++i) {
       topk_alg.index_put_({m_index, i}, filtered[i].alg_id);
+      topk_split_k.index_put_({m_index, i}, filtered[i].split_k);  // 记录 Split-K 值
       topk_lat.index_put_({m_index, i}, filtered[i].lat_us);
       topk_tops.index_put_({m_index, i}, filtered[i].tops);
       topk_workspace.index_put_({m_index, i}, filtered[i].workspace);
@@ -664,17 +716,19 @@ py::dict search_topk(torch::Tensor W_pruned_bf16, torch::Tensor A_bf16,
   cusparseLtDestroy(&handle);
 
   // 构造返回
+  // 与 cuBLASLt 对齐的输出格式
   py::dict out;
   out["M_list"] = torch::tensor(M_list, torch::dtype(torch::kInt32));
   out["NK"] = torch::tensor({static_cast<int32_t>(N), static_cast<int32_t>(K)},
                              torch::dtype(torch::kInt32));
   out["topk_alg_id"] = topk_alg;
+  out["topk_split_k"] = topk_split_k;  // cuSPARSELt 特有：Split-K 值 (1=不切分, >1=Split-K, -1=Segment-K)
   out["topk_lat_us"] = topk_lat;
   out["topk_tops"] = topk_tops;
   out["topk_workspace"] = topk_workspace;
   out["valid_mask"] = valid_mask;
   out["compress_alg_id"] = max_alg_id;  // 用于压缩的算法ID（即最大有效算法ID）
-  out["num_valid_algs_per_M"] = num_valid;  // 每个 M 的有效算法数
+  out["num_valid_algs_per_M"] = num_valid;  // 每个 M 的有效算法数（包含所有 Split-K 组合）
   if (verify) {
     out["verify_max_abs_err"] = verify_err;
     out["verify_failed_algs"] = torch::tensor(verify_failed_ids,
@@ -686,7 +740,7 @@ py::dict search_topk(torch::Tensor W_pruned_bf16, torch::Tensor A_bf16,
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
   m.def("prune_24", &prune_24, "2:4 剪枝 (cuSPARSELt)",
         py::arg("W_bf16"), py::arg("layout"));
-  m.def("search_topk", &search_topk, "枚举算法并返回 topk", py::arg("W_pruned_bf16"),
+  m.def("search_topk", &search_topk, "枚举算法+Split-K 并返回 topk", py::arg("W_pruned_bf16"),
         py::arg("A_bf16"), py::arg("M_list"), py::arg("layout"),
         py::arg("dtype") = "int8", py::arg("warmup") = 25,
         py::arg("repeat") = 100, py::arg("verify") = false,

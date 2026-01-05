@@ -289,18 +289,18 @@ def default_m_list() -> List[int]:
 
 def lookup_best_alg(json_data: Dict, N: int, K: int, M: int) -> Optional[str]:
     """
-    从 JSON 数据中查询最佳算法配置（与 cuSPARSELt 对齐）。
+    从 JSON 数据中查询最佳算法配置。
     
     查询逻辑：
     1. 用 (N, K) 在 nk_entries 中找到对应条目
     2. 在 m_thresholds 中找到 <= query_M 的最大值
-    3. 返回该 M 对应的 alg_by_m[m][0]（最佳算法的 base64 编码）
+    3. 返回该 M 对应的 alg_by_m[m][0]（最佳配置）
     
     Args:
         json_data: 加载的 JSON 数据
-        N: 权重矩阵 W 的行数
+        N: 稠密矩阵 W 的行数
         K: 共享维度
-        M: 矩阵 A 的行数（查询的 batch size）
+        M: 稠密矩阵 A 的行数（查询的 batch size）
     
     Returns:
         最佳算法的 base64 编码字符串（64B cublasLtMatmulAlgo_t 数据），
@@ -359,7 +359,7 @@ def run_search(ext, dtype: str, nk_list: List[Tuple[int, int]], m_list: List[int
     """
     运行算法搜索。
     
-    固定布局: T/N + Col/Col + Col (权重W在左，Column Major 输出)
+    固定布局: T/N + Col/Col + Col (权重W在左，稠密矩阵，Column Major 输出)
     每个 NK 组合生成新的随机数据
     """
     layout = "TNCCcol"  # 固定布局: TN+CC+Col
@@ -518,7 +518,7 @@ def save_outputs(out_dir: Path, gpu_short_name: str, arch_name: str, dtype: str,
                         str(int(wss[k].item())),
                     ])
                 else:
-                    csv_values.extend(["", "", "", ""])
+                    csv_values.extend(["", "", "", ""])  # 4 个空字段
             csv_rows.append((M, nk_idx, ",".join(csv_values)))
 
     # 排序：先按 M 升序，M 相同时按 nk_idx（即 nk_list 顺序）
@@ -529,7 +529,7 @@ def save_outputs(out_dir: Path, gpu_short_name: str, arch_name: str, dtype: str,
     csv_path.write_text("\n".join(lines))
 
     # === JSON 生成（简化版：只保留 top3 的 64B algo_data）===
-    # 格式设计（与 cuSPARSELt 对齐）：
+    # 格式设计：
     # {
     #   "meta": {...},
     #   "nk_entries": {
@@ -544,7 +544,7 @@ def save_outputs(out_dir: Path, gpu_short_name: str, arch_name: str, dtype: str,
     #   }
     # }
     # 
-    # 查询逻辑（与 cuSPARSELt 一致）：
+    # 查询逻辑：
     # 1. 用 (N, K) 找到 nk_entry
     # 2. 在 m_thresholds 中找到 <= query_M 的最大值 m_key
     # 3. 返回 alg_by_m[m_key][0] 作为最佳算法的 base64 数据
