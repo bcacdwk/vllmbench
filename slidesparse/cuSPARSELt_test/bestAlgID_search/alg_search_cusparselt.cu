@@ -1,0 +1,696 @@
+// cuSPARSELt 算法离线搜索
+// 提供 prune_24 与 search_topk 两个 Python API（pybind11 暴露）
+// 固定的layout: 权重W在左，T/N + C/C GEMM，输出矩阵order固定为 Column 主序
+// C[N,M]_col = W[N,K]^T_col * A[K,M]_col
+// 支持的数据类型：int8, fp8e4m3
+
+#include <torch/extension.h>
+#include <ATen/cuda/CUDAContext.h>
+#include <cuda.h>
+#include <cuda_runtime.h>
+#include <cusparseLt.h>
+
+#include <pybind11/pybind11.h>
+#include <pybind11/stl.h>
+
+#include <algorithm>
+#include <cmath>
+#include <cstdint>
+#include <sstream>
+#include <string>
+#include <utility>
+#include <vector>
+
+namespace py = pybind11;
+
+// ===== 工具宏 =====
+#define CHECK_CUDA_ERR(expr)                                                                        \
+  do {                                                                                              \
+    cudaError_t _status = (expr);                                                                  \
+    if (_status != cudaSuccess) {                                                                  \
+      std::ostringstream _oss;                                                                     \
+      _oss << "CUDA 调用失败: " << cudaGetErrorString(_status) << " (code " << _status << ")";  \
+      throw std::runtime_error(_oss.str());                                                        \
+    }                                                                                              \
+  } while (0)
+
+#define CHECK_CUSPARSE_ERR(expr)                                                                    \
+  do {                                                                                              \
+    cusparseStatus_t _status = (expr);                                                             \
+    if (_status != CUSPARSE_STATUS_SUCCESS) {                                                      \
+      std::ostringstream _oss;                                                                     \
+      _oss << "cuSPARSELt 调用失败: " << cusparseLtGetErrorString(_status)                        \
+           << " (code " << static_cast<int>(_status) << ")";                                      \
+      throw std::runtime_error(_oss.str());                                                        \
+    }                                                                                              \
+  } while (0)
+
+// ===== 布局配置 =====
+struct LayoutConfig {
+  cusparseOrder_t orderA{CUSPARSE_ORDER_COL};
+  cusparseOrder_t orderB{CUSPARSE_ORDER_COL};
+  cusparseOrder_t orderC{CUSPARSE_ORDER_COL};
+  cusparseOperation_t opA{CUSPARSE_OPERATION_TRANSPOSE};
+  cusparseOperation_t opB{CUSPARSE_OPERATION_NON_TRANSPOSE};
+};
+
+static LayoutConfig parse_layout(const std::string &layout) {
+  LayoutConfig cfg;
+  if (layout == "TNCCrow") {
+    cfg.orderC = CUSPARSE_ORDER_ROW;
+  } else {
+    // 默认 col 版本
+    cfg.orderC = CUSPARSE_ORDER_COL;
+  }
+  return cfg;
+}
+
+// ===== dtype 相关 =====
+static cudaDataType to_cuda_dtype(const std::string &dtype) {
+  if (dtype == "int8") return CUDA_R_8I;
+  if (dtype == "fp8e4m3") return CUDA_R_8F_E4M3;
+  throw std::invalid_argument("不支持的数据类型: " + dtype + "。支持: int8, fp8e4m3");
+}
+
+static cudaDataType cuda_out_dtype(const std::string &dtype) {
+  if (dtype == "int8") return CUDA_R_32I;
+  if (dtype == "fp8e4m3") return CUDA_R_32F;
+  throw std::invalid_argument("不支持的数据类型: " + dtype);
+}
+
+static cusparseComputeType compute_type_from_dtype(const std::string &dtype) {
+  if (dtype == "int8") return CUSPARSE_COMPUTE_32I;
+  if (dtype == "fp8e4m3") return CUSPARSE_COMPUTE_32F;
+  throw std::invalid_argument("不支持的数据类型: " + dtype);
+}
+
+// ===== 简单量化：将 BF16/FP16 张量量化到 INT8 =====
+static std::pair<torch::Tensor, double> quantize_int8(torch::Tensor x) {
+  auto abs_max = x.abs().max().item<double>();
+  double scale = abs_max > 0 ? 127.0 / abs_max : 1.0;
+  auto q = (x * scale).round().clamp(-128, 127).to(torch::kChar);
+  return {q, scale};
+}
+
+// ===== FP8 转换 =====
+// FP8E4M3: 4位指数, 3位尾数, 动态范围小但精度高, 适合权重和激活
+static torch::Tensor to_fp8_e4m3(torch::Tensor x) {
+  if (!x.is_cuda()) throw std::runtime_error("FP8 转换需要 CUDA 张量");
+  try {
+    return x.to(torch::kFloat8_e4m3fn);
+  } catch (...) {
+    throw std::runtime_error("当前 PyTorch 版本不支持 FP8E4M3 类型，请升级到 PyTorch 2.1+");
+  }
+}
+
+// ===== 计算维度辅助 =====
+struct MatDims {
+  int64_t num_A_rows;
+  int64_t num_A_cols;
+  int64_t num_B_rows;
+  int64_t num_B_cols;
+  int64_t num_C_rows;
+  int64_t num_C_cols;
+  int64_t lda;
+  int64_t ldb;
+  int64_t ldc;
+};
+
+static MatDims make_dims(int64_t N, int64_t M, int64_t K, const LayoutConfig &cfg) {
+  bool isA_row = (cfg.orderA == CUSPARSE_ORDER_ROW);
+  bool isB_row = (cfg.orderB == CUSPARSE_ORDER_ROW);
+  bool isC_row = (cfg.orderC == CUSPARSE_ORDER_ROW);
+  bool A_t = (cfg.opA != CUSPARSE_OPERATION_NON_TRANSPOSE);
+  bool B_t = (cfg.opB != CUSPARSE_OPERATION_NON_TRANSPOSE);
+
+  MatDims d{};
+  d.num_A_rows = A_t ? K : N;
+  d.num_A_cols = A_t ? N : K;
+  d.num_B_rows = B_t ? M : K;
+  d.num_B_cols = B_t ? K : M;
+  d.num_C_rows = N;
+  d.num_C_cols = M;
+
+  d.lda = isA_row ? d.num_A_cols : d.num_A_rows;
+  d.ldb = isB_row ? d.num_B_cols : d.num_B_rows;
+  d.ldc = isC_row ? d.num_C_cols : d.num_C_rows;
+  return d;
+}
+
+// ===== prune_24 =====
+// 执行 2:4 结构化剪枝，使用 FP16 作为内部计算类型（cuSPARSELt 支持更好）
+torch::Tensor prune_24(torch::Tensor W_bf16, const std::string &layout) {
+  if (!W_bf16.is_cuda()) {
+    throw std::invalid_argument("W_bf16 必须在 CUDA 上");
+  }
+  
+  // 转换为 FP16 进行剪枝（cuSPARSELt 对 FP16 支持更好）
+  auto W = W_bf16.to(torch::kHalf).contiguous();
+  int64_t N = W.size(0);
+  int64_t K = W.size(1);
+
+  // 使用一个合理的虚拟 M 值（必须是 16 的倍数）
+  int64_t dummy_M = 16;
+
+  LayoutConfig cfg = parse_layout(layout);
+  MatDims dims = make_dims(N, dummy_M, K, cfg);
+
+  cusparseLtHandle_t handle;
+  CHECK_CUSPARSE_ERR(cusparseLtInit(&handle));
+
+  cusparseLtMatDescriptor_t matA, matB, matC;
+  unsigned alignment = 16;
+  cudaDataType typeAB = CUDA_R_16F;  // FP16
+
+  CHECK_CUSPARSE_ERR(cusparseLtStructuredDescriptorInit(
+      &handle, &matA, dims.num_A_rows, dims.num_A_cols, dims.lda, alignment,
+      typeAB, cfg.orderA, CUSPARSELT_SPARSITY_50_PERCENT));
+
+  CHECK_CUSPARSE_ERR(cusparseLtDenseDescriptorInit(
+      &handle, &matB, dims.num_B_rows, dims.num_B_cols, dims.ldb, alignment,
+      typeAB, cfg.orderB));
+
+  CHECK_CUSPARSE_ERR(cusparseLtDenseDescriptorInit(
+      &handle, &matC, dims.num_C_rows, dims.num_C_cols, dims.ldc, alignment,
+      typeAB, cfg.orderC));
+
+  cusparseLtMatmulDescriptor_t matmul;
+  CHECK_CUSPARSE_ERR(cusparseLtMatmulDescriptorInit(
+      &handle, &matmul, cfg.opA, cfg.opB, &matA, &matB, &matC, &matC,
+      CUSPARSE_COMPUTE_16F));
+
+  // 注意：不设置 CUSPARSELT_MATMUL_SPARSE_MAT_POINTER
+  // 官方 workflow: 稀疏矩阵通过 prune API 直接操作 data_ptr，无需额外属性
+  // 这与 search_topk() 保持一致的设计
+
+  // 分配输出（FP16）
+  auto out_fp16 = torch::zeros_like(W);
+  cudaStream_t stream = at::cuda::getDefaultCUDAStream();
+
+  CHECK_CUSPARSE_ERR(cusparseLtSpMMAPrune(
+      &handle, &matmul, W.data_ptr(), out_fp16.data_ptr(),
+      CUSPARSELT_PRUNE_SPMMA_TILE, stream));
+
+  // 校验剪枝
+  int *d_valid = nullptr;
+  CHECK_CUDA_ERR(cudaMalloc(&d_valid, sizeof(int)));
+  CHECK_CUSPARSE_ERR(cusparseLtSpMMAPruneCheck(
+      &handle, &matmul, out_fp16.data_ptr(), d_valid, stream));
+
+  int h_valid = 0;
+  CHECK_CUDA_ERR(cudaMemcpyAsync(&h_valid, d_valid, sizeof(int),
+                                 cudaMemcpyDeviceToHost, stream));
+  CHECK_CUDA_ERR(cudaStreamSynchronize(stream));
+  cudaFree(d_valid);
+  if (h_valid != 0) {
+    throw std::runtime_error("2:4 剪枝检查失败，矩阵不满足稀疏要求");
+  }
+
+  cusparseLtMatDescriptorDestroy(&matA);
+  cusparseLtMatDescriptorDestroy(&matB);
+  cusparseLtMatDescriptorDestroy(&matC);
+  cusparseLtDestroy(&handle);
+  
+  // 转换回原始 dtype
+  return out_fp16.to(W_bf16.scalar_type());
+}
+
+// ===== 搜索结果记录 =====
+struct AlgRecord {
+  int alg_id{-1};
+  float lat_us{0.f};
+  float tops{0.f};
+  int64_t workspace{0};
+  bool valid{false};
+  float max_abs_err{0.f};
+};
+
+// ===== search_topk =====
+py::dict search_topk(torch::Tensor W_pruned_bf16, torch::Tensor A_bf16,
+                     const std::vector<int64_t> &M_list,
+                     const std::string &layout, const std::string &dtype,
+                     int warmup, int repeat, bool verify,
+                     const std::vector<int64_t> &blacklist_ids,
+                     int topk) {
+  if (!W_pruned_bf16.is_cuda() || !A_bf16.is_cuda()) {
+    throw std::invalid_argument("W 与 A 必须在 CUDA 上");
+  }
+  if (W_pruned_bf16.dim() != 2 || A_bf16.dim() != 2) {
+    throw std::invalid_argument("输入张量必须是二维 [N,K] / [M,K]");
+  }
+  if (topk <= 0) topk = 3;
+
+  auto W_fp = W_pruned_bf16.contiguous();
+  auto A_fp = A_bf16.contiguous();
+  int64_t N = W_fp.size(0);
+  int64_t K = W_fp.size(1);
+  
+  // === 维度对齐检查 ===
+  // cuSPARSELt 要求：dense 矩阵维度需 16 对齐，structured sparse 需 32 对齐
+  auto check_alignment = [](int64_t val, int64_t align, const char* name) {
+    if (val % align != 0) {
+      std::ostringstream oss;
+      oss << "维度不满足对齐要求: " << name << "=" << val << " 不是 " << align << " 的倍数";
+      throw std::invalid_argument(oss.str());
+    }
+  };
+  check_alignment(N, 32, "N (sparse rows)");
+  check_alignment(K, 16, "K (shared dim)");
+  for (auto m : M_list) {
+    check_alignment(m, 16, "M");
+  }
+
+  // 量化/转换
+  torch::Tensor W_q;
+  torch::Tensor A_q;
+  cudaDataType type_AB = to_cuda_dtype(dtype);
+  cudaDataType type_C = cuda_out_dtype(dtype);
+  cusparseComputeType comp_type = compute_type_from_dtype(dtype);
+
+  if (dtype == "int8") {
+    auto qW = quantize_int8(W_fp);
+    auto qA = quantize_int8(A_fp);
+    W_q = qW.first;
+    A_q = qA.first;
+  } else if (dtype == "fp8e4m3") {
+    W_q = to_fp8_e4m3(W_fp);
+    A_q = to_fp8_e4m3(A_fp);
+  } else {
+    throw std::invalid_argument("不支持的数据类型: " + dtype + "。支持: int8, fp8e4m3");
+  }
+
+  // 获取最大 M 用于压缩计划
+  int64_t max_M = 0;
+  for (auto m : M_list) max_M = std::max(max_M, m);
+
+  LayoutConfig cfg = parse_layout(layout);
+  MatDims dims_compress = make_dims(N, max_M, K, cfg);
+
+  cusparseLtHandle_t handle;
+  CHECK_CUSPARSE_ERR(cusparseLtInit(&handle));
+
+  unsigned alignment = 16;
+  cusparseLtMatDescriptor_t matA, matB, matC;
+  CHECK_CUSPARSE_ERR(cusparseLtStructuredDescriptorInit(
+      &handle, &matA, dims_compress.num_A_rows, dims_compress.num_A_cols,
+      dims_compress.lda, alignment, type_AB, cfg.orderA,
+      CUSPARSELT_SPARSITY_50_PERCENT));
+  CHECK_CUSPARSE_ERR(cusparseLtDenseDescriptorInit(
+      &handle, &matB, dims_compress.num_B_rows, dims_compress.num_B_cols,
+      dims_compress.ldb, alignment, type_AB, cfg.orderB));
+  CHECK_CUSPARSE_ERR(cusparseLtDenseDescriptorInit(
+      &handle, &matC, dims_compress.num_C_rows, dims_compress.num_C_cols,
+      dims_compress.ldc, alignment, type_C, cfg.orderC));
+
+    cusparseLtMatmulDescriptor_t matmul_desc;
+    CHECK_CUSPARSE_ERR(cusparseLtMatmulDescriptorInit(
+      &handle, &matmul_desc, cfg.opA, cfg.opB, &matA, &matB, &matC, &matC,
+      comp_type));
+
+  // 注意：不设置 CUSPARSELT_MATMUL_SPARSE_MAT_POINTER
+  // 官方 workflow: 稀疏矩阵指针通过 cusparseLtMatmul() 的 d_A 参数传入 compressed pointer
+
+  // === 找到最大有效 alg_id，用于压缩权重 ===
+  // 关键：必须通过 planInit 成功来验证算法ID有效性
+  // 策略：从 id=0 开始递增遍历，连续失败超过阈值则停止
+  int max_alg_id = 0;
+  {
+    constexpr int kMaxConsecutiveFailures = 3;  // 连续失败阈值
+    int consecutive_failures = 0;
+    
+    for (int probe = 0; ; ++probe) {
+      cusparseLtMatmulAlgSelection_t sel;
+      if (cusparseLtMatmulAlgSelectionInit(&handle, &sel, &matmul_desc,
+                                           CUSPARSELT_MATMUL_ALG_DEFAULT) !=
+          CUSPARSE_STATUS_SUCCESS) {
+        ++consecutive_failures;
+        if (consecutive_failures >= kMaxConsecutiveFailures) break;
+        continue;
+      }
+      cusparseStatus_t set_st = cusparseLtMatmulAlgSetAttribute(
+          &handle, &sel, CUSPARSELT_MATMUL_ALG_CONFIG_ID, &probe,
+          sizeof(probe));
+      if (set_st != CUSPARSE_STATUS_SUCCESS) {
+        cusparseLtMatmulAlgSelectionDestroy(&sel);
+        ++consecutive_failures;
+        if (consecutive_failures >= kMaxConsecutiveFailures) break;
+        continue;
+      }
+      // 关键：以 planInit 成功为准
+      cusparseLtMatmulPlan_t plan_probe;
+      cusparseStatus_t plan_st = cusparseLtMatmulPlanInit(
+          &handle, &plan_probe, &matmul_desc, &sel);
+      cusparseLtMatmulAlgSelectionDestroy(&sel);
+      if (plan_st == CUSPARSE_STATUS_SUCCESS) {
+        max_alg_id = probe;  // 更新最大有效ID
+        consecutive_failures = 0;  // 重置连续失败计数
+        cusparseLtMatmulPlanDestroy(&plan_probe);
+      } else {
+        ++consecutive_failures;
+        if (consecutive_failures >= kMaxConsecutiveFailures) break;
+      }
+    }
+  }
+
+  // === 使用 max_alg_id 进行权重压缩 ===
+  // 这确保压缩后的权重与所有可用算法兼容
+  cusparseLtMatmulAlgSelection_t alg_sel_compress;
+  CHECK_CUSPARSE_ERR(cusparseLtMatmulAlgSelectionInit(
+      &handle, &alg_sel_compress, &matmul_desc, CUSPARSELT_MATMUL_ALG_DEFAULT));
+  
+  // 设置为 max_alg_id 进行压缩
+  CHECK_CUSPARSE_ERR(cusparseLtMatmulAlgSetAttribute(
+      &handle, &alg_sel_compress, CUSPARSELT_MATMUL_ALG_CONFIG_ID,
+      &max_alg_id, sizeof(max_alg_id)));
+
+  cusparseLtMatmulPlan_t plan_compress;
+  CHECK_CUSPARSE_ERR(cusparseLtMatmulPlanInit(
+      &handle, &plan_compress, &matmul_desc, &alg_sel_compress));
+
+  size_t compressed_size = 0, compressed_buffer_size = 0;
+  CHECK_CUSPARSE_ERR(cusparseLtSpMMACompressedSize(
+      &handle, &plan_compress, &compressed_size, &compressed_buffer_size));
+
+  torch::Tensor W_compressed = torch::empty({static_cast<long>(compressed_size)},
+                                            torch::dtype(torch::kUInt8).device(W_q.device()));
+  void *compress_buffer = nullptr;
+  if (compressed_buffer_size > 0) {
+    CHECK_CUDA_ERR(cudaMalloc(&compress_buffer, compressed_buffer_size));
+  }
+
+  cudaStream_t stream = at::cuda::getDefaultCUDAStream();
+  CHECK_CUSPARSE_ERR(cusparseLtSpMMACompress(
+      &handle, &plan_compress, W_q.data_ptr(), W_compressed.data_ptr(),
+      compress_buffer, stream));
+
+  // 为结果分配存储
+  int64_t numM = static_cast<int64_t>(M_list.size());
+  torch::Tensor topk_alg = torch::full({numM, topk}, -1, torch::dtype(torch::kInt32));
+  torch::Tensor topk_lat = torch::zeros({numM, topk}, torch::dtype(torch::kFloat32));
+  torch::Tensor topk_tops = torch::zeros({numM, topk}, torch::dtype(torch::kFloat32));
+  torch::Tensor topk_workspace = torch::zeros({numM, topk}, torch::dtype(torch::kInt64));
+  torch::Tensor valid_mask = torch::zeros({numM, topk}, torch::dtype(torch::kUInt8));
+  torch::Tensor num_valid = torch::zeros({numM}, torch::dtype(torch::kInt32));
+  torch::Tensor verify_err = torch::zeros({numM}, torch::dtype(torch::kFloat32));
+  std::vector<int> verify_failed_ids;
+
+  std::vector<AlgRecord> records;
+  
+  // === Workspace 回退机制 ===
+  // 预分配一个初始 workspace，如果某个算法需要更大的空间，动态扩展
+  size_t current_workspace_size = 0;
+  void *shared_workspace = nullptr;
+
+  for (int64_t m_index = 0; m_index < numM; ++m_index) {
+    int64_t M = M_list[m_index];
+    MatDims dims = make_dims(N, M, K, cfg);
+
+    cusparseLtMatDescriptor_t matB_m, matC_m;
+    CHECK_CUSPARSE_ERR(cusparseLtDenseDescriptorInit(
+        &handle, &matB_m, dims.num_B_rows, dims.num_B_cols, dims.ldb, alignment,
+        type_AB, cfg.orderB));
+    // 注意：对于 A100 Row Major (NTRRrow)，ldc 的计算在 make_dims 中已处理
+    // Col Major: ldc = num_C_rows = N
+    // Row Major: ldc = num_C_cols = M
+    CHECK_CUSPARSE_ERR(cusparseLtDenseDescriptorInit(
+        &handle, &matC_m, dims.num_C_rows, dims.num_C_cols, dims.ldc, alignment,
+        type_C, cfg.orderC));
+
+    cusparseLtMatmulDescriptor_t matmul_m;
+    CHECK_CUSPARSE_ERR(cusparseLtMatmulDescriptorInit(
+        &handle, &matmul_m, cfg.opA, cfg.opB, &matA, &matB_m, &matC_m, &matC_m,
+        comp_type));
+
+    // 注意：不设置 CUSPARSELT_MATMUL_SPARSE_MAT_POINTER
+    // 稀疏矩阵指针通过 cusparseLtMatmul() 的 d_A 参数传入 compressed pointer
+
+    // B 切片
+    auto A_slice = A_q.narrow(0, 0, M).contiguous();
+
+    // 输出 C 与 D（就地）
+    // 关键：cuSPARSELt 以 Column Major 存储 C 矩阵（当 cfg.orderC == COL）
+    // 逻辑形状 [N, M]，Column Major 存储意味着 leading dim = N
+    // PyTorch 默认 Row Major，为了兼容，我们创建 [M, N] 的 tensor
+    // 这样 PyTorch 的 Row Major [M, N] 等价于 Column Major [N, M]
+    torch::Tensor C_out;
+    bool is_col_major = (cfg.orderC == CUSPARSE_ORDER_COL);
+    if (dtype == "int8") {
+      if (is_col_major) {
+        // Column Major [N, M] 等价于 Row Major [M, N] 的转置
+        C_out = torch::zeros({M, N}, torch::dtype(torch::kInt32).device(W_q.device()));
+      } else {
+        C_out = torch::zeros({N, M}, torch::dtype(torch::kInt32).device(W_q.device()));
+      }
+    } else {
+      if (is_col_major) {
+        C_out = torch::zeros({M, N}, torch::dtype(torch::kFloat32).device(W_q.device()));
+      } else {
+        C_out = torch::zeros({N, M}, torch::dtype(torch::kFloat32).device(W_q.device()));
+      }
+    }
+
+    float alpha = 1.0f;
+    float beta = 0.0f;
+
+    for (int alg_id = 0; alg_id <= max_alg_id; ++alg_id) {
+      if (std::find(blacklist_ids.begin(), blacklist_ids.end(), alg_id) !=
+          blacklist_ids.end()) {
+        continue;
+      }
+
+      cusparseLtMatmulAlgSelection_t alg_sel;
+      cusparseStatus_t sel_status = cusparseLtMatmulAlgSelectionInit(
+          &handle, &alg_sel, &matmul_m, CUSPARSELT_MATMUL_ALG_DEFAULT);
+      if (sel_status != CUSPARSE_STATUS_SUCCESS) {
+        break;
+      }
+      cusparseStatus_t set_status = cusparseLtMatmulAlgSetAttribute(
+          &handle, &alg_sel, CUSPARSELT_MATMUL_ALG_CONFIG_ID, &alg_id,
+          sizeof(alg_id));
+      if (set_status != CUSPARSE_STATUS_SUCCESS) {
+        cusparseLtMatmulAlgSelectionDestroy(&alg_sel);
+        continue;
+      }
+
+      cusparseLtMatmulPlan_t plan;
+      cusparseStatus_t plan_status = cusparseLtMatmulPlanInit(
+          &handle, &plan, &matmul_m, &alg_sel);
+      if (plan_status != CUSPARSE_STATUS_SUCCESS) {
+        cusparseLtMatmulAlgSelectionDestroy(&alg_sel);
+        continue;
+      }
+
+      // === Workspace 回退机制 ===
+      // 查询当前算法所需 workspace 大小
+      size_t workspace_size = 0;
+      cusparseLtMatmulGetWorkspace(&handle, &plan, &workspace_size);
+      
+      // 如果当前共享 workspace 不够大，扩展它
+      if (workspace_size > current_workspace_size) {
+        if (shared_workspace != nullptr) {
+          cudaFree(shared_workspace);
+          shared_workspace = nullptr;
+        }
+        // 尝试分配更大的 workspace
+        cudaError_t alloc_st = cudaMalloc(&shared_workspace, workspace_size);
+        if (alloc_st != cudaSuccess) {
+          // 分配失败，跳过此算法
+          cusparseLtMatmulPlanDestroy(&plan);
+          cusparseLtMatmulAlgSelectionDestroy(&alg_sel);
+          continue;
+        }
+        current_workspace_size = workspace_size;
+      }
+      
+      // 使用共享 workspace（大小已保证足够）
+      void *workspace = (workspace_size > 0) ? shared_workspace : nullptr;
+
+      bool success = true;
+
+      // 预热（显式传入 stream，保证一致性）
+      if (warmup > 0) {
+        for (int i = 0; i < warmup; ++i) {
+          cusparseStatus_t st = cusparseLtMatmul(
+              &handle, &plan, &alpha, W_compressed.data_ptr(), A_slice.data_ptr(),
+              &beta, C_out.data_ptr(), C_out.data_ptr(), workspace, &stream, 1);
+          if (st != CUSPARSE_STATUS_SUCCESS) {
+            success = false;
+            break;
+          }
+        }
+        // 确保预热完成
+        CHECK_CUDA_ERR(cudaStreamSynchronize(stream));
+      }
+
+      // 正式计时：包住整个 repeat loop 一次，避免 event 开销污染小 M 测量
+      cudaEvent_t start = nullptr, stop = nullptr;
+      float total_ms = 0.0f;
+      if (success) {
+        CHECK_CUDA_ERR(cudaEventCreate(&start));
+        CHECK_CUDA_ERR(cudaEventCreate(&stop));
+
+        // 开始计时（只记录一次 start）
+        CHECK_CUDA_ERR(cudaEventRecord(start, stream));
+        
+        for (int r = 0; r < repeat; ++r) {
+          cusparseStatus_t st = cusparseLtMatmul(
+              &handle, &plan, &alpha, W_compressed.data_ptr(),
+              A_slice.data_ptr(), &beta, C_out.data_ptr(), C_out.data_ptr(),
+              workspace, &stream, 1);  // 显式传入 stream
+          if (st != CUSPARSE_STATUS_SUCCESS) {
+            success = false;
+            break;
+          }
+        }
+        
+        // 结束计时（只记录一次 stop，只同步一次）
+        CHECK_CUDA_ERR(cudaEventRecord(stop, stream));
+        CHECK_CUDA_ERR(cudaEventSynchronize(stop));
+        CHECK_CUDA_ERR(cudaEventElapsedTime(&total_ms, start, stop));
+        CHECK_CUDA_ERR(cudaEventDestroy(start));
+        CHECK_CUDA_ERR(cudaEventDestroy(stop));
+      }
+
+      if (success) {
+        AlgRecord rec;
+        rec.alg_id = alg_id;
+        rec.lat_us = (total_ms * 1000.0f) / static_cast<float>(repeat);
+        double ops = 2.0 * static_cast<double>(M) * static_cast<double>(N) *
+                     static_cast<double>(K);
+        double tops = ops / (rec.lat_us / 1e6) / 1e12;
+        rec.tops = static_cast<float>(tops);
+        rec.workspace = static_cast<int64_t>(workspace_size);
+        rec.valid = true;
+
+        // 校验（如需）
+        if (verify) {
+          // 使用量化后的数据做 FP32 参考计算
+          // 这样才能和 cuSPARSELt 的 INT8 GEMM 结果对比
+          auto A_slice_v = A_q.narrow(0, 0, M);
+          auto A_fp32 = A_slice_v.to(torch::kFloat32);
+          auto W_fp32 = W_q.to(torch::kFloat32);
+          auto ref = torch::matmul(W_fp32, A_fp32.transpose(0, 1));  // [N, M], Row Major
+          
+          // 将输出转为 FP32 比较
+          // C_out 的创建已经考虑了布局：
+          //   - Column Major 时创建为 [M, N]，转置后得到 [N, M]
+          //   - Row Major 时直接创建为 [N, M]
+          torch::Tensor out_fp32;
+          if (is_col_major) {
+            // C_out 是 [M, N]，转置得到 [N, M] 与 ref 对齐
+            out_fp32 = C_out.to(torch::kFloat32).t().contiguous();
+          } else {
+            // Row Major: 直接使用
+            out_fp32 = C_out.to(torch::kFloat32);
+          }
+          
+          // 计算相对误差（相对于参考值的绝对值）
+          auto ref_abs = ref.abs().clamp_min(1.0f);  // 避免除以0
+          auto rel_diff = ((out_fp32 - ref) / ref_abs).abs();
+          float max_rel_err = rel_diff.max().item<float>();
+          rec.max_abs_err = max_rel_err;  // 存储的是相对误差
+          
+          // 相对误差容限：5%
+          constexpr float tol = 0.05f;
+          constexpr float critical_tol = 1.00f;  // 超过 100% 认为计算有严重问题
+          
+          if (max_rel_err > critical_tol || std::isnan(max_rel_err)) {
+            // 严重错误：输出 warning，跳过当前 M 剩余算法
+            std::cerr << "[WARNING] M=" << M << " alg_id=" << alg_id 
+                      << " 相对误差=" << (max_rel_err * 100.0f) << "% > 100%，跳过剩余算法" << std::endl;
+            rec.valid = false;
+            verify_failed_ids.push_back(alg_id);
+            cusparseLtMatmulPlanDestroy(&plan);
+            cusparseLtMatmulAlgSelectionDestroy(&alg_sel);
+            break;  // 跳出 alg_id 循环，进入下一个 M
+          } else if (max_rel_err > tol) {
+            // 超过容限但未达到严重级别：记录但不跳过
+            std::cout << "[INFO] M=" << M << " alg_id=" << alg_id 
+                      << " 相对误差=" << (max_rel_err * 100.0f) << "% > 5%" << std::endl;
+            rec.valid = true;
+            verify_failed_ids.push_back(alg_id);
+          }
+        }
+        records.push_back(rec);
+      }
+
+      // 注意：不再释放 workspace，因为使用共享 workspace
+      cusparseLtMatmulPlanDestroy(&plan);
+      cusparseLtMatmulAlgSelectionDestroy(&alg_sel);
+    }
+
+    // 当前 M 取出记录并排序
+    std::vector<AlgRecord> filtered;
+    for (auto &r : records) {
+      if (r.valid) filtered.push_back(r);
+    }
+    std::sort(filtered.begin(), filtered.end(),
+              [](const AlgRecord &a, const AlgRecord &b) {
+                return a.lat_us < b.lat_us;
+              });
+
+    int fill = std::min(static_cast<int>(filtered.size()), topk);
+    for (int i = 0; i < fill; ++i) {
+      topk_alg.index_put_({m_index, i}, filtered[i].alg_id);
+      topk_lat.index_put_({m_index, i}, filtered[i].lat_us);
+      topk_tops.index_put_({m_index, i}, filtered[i].tops);
+      topk_workspace.index_put_({m_index, i}, filtered[i].workspace);
+      valid_mask.index_put_({m_index, i}, static_cast<uint8_t>(1));
+      if (verify && i == 0) {
+        verify_err.index_put_({m_index}, filtered[i].max_abs_err);
+      }
+    }
+    num_valid.index_put_({m_index}, static_cast<int>(filtered.size()));
+
+    cusparseLtMatDescriptorDestroy(&matB_m);
+    cusparseLtMatDescriptorDestroy(&matC_m);
+    // 注意：cusparseLtMatmulDescriptor_t 是普通结构体，无需显式销毁
+    records.clear();
+  }
+
+  // === 释放共享 workspace ===
+  if (shared_workspace != nullptr) {
+    cudaFree(shared_workspace);
+    shared_workspace = nullptr;
+  }
+
+  // 清理
+  cusparseLtMatDescriptorDestroy(&matA);
+  cusparseLtMatDescriptorDestroy(&matB);
+  cusparseLtMatDescriptorDestroy(&matC);
+  // 注意：cusparseLtMatmulDescriptor_t 是普通结构体，无需显式销毁
+  cusparseLtMatmulPlanDestroy(&plan_compress);
+  cusparseLtMatmulAlgSelectionDestroy(&alg_sel_compress);
+  if (compress_buffer) cudaFree(compress_buffer);
+  cusparseLtDestroy(&handle);
+
+  // 构造返回
+  py::dict out;
+  out["M_list"] = torch::tensor(M_list, torch::dtype(torch::kInt32));
+  out["NK"] = torch::tensor({static_cast<int32_t>(N), static_cast<int32_t>(K)},
+                             torch::dtype(torch::kInt32));
+  out["topk_alg_id"] = topk_alg;
+  out["topk_lat_us"] = topk_lat;
+  out["topk_tops"] = topk_tops;
+  out["topk_workspace"] = topk_workspace;
+  out["valid_mask"] = valid_mask;
+  out["compress_alg_id"] = max_alg_id;  // 用于压缩的算法ID（即最大有效算法ID）
+  out["num_valid_algs_per_M"] = num_valid;  // 每个 M 的有效算法数
+  if (verify) {
+    out["verify_max_abs_err"] = verify_err;
+    out["verify_failed_algs"] = torch::tensor(verify_failed_ids,
+                                              torch::dtype(torch::kInt32));
+  }
+  return out;
+}
+
+PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
+  m.def("prune_24", &prune_24, "2:4 剪枝 (cuSPARSELt)",
+        py::arg("W_bf16"), py::arg("layout"));
+  m.def("search_topk", &search_topk, "枚举算法并返回 topk", py::arg("W_pruned_bf16"),
+        py::arg("A_bf16"), py::arg("M_list"), py::arg("layout"),
+        py::arg("dtype") = "int8", py::arg("warmup") = 25,
+        py::arg("repeat") = 100, py::arg("verify") = false,
+        py::arg("blacklist_ids") = std::vector<int64_t>{},
+        py::arg("topk") = 3);
+}
