@@ -169,9 +169,9 @@ def load_extension(verbose: bool = True, force_compile: bool = False) -> object:
     
     根据当前 GPU 设备加载或编译对应的 .so 文件。
     不同设备的 .so 文件可以在同一目录共存：
-    - cusparselt_alg_search_A100.so
-    - cusparselt_alg_search_H100.so
-    - cusparselt_alg_search_B200.so
+    - alg_search_A100_cusparselt.so
+    - alg_search_H100_cusparselt.so
+    - alg_search_B200_cusparselt.so
     
     Args:
         verbose: 是否显示进度信息

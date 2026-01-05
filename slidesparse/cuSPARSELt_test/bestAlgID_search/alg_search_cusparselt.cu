@@ -1,5 +1,4 @@
 // cuSPARSELt 算法离线搜索
-// 提供 prune_24 与 search_topk 两个 Python API（pybind11 暴露）
 // 固定的layout: 权重W在左，T/N + C/C GEMM，输出矩阵order固定为 Column 主序
 // C[N,M]_col = W[N,K]^T_col * A[K,M]_col
 // 支持的数据类型：int8, fp8e4m3
