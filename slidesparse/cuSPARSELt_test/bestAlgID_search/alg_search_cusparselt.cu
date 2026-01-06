@@ -212,7 +212,7 @@ torch::Tensor prune_24(torch::Tensor W_bf16, const std::string &layout) {
   cusparseLtMatmulDescriptor_t matmul;
   CHECK_CUSPARSE_ERR(cusparseLtMatmulDescriptorInit(
       &handle, &matmul, cfg.opA, cfg.opB, &matA, &matB, &matC, &matC,
-      CUSPARSE_COMPUTE_16F));
+      CUSPARSE_COMPUTE_32F));
 
   // 注意：不设置 CUSPARSELT_MATMUL_SPARSE_MAT_POINTER
   // 官方 workflow: 稀疏矩阵通过 prune API 直接操作 data_ptr，无需额外属性
