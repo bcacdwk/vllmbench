@@ -13,8 +13,10 @@
 #include <pybind11/stl.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <future>
 #include <sstream>
 #include <string>
 #include <utility>
@@ -45,6 +47,40 @@ namespace py = pybind11;
   } while (0)
 
 // ===== 布局配置 =====
+
+// === 带超时的 planInit 包装函数 ===
+// 在 cuSPARSELt 0.8.1 中，对不支持 Segment-K 的架构调用 split_k=-1 会导致
+// planInit 无限期阻塞挂起。这个包装函数添加超时保护。
+struct PlanInitResult {
+  cusparseStatus_t status;
+  bool timed_out;
+};
+
+static PlanInitResult planInitWithTimeout(
+    cusparseLtHandle_t* handle,
+    cusparseLtMatmulPlan_t* plan,
+    cusparseLtMatmulDescriptor_t* matmul,
+    cusparseLtMatmulAlgSelection_t* alg_sel,
+    int timeout_seconds = 5) {
+  
+  // 使用 std::async 在另一个线程中运行 planInit
+  auto future = std::async(std::launch::async, [&]() {
+    return cusparseLtMatmulPlanInit(handle, plan, matmul, alg_sel);
+  });
+  
+  // 等待指定超时时间
+  auto wait_status = future.wait_for(std::chrono::seconds(timeout_seconds));
+  
+  if (wait_status == std::future_status::timeout) {
+    // 超时！返回超时标志
+    // 注意：后台线程可能仍在运行，但我们无法强制终止它
+    // 这里我们选择 detach 并返回超时错误
+    return PlanInitResult{CUSPARSE_STATUS_EXECUTION_FAILED, true};
+  }
+  
+  // 正常完成
+  return PlanInitResult{future.get(), false};
+}
 struct LayoutConfig {
   cusparseOrder_t orderA{CUSPARSE_ORDER_COL};
   cusparseOrder_t orderB{CUSPARSE_ORDER_COL};
@@ -232,7 +268,8 @@ py::dict search_topk(torch::Tensor W_pruned_bf16, torch::Tensor A_bf16,
                      const std::string &layout, const std::string &dtype,
                      int warmup, int repeat, bool verify,
                      const std::vector<int64_t> &blacklist_ids,
-                     int topk) {
+                     int topk,
+                     bool test_segment_k) {
   if (!W_pruned_bf16.is_cuda() || !A_bf16.is_cuda()) {
     throw std::invalid_argument("W 与 A 必须在 CUDA 上");
   }
@@ -455,12 +492,13 @@ py::dict search_topk(torch::Tensor W_pruned_bf16, torch::Tensor A_bf16,
     float alpha = 1.0f;
     float beta = 0.0f;
 
-    // === 双层网格搜索：外层遍历 alg_id，内层遍历 split_k_val ===
+    // === 双层网格搜索：外层遍历 alg_id，内层自适应调整 split_k_val ===
     // split_k_val 候选列表：
     //   1: 不切分 (Baseline)
-    //   2, 4, 8, 16, 32, 64: 传统 Split-K
-    //   -1: Segment-K (H100/SM9.0+ 架构特殊优化)
-    // 测试顺序：先测 1，然后 2/4/8/16/32/64 直到失败或到 64，最后测 -1
+    //   2, 4, 8, 16, 32, 64: 传统 Split-K（自适应倍增，根据性能决定是否继续）
+    //   -1: Segment-K (SM 9.0/10.x 架构特殊优化，由 Python 端控制是否测试)
+    // 测试顺序：先测 k=1 得到 baseline，然后倍增 k，
+    //   如果新延时 * 1.10 > 旧延时则停止倍增，最后测试 k=-1
     
     for (int alg_id = 0; alg_id <= max_alg_id; ++alg_id) {
       if (std::find(blacklist_ids.begin(), blacklist_ids.end(), alg_id) !=
@@ -468,18 +506,29 @@ py::dict search_topk(torch::Tensor W_pruned_bf16, torch::Tensor A_bf16,
         continue;
       }
 
-      // 构建 split_k 候选列表：{1, 2, 4, 8, 16, 32, 64, -1}
-      std::vector<int> split_k_candidates = {1};  // 总是先测试不切分
-      for (int sk = 2; sk <= 64; sk *= 2) {
+      // 用于跟踪当前 alg_id 下的最优 split_k 的延时
+      float best_lat_us_for_doubling = -1.0f;
+      
+      // === 阶段 1: 先测试 k=1 作为 baseline ===
+      // === 阶段 2: 倍增测试 k=2,4,8,...，根据性能决定是否继续 ===
+      // === 阶段 3: 最后测试 k=-1 (Segment-K)，仅当 test_segment_k=true ===
+      
+      // 构建 split_k 候选列表
+      std::vector<int> split_k_candidates;
+      split_k_candidates.push_back(1);  // 总是先测试不切分
+      for (int sk = 2; sk <= K; sk *= 2) {
         split_k_candidates.push_back(sk);
       }
-      split_k_candidates.push_back(-1);  // 最后测试 Segment-K
+      if (test_segment_k) {
+        split_k_candidates.push_back(-1);  // 仅当支持时才测试 Segment-K
+      }
 
-      bool split_k_failed = false;  // 用于跟踪 Split-K 是否开始失败
+      bool stop_doubling = false;  // 用于控制倍增序列的终止
       
       for (int split_k_val : split_k_candidates) {
-        // 如果传统 Split-K (>1) 开始失败，跳过后续的倍增值，但仍然测试 -1
-        if (split_k_failed && split_k_val > 1 && split_k_val != -1) {
+        // === 自适应倍增策略 ===
+        // 如果已停止倍增且当前是倍增序列中的值 (>1)，则跳过（但 -1 除外）
+        if (stop_doubling && split_k_val > 1) {
           continue;
         }
 
@@ -503,27 +552,34 @@ py::dict search_topk(torch::Tensor W_pruned_bf16, torch::Tensor A_bf16,
         // CUSPARSELT_MATMUL_SPLIT_K:
         //   1: 不切分 (默认)
         //   >1: 传统 Split-K
-        //   -1: Segment-K (H100/SM9.0+ 特有优化，A100 不支持会返回错误)
+        //   -1: Segment-K (SM 9.0/10.x 特有优化，其他架构不支持)
         cusparseStatus_t split_k_status = cusparseLtMatmulAlgSetAttribute(
             &handle, &alg_sel, CUSPARSELT_MATMUL_SPLIT_K, &split_k_val,
             sizeof(split_k_val));
         if (split_k_status != CUSPARSE_STATUS_SUCCESS) {
-          // Split-K 设置失败（例如在 A100 上尝试 -1）
+          // Split-K 设置失败
           cusparseLtMatmulAlgSelectionDestroy(&alg_sel);
           if (split_k_val > 1) {
-            split_k_failed = true;  // 标记传统 Split-K 开始失败
+            stop_doubling = true;  // 倍增失败，停止倍增
           }
           continue;
         }
 
         cusparseLtMatmulPlan_t plan;
-        cusparseStatus_t plan_status = cusparseLtMatmulPlanInit(
-            &handle, &plan, &matmul_m, &alg_sel);
-        if (plan_status != CUSPARSE_STATUS_SUCCESS) {
+        // 使用带超时的 planInit，防止在不支持的架构上无限期挂起
+        auto plan_result = planInitWithTimeout(&handle, &plan, &matmul_m, &alg_sel, 5);
+        if (plan_result.timed_out) {
+          // planInit 超时（可能是 cuSPARSELt 0.8.1 在不支持 Segment-K 的架构上挂起）
+          std::cerr << "[WARNING] planInit 超时 (alg_id=" << alg_id 
+                    << ", split_k=" << split_k_val << ")" << std::endl;
+          cusparseLtMatmulAlgSelectionDestroy(&alg_sel);
+          continue;
+        }
+        if (plan_result.status != CUSPARSE_STATUS_SUCCESS) {
           // PlanInit 失败（算法+Split-K 组合不兼容）
           cusparseLtMatmulAlgSelectionDestroy(&alg_sel);
           if (split_k_val > 1) {
-            split_k_failed = true;  // 标记传统 Split-K 开始失败
+            stop_doubling = true;  // 倍增失败，停止倍增
           }
           continue;
         }
@@ -661,6 +717,19 @@ py::dict search_topk(torch::Tensor W_pruned_bf16, torch::Tensor A_bf16,
             }
           }
           records.push_back(rec);
+          
+          // === 自适应倍增策略：根据性能决定是否继续倍增 ===
+          // 对于倍增序列 (split_k_val >= 1)，更新 best 并决定是否继续
+          if (split_k_val >= 1) {
+            if (best_lat_us_for_doubling < 0 || rec.lat_us < best_lat_us_for_doubling) {
+              // 新延时更低，更新 best
+              best_lat_us_for_doubling = rec.lat_us;
+            } else if (rec.lat_us * 1.10f > best_lat_us_for_doubling && split_k_val > 1) {
+              // 新延时 * 1.10 > 旧延时（10% 容限），停止倍增
+              stop_doubling = true;
+            }
+          }
+          // 注意：k=-1 (Segment-K) 不参与倍增策略，总是单独测试一次
         }
 
         // 注意：不再释放 workspace，因为使用共享 workspace
@@ -745,5 +814,6 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
         py::arg("dtype") = "int8", py::arg("warmup") = 25,
         py::arg("repeat") = 100, py::arg("verify") = false,
         py::arg("blacklist_ids") = std::vector<int64_t>{},
-        py::arg("topk") = 3);
+        py::arg("topk") = 3,
+        py::arg("test_segment_k") = false);
 }

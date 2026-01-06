@@ -347,7 +347,190 @@ def lookup_best_alg(json_data: Dict, N: int, K: int, M: int) -> Optional[Dict]:
     return None
 
 
+# === 重排序函数：综合考虑 latency/workspace/split_k ===
+
+def smart_score(lat_us: float, workspace: int, split_k: int) -> float:
+    """
+    计算算法的综合评分 (Score)，越低越好。
+    引入了三段式显存惩罚和查表式 Split-K 惩罚。
+    
+    Score = Latency * (1 + WS_Penalty + SK_Penalty)
+    
+    设计理念：
+    - Workspace: 小显存无感，中显存敏感，大显存拒绝
+    - Split-K: 离散风险定价，SK=2/4 低风险，SK>=16 高风险
+    """
+    # Segment-K (-1) 视为 Split-K=1 (无额外调度风险)
+    effective_sk = 1 if split_k == -1 else split_k
+    ws_mb = workspace / (1024 * 1024)
+
+    # === Workspace 惩罚模型 (三段式) ===
+    ws_penalty = 0.0
+    SAFE_LIMIT = 16.0    # 16MB 以内：安全区 (L2 Cache 级别)
+    HARD_LIMIT = 256.0   # 256MB 以上：高危区 (严重挤占 KV Cache)
+    
+    if ws_mb <= SAFE_LIMIT:
+        # [安全区]：完全无惩罚
+        ws_penalty = 0.0
+    elif ws_mb <= HARD_LIMIT:
+        # [敏感区]：线性增长，每增加 10MB 性能要求提升 0.5%
+        ws_penalty = (ws_mb - SAFE_LIMIT) * 0.0005  # 0.05% per MB
+    else:
+        # [高危区]：指数爆炸，几乎只有性能翻倍才能抵消
+        base_penalty = (HARD_LIMIT - SAFE_LIMIT) * 0.0005
+        excess = ws_mb - HARD_LIMIT
+        ws_penalty = base_penalty + (excess * 0.005) + (excess ** 2) * 0.00001
+
+    # === Split-K 惩罚模型 (风险定价表) ===
+    # 手动定义每个档位的风险溢价
+    SK_RISK_TABLE = {
+        1:  0.00,   # 基准
+        2:  0.01,   # 1%：几乎无风险
+        4:  0.03,   # 3%：需要有可见提升
+        8:  0.08,   # 8%：调度风险开始显著
+        16: 0.20,   # 20%：高风险，除非性能提升巨大 (1.2x)
+        32: 0.50,   # 50%：极高风险
+        64: 1.00    # 100%：除非性能翻倍
+    }
+    sk_penalty = SK_RISK_TABLE.get(effective_sk, 0.5)
+
+    # === 综合打分 ===
+    return lat_us * (1.0 + ws_penalty + sk_penalty)
+
+
+def rerank_candidates(raw_out: Dict, final_topk: int = 3, 
+                      max_latency_tolerance: float = 0.025) -> Dict:
+    """
+    对搜索结果进行重排序，综合考虑 latency、workspace、split_k。
+    
+    采用 "Filter then Sort" 策略：
+    1. 对每个 M，找到最优延时，过滤掉超过容忍度的候选（性能护栏）
+    2. 在通过护栏的候选中，用 smart_score 排序选最稳的
+    3. 只保留 final_topk 个结果
+    
+    Args:
+        raw_out: search_topk 返回的原始结果
+        final_topk: 最终保留的候选数，默认 3
+        max_latency_tolerance: 最大延时容忍度，默认 2.5%
+            即不接受比最优解慢 2.5% 以上的配置
+    
+    Returns:
+        格式与输入相同，但 topk 维度变为 final_topk
+    """
+    # 获取原始数据
+    topk_alg_id = raw_out["topk_alg_id"].cpu()
+    topk_split_k = raw_out["topk_split_k"].cpu()
+    topk_lat_us = raw_out["topk_lat_us"].cpu()
+    topk_tops = raw_out["topk_tops"].cpu()
+    topk_workspace = raw_out["topk_workspace"].cpu()
+    valid_mask = raw_out["valid_mask"].cpu()
+    
+    numM, orig_topk = topk_alg_id.shape
+    
+    # 创建新的输出张量
+    new_alg_id = torch.full((numM, final_topk), -1, dtype=torch.int32)
+    new_split_k = torch.full((numM, final_topk), 1, dtype=torch.int32)
+    new_lat_us = torch.zeros((numM, final_topk), dtype=torch.float32)
+    new_tops = torch.zeros((numM, final_topk), dtype=torch.float32)
+    new_workspace = torch.zeros((numM, final_topk), dtype=torch.int64)
+    new_valid = torch.zeros((numM, final_topk), dtype=torch.uint8)
+    new_num_valid = torch.zeros((numM,), dtype=torch.int32)
+    
+    for m_idx in range(numM):
+        # 1. 收集该 M 下的所有有效候选，同时记录最优延时
+        candidates = []
+        best_raw_lat = float('inf')
+        
+        for k in range(orig_topk):
+            if valid_mask[m_idx, k]:
+                lat = float(topk_lat_us[m_idx, k].item())
+                if lat < best_raw_lat:
+                    best_raw_lat = lat
+                    
+                candidates.append({
+                    'alg_id': int(topk_alg_id[m_idx, k].item()),
+                    'split_k': int(topk_split_k[m_idx, k].item()),
+                    'lat_us': lat,
+                    'tops': float(topk_tops[m_idx, k].item()),
+                    'workspace': int(topk_workspace[m_idx, k].item()),
+                })
+        
+        if not candidates:
+            continue
+        
+        # 2. 【性能护栏】过滤掉延时超过容忍度的候选
+        # 只保留性能在 [最优, 最优 * (1 + tolerance)] 范围内的候选者
+        limit_lat = best_raw_lat * (1.0 + max_latency_tolerance)
+        candidates = [c for c in candidates if c['lat_us'] <= limit_lat]
+        
+        # 3. 在通过护栏的候选中，用 smart_score 选最"稳"的
+        # 此时即便有惩罚，也只会在容忍度范围内权衡
+        candidates.sort(key=lambda c: smart_score(c['lat_us'], c['workspace'], c['split_k']))
+        
+        # 只保留 final_topk 个
+        top_candidates = candidates[:final_topk]
+        
+        # 填充结果
+        for i, c in enumerate(top_candidates):
+            new_alg_id[m_idx, i] = c['alg_id']
+            new_split_k[m_idx, i] = c['split_k']
+            new_lat_us[m_idx, i] = c['lat_us']
+            new_tops[m_idx, i] = c['tops']
+            new_workspace[m_idx, i] = c['workspace']
+            new_valid[m_idx, i] = 1
+        
+        new_num_valid[m_idx] = len(top_candidates)
+    
+    # 构造新的输出字典
+    new_out = {
+        "M_list": raw_out["M_list"],
+        "NK": raw_out["NK"],
+        "topk_alg_id": new_alg_id,
+        "topk_split_k": new_split_k,
+        "topk_lat_us": new_lat_us,
+        "topk_tops": new_tops,
+        "topk_workspace": new_workspace,
+        "valid_mask": new_valid,
+        "compress_alg_id": raw_out["compress_alg_id"],
+        "num_valid_algs_per_M": new_num_valid,
+    }
+    
+    # 保留 verify 相关数据（如果有）
+    if "verify_max_abs_err" in raw_out:
+        new_out["verify_max_abs_err"] = raw_out["verify_max_abs_err"]
+    if "verify_failed_algs" in raw_out:
+        new_out["verify_failed_algs"] = raw_out["verify_failed_algs"]
+    
+    return new_out
+
+
 # === 运行一次 layout 的搜索 ===
+
+def supports_segment_k() -> Tuple[bool, str]:
+    """
+    检测当前 GPU 是否支持 Segment-K (split_k=-1)。
+    
+    Segment-K 仅在 SM 9.0 (Hopper) 和 SM 10.x (Blackwell) 上支持。
+    在 cuSPARSELt 0.8.1 及更早版本中，对不支持的架构调用 Segment-K
+    会导致 planInit 阻塞挂起，需等待新版本修复。
+    
+    Returns:
+        (supported, reason_if_not) 其中:
+        - supported: 是否支持 Segment-K
+        - reason_if_not: 如果不支持，说明原因
+    """
+    prop = torch.cuda.get_device_properties(0)
+    major = prop.major
+    
+    if major in (9, 10):
+        return True, ""
+    else:
+        return False, (
+            f"Segment-K (split_k=-1) 仅在 SM 9.0/10.x (Hopper/Blackwell) 上支持，"
+            f"当前架构 SM {major}.{prop.minor} 不支持。"
+            f"在 cuSPARSELt 0.8.1 版本中，对不支持的架构调用会导致 planInit 阻塞挂起。"
+        )
+
 
 def run_search(ext, dtype: str, nk_list: List[Tuple[int, int]], m_list: List[int],
                warmup: int, repeat: int, verify: bool, verbose: bool = True) -> Dict:
@@ -362,6 +545,14 @@ def run_search(ext, dtype: str, nk_list: List[Tuple[int, int]], m_list: List[int
     max_M = max(m_list)
     blacklist = []  # 不再需要屏蔽任何算法
     total_nk = len(nk_list)
+    
+    # 检测是否支持 Segment-K
+    test_segment_k, segment_k_reason = supports_segment_k()
+    if verbose:
+        if test_segment_k:
+            print(f"    [Segment-K] 当前架构支持 Segment-K，将测试 split_k=-1")
+        else:
+            print(f"    [Segment-K] {segment_k_reason}")
 
     for nk_id, (N, K) in enumerate(nk_list):
         if verbose:
@@ -375,8 +566,8 @@ def run_search(ext, dtype: str, nk_list: List[Tuple[int, int]], m_list: List[int
         # 先做 2:4 剪枝
         W_pruned = ext.prune_24(W, layout)
 
-        # 调用搜索
-        out = ext.search_topk(
+        # 调用搜索（收集更多候选用于重排序）
+        raw_out = ext.search_topk(
             W_pruned,
             A,
             m_list,
@@ -386,18 +577,22 @@ def run_search(ext, dtype: str, nk_list: List[Tuple[int, int]], m_list: List[int
             repeat,
             verify,
             blacklist,
-            3,
+            16,  # 收集 16 个候选用于 rerank
+            test_segment_k,  # 是否测试 Segment-K (split_k=-1)
         )
         
-        # 显示压缩算法ID和每个 M 的有效算法数
-        compress_alg_id = out["compress_alg_id"]
-        num_valid_per_m = out["num_valid_algs_per_M"].cpu().tolist()
+        # 显示原始搜索结果（rerank 之前）
+        compress_alg_id = raw_out["compress_alg_id"]
+        raw_num_valid = raw_out["num_valid_algs_per_M"].cpu().tolist()
+        raw_first_valid = raw_num_valid[0] if raw_num_valid else 0
+        
+        # 重排序：综合考虑 latency/workspace/split_k，保留 top3
+        out = rerank_candidates(raw_out, final_topk=3)
+        rerank_num_valid = out["num_valid_algs_per_M"].cpu().tolist()
+        rerank_first_valid = rerank_num_valid[0] if rerank_num_valid else 0
         
         if verbose:
-            print(f"      → 最大有效算法ID: {compress_alg_id}，正在通过 id={compress_alg_id} 进行压缩")
-            # 显示每个 M 的有效算法数（取第一个作为代表，应该都一样）
-            first_valid = num_valid_per_m[0] if num_valid_per_m else 0
-            print(f"      → 每个 M 的有效算法数: {first_valid} ✓")
+            print(f"      → 最大有效算法ID: {compress_alg_id}，共 {raw_first_valid} 个有效配置")
         
         results.append({
             "nk_id": nk_id,
@@ -695,7 +890,7 @@ def check_dtype_support(ext, dtype: str, arch_name: str, verbose: bool = True) -
     if verbose:
         print(f"[预测试] 检测 dtype={dtype} 在 {arch_name} 上的支持情况...", end=" ", flush=True)
     
-    """supported, message = probe_dtype_support(ext, dtype)
+    supported, message = probe_dtype_support(ext, dtype)
     
     if supported:
         if verbose:
@@ -707,7 +902,7 @@ def check_dtype_support(ext, dtype: str, arch_name: str, verbose: bool = True) -
             f"数据类型 {dtype.upper()} 在当前 GPU ({arch_name}) 上不可用。\n"
             f"原因: {message}\n"
         )
-"""
+
 
 # === 主流程 ===
 
