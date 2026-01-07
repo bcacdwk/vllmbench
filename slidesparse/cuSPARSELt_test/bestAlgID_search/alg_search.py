@@ -492,6 +492,8 @@ def rerank_candidates(raw_out: Dict, final_topk: int = 3,
         "topk_workspace": new_workspace,
         "valid_mask": new_valid,
         "compress_alg_id": raw_out["compress_alg_id"],
+        "alg_count": raw_out["alg_count"],        # 保留算法数量统计
+        "config_count": raw_out["config_count"],  # 保留配置数量统计
         "num_valid_algs_per_M": new_num_valid,
     }
     
@@ -581,18 +583,15 @@ def run_search(ext, dtype: str, nk_list: List[Tuple[int, int]], m_list: List[int
             test_segment_k,  # 是否测试 Segment-K (split_k=-1)
         )
         
-        # 显示原始搜索结果（rerank 之前）
-        compress_alg_id = raw_out["compress_alg_id"]
-        raw_num_valid = raw_out["num_valid_algs_per_M"].cpu().tolist()
-        raw_first_valid = raw_num_valid[0] if raw_num_valid else 0
+        # 获取算法统计信息
+        alg_count = raw_out["alg_count"]  # 有效算法数量 (ID 范围 [0, alg_count))
+        config_count = raw_out["config_count"]  # 实际测试的配置数 (alg_id × split_k 组合)
         
         # 重排序：综合考虑 latency/workspace/split_k，保留 top3
         out = rerank_candidates(raw_out, final_topk=3)
-        rerank_num_valid = out["num_valid_algs_per_M"].cpu().tolist()
-        rerank_first_valid = rerank_num_valid[0] if rerank_num_valid else 0
         
         if verbose:
-            print(f"      → 最大有效算法ID: {compress_alg_id}，共 {raw_first_valid} 个有效配置")
+            print(f"      → 算法数: {alg_count}，配置数: {config_count}")
         
         results.append({
             "nk_id": nk_id,
@@ -649,9 +648,10 @@ def save_outputs(out_dir: Path, gpu_short_name: str, arch_name: str, dtype: str,
     cuda_runtime_ver = get_cuda_runtime_version()    # PyTorch 编译时的 CUDA 版本
     
     # 获取 alg_count 和 config_count
+    # alg_count: 有效算法数量 (通过 CUSPARSELT_MATMUL_ALG_CONFIG_MAX_ID 获取)
+    # config_count: 实际测试的配置数 (alg_id × split_k 组合)
     first_raw = search_ret["results"][0]["raw"] if search_ret["results"] else {}
-    max_alg_id = first_raw.get("compress_alg_id", -1)
-    alg_count = first_raw.get("alg_count", max_alg_id + 1 if max_alg_id >= 0 else 0)
+    alg_count = first_raw.get("alg_count", 0)
     config_count = first_raw.get("config_count", 0)
     
     meta = {
@@ -660,9 +660,8 @@ def save_outputs(out_dir: Path, gpu_short_name: str, arch_name: str, dtype: str,
         "arch_name": arch_name,
         "layout": layout,
         "dtype": dtype,
-        "max_alg_id": max_alg_id,
-        "alg_count": alg_count,
-        "config_count": config_count,
+        "alg_count": alg_count,       # 有效算法数量 (ID 范围 [0, alg_count))
+        "config_count": config_count, # 实际测试的配置数 (alg_id × split_k 组合)
         "warmup": warmup,
         "repeat": repeat,
         "verify": verify,

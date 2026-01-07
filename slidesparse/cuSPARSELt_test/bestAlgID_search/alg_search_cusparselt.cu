@@ -349,58 +349,38 @@ py::dict search_topk(torch::Tensor W_pruned_bf16, torch::Tensor A_bf16,
   // 注意：不设置 CUSPARSELT_MATMUL_SPARSE_MAT_POINTER
   // 官方 workflow: 稀疏矩阵指针通过 cusparseLtMatmul() 的 d_A 参数传入 compressed pointer
 
-  // === 找到最大有效 alg_id，用于压缩权重 ===
-  // 关键：必须通过 planInit 成功来验证算法ID有效性
-  // 策略：从 id=0 开始递增遍历，连续失败超过阈值则停止
+  // === 获取最大算法 ID (通过官方 API) ===
+  // 根据 cuSPARSELt 文档，CUSPARSELT_MATMUL_ALG_CONFIG_MAX_ID 返回算法 ID 上界
+  // 有效算法 ID 范围为 [0, max_alg_id)，即 max_alg_id 本身不可取
+  // 因此 alg_count = max_alg_id（有效算法数量）
   int max_alg_id = 0;
   {
-    constexpr int kMaxConsecutiveFailures = 3;  // 连续失败阈值
-    int consecutive_failures = 0;
-    
-    for (int probe = 0; ; ++probe) {
-      cusparseLtMatmulAlgSelection_t sel;
-      if (cusparseLtMatmulAlgSelectionInit(&handle, &sel, &matmul_desc,
-                                           CUSPARSELT_MATMUL_ALG_DEFAULT) !=
-          CUSPARSE_STATUS_SUCCESS) {
-        ++consecutive_failures;
-        if (consecutive_failures >= kMaxConsecutiveFailures) break;
-        continue;
-      }
-      cusparseStatus_t set_st = cusparseLtMatmulAlgSetAttribute(
-          &handle, &sel, CUSPARSELT_MATMUL_ALG_CONFIG_ID, &probe,
-          sizeof(probe));
-      if (set_st != CUSPARSE_STATUS_SUCCESS) {
-        cusparseLtMatmulAlgSelectionDestroy(&sel);
-        ++consecutive_failures;
-        if (consecutive_failures >= kMaxConsecutiveFailures) break;
-        continue;
-      }
-      // 关键：以 planInit 成功为准
-      cusparseLtMatmulPlan_t plan_probe;
-      cusparseStatus_t plan_st = cusparseLtMatmulPlanInit(
-          &handle, &plan_probe, &matmul_desc, &sel);
-      cusparseLtMatmulAlgSelectionDestroy(&sel);
-      if (plan_st == CUSPARSE_STATUS_SUCCESS) {
-        max_alg_id = probe;  // 更新最大有效ID
-        consecutive_failures = 0;  // 重置连续失败计数
-        cusparseLtMatmulPlanDestroy(&plan_probe);
-      } else {
-        ++consecutive_failures;
-        if (consecutive_failures >= kMaxConsecutiveFailures) break;
-      }
+    cusparseLtMatmulAlgSelection_t alg_sel_tmp;
+    cusparseStatus_t sel_st = cusparseLtMatmulAlgSelectionInit(
+        &handle, &alg_sel_tmp, &matmul_desc, CUSPARSELT_MATMUL_ALG_DEFAULT);
+    if (sel_st != CUSPARSE_STATUS_SUCCESS) {
+      throw std::runtime_error("cusparseLtMatmulAlgSelectionInit 失败");
+    }
+    cusparseStatus_t get_st = cusparseLtMatmulAlgGetAttribute(
+        &handle, &alg_sel_tmp, CUSPARSELT_MATMUL_ALG_CONFIG_MAX_ID,
+        &max_alg_id, sizeof(max_alg_id));
+    cusparseLtMatmulAlgSelectionDestroy(&alg_sel_tmp);
+    if (get_st != CUSPARSE_STATUS_SUCCESS || max_alg_id <= 0) {
+      throw std::runtime_error("无法获取有效的算法 ID 上界");
     }
   }
 
-  // === 使用 max_alg_id 进行权重压缩 ===
-  // 这确保压缩后的权重与所有可用算法兼容
+  // === 使用 alg_id=0 进行权重压缩 ===
+  // 压缩后的权重与所有算法兼容（压缩格式与算法 ID 无关）
   cusparseLtMatmulAlgSelection_t alg_sel_compress;
   CHECK_CUSPARSE_ERR(cusparseLtMatmulAlgSelectionInit(
       &handle, &alg_sel_compress, &matmul_desc, CUSPARSELT_MATMUL_ALG_DEFAULT));
   
-  // 设置为 max_alg_id 进行压缩
+  // 使用默认 alg_id=0 进行压缩（压缩格式与算法 ID 无关）
+  int compress_alg_id = 0;
   CHECK_CUSPARSE_ERR(cusparseLtMatmulAlgSetAttribute(
       &handle, &alg_sel_compress, CUSPARSELT_MATMUL_ALG_CONFIG_ID,
-      &max_alg_id, sizeof(max_alg_id)));
+      &compress_alg_id, sizeof(compress_alg_id)));
 
   cusparseLtMatmulPlan_t plan_compress;
   CHECK_CUSPARSE_ERR(cusparseLtMatmulPlanInit(
@@ -438,7 +418,7 @@ py::dict search_topk(torch::Tensor W_pruned_bf16, torch::Tensor A_bf16,
   std::vector<AlgRecord> records;
   
   // === 算法/配置统计 ===
-  // alg_count: 算法数量 (max_alg_id + 1，因为 ID 从 0 开始)
+  // alg_count: 算法数量 max_alg_id，因为 ID [0,max)
   // config_count: 实际测试的配置数 (每个 alg_id × split_k 组合)
   int config_count = 0;
   
@@ -499,7 +479,8 @@ py::dict search_topk(torch::Tensor W_pruned_bf16, torch::Tensor A_bf16,
     // 测试顺序：先测 k=1 得到 baseline，然后倍增 k，
     //   如果新延时 * 1.10 > 旧延时则停止倍增，最后测试 k=-1
     
-    for (int alg_id = 0; alg_id <= max_alg_id; ++alg_id) {
+    // 注意：max_alg_id 是算法 ID 上界，有效范围为 [0, max_alg_id)，即 max_alg_id 不可取
+    for (int alg_id = 0; alg_id < max_alg_id; ++alg_id) {
       if (std::find(blacklist_ids.begin(), blacklist_ids.end(), alg_id) !=
           blacklist_ids.end()) {
         continue;
@@ -796,8 +777,8 @@ py::dict search_topk(torch::Tensor W_pruned_bf16, torch::Tensor A_bf16,
   out["topk_tops"] = topk_tops;
   out["topk_workspace"] = topk_workspace;
   out["valid_mask"] = valid_mask;
-  out["compress_alg_id"] = max_alg_id;  // 用于压缩的算法ID（即最大有效算法ID）
-  out["alg_count"] = max_alg_id + 1;    // 算法数量 (ID 从 0 开始，所以 +1)
+  out["compress_alg_id"] = compress_alg_id;  // 用于压缩的算法ID (默认为0)
+  out["alg_count"] = max_alg_id;    // 有效算法数量 (ID 范围 [0, max_alg_id))
   out["config_count"] = config_count;   // 实际测试的配置数 (alg_id × split_k 组合)
   out["num_valid_algs_per_M"] = num_valid;  // 每个 M 的有效算法数（包含所有 Split-K 组合）
   if (verify) {

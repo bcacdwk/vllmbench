@@ -399,7 +399,7 @@ def run_search(ext, dtype: str, nk_list: List[Tuple[int, int]], m_list: List[int
         if verbose:
             # 显示每个 M 的有效算法数（取第一个作为代表）
             first_valid = num_valid_per_m[0] if num_valid_per_m else 0
-            print(f"      → 启发式搜索返回: {alg_count} 个算法，实测配置: {config_count}，有效算法数: {first_valid} ✓")
+            print(f"      → 启发式搜索返回: {alg_count} 个算法，有效算法数: {first_valid}")
         
         results.append({
             "nk_id": nk_id,

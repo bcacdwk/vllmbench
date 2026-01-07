@@ -371,8 +371,8 @@ py::dict test_layout(
     return result;
   }
 
-  // max_alg_id 是从 0 开始的最大算法 ID，所以 alg_count = max_alg_id + 1
-  result["alg_count"] = max_alg_id + 1;
+  // max_alg_id 是从 0 开始的最大算法 ID 且不允许取，所以 alg_count = max_alg_id
+  result["alg_count"] = max_alg_id;
 
   // CUDA events for timing
   cudaEvent_t start_event, stop_event;
@@ -392,7 +392,8 @@ py::dict test_layout(
   // 测试顺序：先测 k=1 得到 baseline，然后倍增 k，
   //   如果倍增失败则停止倍增，最后测试 k=-1
   
-  for (int alg_id = 0; alg_id <= max_alg_id; ++alg_id) {
+  // 注意：max_alg_id 是算法 ID 上界，有效范围为 [0, max_alg_id)，即 max_alg_id 不可取
+  for (int alg_id = 0; alg_id < max_alg_id; ++alg_id) {
     // 用于跟踪当前 alg_id 下的最优 split_k 的延时
     float best_lat_us_for_doubling = -1.0f;
     
