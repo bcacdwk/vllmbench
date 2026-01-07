@@ -2,6 +2,7 @@
 // 固定的layout: 权重W在左，T/N + C/C GEMM，输出矩阵order固定为 Column 主序
 // C[N,M]_col = W[N,K]^T_col * A[K,M]_col
 // 支持的数据类型：int8, fp8e4m3
+// 输出类型：CUDA_R_16BF (BFloat16)
 
 #include <torch/extension.h>
 #include <ATen/cuda/CUDAContext.h>
@@ -108,8 +109,8 @@ static cudaDataType to_cuda_dtype(const std::string &dtype) {
 }
 
 static cudaDataType cuda_out_dtype(const std::string &dtype) {
-  if (dtype == "int8") return CUDA_R_32I;
-  if (dtype == "fp8e4m3") return CUDA_R_32F;
+  // 输出统一为 BF16，支持更好的后续处理和精度
+  if (dtype == "int8" || dtype == "fp8e4m3") return CUDA_R_16BF;
   throw std::invalid_argument("不支持的数据类型: " + dtype);
 }
 
@@ -474,19 +475,12 @@ py::dict search_topk(torch::Tensor W_pruned_bf16, torch::Tensor A_bf16,
     // 这样 PyTorch 的 Row Major [M, N] 等价于 Column Major [N, M]
     torch::Tensor C_out;
     bool is_col_major = (cfg.orderC == CUSPARSE_ORDER_COL);
-    if (dtype == "int8") {
-      if (is_col_major) {
-        // Column Major [N, M] 等价于 Row Major [M, N] 的转置
-        C_out = torch::zeros({M, N}, torch::dtype(torch::kInt32).device(W_q.device()));
-      } else {
-        C_out = torch::zeros({N, M}, torch::dtype(torch::kInt32).device(W_q.device()));
-      }
+    // 输出统一为 BF16
+    if (is_col_major) {
+      // Column Major [N, M] 等价于 Row Major [M, N] 的转置
+      C_out = torch::zeros({M, N}, torch::dtype(torch::kBFloat16).device(W_q.device()));
     } else {
-      if (is_col_major) {
-        C_out = torch::zeros({M, N}, torch::dtype(torch::kFloat32).device(W_q.device()));
-      } else {
-        C_out = torch::zeros({N, M}, torch::dtype(torch::kFloat32).device(W_q.device()));
-      }
+      C_out = torch::zeros({N, M}, torch::dtype(torch::kBFloat16).device(W_q.device()));
     }
 
     float alpha = 1.0f;
@@ -669,29 +663,30 @@ py::dict search_topk(torch::Tensor W_pruned_bf16, torch::Tensor A_bf16,
 
           // 校验（如需）
           if (verify) {
-            // 使用量化后的数据做 FP32 参考计算
-            // 这样才能和 cuSPARSELt 的 INT8 GEMM 结果对比
-            auto A_slice_v = A_q.narrow(0, 0, M);
-            auto A_fp32 = A_slice_v.to(torch::kFloat32);
-            auto W_fp32 = W_q.to(torch::kFloat32);
-            auto ref = torch::matmul(W_fp32, A_fp32.transpose(0, 1));  // [N, M], Row Major
+            // 使用 BF16 原始数据进行参考计算
+            // 这样才能和 GEMM 的 BF16 输出对比
+            auto A_slice_bf16 = A_fp.narrow(0, 0, M);
+            auto ref = torch::matmul(W_fp, A_slice_bf16.transpose(0, 1));  // [N, M], BF16
           
-            // 将输出转为 FP32 比较
-            // C_out 的创建已经考虑了布局：
+            // C_out 已经是 BF16，根据布局转置后与 ref 对齐
             //   - Column Major 时创建为 [M, N]，转置后得到 [N, M]
             //   - Row Major 时直接创建为 [N, M]
-            torch::Tensor out_fp32;
+            torch::Tensor out_bf16;
             if (is_col_major) {
               // C_out 是 [M, N]，转置得到 [N, M] 与 ref 对齐
-              out_fp32 = C_out.to(torch::kFloat32).t().contiguous();
+              out_bf16 = C_out.t().contiguous();
             } else {
               // Row Major: 直接使用
-              out_fp32 = C_out.to(torch::kFloat32);
+              out_bf16 = C_out;
             }
             
+            // 转为 FP32 计算误差（避免 BF16 精度问题影响误差计算）
+            auto ref_fp32 = ref.to(torch::kFloat32);
+            auto out_fp32 = out_bf16.to(torch::kFloat32);
+            
             // 计算相对误差（相对于参考值的绝对值）
-            auto ref_abs = ref.abs().clamp_min(1.0f);  // 避免除以0
-            auto rel_diff = ((out_fp32 - ref) / ref_abs).abs();
+            auto ref_abs = ref_fp32.abs().clamp_min(1.0f);  // 避免除以0
+            auto rel_diff = ((out_fp32 - ref_fp32) / ref_abs).abs();
             float max_rel_err = rel_diff.max().item<float>();
             rec.max_abs_err = max_rel_err;  // 存储的是相对误差
             

@@ -25,9 +25,9 @@
 //    - opA/opB = TT if orderA/orderB = Col/Row
 //    (如果 B 是稀疏矩阵则相反)
 //
-// 4. 数据类型支持:
-//    - INT8:  Input A/B=CUDA_R_8I, Output C/D=CUDA_R_8I 或 CUDA_R_32I
-//    - FP8:   Input A/B=CUDA_R_8F_E4M3, Output=CUDA_R_16F/BF/32F 或 CUDA_R_8F_E4M3
+// 4. 数据类型支持 (本实现):
+//    - INT8: Input A/B=CUDA_R_8I, Output C/D=CUDA_R_16BF
+//    - FP8:  Input A/B=CUDA_R_8F_E4M3, Output=CUDA_R_16BF
 //
 // 5. 内存对齐: alignment 必须是 16 的倍数
 
@@ -81,8 +81,8 @@ static cudaDataType to_cuda_dtype(const std::string &dtype) {
 }
 
 static cudaDataType cuda_out_dtype(const std::string &dtype) {
-  if (dtype == "int8") return CUDA_R_32I;
-  if (dtype == "fp8e4m3") return CUDA_R_32F;
+  // 输出统一为 BF16，支持更好的后续处理和精度
+  if (dtype == "int8" || dtype == "fp8e4m3") return CUDA_R_16BF;
   throw std::invalid_argument("不支持的数据类型: " + dtype);
 }
 
@@ -98,9 +98,9 @@ static int dtype_size(const std::string &dtype) {
 }
 
 static int out_dtype_size(const std::string &dtype) {
-  if (dtype == "int8") return 4;  // int32
-  if (dtype == "fp8e4m3") return 4;  // float32
-  return 4;
+  // 输出统一为 BF16 (2 字节)
+  if (dtype == "int8" || dtype == "fp8e4m3") return 2;  // bfloat16
+  return 2;
 }
 
 // ===== 解析 layout 字符串 =====

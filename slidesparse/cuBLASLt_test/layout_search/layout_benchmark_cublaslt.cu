@@ -11,18 +11,16 @@
 //   - Leading dimensions 必须是 4 的倍数
 //   - 只支持 TN 格式: A 必须转置, B 不转置
 //   - m 和 k 必须是 4 的倍数
-//   - scaleType 为 CUDA_R_32I 时, alpha/beta 只能是 0 或 1
 //   - computeType: CUBLAS_COMPUTE_32I
 //
 // FP8 内核要求:
 //   - 所有矩阵维度必须满足 16 字节对齐
 //   - TN 格式是首选 (在 Ada/Hopper/Blackwell GeForce 上)
 //   - computeType 必须是 CUBLAS_COMPUTE_32F
-//   - scaleType 必须是 CUDA_R_32F
 //
-// 数据类型支持:
-//   - INT8: Input=CUDA_R_8I, Output=CUDA_R_32I, Scale=CUDA_R_32I
-//   - FP8:  Input=CUDA_R_8F_E4M3, Output=CUDA_R_32F, Scale=CUDA_R_32F
+// 数据类型支持 (本实现):
+//   - INT8: Input=CUDA_R_8I, Output=CUDA_R_16BF, Scale=CUDA_R_32F
+//   - FP8:  Input=CUDA_R_8F_E4M3, Output=CUDA_R_16BF, Scale=CUDA_R_32F
 //
 // 注意: 与 cuSPARSELt 不同, cuBLASLt 的 op 和 order 不是强制绑定的,
 //       但某些组合可能没有优化的内核实现。
@@ -78,8 +76,8 @@ static cudaDataType to_cuda_dtype(const std::string &dtype) {
 }
 
 static cudaDataType cuda_out_dtype(const std::string &dtype) {
-  if (dtype == "int8") return CUDA_R_32I;
-  if (dtype == "fp8e4m3") return CUDA_R_32F;
+  // 输出统一为 BF16，支持更好的后续处理和精度
+  if (dtype == "int8" || dtype == "fp8e4m3") return CUDA_R_16BF;
   throw std::invalid_argument("不支持的数据类型: " + dtype);
 }
 
@@ -90,10 +88,9 @@ static cublasComputeType_t compute_type_from_dtype(const std::string &dtype) {
 }
 
 static cudaDataType scale_type_from_dtype(const std::string &dtype) {
-  // INT8 使用 CUDA_R_32I scale type
-  // FP8 使用 CUDA_R_32F scale type
-  if (dtype == "int8") return CUDA_R_32I;
-  if (dtype == "fp8e4m3") return CUDA_R_32F;
+  // BF16 输出需要 CUDA_R_32F scale type
+  // alpha/beta 使用 float 类型
+  if (dtype == "int8" || dtype == "fp8e4m3") return CUDA_R_32F;
   throw std::invalid_argument("不支持的数据类型: " + dtype);
 }
 
@@ -103,9 +100,9 @@ static int dtype_size(const std::string &dtype) {
 }
 
 static int out_dtype_size(const std::string &dtype) {
-  if (dtype == "int8") return 4;  // int32
-  if (dtype == "fp8e4m3") return 4;  // float32
-  return 4;
+  // 输出统一为 BF16 (2 字节)
+  if (dtype == "int8" || dtype == "fp8e4m3") return 2;  // bfloat16
+  return 2;
 }
 
 // ===== 解析 layout 字符串 =====
@@ -381,8 +378,10 @@ py::dict test_layout(
   CHECK_CUDA_ERR(cudaEventCreate(&stop_event));
 
   std::vector<AlgResult> alg_results;
+  // alpha/beta 统一使用 float（因为 scale_type 已统一为 CUDA_R_32F 以支持 BF16 输出）
   float alpha = 1.0f, beta = 0.0f;
-  int32_t alpha_int = 1, beta_int = 0;
+  const void *alpha_ptr = &alpha;
+  const void *beta_ptr = &beta;
 
   // 遍历所有可用算法
   for (int alg_idx = 0; alg_idx < returnedAlgoCount; ++alg_idx) {
@@ -392,10 +391,6 @@ py::dict test_layout(
 
     const cublasLtMatmulAlgo_t *algo = &heuristicResult[alg_idx].algo;
     size_t ws_size = heuristicResult[alg_idx].workspaceSize;
-
-    // 根据数据类型选择 alpha/beta 指针
-    const void *alpha_ptr = (dtype == "int8") ? (const void*)&alpha_int : (const void*)&alpha;
-    const void *beta_ptr = (dtype == "int8") ? (const void*)&beta_int : (const void*)&beta;
 
     // Warmup
     bool warmup_success = true;
