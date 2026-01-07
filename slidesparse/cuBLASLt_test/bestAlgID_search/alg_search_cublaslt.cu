@@ -430,22 +430,21 @@ py::dict search_topk(torch::Tensor W_bf16, torch::Tensor A_bf16,
 
         // 校验（如需）
         if (verify) {
-          // 使用 BF16 原始数据进行参考计算
-          // 这样才能和 GEMM 的 BF16 输出对比
-          auto A_slice_bf16 = A_fp.narrow(0, 0, M);
-          auto ref = torch::matmul(W_fp, A_slice_bf16.transpose(0, 1));  // [N, M], BF16
+          // 使用量化后的数据做 FP32 参考计算
+          // 这样才能和 cuBLASLt 的 INT8 GEMM 结果对比
+          auto A_slice_v = A_q.narrow(0, 0, M);
+          auto A_fp32 = A_slice_v.to(torch::kFloat32);
+          auto W_fp32 = W_q.to(torch::kFloat32);
+          auto ref = torch::matmul(W_fp32, A_fp32.transpose(0, 1));  // [N, M], Row Major
           
-          // C_out 已经是 BF16，转置后与 ref 对齐
+          // 将输出转为 FP32 比较
+          // C_out 的创建已经考虑了布局：
           //   - Column Major 时创建为 [M, N]，转置后得到 [N, M]
-          torch::Tensor out_bf16 = C_out.t().contiguous();
-          
-          // 转为 FP32 计算误差（避免 BF16 精度问题影响误差计算）
-          auto ref_fp32 = ref.to(torch::kFloat32);
-          auto out_fp32 = out_bf16.to(torch::kFloat32);
+          torch::Tensor out_fp32 = C_out.to(torch::kFloat32).t().contiguous();
           
           // 计算相对误差（相对于参考值的绝对值）
-          auto ref_abs = ref_fp32.abs().clamp_min(1.0f);  // 避免除以0
-          auto rel_diff = ((out_fp32 - ref_fp32) / ref_abs).abs();
+          auto ref_abs = ref.abs().clamp_min(1.0f);  // 避免除以0
+          auto rel_diff = ((out_fp32 - ref) / ref_abs).abs();
           float max_rel_err = rel_diff.max().item<float>();
           rec.max_abs_err = max_rel_err;  // 存储的是相对误差
           
