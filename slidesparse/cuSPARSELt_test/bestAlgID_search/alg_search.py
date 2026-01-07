@@ -491,10 +491,15 @@ def rerank_candidates(raw_out: Dict, final_topk: int = 3,
         "topk_tops": new_tops,
         "topk_workspace": new_workspace,
         "valid_mask": new_valid,
-        "compress_alg_id": raw_out["compress_alg_id"],
         "alg_count": raw_out["alg_count"],        # 保留算法数量统计
         "config_count": raw_out["config_count"],  # 保留配置数量统计
         "num_valid_algs_per_M": new_num_valid,
+        # 保留官方 API 搜索结果
+        "api_alg_id": raw_out.get("api_alg_id"),
+        "api_split_k": raw_out.get("api_split_k"),
+        "api_lat_us": raw_out.get("api_lat_us"),
+        "api_lat_rank": raw_out.get("api_lat_rank"),
+        "api_total_configs": raw_out.get("api_total_configs"),
     }
     
     # 保留 verify 相关数据（如果有）
@@ -586,6 +591,26 @@ def run_search(ext, dtype: str, nk_list: List[Tuple[int, int]], m_list: List[int
         # 获取算法统计信息
         alg_count = raw_out["alg_count"]  # 有效算法数量 (ID 范围 [0, alg_count))
         config_count = raw_out["config_count"]  # 实际测试的配置数 (alg_id × split_k 组合)
+        
+        # === 输出官方 API 搜索结果的延迟排名 ===
+        # 在 rerank 之前显示，便于对比官方 API 与我们手动搜索的差异
+        if verbose:
+            api_lat_rank = raw_out["api_lat_rank"].cpu()
+            api_alg_id = raw_out["api_alg_id"].cpu()
+            api_split_k = raw_out["api_split_k"].cpu()
+            api_total = raw_out["api_total_configs"].cpu()
+            
+            api_rank_strs = []
+            for i, m in enumerate(m_list):
+                rank = int(api_lat_rank[i].item())
+                total = int(api_total[i].item())
+                if rank > 0:
+                    alg_id_val = int(api_alg_id[i].item())
+                    split_k_val = int(api_split_k[i].item())
+                    api_rank_strs.append(f"M={m}:{rank}/{total}")
+                else:
+                    api_rank_strs.append(f"M={m}:N/A")
+            print(f"      [MatmulSearch] rank: {', '.join(api_rank_strs)}")
         
         # 重排序：综合考虑 latency/workspace/split_k，保留 top3
         out = rerank_candidates(raw_out, final_topk=3)

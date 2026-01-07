@@ -261,6 +261,7 @@ struct AlgRecord {
   int64_t workspace{0};
   bool valid{false};
   float max_abs_err{0.f};
+  bool from_api_search{false}; // 是否来自官方 cusparseLtMatmulSearch API
 };
 
 // ===== search_topk =====
@@ -370,37 +371,10 @@ py::dict search_topk(torch::Tensor W_pruned_bf16, torch::Tensor A_bf16,
     }
   }
 
-  // === 使用 alg_id=0 进行权重压缩 ===
-  // 压缩后的权重与所有算法兼容（压缩格式与算法 ID 无关）
-  cusparseLtMatmulAlgSelection_t alg_sel_compress;
-  CHECK_CUSPARSE_ERR(cusparseLtMatmulAlgSelectionInit(
-      &handle, &alg_sel_compress, &matmul_desc, CUSPARSELT_MATMUL_ALG_DEFAULT));
-  
-  // 使用默认 alg_id=0 进行压缩（压缩格式与算法 ID 无关）
-  int compress_alg_id = 0;
-  CHECK_CUSPARSE_ERR(cusparseLtMatmulAlgSetAttribute(
-      &handle, &alg_sel_compress, CUSPARSELT_MATMUL_ALG_CONFIG_ID,
-      &compress_alg_id, sizeof(compress_alg_id)));
-
-  cusparseLtMatmulPlan_t plan_compress;
-  CHECK_CUSPARSE_ERR(cusparseLtMatmulPlanInit(
-      &handle, &plan_compress, &matmul_desc, &alg_sel_compress));
-
-  size_t compressed_size = 0, compressed_buffer_size = 0;
-  CHECK_CUSPARSE_ERR(cusparseLtSpMMACompressedSize(
-      &handle, &plan_compress, &compressed_size, &compressed_buffer_size));
-
-  torch::Tensor W_compressed = torch::empty({static_cast<long>(compressed_size)},
-                                            torch::dtype(torch::kUInt8).device(W_q.device()));
-  void *compress_buffer = nullptr;
-  if (compressed_buffer_size > 0) {
-    CHECK_CUDA_ERR(cudaMalloc(&compress_buffer, compressed_buffer_size));
-  }
-
+  // === 压缩相关变量（将在 alg_id 循环内按需分配）===
+  // 根据官方文档：cusparseLtSpMMACompress() 必须在每次算法 ID 更新后重新调用
+  // 因此压缩操作移入 alg_id 循环内，确保每个算法使用匹配的压缩数据
   cudaStream_t stream = at::cuda::getDefaultCUDAStream();
-  CHECK_CUSPARSE_ERR(cusparseLtSpMMACompress(
-      &handle, &plan_compress, W_q.data_ptr(), W_compressed.data_ptr(),
-      compress_buffer, stream));
 
   // 为结果分配存储
   // 与 cuBLASLt 对齐：存储 topk 的完整算法配置
@@ -414,6 +388,14 @@ py::dict search_topk(torch::Tensor W_pruned_bf16, torch::Tensor A_bf16,
   torch::Tensor num_valid = torch::zeros({numM}, torch::dtype(torch::kInt32));
   torch::Tensor verify_err = torch::zeros({numM}, torch::dtype(torch::kFloat32));
   std::vector<int> verify_failed_ids;
+  
+  // === 官方 API 搜索结果存储 ===
+  // 每个 M 存储 API 返回的配置及其延迟排名
+  torch::Tensor api_alg_id = torch::full({numM}, -1, torch::dtype(torch::kInt32));
+  torch::Tensor api_split_k = torch::full({numM}, 1, torch::dtype(torch::kInt32));
+  torch::Tensor api_lat_us = torch::zeros({numM}, torch::dtype(torch::kFloat32));
+  torch::Tensor api_lat_rank = torch::full({numM}, -1, torch::dtype(torch::kInt32));  // 延迟排名（1-based，-1 表示无效）
+  torch::Tensor api_total_configs = torch::zeros({numM}, torch::dtype(torch::kInt32));  // 总配置数
 
   std::vector<AlgRecord> records;
   
@@ -471,6 +453,168 @@ py::dict search_topk(torch::Tensor W_pruned_bf16, torch::Tensor A_bf16,
     float alpha = 1.0f;
     float beta = 0.0f;
 
+    // === 阶段 0: 调用官方 cusparseLtMatmulSearch API 获取推荐配置 ===
+    // 该 API 会自动搜索并选择最优算法配置，结果用于与我们手动搜索的结果对比
+    AlgRecord api_search_record;
+    api_search_record.valid = false;
+    api_search_record.from_api_search = true;
+    
+    {
+      // 为官方搜索创建 AlgSelection（使用默认配置）
+      cusparseLtMatmulAlgSelection_t alg_sel_api;
+      cusparseStatus_t sel_st = cusparseLtMatmulAlgSelectionInit(
+          &handle, &alg_sel_api, &matmul_m, CUSPARSELT_MATMUL_ALG_DEFAULT);
+      
+      if (sel_st == CUSPARSE_STATUS_SUCCESS) {
+        // 设置搜索迭代次数（与我们的 repeat 类似）
+        int search_iterations = std::max(10, repeat / 10);  // 使用较少迭代加速搜索
+        cusparseLtMatmulAlgSetAttribute(
+            &handle, &alg_sel_api, CUSPARSELT_MATMUL_SEARCH_ITERATIONS,
+            &search_iterations, sizeof(search_iterations));
+        
+        cusparseLtMatmulPlan_t plan_api;
+        auto plan_result = planInitWithTimeout(&handle, &plan_api, &matmul_m, &alg_sel_api, 10);
+        
+        if (!plan_result.timed_out && plan_result.status == CUSPARSE_STATUS_SUCCESS) {
+          // 获取 workspace
+          size_t ws_api = 0;
+          cusparseLtMatmulGetWorkspace(&handle, &plan_api, &ws_api);
+          
+          // 确保共享 workspace 足够大
+          if (ws_api > current_workspace_size) {
+            if (shared_workspace) cudaFree(shared_workspace);
+            cudaMalloc(&shared_workspace, ws_api);
+            current_workspace_size = ws_api;
+          }
+          void *workspace_api = (ws_api > 0) ? shared_workspace : nullptr;
+          
+          // 为搜索压缩权重（使用默认 alg_id=0 即可，API 会内部调整）
+          size_t comp_size_api = 0, comp_buf_size_api = 0;
+          cusparseLtSpMMACompressedSize(&handle, &plan_api, &comp_size_api, &comp_buf_size_api);
+          
+          torch::Tensor W_comp_api = torch::empty({static_cast<long>(comp_size_api)},
+                                                  torch::dtype(torch::kUInt8).device(W_q.device()));
+          void *comp_buf_api = nullptr;
+          if (comp_buf_size_api > 0) cudaMalloc(&comp_buf_api, comp_buf_size_api);
+          
+          cusparseStatus_t comp_st = cusparseLtSpMMACompress(
+              &handle, &plan_api, W_q.data_ptr(), W_comp_api.data_ptr(),
+              comp_buf_api, stream);
+          
+          if (comp_buf_api) cudaFree(comp_buf_api);
+          
+          if (comp_st == CUSPARSE_STATUS_SUCCESS) {
+            // 调用官方搜索 API
+            cusparseStatus_t search_st = cusparseLtMatmulSearch(
+                &handle, &plan_api, &alpha, W_comp_api.data_ptr(), A_slice.data_ptr(),
+                &beta, C_out.data_ptr(), C_out.data_ptr(), workspace_api, &stream, 1);
+            
+            if (search_st == CUSPARSE_STATUS_SUCCESS) {
+              // 从 plan 中提取选中的算法参数
+              int api_alg_id = 0;
+              int api_split_k = 1;
+              
+              cusparseLtMatmulAlgGetAttribute(
+                  &handle, &alg_sel_api, CUSPARSELT_MATMUL_ALG_CONFIG_ID,
+                  &api_alg_id, sizeof(api_alg_id));
+              cusparseLtMatmulAlgGetAttribute(
+                  &handle, &alg_sel_api, CUSPARSELT_MATMUL_SPLIT_K,
+                  &api_split_k, sizeof(api_split_k));
+              
+              // === 用选中的配置进行标准化性能测试 ===
+              // 为了公平对比，需要用相同的 warmup/repeat 方法测试
+              
+              // 根据 API 选中的配置重新压缩（确保匹配）
+              cusparseLtMatmulAlgSelection_t alg_sel_api_test;
+              cusparseLtMatmulAlgSelectionInit(&handle, &alg_sel_api_test, &matmul_m, CUSPARSELT_MATMUL_ALG_DEFAULT);
+              cusparseLtMatmulAlgSetAttribute(&handle, &alg_sel_api_test, CUSPARSELT_MATMUL_ALG_CONFIG_ID,
+                                              &api_alg_id, sizeof(api_alg_id));
+              cusparseLtMatmulAlgSetAttribute(&handle, &alg_sel_api_test, CUSPARSELT_MATMUL_SPLIT_K,
+                                              &api_split_k, sizeof(api_split_k));
+              
+              cusparseLtMatmulPlan_t plan_api_test;
+              auto plan_test_result = planInitWithTimeout(&handle, &plan_api_test, &matmul_m, &alg_sel_api_test, 5);
+              
+              if (!plan_test_result.timed_out && plan_test_result.status == CUSPARSE_STATUS_SUCCESS) {
+                size_t ws_test = 0;
+                cusparseLtMatmulGetWorkspace(&handle, &plan_api_test, &ws_test);
+                
+                if (ws_test > current_workspace_size) {
+                  if (shared_workspace) cudaFree(shared_workspace);
+                  cudaMalloc(&shared_workspace, ws_test);
+                  current_workspace_size = ws_test;
+                }
+                void *workspace_test = (ws_test > 0) ? shared_workspace : nullptr;
+                
+                // 重新压缩
+                size_t comp_size_test = 0, comp_buf_size_test = 0;
+                cusparseLtSpMMACompressedSize(&handle, &plan_api_test, &comp_size_test, &comp_buf_size_test);
+                torch::Tensor W_comp_test = torch::empty({static_cast<long>(comp_size_test)},
+                                                         torch::dtype(torch::kUInt8).device(W_q.device()));
+                void *comp_buf_test = nullptr;
+                if (comp_buf_size_test > 0) cudaMalloc(&comp_buf_test, comp_buf_size_test);
+                cusparseLtSpMMACompress(&handle, &plan_api_test, W_q.data_ptr(), W_comp_test.data_ptr(),
+                                        comp_buf_test, stream);
+                if (comp_buf_test) cudaFree(comp_buf_test);
+                
+                // 预热
+                bool success = true;
+                for (int i = 0; i < warmup && success; ++i) {
+                  cusparseStatus_t st = cusparseLtMatmul(
+                      &handle, &plan_api_test, &alpha, W_comp_test.data_ptr(), A_slice.data_ptr(),
+                      &beta, C_out.data_ptr(), C_out.data_ptr(), workspace_test, &stream, 1);
+                  if (st != CUSPARSE_STATUS_SUCCESS) success = false;
+                }
+                CHECK_CUDA_ERR(cudaStreamSynchronize(stream));
+                
+                // 正式计时
+                if (success) {
+                  cudaEvent_t start, stop;
+                  cudaEventCreate(&start);
+                  cudaEventCreate(&stop);
+                  cudaEventRecord(start, stream);
+                  
+                  for (int r = 0; r < repeat; ++r) {
+                    cusparseStatus_t st = cusparseLtMatmul(
+                        &handle, &plan_api_test, &alpha, W_comp_test.data_ptr(), A_slice.data_ptr(),
+                        &beta, C_out.data_ptr(), C_out.data_ptr(), workspace_test, &stream, 1);
+                    if (st != CUSPARSE_STATUS_SUCCESS) { success = false; break; }
+                  }
+                  
+                  cudaEventRecord(stop, stream);
+                  cudaEventSynchronize(stop);
+                  float total_ms = 0.0f;
+                  cudaEventElapsedTime(&total_ms, start, stop);
+                  cudaEventDestroy(start);
+                  cudaEventDestroy(stop);
+                  
+                  if (success) {
+                    api_search_record.alg_id = api_alg_id;
+                    api_search_record.split_k = api_split_k;
+                    api_search_record.lat_us = (total_ms * 1000.0f) / static_cast<float>(repeat);
+                    double ops = 2.0 * static_cast<double>(M) * static_cast<double>(N) * static_cast<double>(K);
+                    api_search_record.tops = static_cast<float>(ops / (api_search_record.lat_us / 1e6) / 1e12);
+                    api_search_record.workspace = static_cast<int64_t>(ws_test);
+                    api_search_record.valid = true;
+                    api_search_record.from_api_search = true;
+                  }
+                }
+                cusparseLtMatmulPlanDestroy(&plan_api_test);
+              }
+              cusparseLtMatmulAlgSelectionDestroy(&alg_sel_api_test);
+            }
+          }
+          cusparseLtMatmulPlanDestroy(&plan_api);
+        }
+        cusparseLtMatmulAlgSelectionDestroy(&alg_sel_api);
+      }
+    }
+    
+    // 如果官方搜索成功，先加入 records
+    if (api_search_record.valid) {
+      records.push_back(api_search_record);
+    }
+
     // === 双层网格搜索：外层遍历 alg_id，内层自适应调整 split_k_val ===
     // split_k_val 候选列表：
     //   1: 不切分 (Baseline)
@@ -484,6 +628,67 @@ py::dict search_topk(torch::Tensor W_pruned_bf16, torch::Tensor A_bf16,
       if (std::find(blacklist_ids.begin(), blacklist_ids.end(), alg_id) !=
           blacklist_ids.end()) {
         continue;
+      }
+
+      // === 为当前 alg_id 创建 plan 并压缩权重 ===
+      // 根据官方文档：cusparseLtSpMMACompress() 必须在每次算法 ID 更新后重新调用
+      cusparseLtMatmulAlgSelection_t alg_sel_compress;
+      cusparseStatus_t sel_st = cusparseLtMatmulAlgSelectionInit(
+          &handle, &alg_sel_compress, &matmul_m, CUSPARSELT_MATMUL_ALG_DEFAULT);
+      if (sel_st != CUSPARSE_STATUS_SUCCESS) {
+        continue;  // 算法选择初始化失败，跳过当前 alg_id
+      }
+
+      cusparseStatus_t set_st = cusparseLtMatmulAlgSetAttribute(
+          &handle, &alg_sel_compress, CUSPARSELT_MATMUL_ALG_CONFIG_ID,
+          &alg_id, sizeof(alg_id));
+      if (set_st != CUSPARSE_STATUS_SUCCESS) {
+        cusparseLtMatmulAlgSelectionDestroy(&alg_sel_compress);
+        continue;
+      }
+
+      cusparseLtMatmulPlan_t plan_compress;
+      auto plan_result = planInitWithTimeout(&handle, &plan_compress, &matmul_m, &alg_sel_compress, 5);
+      if (plan_result.timed_out || plan_result.status != CUSPARSE_STATUS_SUCCESS) {
+        cusparseLtMatmulAlgSelectionDestroy(&alg_sel_compress);
+        continue;
+      }
+
+      // 获取压缩所需大小
+      size_t compressed_size = 0, compressed_buffer_size = 0;
+      CHECK_CUSPARSE_ERR(cusparseLtSpMMACompressedSize(
+          &handle, &plan_compress, &compressed_size, &compressed_buffer_size));
+
+      // 分配压缩权重存储
+      torch::Tensor W_compressed = torch::empty({static_cast<long>(compressed_size)},
+                                                torch::dtype(torch::kUInt8).device(W_q.device()));
+      void *compress_buffer = nullptr;
+      if (compressed_buffer_size > 0) {
+        cudaError_t alloc_st = cudaMalloc(&compress_buffer, compressed_buffer_size);
+        if (alloc_st != cudaSuccess) {
+          cusparseLtMatmulPlanDestroy(&plan_compress);
+          cusparseLtMatmulAlgSelectionDestroy(&alg_sel_compress);
+          continue;
+        }
+      }
+
+      // 执行压缩
+      cusparseStatus_t compress_st = cusparseLtSpMMACompress(
+          &handle, &plan_compress, W_q.data_ptr(), W_compressed.data_ptr(),
+          compress_buffer, stream);
+      
+      // 释放压缩 buffer（压缩完成后不再需要）
+      if (compress_buffer) {
+        cudaFree(compress_buffer);
+        compress_buffer = nullptr;
+      }
+      
+      // 释放用于压缩的 plan 和 alg_sel（后续 split_k 测试会创建新的）
+      cusparseLtMatmulPlanDestroy(&plan_compress);
+      cusparseLtMatmulAlgSelectionDestroy(&alg_sel_compress);
+      
+      if (compress_st != CUSPARSE_STATUS_SUCCESS) {
+        continue;  // 压缩失败，跳过当前 alg_id
       }
 
       // 用于跟踪当前 alg_id 下的最优 split_k 的延时
@@ -506,6 +711,14 @@ py::dict search_topk(torch::Tensor W_pruned_bf16, torch::Tensor A_bf16,
       bool stop_doubling = false;  // 用于控制倍增序列的终止
       
       for (int split_k_val : split_k_candidates) {
+        // === 去重检查：跳过与官方 API 搜索结果相同的配置 ===
+        // 避免重复测试和重复计入排名
+        if (api_search_record.valid && 
+            alg_id == api_search_record.alg_id && 
+            split_k_val == api_search_record.split_k) {
+          continue;
+        }
+
         // === 自适应倍增策略 ===
         // 如果已停止倍增且当前是倍增序列中的值 (>1)，则跳过（但 -1 除外）
         if (stop_doubling && split_k_val > 1) {
@@ -729,6 +942,21 @@ py::dict search_topk(torch::Tensor W_pruned_bf16, torch::Tensor A_bf16,
                 return a.lat_us < b.lat_us;
               });
 
+    // === 记录官方 API 搜索结果的排名 ===
+    // 在排序后的列表中查找官方搜索结果（通过 from_api_search 标记）
+    int api_rank = -1;  // -1 表示无效或未找到
+    for (size_t i = 0; i < filtered.size(); ++i) {
+      if (filtered[i].from_api_search) {
+        api_rank = static_cast<int>(i + 1);  // 1-based 排名
+        api_alg_id.index_put_({m_index}, filtered[i].alg_id);
+        api_split_k.index_put_({m_index}, filtered[i].split_k);
+        api_lat_us.index_put_({m_index}, filtered[i].lat_us);
+        break;
+      }
+    }
+    api_lat_rank.index_put_({m_index}, api_rank);
+    api_total_configs.index_put_({m_index}, static_cast<int>(filtered.size()));
+
     int fill = std::min(static_cast<int>(filtered.size()), topk);
     for (int i = 0; i < fill; ++i) {
       topk_alg.index_put_({m_index, i}, filtered[i].alg_id);
@@ -760,9 +988,7 @@ py::dict search_topk(torch::Tensor W_pruned_bf16, torch::Tensor A_bf16,
   cusparseLtMatDescriptorDestroy(&matB);
   cusparseLtMatDescriptorDestroy(&matC);
   // 注意：cusparseLtMatmulDescriptor_t 是普通结构体，无需显式销毁
-  cusparseLtMatmulPlanDestroy(&plan_compress);
-  cusparseLtMatmulAlgSelectionDestroy(&alg_sel_compress);
-  if (compress_buffer) cudaFree(compress_buffer);
+  // 注意：压缩相关资源已在 alg_id 循环内释放
   cusparseLtDestroy(&handle);
 
   // 构造返回
@@ -777,10 +1003,16 @@ py::dict search_topk(torch::Tensor W_pruned_bf16, torch::Tensor A_bf16,
   out["topk_tops"] = topk_tops;
   out["topk_workspace"] = topk_workspace;
   out["valid_mask"] = valid_mask;
-  out["compress_alg_id"] = compress_alg_id;  // 用于压缩的算法ID (默认为0)
+  // 注意：现在每个算法使用自己的 ID 进行压缩，不再有统一的 compress_alg_id
   out["alg_count"] = max_alg_id;    // 有效算法数量 (ID 范围 [0, max_alg_id))
   out["config_count"] = config_count;   // 实际测试的配置数 (alg_id × split_k 组合)
   out["num_valid_algs_per_M"] = num_valid;  // 每个 M 的有效算法数（包含所有 Split-K 组合）
+  // === 官方 API 搜索结果 ===
+  out["api_alg_id"] = api_alg_id;
+  out["api_split_k"] = api_split_k;
+  out["api_lat_us"] = api_lat_us;
+  out["api_lat_rank"] = api_lat_rank;        // 延迟排名 (1-based，-1 表示无效)
+  out["api_total_configs"] = api_total_configs;  // 每个 M 的总配置数
   if (verify) {
     out["verify_max_abs_err"] = verify_err;
     out["verify_failed_algs"] = torch::tensor(verify_failed_ids,
