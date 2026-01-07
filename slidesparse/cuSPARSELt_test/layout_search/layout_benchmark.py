@@ -258,6 +258,33 @@ def default_m_list() -> List[int]:
 SUPPORTED_DTYPES = ["int8", "fp8e4m3"]
 
 
+# === Segment-K 支持检测 ===
+
+def supports_segment_k() -> Tuple[bool, str]:
+    """
+    检测当前 GPU 是否支持 Segment-K (split_k=-1)。
+    
+    Segment-K 仅在 SM 9.0 (Hopper) 和 SM 10.x (Blackwell) 上支持。
+    在 cuSPARSELt 0.8.1 及更早版本中，对不支持的架构调用 Segment-K
+    会导致 planInit 阻塞挂起。
+    
+    Returns:
+        (supported, reason_if_not) 其中:
+        - supported: 是否支持 Segment-K
+        - reason_if_not: 如果不支持，说明原因
+    """
+    prop = torch.cuda.get_device_properties(0)
+    major = prop.major
+    
+    if major in (9, 10):
+        return True, ""
+    else:
+        return False, (
+            f"Segment-K (split_k=-1) 仅在 SM 9.0/10.x (Hopper/Blackwell) 上支持，"
+            f"当前架构 SM {major}.{prop.minor} 不支持。"
+            f"在 cuSPARSELt 0.8.1 版本中，对不支持的架构调用会导致 planInit 阻塞挂起。"
+        )
+
 # === 测试运行 ===
 
 def run_layout_benchmark(ext, dtype: str, nk_list: List[Tuple[int, int, str]], 
@@ -276,8 +303,13 @@ def run_layout_benchmark(ext, dtype: str, nk_list: List[Tuple[int, int, str]],
                 "M": {
                     "layout_name+orderR": {
                         "supported": bool,
-                        "max_alg_id": int,
-                        "top3": [(alg_id, lat_us, tops), ...]
+                        "alg_count": int,
+                        "config_count": int,
+                        "best_tops": float,
+                        "best_lat_us": float,
+                        "best_id": int,
+                        "best_ws": int,
+                        "best_split_k": int
                     }
                 }
             }
@@ -286,6 +318,14 @@ def run_layout_benchmark(ext, dtype: str, nk_list: List[Tuple[int, int, str]],
     """
     results = {}
     total_nk = len(nk_list)
+    
+    # 检测是否支持 Segment-K
+    test_segment_k, segment_k_reason = supports_segment_k()
+    if verbose:
+        if test_segment_k:
+            print(f"    [Segment-K] 当前架构支持 Segment-K，将测试 split_k=-1")
+        else:
+            print(f"    [Segment-K] {segment_k_reason}")
     
     for nk_idx, (N, K, nk_name) in enumerate(nk_list):
         if verbose:
@@ -316,6 +356,7 @@ def run_layout_benchmark(ext, dtype: str, nk_list: List[Tuple[int, int, str]],
                             dtype,
                             warmup,
                             repeat,
+                            test_segment_k,  # 是否测试 Segment-K (split_k=-1)
                         )
                         
                         m_results[config_name] = {

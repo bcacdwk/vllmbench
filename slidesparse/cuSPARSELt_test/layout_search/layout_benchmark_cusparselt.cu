@@ -45,6 +45,7 @@
 #include <cmath>
 #include <cstdint>
 #include <future>
+#include <iostream>
 #include <sstream>
 #include <string>
 #include <utility>
@@ -169,7 +170,8 @@ py::dict test_layout(
     const std::string &orderR_str,  // "Col" or "Row" (输出矩阵顺序)
     const std::string &dtype,
     int warmup,
-    int repeat
+    int repeat,
+    bool test_segment_k  // 是否测试 Segment-K (split_k=-1)，由 Python 端根据架构决定
 ) {
   py::dict result;
   result["supported"] = false;
@@ -382,26 +384,47 @@ py::dict test_layout(
   int config_count = 0;  // 记录测试的配置总数
   float alpha = 1.0f, beta = 0.0f;
 
-  // === 双层网格搜索：外层遍历 alg_id，内层遍历 split_k_val ===
+  // === 双层网格搜索：外层遍历 alg_id，内层自适应调整 split_k_val ===
   // split_k_val 候选列表：
   //   1: 不切分 (Baseline)
-  //   2, 4, 8, ...: 传统 Split-K
-  //   -1: Segment-K (SM 9.0/10.x 架构特殊优化)
-  
-  // 构建 split_k 候选列表
-  std::vector<int> split_k_candidates;
-  split_k_candidates.push_back(1);  // 总是先测试不切分
-  for (int sk = 2; sk <= K; sk *= 2) {
-    split_k_candidates.push_back(sk);
-  }
-  split_k_candidates.push_back(-1);  // Segment-K
+  //   2, 4, 8, 16, 32, 64: 传统 Split-K（自适应倍增，根据性能决定是否继续）
+  //   -1: Segment-K (SM 9.0/10.x 架构特殊优化，由 Python 端控制是否测试)
+  // 测试顺序：先测 k=1 得到 baseline，然后倍增 k，
+  //   如果倍增失败则停止倍增，最后测试 k=-1
   
   for (int alg_id = 0; alg_id <= max_alg_id; ++alg_id) {
+    // 用于跟踪当前 alg_id 下的最优 split_k 的延时
+    float best_lat_us_for_doubling = -1.0f;
+    
+    // === 阶段 1: 先测试 k=1 作为 baseline ===
+    // === 阶段 2: 倍增测试 k=2,4,8,...，根据性能决定是否继续 ===
+    // === 阶段 3: 最后测试 k=-1 (Segment-K)，仅当 test_segment_k=true ===
+    
+    // 构建 split_k 候选列表
+    std::vector<int> split_k_candidates;
+    split_k_candidates.push_back(1);  // 总是先测试不切分
+    for (int sk = 2; sk <= K; sk *= 2) {
+      split_k_candidates.push_back(sk);
+    }
+    if (test_segment_k) {
+      split_k_candidates.push_back(-1);  // 仅当支持时才测试 Segment-K
+    }
+
+    bool stop_doubling = false;  // 用于控制倍增序列的终止
+    
     for (int split_k_val : split_k_candidates) {
+      // === 自适应倍增策略 ===
+      // 如果已停止倍增且当前是倍增序列中的值 (>1)，则跳过（但 -1 除外）
+      if (stop_doubling && split_k_val > 1) {
+        continue;
+      }
+
       cusparseLtMatmulAlgSelection_t alg_sel;
       status = cusparseLtMatmulAlgSelectionInit(
           &handle, &alg_sel, &matmul, CUSPARSELT_MATMUL_ALG_DEFAULT);
-      if (status != CUSPARSE_STATUS_SUCCESS) continue;
+      if (status != CUSPARSE_STATUS_SUCCESS) {
+        break;  // 算法选择初始化失败，跳出 split_k 循环
+      }
 
       status = cusparseLtMatmulAlgSetAttribute(
           &handle, &alg_sel, CUSPARSELT_MATMUL_ALG_CONFIG_ID, &alg_id, sizeof(alg_id));
@@ -410,19 +433,38 @@ py::dict test_layout(
         continue;
       }
 
-      // 设置 Split-K 属性
+      // === 设置 Split-K 属性 ===
+      // CUSPARSELT_MATMUL_SPLIT_K:
+      //   1: 不切分 (默认)
+      //   >1: 传统 Split-K
+      //   -1: Segment-K (SM 9.0/10.x 特有优化，其他架构不支持)
       cusparseStatus_t split_k_status = cusparseLtMatmulAlgSetAttribute(
           &handle, &alg_sel, CUSPARSELT_MATMUL_SPLIT_K, &split_k_val, sizeof(split_k_val));
       if (split_k_status != CUSPARSE_STATUS_SUCCESS) {
+        // Split-K 设置失败
         cusparseLtMatmulAlgSelectionDestroy(&alg_sel);
+        if (split_k_val > 1) {
+          stop_doubling = true;  // 倍增失败，停止倍增
+        }
         continue;
       }
 
       cusparseLtMatmulPlan_t plan;
       // 使用带超时的 planInit，防止在不支持的架构上无限期挂起
       auto plan_result = planInitWithTimeout(&handle, &plan, &matmul, &alg_sel, 5);
-      if (plan_result.timed_out || plan_result.status != CUSPARSE_STATUS_SUCCESS) {
+      if (plan_result.timed_out) {
+        // planInit 超时（可能是 cuSPARSELt 0.8.1 在不支持 Segment-K 的架构上挂起）
+        std::cerr << "[WARNING] planInit 超时 (alg_id=" << alg_id 
+                  << ", split_k=" << split_k_val << ")" << std::endl;
         cusparseLtMatmulAlgSelectionDestroy(&alg_sel);
+        continue;
+      }
+      if (plan_result.status != CUSPARSE_STATUS_SUCCESS) {
+        // PlanInit 失败（算法+Split-K 组合不兼容）
+        cusparseLtMatmulAlgSelectionDestroy(&alg_sel);
+        if (split_k_val > 1) {
+          stop_doubling = true;  // 倍增失败，停止倍增
+        }
         continue;
       }
 
@@ -494,6 +536,19 @@ py::dict test_layout(
                      static_cast<int64_t>(workspace_size)};
     }
 
+    // === 自适应倍增策略：根据性能决定是否继续倍增 ===
+    // 对于倍增序列 (split_k_val >= 1)，更新 best 并决定是否继续
+    if (split_k_val >= 1) {
+      if (best_lat_us_for_doubling < 0 || avg_us < best_lat_us_for_doubling) {
+        // 新延时更低，更新 best
+        best_lat_us_for_doubling = avg_us;
+      } else if (avg_us * 1.10f > best_lat_us_for_doubling && split_k_val > 1) {
+        // 新延时 * 1.10 > 旧延时（10% 容限），停止倍增
+        stop_doubling = true;
+      }
+    }
+    // 注意：k=-1 (Segment-K) 不参与倍增策略，总是单独测试一次
+
     // 清理
     if (d_workspace) cudaFree(d_workspace);
     cudaFree(dW_compressed);
@@ -542,5 +597,6 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
         py::arg("orderW"), py::arg("orderA"), py::arg("orderR"),
         py::arg("dtype"),
         py::arg("warmup") = 10,
-        py::arg("repeat") = 50);
+        py::arg("repeat") = 50,
+        py::arg("test_segment_k") = false);
 }
