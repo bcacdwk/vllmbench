@@ -320,16 +320,26 @@ def run_layout_benchmark(ext, dtype: str, nk_list: List[Tuple[int, int, str]],
                         
                         m_results[config_name] = {
                             "supported": out["supported"],
-                            "max_alg_id": out.get("max_alg_id", -1),
-                            "top3": out.get("top3", []),
+                            "alg_count": out.get("alg_count", 0),
+                            "config_count": out.get("config_count", 0),
+                            "best_tops": out.get("best_tops", 0.0),
+                            "best_lat_us": out.get("best_lat_us", 0.0),
+                            "best_id": out.get("best_id", -1),
+                            "best_ws": out.get("best_ws", 0),
+                            "best_split_k": out.get("best_split_k", 1),
                         }
                         
                     except Exception as e:
                         m_results[config_name] = {
                             "supported": False,
                             "error": str(e),
-                            "max_alg_id": -1,
-                            "top3": [],
+                            "alg_count": 0,
+                            "config_count": 0,
+                            "best_tops": 0.0,
+                            "best_lat_us": 0.0,
+                            "best_id": -1,
+                            "best_ws": 0,
+                            "best_split_k": 1,
                         }
             
             results[nk_key][str(M)] = m_results
@@ -387,7 +397,8 @@ def save_outputs(out_dir: Path, gpu_short_name: str, arch_name: str, dtype: str,
     lines.append(f"# CC: {prop.major}.{prop.minor}")
     lines.append(f"# dtype: {dtype}, warmup={warmup}, repeat={repeat}")
     lines.append(f"# Layouts: {[cfg['name'] for cfg in LAYOUT_CONFIGS]}")
-    lines.append("M,N,K,layout,orderR,supported,max_alg_id,best_id,best_lat_us,best_tops")
+    # CSV列顺序: tops, lat, id, ws, split_k (best结果)
+    lines.append("M,N,K,layout,orderR,supported,alg_count,config_count,best_tops,best_lat_us,best_id,best_ws,best_split_k")
 
     for nk_key, nk_data in benchmark_ret["results"].items():
         # 解析 nk_key
@@ -405,16 +416,16 @@ def save_outputs(out_dir: Path, gpu_short_name: str, arch_name: str, dtype: str,
                 orderR = parts[1] if len(parts) > 1 else "Col"
                 
                 supported = 1 if result.get("supported", False) else 0
-                max_alg_id = result.get("max_alg_id", -1)
+                alg_count = result.get("alg_count", 0)
+                config_count = result.get("config_count", 0)
                 
-                top3 = result.get("top3", [])
-                if top3:
-                    best = top3[0]
-                    best_id, best_lat, best_tops = best[0], best[1], best[2]
-                else:
-                    best_id, best_lat, best_tops = -1, 0.0, 0.0
+                best_tops = result.get("best_tops", 0.0)
+                best_lat = result.get("best_lat_us", 0.0)
+                best_id = result.get("best_id", -1)
+                best_ws = result.get("best_ws", 0)
+                best_split_k = result.get("best_split_k", 1)
                 
-                lines.append(f"{M},{N},{K},{layout_name},{orderR},{supported},{max_alg_id},{best_id},{best_lat:.3f},{best_tops:.6f}")
+                lines.append(f"{M},{N},{K},{layout_name},{orderR},{supported},{alg_count},{config_count},{best_tops:.6f},{best_lat:.3f},{best_id},{best_ws},{best_split_k}")
     
     csv_path.write_text("\n".join(lines))
 

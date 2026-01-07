@@ -99,6 +99,7 @@ struct AlgRecord {
   float lat_us{0.f};
   float tops{0.f};
   int64_t workspace{0};
+  float waves_count{0.f};     // cuBLASLt 特有：GPU 利用率指标 (wavesCount)
   bool valid{false};
   float max_abs_err{0.f};
   
@@ -193,6 +194,7 @@ py::dict search_topk(torch::Tensor W_bf16, torch::Tensor A_bf16,
   torch::Tensor topk_lat = torch::zeros({numM, topk}, torch::dtype(torch::kFloat32));
   torch::Tensor topk_tops = torch::zeros({numM, topk}, torch::dtype(torch::kFloat32));
   torch::Tensor topk_workspace = torch::zeros({numM, topk}, torch::dtype(torch::kInt64));
+  torch::Tensor topk_waves_count = torch::zeros({numM, topk}, torch::dtype(torch::kFloat32));  // cuBLASLt 特有
   torch::Tensor valid_mask = torch::zeros({numM, topk}, torch::dtype(torch::kUInt8));
   torch::Tensor num_valid = torch::zeros({numM}, torch::dtype(torch::kInt32));
   torch::Tensor verify_err = torch::zeros({numM}, torch::dtype(torch::kFloat32));
@@ -423,6 +425,7 @@ py::dict search_topk(torch::Tensor W_bf16, torch::Tensor A_bf16,
         double tops = ops / (rec.lat_us / 1e6) / 1e12;
         rec.tops = static_cast<float>(tops);
         rec.workspace = static_cast<int64_t>(workspace_size);
+        rec.waves_count = heuristicResult[alg_idx].wavesCount;  // GPU 利用率指标
         rec.valid = true;
         
         // 保存完整的 64 字节算法数据（cuBLASLt 特有）
@@ -492,6 +495,7 @@ py::dict search_topk(torch::Tensor W_bf16, torch::Tensor A_bf16,
       topk_lat.index_put_({m_index, i}, filtered[i].lat_us);
       topk_tops.index_put_({m_index, i}, filtered[i].tops);
       topk_workspace.index_put_({m_index, i}, filtered[i].workspace);
+      topk_waves_count.index_put_({m_index, i}, filtered[i].waves_count);
       valid_mask.index_put_({m_index, i}, static_cast<uint8_t>(1));
       
       // 保存 64 字节算法数据（cuBLASLt 特有）
@@ -535,6 +539,7 @@ py::dict search_topk(torch::Tensor W_bf16, torch::Tensor A_bf16,
   out["topk_lat_us"] = topk_lat;
   out["topk_tops"] = topk_tops;
   out["topk_workspace"] = topk_workspace;
+  out["topk_waves_count"] = topk_waves_count;
   out["valid_mask"] = valid_mask;
   out["max_returned_alg_count"] = max_returned_alg_count;  // 启发式搜索返回的最大算法数
   out["num_valid_algs_per_M"] = num_valid;                 // 每个 M 的有效算法数

@@ -41,8 +41,10 @@
 #include <pybind11/stl.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <future>
 #include <sstream>
 #include <string>
 #include <utility>
@@ -72,6 +74,38 @@ namespace py = pybind11;
       throw std::runtime_error(_oss.str());                                    \
     }                                                                          \
   } while (0)
+
+// === 带超时的 planInit 包装函数 ===
+// 在 cuSPARSELt 0.8.1 中，对不支持 Segment-K 的架构调用 split_k=-1 会导致
+// planInit 无限期阻塞挂起。这个包装函数添加超时保护。
+struct PlanInitResult {
+  cusparseStatus_t status;
+  bool timed_out;
+};
+
+static PlanInitResult planInitWithTimeout(
+    cusparseLtHandle_t* handle,
+    cusparseLtMatmulPlan_t* plan,
+    cusparseLtMatmulDescriptor_t* matmul,
+    cusparseLtMatmulAlgSelection_t* alg_sel,
+    int timeout_seconds = 5) {
+  
+  // 使用 std::async 在另一个线程中运行 planInit
+  auto future = std::async(std::launch::async, [&]() {
+    return cusparseLtMatmulPlanInit(handle, plan, matmul, alg_sel);
+  });
+  
+  // 等待指定超时时间
+  auto wait_status = future.wait_for(std::chrono::seconds(timeout_seconds));
+  
+  if (wait_status == std::future_status::timeout) {
+    // 超时！返回超时标志
+    return PlanInitResult{CUSPARSE_STATUS_EXECUTION_FAILED, true};
+  }
+  
+  // 正常完成
+  return PlanInitResult{future.get(), false};
+}
 
 // ===== dtype 相关 =====
 static cudaDataType to_cuda_dtype(const std::string &dtype) {
@@ -119,8 +153,10 @@ static cusparseOrder_t parse_order(const std::string &order) {
 // ===== 算法结果 =====
 struct AlgResult {
   int alg_id;
+  int split_k;      // cuSPARSELt split-k 配置
   float lat_us;
   float tops;
+  int64_t workspace;
 };
 
 // ===== test_layout 主函数 =====
@@ -333,36 +369,62 @@ py::dict test_layout(
     return result;
   }
 
-  result["max_alg_id"] = max_alg_id;
+  // max_alg_id 是从 0 开始的最大算法 ID，所以 alg_count = max_alg_id + 1
+  result["alg_count"] = max_alg_id + 1;
 
   // CUDA events for timing
   cudaEvent_t start_event, stop_event;
   CHECK_CUDA_ERR(cudaEventCreate(&start_event));
   CHECK_CUDA_ERR(cudaEventCreate(&stop_event));
 
-  std::vector<AlgResult> alg_results;
+  // 只记录最佳结果
+  AlgResult best_result = {-1, 1, 0.0f, 0.0f, 0};
+  int config_count = 0;  // 记录测试的配置总数
   float alpha = 1.0f, beta = 0.0f;
 
-  // 遍历所有算法
+  // === 双层网格搜索：外层遍历 alg_id，内层遍历 split_k_val ===
+  // split_k_val 候选列表：
+  //   1: 不切分 (Baseline)
+  //   2, 4, 8, ...: 传统 Split-K
+  //   -1: Segment-K (SM 9.0/10.x 架构特殊优化)
+  
+  // 构建 split_k 候选列表
+  std::vector<int> split_k_candidates;
+  split_k_candidates.push_back(1);  // 总是先测试不切分
+  for (int sk = 2; sk <= K; sk *= 2) {
+    split_k_candidates.push_back(sk);
+  }
+  split_k_candidates.push_back(-1);  // Segment-K
+  
   for (int alg_id = 0; alg_id <= max_alg_id; ++alg_id) {
-    cusparseLtMatmulAlgSelection_t alg_sel;
-    status = cusparseLtMatmulAlgSelectionInit(
-        &handle, &alg_sel, &matmul, CUSPARSELT_MATMUL_ALG_DEFAULT);
-    if (status != CUSPARSE_STATUS_SUCCESS) continue;
+    for (int split_k_val : split_k_candidates) {
+      cusparseLtMatmulAlgSelection_t alg_sel;
+      status = cusparseLtMatmulAlgSelectionInit(
+          &handle, &alg_sel, &matmul, CUSPARSELT_MATMUL_ALG_DEFAULT);
+      if (status != CUSPARSE_STATUS_SUCCESS) continue;
 
-    status = cusparseLtMatmulAlgSetAttribute(
-        &handle, &alg_sel, CUSPARSELT_MATMUL_ALG_CONFIG_ID, &alg_id, sizeof(alg_id));
-    if (status != CUSPARSE_STATUS_SUCCESS) {
-      cusparseLtMatmulAlgSelectionDestroy(&alg_sel);
-      continue;
-    }
+      status = cusparseLtMatmulAlgSetAttribute(
+          &handle, &alg_sel, CUSPARSELT_MATMUL_ALG_CONFIG_ID, &alg_id, sizeof(alg_id));
+      if (status != CUSPARSE_STATUS_SUCCESS) {
+        cusparseLtMatmulAlgSelectionDestroy(&alg_sel);
+        continue;
+      }
 
-    cusparseLtMatmulPlan_t plan;
-    status = cusparseLtMatmulPlanInit(&handle, &plan, &matmul, &alg_sel);
-    if (status != CUSPARSE_STATUS_SUCCESS) {
-      cusparseLtMatmulAlgSelectionDestroy(&alg_sel);
-      continue;
-    }
+      // 设置 Split-K 属性
+      cusparseStatus_t split_k_status = cusparseLtMatmulAlgSetAttribute(
+          &handle, &alg_sel, CUSPARSELT_MATMUL_SPLIT_K, &split_k_val, sizeof(split_k_val));
+      if (split_k_status != CUSPARSE_STATUS_SUCCESS) {
+        cusparseLtMatmulAlgSelectionDestroy(&alg_sel);
+        continue;
+      }
+
+      cusparseLtMatmulPlan_t plan;
+      // 使用带超时的 planInit，防止在不支持的架构上无限期挂起
+      auto plan_result = planInitWithTimeout(&handle, &plan, &matmul, &alg_sel, 5);
+      if (plan_result.timed_out || plan_result.status != CUSPARSE_STATUS_SUCCESS) {
+        cusparseLtMatmulAlgSelectionDestroy(&alg_sel);
+        continue;
+      }
 
     // 压缩稀疏矩阵
     size_t compressed_size = 0, compressed_buffer_size = 0;
@@ -423,7 +485,14 @@ py::dict test_layout(
     double flops = 2.0 * static_cast<double>(M) * static_cast<double>(N) * static_cast<double>(K);
     double tops = (flops / (avg_us * 1e-6)) / 1e12;
 
-    alg_results.push_back({alg_id, avg_us, static_cast<float>(tops)});
+    // 计数有效配置
+    ++config_count;
+
+    // 更新最佳结果（按 tops 比较）
+    if (best_result.alg_id < 0 || tops > best_result.tops) {
+      best_result = {alg_id, split_k_val, avg_us, static_cast<float>(tops), 
+                     static_cast<int64_t>(workspace_size)};
+    }
 
     // 清理
     if (d_workspace) cudaFree(d_workspace);
@@ -431,26 +500,25 @@ py::dict test_layout(
     if (dW_compressedBuffer) cudaFree(dW_compressedBuffer);
     cusparseLtMatmulPlanDestroy(&plan);
     cusparseLtMatmulAlgSelectionDestroy(&alg_sel);
+    }  // end split_k_val loop
+  }  // end alg_id loop
+
+  // 输出结果
+  result["config_count"] = config_count;
+  result["supported"] = (best_result.alg_id >= 0);
+  if (best_result.alg_id >= 0) {
+    result["best_tops"] = best_result.tops;
+    result["best_lat_us"] = best_result.lat_us;
+    result["best_id"] = best_result.alg_id;
+    result["best_ws"] = best_result.workspace;
+    result["best_split_k"] = best_result.split_k;
+  } else {
+    result["best_tops"] = 0.0f;
+    result["best_lat_us"] = 0.0f;
+    result["best_id"] = -1;
+    result["best_ws"] = 0;
+    result["best_split_k"] = 1;
   }
-
-  // 按吞吐量排序
-  std::sort(alg_results.begin(), alg_results.end(),
-            [](const AlgResult &a, const AlgResult &b) { return a.tops > b.tops; });
-
-  // 构建 top3 结果
-  py::list top3_list;
-  int fill_count = std::min(3, static_cast<int>(alg_results.size()));
-  for (int i = 0; i < fill_count; ++i) {
-    py::tuple entry = py::make_tuple(
-        alg_results[i].alg_id,
-        alg_results[i].lat_us,
-        alg_results[i].tops
-    );
-    top3_list.append(entry);
-  }
-
-  result["supported"] = !alg_results.empty();
-  result["top3"] = top3_list;
 
   // 清理
   CHECK_CUDA_ERR(cudaEventDestroy(start_event));

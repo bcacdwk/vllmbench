@@ -682,7 +682,8 @@ def save_outputs(out_dir: Path, gpu_short_name: str, arch_name: str, dtype: str,
         f"# NK_list: {search_ret['NK_list']}",
     ]
     lines.extend(header_info)
-    lines.append("M,N,K,best_id1,split_k1,lat_us1,tops1,ws1,best_id2,split_k2,lat_us2,tops2,ws2,best_id3,split_k3,lat_us3,tops3,ws3")
+    # CSV列顺序: M,N,K, 然后每个算法: tops, lat_us, id, ws, split_k
+    lines.append("M,N,K,tops1,lat_us1,id1,ws1,split_k1,tops2,lat_us2,id2,ws2,split_k2,tops3,lat_us3,id3,ws3,split_k3")
 
     # 收集所有数据行，用于排序
     csv_rows = []  # [(M, nk_idx, csv_line_str), ...]
@@ -707,12 +708,13 @@ def save_outputs(out_dir: Path, gpu_short_name: str, arch_name: str, dtype: str,
             csv_values = [str(M), str(res["N"]), str(res["K"])]
             for k in range(3):
                 if vmask[k]:
+                    # 列顺序: tops, lat_us, id, ws, split_k
                     csv_values.extend([
-                        str(int(algs[k].item())),
-                        str(int(split_ks[k].item())),
-                        f"{float(lats[k].item()):.3f}",
                         f"{float(tops[k].item()):.6f}",
+                        f"{float(lats[k].item()):.3f}",
+                        str(int(algs[k].item())),
                         str(int(wss[k].item())),
+                        str(int(split_ks[k].item())),
                     ])
                 else:
                     csv_values.extend(["", "", "", "", ""])  # 5 个空字段

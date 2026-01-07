@@ -123,6 +123,7 @@ struct AlgResult {
   int alg_id;
   float lat_us;
   float tops;
+  float waves_count;  // GPU 利用率指标
 };
 
 // ===== test_layout 主函数 =====
@@ -337,7 +338,7 @@ py::dict test_layout(
   }
 
   // 获取可用算法
-  const int max_algo_count = 32;
+  const int max_algo_count = 128;
   cublasLtMatmulHeuristicResult_t heuristicResult[max_algo_count];
   int returnedAlgoCount = 0;
 
@@ -364,7 +365,9 @@ py::dict test_layout(
     return result;
   }
 
-  result["algo_count"] = returnedAlgoCount;
+  // returnedAlgoCount 是启发式返回的算法数量（从1开始计数）
+  result["alg_count"] = returnedAlgoCount;
+  result["config_count"] = returnedAlgoCount;  // cuBLASLt 没有 split-k，所以 config_count = alg_count
 
   // 分配 workspace
   void *d_workspace = nullptr;
@@ -377,7 +380,9 @@ py::dict test_layout(
   CHECK_CUDA_ERR(cudaEventCreate(&start_event));
   CHECK_CUDA_ERR(cudaEventCreate(&stop_event));
 
-  std::vector<AlgResult> alg_results;
+  // 只记录最佳结果
+  AlgResult best_result = {-1, 0.0f, 0.0f, 0.0f};
+  int64_t best_workspace = 0;
   // alpha/beta 统一使用 float（因为 scale_type 已统一为 CUDA_R_32F 以支持 BF16 输出）
   float alpha = 1.0f, beta = 0.0f;
   const void *alpha_ptr = &alpha;
@@ -391,6 +396,12 @@ py::dict test_layout(
 
     const cublasLtMatmulAlgo_t *algo = &heuristicResult[alg_idx].algo;
     size_t ws_size = heuristicResult[alg_idx].workspaceSize;
+    float waves = heuristicResult[alg_idx].wavesCount;
+
+    // 提取算法 ID（用于调试/显示）
+    int algo_id = 0;
+    cublasLtMatmulAlgoConfigGetAttribute(algo, CUBLASLT_ALGO_CONFIG_ID,
+                                          &algo_id, sizeof(algo_id), nullptr);
 
     // Warmup
     bool warmup_success = true;
@@ -447,27 +458,28 @@ py::dict test_layout(
     double flops = 2.0 * static_cast<double>(M) * static_cast<double>(N) * static_cast<double>(K);
     double tops = (flops / (avg_us * 1e-6)) / 1e12;
 
-    alg_results.push_back({alg_idx, avg_us, static_cast<float>(tops)});
+    // 更新最佳结果（按 tops 比较）
+    if (best_result.alg_id < 0 || tops > best_result.tops) {
+      best_result = {algo_id, avg_us, static_cast<float>(tops), waves};
+      best_workspace = static_cast<int64_t>(ws_size);
+    }
   }
 
-  // 按吞吐量排序
-  std::sort(alg_results.begin(), alg_results.end(),
-            [](const AlgResult &a, const AlgResult &b) { return a.tops > b.tops; });
-
-  // 构建 top3 结果
-  py::list top3_list;
-  int fill_count = std::min(3, static_cast<int>(alg_results.size()));
-  for (int i = 0; i < fill_count; ++i) {
-    py::tuple entry = py::make_tuple(
-        alg_results[i].alg_id,
-        alg_results[i].lat_us,
-        alg_results[i].tops
-    );
-    top3_list.append(entry);
+  // 输出 best 结果
+  result["supported"] = (best_result.alg_id >= 0);
+  if (best_result.alg_id >= 0) {
+    result["best_tops"] = best_result.tops;
+    result["best_lat_us"] = best_result.lat_us;
+    result["best_id"] = best_result.alg_id;
+    result["best_ws"] = best_workspace;
+    result["best_waves"] = best_result.waves_count;
+  } else {
+    result["best_tops"] = 0.0f;
+    result["best_lat_us"] = 0.0f;
+    result["best_id"] = -1;
+    result["best_ws"] = 0;
+    result["best_waves"] = 0.0f;
   }
-
-  result["supported"] = !alg_results.empty();
-  result["top3"] = top3_list;
 
   // 清理
   CHECK_CUDA_ERR(cudaEventDestroy(start_event));
