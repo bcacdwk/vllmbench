@@ -437,6 +437,11 @@ py::dict search_topk(torch::Tensor W_pruned_bf16, torch::Tensor A_bf16,
 
   std::vector<AlgRecord> records;
   
+  // === 算法/配置统计 ===
+  // alg_count: 算法数量 (max_alg_id + 1，因为 ID 从 0 开始)
+  // config_count: 实际测试的配置数 (每个 alg_id × split_k 组合)
+  int config_count = 0;
+  
   // === Workspace 回退机制 ===
   // 预分配一个初始 workspace，如果某个算法需要更大的空间，动态扩展
   size_t current_workspace_size = 0;
@@ -711,6 +716,7 @@ py::dict search_topk(torch::Tensor W_pruned_bf16, torch::Tensor A_bf16,
             }
           }
           records.push_back(rec);
+          ++config_count;  // 统计实际测试的配置数
           
           // === 自适应倍增策略：根据性能决定是否继续倍增 ===
           // 对于倍增序列 (split_k_val >= 1)，更新 best 并决定是否继续
@@ -791,6 +797,8 @@ py::dict search_topk(torch::Tensor W_pruned_bf16, torch::Tensor A_bf16,
   out["topk_workspace"] = topk_workspace;
   out["valid_mask"] = valid_mask;
   out["compress_alg_id"] = max_alg_id;  // 用于压缩的算法ID（即最大有效算法ID）
+  out["alg_count"] = max_alg_id + 1;    // 算法数量 (ID 从 0 开始，所以 +1)
+  out["config_count"] = config_count;   // 实际测试的配置数 (alg_id × split_k 组合)
   out["num_valid_algs_per_M"] = num_valid;  // 每个 M 的有效算法数（包含所有 Split-K 组合）
   if (verify) {
     out["verify_max_abs_err"] = verify_err;

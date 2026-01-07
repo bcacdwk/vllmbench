@@ -214,7 +214,8 @@ py::dict search_topk(torch::Tensor W_bf16, torch::Tensor A_bf16,
   CHECK_CUDA_ERR(cudaMalloc(&shared_workspace, current_workspace_size));
 
   // 最大算法数（cuBLASLt 启发式搜索返回的最大数量）
-  int max_returned_alg_count = 0;
+  int alg_count = 0;       // 启发式搜索返回的最大算法数
+  int config_count = 0;    // 实际测试的配置数（cuBLASLt 无 split-k，所以 config_count = 实测算法数）
 
   for (int64_t m_index = 0; m_index < numM; ++m_index) {
     int64_t M = M_list[m_index];
@@ -305,8 +306,8 @@ py::dict search_topk(torch::Tensor W_bf16, torch::Tensor A_bf16,
       continue;
     }
 
-    if (returnedAlgoCount > max_returned_alg_count) {
-      max_returned_alg_count = returnedAlgoCount;
+    if (returnedAlgoCount > alg_count) {
+      alg_count = returnedAlgoCount;
     }
 
     // alpha/beta 统一使用 float（因为 scale_type 已统一为 CUDA_R_32F 以支持 BF16 输出）
@@ -473,6 +474,7 @@ py::dict search_topk(torch::Tensor W_bf16, torch::Tensor A_bf16,
         
         if (rec.valid) {
           records.push_back(rec);
+          ++config_count;  // 统计实际测试的有效配置数
         }
       }
 
@@ -541,7 +543,8 @@ py::dict search_topk(torch::Tensor W_bf16, torch::Tensor A_bf16,
   out["topk_workspace"] = topk_workspace;
   out["topk_waves_count"] = topk_waves_count;
   out["valid_mask"] = valid_mask;
-  out["max_returned_alg_count"] = max_returned_alg_count;  // 启发式搜索返回的最大算法数
+  out["alg_count"] = alg_count;          // 启发式搜索返回的最大算法数
+  out["config_count"] = config_count;    // 实际测试的有效配置数
   out["num_valid_algs_per_M"] = num_valid;                 // 每个 M 的有效算法数
   
   // cuBLASLt 特有：64 字节不透明结构体

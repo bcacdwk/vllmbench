@@ -648,8 +648,11 @@ def save_outputs(out_dir: Path, gpu_short_name: str, arch_name: str, dtype: str,
     cuda_driver_ver = get_nvidia_smi_cuda_version()  # nvidia-smi 显示的 CUDA 版本
     cuda_runtime_ver = get_cuda_runtime_version()    # PyTorch 编译时的 CUDA 版本
     
-    # 获取最大有效算法 ID（所有 MNK 组合都相同）
-    max_alg_id = search_ret["results"][0]["raw"]["compress_alg_id"] if search_ret["results"] else -1
+    # 获取 alg_count 和 config_count
+    first_raw = search_ret["results"][0]["raw"] if search_ret["results"] else {}
+    max_alg_id = first_raw.get("compress_alg_id", -1)
+    alg_count = first_raw.get("alg_count", max_alg_id + 1 if max_alg_id >= 0 else 0)
+    config_count = first_raw.get("config_count", 0)
     
     meta = {
         "gpu_name": prop.name,
@@ -658,6 +661,8 @@ def save_outputs(out_dir: Path, gpu_short_name: str, arch_name: str, dtype: str,
         "layout": layout,
         "dtype": dtype,
         "max_alg_id": max_alg_id,
+        "alg_count": alg_count,
+        "config_count": config_count,
         "warmup": warmup,
         "repeat": repeat,
         "verify": verify,
@@ -674,7 +679,7 @@ def save_outputs(out_dir: Path, gpu_short_name: str, arch_name: str, dtype: str,
     header_info = [
         f"# GPU: {prop.name}",
         f"# CC: {prop.major}.{prop.minor}",
-        f"# max_alg_id: {max_alg_id}",
+        f"# alg_count: {alg_count}, config_count: {config_count}",
         f"# torch: {torch.__version__}",
         f"# CUDA driver: {cuda_driver_ver}, runtime: {cuda_runtime_ver}",
         f"# layout: {layout}, dtype: {dtype}, warmup={warmup}, repeat={repeat}, verify={verify}",
@@ -682,8 +687,8 @@ def save_outputs(out_dir: Path, gpu_short_name: str, arch_name: str, dtype: str,
         f"# NK_list: {search_ret['NK_list']}",
     ]
     lines.extend(header_info)
-    # CSV列顺序: M,N,K, 然后每个算法: tops, lat_us, id, ws, split_k
-    lines.append("M,N,K,tops1,lat_us1,id1,ws1,split_k1,tops2,lat_us2,id2,ws2,split_k2,tops3,lat_us3,id3,ws3,split_k3")
+    # CSV列顺序: M,N,K,alg_count,config_count, 然后每个算法: tops, lat_us, id, ws, split_k
+    lines.append("M,N,K,alg_count,config_count,tops1,lat_us1,id1,ws1,split_k1,tops2,lat_us2,id2,ws2,split_k2,tops3,lat_us3,id3,ws3,split_k3")
 
     # 收集所有数据行，用于排序
     csv_rows = []  # [(M, nk_idx, csv_line_str), ...]
@@ -696,6 +701,9 @@ def save_outputs(out_dir: Path, gpu_short_name: str, arch_name: str, dtype: str,
         topk_tops = raw["topk_tops"].cpu()
         topk_workspace = raw["topk_workspace"].cpu()
         valid = raw["valid_mask"].cpu()
+        # 每个 NK 可能有不同的 alg_count/config_count（理论上相同，但保险起见取各自值）
+        nk_alg_count = raw.get("alg_count", alg_count)
+        nk_config_count = raw.get("config_count", config_count)
 
         for m_i, M in enumerate(search_ret["M_list"]):
             algs = topk_id[m_i]
@@ -705,10 +713,10 @@ def save_outputs(out_dir: Path, gpu_short_name: str, arch_name: str, dtype: str,
             wss = topk_workspace[m_i]
             vmask = valid[m_i]
 
-            csv_values = [str(M), str(res["N"]), str(res["K"])]
+            # 列顺序: M,N,K,alg_count,config_count, 然后每个算法: tops, lat_us, id, ws, split_k
+            csv_values = [str(M), str(res["N"]), str(res["K"]), str(nk_alg_count), str(nk_config_count)]
             for k in range(3):
                 if vmask[k]:
-                    # 列顺序: tops, lat_us, id, ws, split_k
                     csv_values.extend([
                         f"{float(tops[k].item()):.6f}",
                         f"{float(lats[k].item()):.3f}",
