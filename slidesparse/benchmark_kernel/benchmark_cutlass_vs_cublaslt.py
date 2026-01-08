@@ -1,254 +1,279 @@
 #!/usr/bin/env python3
 """
-Benchmark: CUTLASS vs cuBLASLt for FP8 GEMM
+CUTLASS vs cuBLASLt FP8 GEMM Benchmark
 
-This script directly compares:
-1. CUTLASS scaled_mm (vLLM's default)
-2. cuBLASLt FP8 GEMM (our SlideSparse integration)
+对比 vLLM 的 CUTLASS 和 cuBLASLt 在 FP8 GEMM 上的性能。
+固定 Layout: TN+CC+Col，FP8E4M3 输入，FP32 计算，BF16 输出。
 
 Usage:
     python benchmark_cutlass_vs_cublaslt.py
+    python benchmark_cutlass_vs_cublaslt.py --compile  # 强制重新编译
 """
 
 import os
 import sys
 import time
+import csv
+import ctypes
+import ctypes.util
+from pathlib import Path
+from typing import Dict, List, Tuple
+
 import torch
-import numpy as np
-from typing import Dict, List, Tuple, Optional
-from dataclasses import dataclass
+from torch.utils.cpp_extension import load
 
-# Add project root to path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+# 项目根目录
+SCRIPT_DIR = Path(__file__).parent
+PROJECT_ROOT = SCRIPT_DIR.parent.parent
 
-# Import vLLM ops
-try:
+
+# ============== cuBLASLt 库预加载 ==============
+_CUBLASLT_LOADED = False
+
+def ensure_cublaslt_loaded():
+    """预加载 cuBLASLt 库避免符号冲突"""
+    global _CUBLASLT_LOADED
+    if _CUBLASLT_LOADED:
+        return
+    
+    paths = [
+        os.environ.get("CUBLASLT_PATH"),
+        "/usr/lib/x86_64-linux-gnu/libcublasLt.so",
+        "/usr/local/cuda/lib64/libcublasLt.so",
+        ctypes.util.find_library("cublasLt"),
+    ]
+    
+    for p in filter(None, paths):
+        try:
+            ctypes.CDLL(p, mode=ctypes.RTLD_GLOBAL)
+            _CUBLASLT_LOADED = True
+            return
+        except OSError:
+            continue
+    
+    raise OSError("Cannot find libcublasLt.so")
+
+
+# ============== CUDA 扩展加载 ==============
+def load_cublaslt_extension(force_compile: bool = False):
+    """加载 cuBLASLt benchmark CUDA 扩展"""
+    ensure_cublaslt_loaded()
+    
+    src_path = SCRIPT_DIR / "cublaslt_gemm_benchmark.cu"
+    build_dir = SCRIPT_DIR / "build"
+    build_dir.mkdir(exist_ok=True)
+    
+    # 获取 GPU 信息用于命名
+    prop = torch.cuda.get_device_properties(0)
+    ext_name = f"cublaslt_benchmark_cc{prop.major}{prop.minor}"
+    
+    # 检查是否需要编译
+    so_files = list(build_dir.glob(f"{ext_name}*.so"))
+    need_compile = force_compile or not so_files
+    
+    if not need_compile and so_files:
+        src_mtime = src_path.stat().st_mtime
+        if any(f.stat().st_mtime < src_mtime for f in so_files):
+            need_compile = True
+    
+    if need_compile:
+        print(f"[INFO] Compiling cuBLASLt extension for cc{prop.major}{prop.minor}...")
+    
+    ext = load(
+        name=ext_name,
+        sources=[str(src_path)],
+        build_directory=str(build_dir),
+        extra_cflags=["-O3"],
+        extra_cuda_cflags=["-O3", "--use_fast_math"],
+        extra_ldflags=["-lcublasLt", "-lcublas"],
+        verbose=need_compile,
+    )
+    
+    # 清理中间文件，只保留 .so
+    if need_compile:
+        for f in build_dir.iterdir():
+            if f.is_file() and not f.suffix == ".so":
+                f.unlink()
+    
+    return ext
+
+
+# ============== CUTLASS Benchmark ==============
+def benchmark_cutlass_fp8(m: int, n: int, k: int, warmup: int = 25, iterations: int = 100) -> Dict:
+    """使用 vLLM 的 cutlass_scaled_mm 进行 benchmark"""
     from vllm._custom_ops import cutlass_scaled_mm
-    HAS_CUTLASS = True
-except ImportError:
-    HAS_CUTLASS = False
-    print("Warning: CUTLASS not available")
-
-# Import cuBLASLt wrapper
-try:
-    from slidesparse.cublaslt_wrapper import CublasLtFp8Matmul
-    HAS_CUBLASLT = True
-except ImportError:
-    HAS_CUBLASLT = False
-    print("Warning: cuBLASLt wrapper not available")
-
-
-@dataclass
-class BenchmarkResult:
-    """Benchmark result for a single configuration"""
-    backend: str
-    m: int
-    n: int
-    k: int
-    dtype: str
-    time_ms: float
-    tflops: float
-    memory_gb_s: float
-
-
-class GEMMBenchmark:
-    """GEMM Benchmark comparing CUTLASS and cuBLASLt"""
     
-    def __init__(self, warmup_iters: int = 10, bench_iters: int = 100):
-        self.warmup_iters = warmup_iters
-        self.bench_iters = bench_iters
-        self.device = torch.device('cuda')
-        
-        # Check available backends
-        self.backends = []
-        if HAS_CUTLASS:
-            self.backends.append('cutlass')
-        if HAS_CUBLASLT:
-            self.backends.append('cublaslt')
-            self.cublaslt = CublasLtFp8Matmul()
-            
-    def _create_fp8_tensors(self, m: int, n: int, k: int) -> Tuple[torch.Tensor, ...]:
-        """Create FP8 test tensors"""
-        # Create FP16 tensors first, then convert
-        a_fp16 = torch.randn(m, k, dtype=torch.float16, device=self.device)
-        b_fp16 = torch.randn(k, n, dtype=torch.float16, device=self.device)
-        
-        # Convert to FP8
-        a_fp8 = a_fp16.to(torch.float8_e4m3fn)
-        b_fp8 = b_fp16.to(torch.float8_e4m3fn)
-        
-        # Scale factors (per-tensor for simplicity)
-        scale_a = torch.ones(1, dtype=torch.float32, device=self.device)
-        scale_b = torch.ones(1, dtype=torch.float32, device=self.device)
-        
-        return a_fp8, b_fp8, scale_a, scale_b
+    device = torch.device('cuda')
     
-    def _benchmark_cutlass(self, a: torch.Tensor, b: torch.Tensor, 
-                           scale_a: torch.Tensor, scale_b: torch.Tensor,
-                           output_dtype: torch.dtype) -> float:
-        """Benchmark CUTLASS scaled_mm"""
-        # CUTLASS expects B in column-major (transposed)
-        b_t = b.t().contiguous()
-        
-        # Warmup
-        for _ in range(self.warmup_iters):
-            _ = cutlass_scaled_mm(a, b_t, scale_a, scale_b, output_dtype)
-        torch.cuda.synchronize()
-        
-        # Benchmark
-        start = time.perf_counter()
-        for _ in range(self.bench_iters):
-            _ = cutlass_scaled_mm(a, b_t, scale_a, scale_b, output_dtype)
-        torch.cuda.synchronize()
-        end = time.perf_counter()
-        
-        return (end - start) / self.bench_iters * 1000  # ms
+    # CUTLASS 期望:
+    # A: (M, K) row-major, contiguous
+    # B: (K, N) column-major (stride(0)==1)
+    a_fp8 = torch.randn(m, k, dtype=torch.float16, device=device).to(torch.float8_e4m3fn)
+    b_fp8 = torch.randn(n, k, dtype=torch.float16, device=device).to(torch.float8_e4m3fn).t()  # (K,N) col-major
     
-    def _benchmark_cublaslt(self, a: torch.Tensor, b: torch.Tensor,
-                            scale_a: torch.Tensor, scale_b: torch.Tensor,
-                            output_dtype: torch.dtype) -> float:
-        """Benchmark cuBLASLt FP8 GEMM"""
-        # cuBLASLt expects specific layout
-        b_t = b.t().contiguous()
-        
-        # Warmup
-        for _ in range(self.warmup_iters):
-            _ = self.cublaslt.matmul(a, b_t, scale_a, scale_b, output_dtype)
-        torch.cuda.synchronize()
-        
-        # Benchmark
-        start = time.perf_counter()
-        for _ in range(self.bench_iters):
-            _ = self.cublaslt.matmul(a, b_t, scale_a, scale_b, output_dtype)
-        torch.cuda.synchronize()
-        end = time.perf_counter()
-        
-        return (end - start) / self.bench_iters * 1000  # ms
+    scale_a = torch.ones(1, dtype=torch.float32, device=device)
+    scale_b = torch.ones(1, dtype=torch.float32, device=device)
     
-    def run_benchmark(self, m: int, n: int, k: int, 
-                      output_dtype: torch.dtype = torch.bfloat16) -> List[BenchmarkResult]:
-        """Run benchmark for a single GEMM size"""
-        results = []
-        
-        # Create test tensors
-        a, b, scale_a, scale_b = self._create_fp8_tensors(m, n, k)
-        
-        # Calculate theoretical metrics
-        flops = 2 * m * n * k  # multiply-add = 2 ops
-        bytes_moved = (m * k + k * n + m * n) * 1  # FP8 = 1 byte
-        
-        for backend in self.backends:
-            try:
-                if backend == 'cutlass':
-                    time_ms = self._benchmark_cutlass(a, b, scale_a, scale_b, output_dtype)
-                elif backend == 'cublaslt':
-                    time_ms = self._benchmark_cublaslt(a, b, scale_a, scale_b, output_dtype)
-                else:
-                    continue
-                
-                tflops = flops / (time_ms * 1e9)  # TFLOPS
-                memory_gb_s = bytes_moved / (time_ms * 1e6)  # GB/s
-                
-                results.append(BenchmarkResult(
-                    backend=backend,
-                    m=m, n=n, k=k,
-                    dtype='fp8_e4m3',
-                    time_ms=time_ms,
-                    tflops=tflops,
-                    memory_gb_s=memory_gb_s
-                ))
-            except Exception as e:
-                print(f"  {backend} failed: {e}")
-        
-        return results
+    # Warmup
+    for _ in range(warmup):
+        cutlass_scaled_mm(a_fp8, b_fp8, scale_a, scale_b, torch.bfloat16)
+    torch.cuda.synchronize()
+    
+    # Benchmark
+    torch.cuda.synchronize()
+    start = time.perf_counter()
+    for _ in range(iterations):
+        cutlass_scaled_mm(a_fp8, b_fp8, scale_a, scale_b, torch.bfloat16)
+    torch.cuda.synchronize()
+    total_ms = (time.perf_counter() - start) * 1000
+    
+    lat_us = (total_ms * 1000) / iterations
+    flops = 2 * m * n * k
+    tflops = flops / (lat_us * 1e6)
+    
+    return {"lat_us": lat_us, "tflops": tflops}
 
 
-def print_results(results: List[BenchmarkResult]):
-    """Print benchmark results in a nice table"""
-    print("\n" + "=" * 100)
-    print(f"{'Backend':<12} {'M':>8} {'N':>8} {'K':>8} {'Time(ms)':>12} {'TFLOPS':>12} {'GB/s':>12}")
-    print("=" * 100)
+# ============== Benchmark 配置 ==============
+# M: batch size (外层循环)
+# (N, K, name): 权重矩阵维度 (内层循环)
+
+M_LIST = [16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384]
+
+# 基于 LLM 模型的典型 NK 配置
+NK_CONFIGS = [
+    # Qwen2.5-0.5B: hidden=896, intermediate=4864
+    (4864, 896, "Qwen0.5B_W13"),    # gate/up proj
+    (896, 4864, "Qwen0.5B_W2"),     # down proj
     
-    for r in results:
-        print(f"{r.backend:<12} {r.m:>8} {r.n:>8} {r.k:>8} {r.time_ms:>12.4f} {r.tflops:>12.2f} {r.memory_gb_s:>12.2f}")
-    
-    print("=" * 100)
+    # Llama3.2-1B: hidden=2048, intermediate=8192  
+    (8192, 2048, "Llama1B_W13"),    # gate/up proj
+    (2048, 8192, "Llama1B_W2"),     # down proj
+]
 
 
+def align_to_16(x: int) -> int:
+    """将维度对齐到 16 的倍数"""
+    return ((x + 15) // 16) * 16
+
+
+# ============== Main ==============
 def main():
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--compile", action="store_true", help="Force recompile CUDA extension")
+    parser.add_argument("--warmup", type=int, default=25, help="Warmup iterations")
+    parser.add_argument("--repeat", type=int, default=100, help="Benchmark iterations")
+    parser.add_argument("--max-algos", type=int, default=5, help="Max cuBLASLt algorithms to test")
+    args = parser.parse_args()
+    
     print("=" * 80)
     print("CUTLASS vs cuBLASLt FP8 GEMM Benchmark")
     print("=" * 80)
     
-    # Check GPU
+    # GPU 信息
     if not torch.cuda.is_available():
         print("Error: CUDA not available")
         return
     
     gpu_name = torch.cuda.get_device_name(0)
+    prop = torch.cuda.get_device_properties(0)
     print(f"GPU: {gpu_name}")
+    print(f"Compute Capability: {prop.major}.{prop.minor}")
     print(f"CUDA Version: {torch.version.cuda}")
+    print(f"Warmup: {args.warmup}, Repeat: {args.repeat}")
+    print()
     
-    # Initialize benchmark
-    benchmark = GEMMBenchmark(warmup_iters=10, bench_iters=100)
-    print(f"Available backends: {benchmark.backends}")
+    # 加载 cuBLASLt 扩展
+    print("[INFO] Loading cuBLASLt extension...")
+    ext = load_cublaslt_extension(force_compile=args.compile)
+    print("[INFO] Extension loaded successfully")
+    print()
     
-    if not benchmark.backends:
-        print("Error: No backends available")
-        return
+    # 结果存储
+    results = []
     
-    # Test configurations (typical LLM shapes)
-    # Format: (M, N, K) - batch_size * seq_len, hidden_dim, intermediate_dim
-    test_configs = [
-        # Small models (Qwen2.5-0.5B like)
-        (1, 1536, 896),      # Single token, down_proj
-        (128, 1536, 896),    # Small batch
-        (512, 1536, 896),    # Medium batch
-        (1024, 1536, 896),   # Large batch
+    # 表头
+    header = f"{'Config':<20} {'M':>6} {'N':>6} {'K':>6} {'CUTLASS':>12} {'cuBLASLt':>12} {'Speedup':>8}"
+    print("-" * 90)
+    print(header)
+    print("-" * 90)
+    
+    # 遍历 NK 配置 (内层循环)
+    for N_orig, K_orig, config_name in NK_CONFIGS:
+        # 对齐到 16
+        N = align_to_16(N_orig)
+        K = align_to_16(K_orig)
         
-        # Llama3.2-1B like
-        (1, 4096, 2048),     # Single token
-        (128, 4096, 2048),   # Small batch
-        (512, 4096, 2048),   # Medium batch
-        
-        # Square matrices (stress test)
-        (1024, 1024, 1024),
-        (2048, 2048, 2048),
-        (4096, 4096, 4096),
-    ]
-    
-    all_results = []
-    
-    for m, n, k in test_configs:
-        print(f"\nBenchmarking M={m}, N={n}, K={k}...")
-        results = benchmark.run_benchmark(m, n, k)
-        all_results.extend(results)
-        
-        # Print immediate results
-        for r in results:
-            print(f"  {r.backend}: {r.time_ms:.4f} ms, {r.tflops:.2f} TFLOPS")
-    
-    # Print summary
-    print_results(all_results)
-    
-    # Calculate speedup if both backends available
-    if 'cutlass' in benchmark.backends and 'cublaslt' in benchmark.backends:
-        print("\n" + "=" * 60)
-        print("Speedup Analysis (cuBLASLt vs CUTLASS)")
-        print("=" * 60)
-        
-        cutlass_results = {(r.m, r.n, r.k): r for r in all_results if r.backend == 'cutlass'}
-        cublaslt_results = {(r.m, r.n, r.k): r for r in all_results if r.backend == 'cublaslt'}
-        
-        for key in cutlass_results:
-            if key in cublaslt_results:
-                cutlass_time = cutlass_results[key].time_ms
-                cublaslt_time = cublaslt_results[key].time_ms
-                speedup = cutlass_time / cublaslt_time
+        # 遍历 M (外层循环)
+        for M in M_LIST:
+            M_aligned = align_to_16(M)
+            
+            try:
+                # CUTLASS benchmark
+                cutlass_result = benchmark_cutlass_fp8(M_aligned, N, K, args.warmup, args.repeat)
+                cutlass_tflops = cutlass_result["tflops"]
                 
-                m, n, k = key
-                winner = "cuBLASLt" if speedup > 1 else "CUTLASS"
-                print(f"M={m:>5}, N={n:>5}, K={k:>5}: {speedup:.3f}x ({winner} wins)")
+                # cuBLASLt benchmark
+                cublaslt_result = ext.benchmark_fp8_gemm(M_aligned, N, K, args.warmup, args.repeat, args.max_algos)
+                cublaslt_tflops = cublaslt_result["best_tflops"]
+                
+                # 加速比 (cuBLASLt / CUTLASS, >1 表示 cuBLASLt 更快)
+                speedup = cublaslt_tflops / cutlass_tflops if cutlass_tflops > 0 else 0
+                
+                # 记录结果 (保留2位小数)
+                results.append({
+                    "config": config_name,
+                    "M": M_aligned,
+                    "N": N,
+                    "K": K,
+                    "cutlass_tflops": round(cutlass_tflops, 2),
+                    "cublaslt_tflops": round(cublaslt_tflops, 2),
+                    "speedup": round(speedup, 2),
+                })
+                
+                # 打印
+                speedup_str = f"{speedup:.2f}x"
+                if speedup > 1.05:
+                    speedup_str = f"\033[32m{speedup_str}\033[0m"  # 绿色
+                elif speedup < 0.95:
+                    speedup_str = f"\033[31m{speedup_str}\033[0m"  # 红色
+                
+                print(f"{config_name:<20} {M_aligned:>6} {N:>6} {K:>6} "
+                      f"{cutlass_tflops:>10.2f}T {cublaslt_tflops:>10.2f}T {speedup_str:>8}")
+                
+            except Exception as e:
+                print(f"{config_name:<20} {M_aligned:>6} {N:>6} {K:>6} ERROR: {e}")
+    
+    print("-" * 90)
+    
+    # 统计汇总
+    if results:
+        print("\n" + "=" * 80)
+        print("Summary Statistics")
+        print("=" * 80)
+        
+        speedups = [r["speedup"] for r in results]
+        avg_speedup = sum(speedups) / len(speedups)
+        max_speedup = max(speedups)
+        min_speedup = min(speedups)
+        
+        faster_count = sum(1 for s in speedups if s > 1.0)
+        
+        print(f"Average Speedup (cuBLASLt/CUTLASS): {avg_speedup:.2f}x")
+        print(f"Max Speedup: {max_speedup:.2f}x")
+        print(f"Min Speedup: {min_speedup:.2f}x")
+        print(f"cuBLASLt faster in {faster_count}/{len(results)} cases ({100*faster_count/len(results):.1f}%)")
+        
+        # 保存 CSV
+        csv_path = SCRIPT_DIR / "benchmark_results.csv"
+        with open(csv_path, "w", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=results[0].keys())
+            writer.writeheader()
+            writer.writerows(results)
+        print(f"\nResults saved to: {csv_path}")
+    
+    print("\n✓ Benchmark complete!")
 
 
 if __name__ == "__main__":
