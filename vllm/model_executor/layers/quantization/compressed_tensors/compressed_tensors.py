@@ -64,6 +64,12 @@ from vllm.model_executor.layers.quantization.utils.quant_utils import (
 )
 from vllm.platforms import current_platform
 
+# SlideSparse cuBLASLt integration
+from vllm.model_executor.layers.quantization.cublaslt import (
+    is_cublaslt_enabled,
+    wrap_scheme_with_cublaslt,
+)
+
 if TYPE_CHECKING:
     from vllm.model_executor.models.utils import WeightsMapper
 
@@ -758,6 +764,11 @@ class CompressedTensorsConfig(QuantizationConfig):
         # Raise error if device does not support the scheme
         # (e.g. fp8 needs ada lovelace)
         self._check_scheme_supported(scheme.get_min_capability())
+        
+        # SlideSparse: wrap scheme with cuBLASLt if enabled
+        if is_cublaslt_enabled() and scheme is not None:
+            scheme = wrap_scheme_with_cublaslt(scheme)
+        
         logger.debug("Using scheme: %s for %s", scheme.__class__.__name__, layer_name)
         return scheme
 
