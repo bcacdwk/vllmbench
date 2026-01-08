@@ -11,8 +11,8 @@ SlideSparse 测试模块
 """
 
 __all__ = [
-    "test_cublaslt_import",
-    "test_cublaslt_vllm_integration", 
+    "test_cublaslt_01_import",
+    "test_cublaslt_02_vllm_integration", 
     "test_cublaslt_inference",
     "test_cublaslt_kernel_correctness",
     "test_cublaslt_throughput",

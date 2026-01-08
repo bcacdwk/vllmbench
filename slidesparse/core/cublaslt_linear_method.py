@@ -84,9 +84,6 @@ class CuBLASLtFp8LinearOp:
             act_quant_group_shape=act_quant_group_shape,
         )
         
-        # 记录首次调用，用于日志输出
-        self._first_call = True
-        
         logger.info_once(
             "CuBLASLtFp8LinearOp initialized "
             f"(USE_REAL_CUBLASLT={self.USE_REAL_CUBLASLT}, "
@@ -126,13 +123,8 @@ class CuBLASLtFp8LinearOp:
         Returns:
             输出张量 [M, N]，BF16
         """
-        if self._first_call:
-            self._first_call = False
-            logger.info_once(
-                f"CuBLASLtFp8LinearOp.apply() called: "
-                f"input={input.shape}, weight={weight.shape}, "
-                f"USE_REAL_CUBLASLT={self.USE_REAL_CUBLASLT}"
-            )
+        # 注意：不要在 apply() 中使用 logger，会导致 torch.compile 图中断
+        # logger 调用已移至 __init__
         
         if self.USE_REAL_CUBLASLT:
             # TODO: Phase 3 完成后替换为真正的 cuBLASLt kernel
