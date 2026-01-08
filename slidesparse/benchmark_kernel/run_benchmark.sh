@@ -29,7 +29,7 @@ if ! command -v nvcc &> /dev/null; then
 fi
 
 echo -e "${YELLOW}CUDA Version:${NC} $(nvcc --version | grep release | awk '{print $5}' | tr -d ',')"
-echo -e "${YELLOW}PyTorch CUDA:${NC} $(python -c 'import torch; print(torch.version.cuda)')"
+echo -e "${YELLOW}PyTorch CUDA:${NC} $(python3 -c 'import torch; print(torch.version.cuda)')"
 echo -e "${YELLOW}GPU:${NC} $(nvidia-smi --query-gpu=name --format=csv,noheader | head -1)"
 echo
 
@@ -57,7 +57,7 @@ done
 # 运行 benchmark
 if [ "$COMPILE_ONLY" = true ]; then
     echo -e "${GREEN}[INFO] Compiling CUDA extension...${NC}"
-    python -c "
+    python3 -c "
 import sys
 sys.path.insert(0, '$SCRIPT_DIR')
 from benchmark_cutlass_vs_cublaslt import load_cublaslt_extension
@@ -68,7 +68,7 @@ print('Compilation successful!')
 else
     echo -e "${GREEN}[INFO] Running benchmark...${NC}"
     echo
-    python benchmark_cutlass_vs_cublaslt.py $COMPILE_FLAG
+    python3 benchmark_cutlass_vs_cublaslt.py $COMPILE_FLAG
 fi
 
 echo

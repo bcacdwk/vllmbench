@@ -266,7 +266,7 @@ def main():
         print(f"cuBLASLt faster in {faster_count}/{len(results)} cases ({100*faster_count/len(results):.1f}%)")
         
         # 保存 CSV
-        csv_path = SCRIPT_DIR / "benchmark_results.csv"
+        csv_path = SCRIPT_DIR / f"benchmark_results_cc{prop.major}{prop.minor}.csv"
         with open(csv_path, "w", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=results[0].keys())
             writer.writeheader()
