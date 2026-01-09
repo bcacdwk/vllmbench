@@ -9,7 +9,7 @@ SlideSparse cuBLASLt FP8 Linear Method
 1. 完全复用 CompressedTensorsW8A8Fp8 的 create_weights() 和 process_weights_after_loading()
 2. 仅在 apply_weights() 中替换 GEMM 后端
 3. 保持 quant 逻辑不变，沿用 QuantFP8 进行输入量化
-4. 当前阶段：使用独立的 cublaslt_w8a8_scaled_mm 函数（内部仍调用 cutlass）
+4. cuBLASLt kernel 已实现，支持 Outer Vector Scaling
 
 架构说明:
 =========
@@ -19,14 +19,14 @@ SlideSparse cuBLASLt FP8 Linear Method
 我们的 CuBLASLtFp8LinearMethod.apply():
     input (BF16) -> quant (FP8) -> GEMM+Dequant (cublaslt_scaled_mm) -> output (BF16)
                       ↑                    ↑
-               完全复制原代码         这里是替换点（当前阶段仍用 cutlass）
+               完全复制原代码         cuBLASLt kernel (Outer Vector Scaling)
 
 使用方式:
 =========
 通过环境变量 VLLM_USE_CUBLASLT=1 启用:
     VLLM_USE_CUBLASLT=1 vllm serve model_path --quantization compressed-tensors
 
-后续 Phase 3 完成后，会替换为真正的 cuBLASLt kernel:
+cuBLASLt kernel 位置:
     slidesparse/csrc/cublaslt_fp8_gemm.cu
 """
 
@@ -34,6 +34,7 @@ from .cublaslt_config import is_cublaslt_enabled, get_cublaslt_status
 
 import torch
 from torch.nn import Module
+from typing import Optional
 
 from vllm import _custom_ops as ops
 from vllm.logger import init_logger
@@ -45,8 +46,206 @@ logger = init_logger(__name__)
 
 
 # ============================================================================
+# cuBLASLt Extension 加载
+# ============================================================================
+
+_cublaslt_ext = None
+_cublaslt_ext_loaded = False
+
+
+def _load_cublaslt_extension():
+    """
+    懒加载 cuBLASLt extension
+    
+    返回:
+        extension module 或 None（如果加载失败）
+    """
+    global _cublaslt_ext, _cublaslt_ext_loaded
+    
+    if _cublaslt_ext_loaded:
+        return _cublaslt_ext
+    
+    _cublaslt_ext_loaded = True
+    
+    try:
+        import slidesparse_cublaslt
+        _cublaslt_ext = slidesparse_cublaslt
+        logger.info_once("cuBLASLt extension loaded successfully")
+    except ImportError:
+        # 尝试从 slidesparse/csrc 目录加载
+        import sys
+        import os
+        csrc_path = os.path.join(
+            os.path.dirname(os.path.dirname(__file__)), "csrc"
+        )
+        if csrc_path not in sys.path:
+            sys.path.insert(0, csrc_path)
+        
+        try:
+            import slidesparse_cublaslt
+            _cublaslt_ext = slidesparse_cublaslt
+            logger.info_once("cuBLASLt extension loaded successfully from csrc/")
+        except ImportError as e:
+            logger.warning_once(
+                f"cuBLASLt extension not available: {e}. "
+                "Falling back to CUTLASS. "
+                "To build: cd slidesparse/csrc && python3 setup_cublaslt.py build_ext --inplace"
+            )
+            _cublaslt_ext = None
+    
+    return _cublaslt_ext
+
+
+# ============================================================================
+# 输入验证和预处理
+# ============================================================================
+
+def _validate_gemm_inputs(
+    qinput: torch.Tensor,
+    weight: torch.Tensor,
+    scale_a: torch.Tensor,
+    scale_b: torch.Tensor,
+    bias: Optional[torch.Tensor],
+) -> None:
+    """
+    验证 GEMM 输入的合法性
+    
+    参考 csrc/quantization/w8a8/cutlass/scaled_mm_entry.cu 的检查逻辑
+    
+    Raises:
+        ValueError: 输入不合法时抛出
+    """
+    # 1. 维度检查
+    if qinput.dim() != 2:
+        raise ValueError(f"qinput must be 2D, got {qinput.dim()}D")
+    if weight.dim() != 2:
+        raise ValueError(f"weight must be 2D, got {weight.dim()}D")
+    
+    M, K_in = qinput.shape
+    K_w, N = weight.shape
+    
+    # 2. K 维度匹配
+    if K_in != K_w:
+        raise ValueError(
+            f"K dimension mismatch: qinput.K={K_in} vs weight.K={K_w}"
+        )
+    
+    # 3. 数据类型检查
+    fp8_dtype = current_platform.fp8_dtype()
+    if qinput.dtype != fp8_dtype:
+        raise ValueError(
+            f"qinput must be {fp8_dtype}, got {qinput.dtype}"
+        )
+    if weight.dtype != fp8_dtype:
+        raise ValueError(
+            f"weight must be {fp8_dtype}, got {weight.dtype}"
+        )
+    
+    # 4. Scale 检查
+    if scale_a.dtype != torch.float32:
+        raise ValueError(f"scale_a must be FP32, got {scale_a.dtype}")
+    if scale_b.dtype != torch.float32:
+        raise ValueError(f"scale_b must be FP32, got {scale_b.dtype}")
+    
+    # 5. Scale 维度检查（per-token 或 per-tensor）
+    # scale_a: [M, 1] 或 [1] 或 [M]
+    # scale_b: [N, 1] 或 [1] 或 [N]
+    scale_a_numel = scale_a.numel()
+    scale_b_numel = scale_b.numel()
+    
+    if scale_a_numel != 1 and scale_a_numel != M:
+        raise ValueError(
+            f"scale_a size mismatch: expected 1 or {M}, got {scale_a_numel}"
+        )
+    if scale_b_numel != 1 and scale_b_numel != N:
+        raise ValueError(
+            f"scale_b size mismatch: expected 1 or {N}, got {scale_b_numel}"
+        )
+    
+    # 6. Bias 检查
+    if bias is not None and bias.numel() > 0:
+        if bias.dim() != 1:
+            raise ValueError(f"bias must be 1D, got {bias.dim()}D")
+        if bias.numel() != N:
+            raise ValueError(
+                f"bias size mismatch: expected {N}, got {bias.numel()}"
+            )
+        if not bias.is_contiguous():
+            raise ValueError("bias must be contiguous")
+    
+    # 7. 设备检查
+    device = qinput.device
+    if weight.device != device:
+        raise ValueError(
+            f"weight device mismatch: expected {device}, got {weight.device}"
+        )
+    if scale_a.device != device:
+        raise ValueError(
+            f"scale_a device mismatch: expected {device}, got {scale_a.device}"
+        )
+    if scale_b.device != device:
+        raise ValueError(
+            f"scale_b device mismatch: expected {device}, got {scale_b.device}"
+        )
+    if bias is not None and bias.numel() > 0 and bias.device != device:
+        raise ValueError(
+            f"bias device mismatch: expected {device}, got {bias.device}"
+        )
+
+
+def _prepare_scales_for_cublaslt(
+    scale_a: torch.Tensor,
+    scale_b: torch.Tensor,
+    M: int,
+    N: int,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """
+    为 cuBLASLt Outer Vector Scaling 准备 scale
+    
+    cuBLASLt Outer Vector Scaling 要求:
+    - scale_A (对应我们的 scale_b/weight scale): [N] 向量
+    - scale_B (对应我们的 scale_a/input scale): [M] 向量
+    
+    注意:
+    - 由于我们使用 W 左 A 右的布局，scale 顺序会交换
+    - 这个函数将 scale 从 [X, 1] 或 [1] 转换为 [X] 向量
+    
+    Args:
+        scale_a: 输入 scale [M, 1] 或 [1]
+        scale_b: 权重 scale [N, 1] 或 [1]
+        M: batch size
+        N: output dim
+    
+    Returns:
+        (scale_input, scale_weight): 准备好的 scale 向量
+    """
+    # 处理 scale_a (input scale)
+    if scale_a.numel() == 1:
+        # per-tensor -> 广播为 per-token
+        scale_input = scale_a.expand(M).contiguous()
+    else:
+        # per-token: squeeze 掉多余维度
+        scale_input = scale_a.view(-1).contiguous()
+    
+    # 处理 scale_b (weight scale)
+    if scale_b.numel() == 1:
+        # per-tensor -> 广播为 per-channel
+        scale_weight = scale_b.expand(N).contiguous()
+    else:
+        # per-channel: squeeze 掉多余维度
+        scale_weight = scale_b.view(-1).contiguous()
+    
+    return scale_input, scale_weight
+
+
+# ============================================================================
 # cuBLASLt GEMM 函数
 # ============================================================================
+
+# 是否使用真正的 cuBLASLt kernel（可通过环境变量控制）
+import os
+USE_REAL_CUBLASLT = os.environ.get("SLIDESPARSE_USE_REAL_CUBLASLT", "1") == "1"
+
 
 def cublaslt_w8a8_scaled_mm(
     *,
@@ -55,33 +254,96 @@ def cublaslt_w8a8_scaled_mm(
     out_dtype: torch.dtype,
     scale_a: torch.Tensor,
     scale_b: torch.Tensor,
-    bias: torch.Tensor,
+    bias: Optional[torch.Tensor],
     output_shape: list,
     **kwargs,
 ) -> torch.Tensor:
     """
     cuBLASLt FP8 Scaled Matrix Multiplication
     
-    当前实现：调用 cutlass_scaled_mm（验证架构正确性）
-    后续实现：替换为真正的 cuBLASLt kernel
+    计算: D[M,N] = scale_a[M] * scale_b[N] * (qinput[M,K] @ weight[K,N]) + bias[N]
+    
+    注意: 这里的 weight 是 vLLM 经过 .t() 后的 view，stride=(1, K)
+          物理内存实际是 [N, K] 行主序
     
     Args:
-        qinput: 量化后的输入 [M, K] FP8
-        weight: 量化后的权重 [K, N] FP8 (column-major)
+        qinput: 量化后的输入 [M, K] FP8，行主序
+        weight: 量化后的权重 [K, N] FP8 (.t() 后的 view，实际是 [N, K] 行主序)
         out_dtype: 输出数据类型
-        scale_a: 输入 scale [M, 1] 或 [1] FP32
-        scale_b: 权重 scale [N, 1] 或 [1] FP32
+        scale_a: 输入 scale [M, 1] 或 [1] FP32 (per-token)
+        scale_b: 权重 scale [N, 1] 或 [1] FP32 (per-channel)
         bias: 偏置 [N] 或 None
         output_shape: 输出形状
         
     Returns:
         输出张量 [M, N]
     """
-    # 当前阶段：调用 cutlass_scaled_mm 验证架构正确性
-    # TODO: Phase 3 完成后替换为真正的 cuBLASLt kernel
-    # output = ops.cublaslt_scaled_mm(...)
+    M, K = qinput.shape
+    N = weight.shape[1]
+    
+    # 输入验证
+    _validate_gemm_inputs(qinput, weight, scale_a, scale_b, bias)
+    
+    # 尝试使用真正的 cuBLASLt kernel
+    ext = _load_cublaslt_extension() if USE_REAL_CUBLASLT else None
+    
+    if ext is not None:
+        # ========== cuBLASLt 路径 ==========
+        # 
+        # 关键转换:
+        # 1. weight 是 [K, N] stride=(1, K)，需要 .t() 回 [N, K] stride=(K, 1)
+        #    这个 .t() 只改变 view，不移动内存
+        # 2. cuBLASLt 需要 [N, K] 行主序的 weight
+        # 3. scale 需要从 [X, 1] 转为 [X] 向量
+        
+        # 恢复 weight 为 [N, K] 行主序
+        # weight 当前是 [K, N] stride=(1, K)
+        # .t() 后变成 [N, K] stride=(K, 1)，这是行主序！
+        weight_row_major = weight.t()
+        
+        # 如果 weight_row_major 不是 contiguous，说明有问题
+        # 正常情况下 .t() 后应该是 contiguous（因为原始就是行主序存储）
+        if not weight_row_major.is_contiguous():
+            logger.warning_once(
+                "weight.t() is not contiguous, making contiguous copy. "
+                "This may indicate a memory layout issue."
+            )
+            weight_row_major = weight_row_major.contiguous()
+        
+        # 准备 scale
+        scale_input, scale_weight = _prepare_scales_for_cublaslt(
+            scale_a, scale_b, M, N
+        )
+        
+        # 准备 bias（如果没有，传空 tensor）
+        if bias is None:
+            bias_tensor = torch.empty(0, dtype=out_dtype, device=qinput.device)
+        else:
+            bias_tensor = bias
+        
+        # 调用 cuBLASLt kernel
+        # D[M,N] = scale_input[M] * scale_weight[N] * (qinput[M,K] @ weight[N,K]^T) + bias[N]
+        try:
+            output = ext.cublaslt_scaled_mm(
+                weight_row_major,  # W [N, K] FP8 行主序
+                qinput,            # A [M, K] FP8 行主序
+                scale_weight,      # scale_W [N] FP32
+                scale_input,       # scale_A [M] FP32
+                bias_tensor,       # bias [N] 或空
+                out_dtype,         # 输出类型
+            )
+            return output.view(*output_shape)
+        except Exception as e:
+            logger.warning_once(
+                f"cuBLASLt kernel failed: {e}. Falling back to CUTLASS."
+            )
+            # Fall through to CUTLASS
+    
+    # ========== CUTLASS fallback 路径 ==========
+    # 使用 vLLM 原生的 cutlass_scaled_mm
     output = ops.cutlass_scaled_mm(
-        qinput, weight, out_dtype=out_dtype, scale_a=scale_a, scale_b=scale_b, bias=bias
+        qinput, weight, out_dtype=out_dtype,
+        scale_a=scale_a, scale_b=scale_b, bias=bias
     )
     return output.view(*output_shape)
 

@@ -1022,6 +1022,1056 @@ python slidesparse/test/test_cublaslt_00_kernel.py --all
 
 ---
 
-*文档版本：v1.2*  
+## 9. vLLM GEMM 后端分发机制深度分析
+
+本章详细解答关于 FlashInfer、Padding、Triton 回退等关键问题。
+
+### 9.1 FlashInfer 是什么？什么时候会被调用？
+
+#### 9.1.1 FlashInfer 简介
+
+**FlashInfer** 是由 NVIDIA 和社区开发的**高性能 Attention 和 GEMM 内核库**，专门针对 LLM 推理优化。它提供了：
+
+1. **FlashAttention 变体**：高效的注意力计算
+2. **FP8 GEMM**：基于 `bmm_fp8` 的批量矩阵乘法
+3. **MoE 相关算子**：Fused MoE、AlltoAll 等
+
+**关键代码位置**：`vllm/utils/flashinfer.py`
+
+```python
+# flashinfer_scaled_fp8_mm 的实现
+def flashinfer_scaled_fp8_mm(
+    a: torch.Tensor,  # [M, K] FP8
+    b: torch.Tensor,  # [K, N] FP8
+    scale_a: torch.Tensor,  # scalar only!
+    scale_b: torch.Tensor,  # scalar only!
+    out_dtype: torch.dtype,
+    bias: torch.Tensor | None = None,
+) -> torch.Tensor:
+    # ⚠️ 重要限制：只支持 per-tensor scale
+    assert scale_a.numel() == 1 and scale_b.numel() == 1
+    
+    output = bmm_fp8(
+        a.unsqueeze(0),
+        b.unsqueeze(0),
+        scale_a,
+        scale_b,
+        out_dtype,
+        "auto",
+    ).view(a.shape[0], b.shape[1])
+    
+    if bias is not None:
+        output = output + bias
+    return output
+```
+
+#### 9.1.2 FlashInfer 的启用条件
+
+在 `Fp8LinearOp.__init__()` 中（[w8a8_utils.py:405-416](vllm/model_executor/layers/quantization/utils/w8a8_utils.py#L405-L416)）：
+
+```python
+class Fp8LinearOp:
+    def __init__(self, ...):
+        if current_platform.is_rocm():
+            self.preferred_backend = "rocm"
+        elif current_platform.is_cuda() and cutlass_fp8_supported():
+            # 关键条件：CC >= 100 (Blackwell B100/B200) 且 flashinfer 可用
+            if has_flashinfer() and current_platform.has_device_capability(100):
+                self.preferred_backend = "flashinfer"
+            else:
+                self.preferred_backend = "cutlass"
+        else:
+            self.preferred_backend = "torch"
+```
+
+**FlashInfer FP8 GEMM 启用条件**：
+| 条件 | 说明 |
+|------|------|
+| `has_flashinfer()` | FlashInfer Python 包已安装 |
+| `has_device_capability(100)` | **SM >= 100 (Blackwell)** |
+| `per_tensor_weights and per_tensor_activations` | **必须是 per-tensor 量化** |
+
+#### 9.1.3 为什么 RTX 5080 不走 FlashInfer？
+
+**RTX 5080 是 SM 12.0 (Blackwell Consumer)**，满足 CC >= 100 的条件。但是，让我们看 `dispatch_w8a8_scaled_mm` 的逻辑（[w8a8_utils.py:363-378](vllm/model_executor/layers/quantization/utils/w8a8_utils.py#L363-L378)）：
+
+```python
+def dispatch_w8a8_scaled_mm(
+    preferred_backend: str, per_tensor_weights: bool, per_tensor_activations: bool
+) -> Callable[..., torch.Tensor]:
+    
+    # 情况 1: per-tensor W 和 per-tensor A
+    if per_tensor_weights and per_tensor_activations:
+        if preferred_backend == "flashinfer":
+            return flashinfer_w8a8_scaled_mm  # ✅ 走 FlashInfer
+        if preferred_backend == "cutlass":
+            return cutlass_w8a8_scaled_mm
+        ...
+    
+    # 情况 2: per-channel W 或 per-token A（我们的 Qwen FP8 配置）
+    # cutlass_scaled_mm supports per tensor/channel W and per tensor/token A
+    if preferred_backend == "cutlass" or preferred_backend == "flashinfer":
+        return cutlass_w8a8_scaled_mm  # ⚠️ 回退到 CUTLASS！
+```
+
+**结论**：
+- **Qwen FP8 模型使用 per-channel weight + per-token activation**
+- FlashInfer 的 `bmm_fp8` **只支持 per-tensor scale**
+- 因此即使 preferred_backend="flashinfer"，也会**回退到 CUTLASS**
+
+**简单总结**：
+
+| 显卡 | SM | preferred_backend | 实际使用 | 原因 |
+|------|-----|-------------------|---------|------|
+| H100 | 90 | cutlass | CUTLASS | SM < 100 |
+| B100/B200 | 100 | flashinfer | CUTLASS | per-channel/per-token 不支持 |
+| RTX 5080 | 120 | flashinfer | CUTLASS | per-channel/per-token 不支持 |
+| 任意 | - | - | FlashInfer | 仅当 per-tensor W + per-tensor A |
+
+### 9.2 Padding 机制详解
+
+#### 9.2.1 为什么需要 Padding？
+
+CUTLASS 和 cuBLASLt 的 FP8 GEMM 内核对矩阵维度有对齐要求：
+- **M, K, N 最好是 16 的倍数**
+- 不对齐会导致性能下降或调用 fallback 路径
+
+#### 9.2.2 vLLM 的 Padding 策略
+
+在 `Fp8LinearOp.__init__()` 中（[w8a8_utils.py:420-430](vllm/model_executor/layers/quantization/utils/w8a8_utils.py#L420-L430)）：
+
+```python
+class Fp8LinearOp:
+    def __init__(self, ..., pad_output: bool | None = None):
+        # pad_output 的默认值逻辑
+        if pad_output is None:
+            config = get_current_vllm_config().compilation_config
+            pad_output = (
+                # 条件1: 没有使用 torch.compile
+                config.mode < CompilationMode.VLLM_COMPILE
+                # 条件2: 使用 torch 后端（不是 cutlass/flashinfer）
+                and self.preferred_backend == "torch"
+            )
+        
+        # 如果需要 padding，pad 到 17（而不是 16）
+        # 这是因为 torch._scaled_mm 在 batch > 16 时性能更好
+        self.output_padding = 17 if pad_output else None
+```
+
+**关键结论**：
+
+| preferred_backend | torch.compile | 是否 Padding |
+|-------------------|---------------|--------------|
+| cutlass | 否 | ❌ 不 Padding |
+| cutlass | 是 | ❌ 不 Padding |
+| flashinfer | 否 | ❌ 不 Padding |
+| flashinfer | 是 | ❌ 不 Padding |
+| torch | 否 | ✅ Padding 到 17 |
+| torch | 是 | ❌ 不 Padding（会破坏动态 shape） |
+
+#### 9.2.3 Padding 在哪里发生？
+
+Padding 发生在 `QuantFP8` 的量化过程中，**不是在 GEMM 阶段**：
+
+```python
+# input_quant_fp8.py
+class QuantFP8(CustomOp):
+    def __init__(self, ..., num_token_padding: int | None = None):
+        self.num_token_padding = num_token_padding
+    
+    def __call__(self, input, scale, scale_ub):
+        if self.num_token_padding:
+            # 对输入进行 padding
+            input = pad_to(input, self.num_token_padding)
+        return ops.scaled_fp8_quant(input, scale)
+```
+
+然后在 GEMM 输出时通过 `torch.narrow` 截取有效部分：
+
+```python
+def torch_per_tensor_w8a8_scaled_mm(...):
+    output = torch._scaled_mm(qinput, weight, ...)
+    # 截取有效输出（去除 padding 部分）
+    return torch.narrow(output, 0, 0, qinput.shape[0]).view(*output_shape)
+```
+
+#### 9.2.4 如果 M=31 会怎样？
+
+**对于 CUTLASS/cuBLASLt 后端**（我们的情况）：
+
+1. **不会进行 Padding**：`output_padding = None`
+2. **CUTLASS 可以处理任意 M**：通过 tile masking 处理边界
+3. **性能可能略有下降**：非对齐访问会导致部分 tile 浪费
+
+**对于 torch 后端**（fallback）：
+1. **会 Padding 到 17**：如果 M < 17
+2. **然后 narrow 回 M**：输出时截取
+
+### 9.3 Triton 回退机制
+
+#### 9.3.1 何时会回退到 Triton？
+
+在 `ops.cutlass_scaled_mm()` 函数中（[_custom_ops.py:863-875](vllm/_custom_ops.py#L863-L875)）：
+
+```python
+def cutlass_scaled_mm(a, b, scale_a, scale_b, out_dtype, bias=None):
+    # ...
+    
+    # 关键检查：b 的维度是否对 16 对齐
+    cutlass_compatible_b = b.shape[0] % 16 == 0 and b.shape[1] % 16 == 0
+    
+    if current_platform.is_rocm() or not cutlass_compatible_b:
+        # 回退到 Triton 实现
+        from vllm.model_executor.layers.quantization.compressed_tensors.triton_scaled_mm import (
+            triton_scaled_mm,
+        )
+        out = triton_scaled_mm(a, b, scale_a, scale_b, out_dtype, bias)
+    else:
+        # 使用 CUTLASS
+        out = torch.empty((a.shape[0], b.shape[1]), dtype=out_dtype, device=a.device)
+        torch.ops._C.cutlass_scaled_mm(out, a, b, scale_a, scale_b, bias)
+    
+    return out.view(*target_shape)
+```
+
+#### 9.3.2 这里的 B 是什么？
+
+**B 是权重矩阵（Weight）**，不是激活（Activation）！
+
+```python
+# 在 cutlass_w8a8_scaled_mm 中的调用
+ops.cutlass_scaled_mm(
+    qinput,   # A: 激活 [M, K]
+    weight,   # B: 权重 [K, N]（已转置）
+    ...
+)
+```
+
+**权重在加载时已经转置**，所以：
+- 原始权重：`[N, K]`（out_features, in_features）
+- 转置后权重：`[K, N]`
+- `b.shape[0] = K`，`b.shape[1] = N`
+
+#### 9.3.3 权重是否对齐？
+
+**通常权重是对齐的**，因为：
+- `K = hidden_dim`（如 896, 4096 等）通常是 16 的倍数
+- `N = out_features`（如 896, 4864 等）通常也是 16 的倍数
+
+**但如果不对齐**（例如某些特殊模型），就会回退到 Triton。
+
+#### 9.3.4 M 不对齐会影响吗？
+
+**M 不对齐不会导致回退到 Triton**！
+
+检查的是 `b.shape`（权重的 K 和 N），不是 `a.shape`（激活的 M）。
+
+CUTLASS 内核通过 tile masking 处理 M 边界，所以：
+- M=31 → 使用 CUTLASS
+- M=1 → 使用 CUTLASS
+- 只有 K 或 N 不对齐才回退到 Triton
+
+### 9.4 torch.ops._C.cutlass_scaled_mm 的来源
+
+#### 9.4.1 绑定位置
+
+`torch.ops._C.cutlass_scaled_mm` 是通过 PyTorch 的 C++ 扩展机制注册的。
+
+**声明**（[csrc/torch_bindings.cpp:436-439](csrc/torch_bindings.cpp#L436-L439)）：
+```cpp
+ops.def(
+    "cutlass_scaled_mm(Tensor! out, Tensor a,"
+    " Tensor b, Tensor a_scales, Tensor b_scales, Tensor? bias) -> ()");
+ops.impl("cutlass_scaled_mm", torch::kCUDA, &cutlass_scaled_mm);
+```
+
+**实现入口**（[csrc/quantization/w8a8/cutlass/scaled_mm_entry.cu:176-231](csrc/quantization/w8a8/cutlass/scaled_mm_entry.cu#L176-L231)）：
+```cpp
+void cutlass_scaled_mm(torch::Tensor& c, torch::Tensor const& a,
+                       torch::Tensor const& b, torch::Tensor const& a_scales,
+                       torch::Tensor const& b_scales,
+                       std::optional<torch::Tensor> const& bias) {
+    // 根据 SM 版本分发到不同实现
+    int32_t version_num = get_sm_version_num();
+    
+    if (version_num >= 120) {
+        cutlass_scaled_mm_sm120(c, a, b, a_scales, b_scales, bias);  // Blackwell Consumer
+    } else if (version_num >= 100) {
+        cutlass_scaled_mm_sm100(c, a, b, a_scales, b_scales, bias);  // Blackwell Datacenter
+    } else if (version_num >= 90) {
+        cutlass_scaled_mm_sm90(c, a, b, a_scales, b_scales, bias);   // Hopper
+    } else if (version_num == 89) {
+        cutlass_scaled_mm_sm89(c, a, b, a_scales, b_scales, bias);   // Ada Lovelace
+    } else if (version_num >= 80) {
+        cutlass_scaled_mm_sm80(c, a, b, a_scales, b_scales, bias);   // Ampere
+    }
+    // ...
+}
+```
+
+#### 9.4.2 CUTLASS 是什么？
+
+**CUTLASS** (CUDA Templates for Linear Algebra Subroutines) 是 NVIDIA 开源的**高性能 GEMM 模板库**：
+
+- GitHub: https://github.com/NVIDIA/cutlass
+- 提供各种数据类型的 GEMM 实现（FP8, INT8, FP16, BF16 等）
+- 针对每代 GPU 架构优化（SM75/80/89/90/100/120）
+- vLLM 使用 CUTLASS 作为默认的 FP8 GEMM 后端
+
+**你可以把它理解为**：一个开源的、高性能的 GEMM 黑盒，vLLM 已经封装好了。
+
+### 9.5 当前 CuBLASLtFp8LinearOp.apply 的完整性分析
+
+#### 9.5.1 当前实现回顾
+
+当前的 `CuBLASLtFp8LinearOp.apply()` 已经是完整的 **quant + GEMM + dequant** 流程：
+
+```python
+def apply(self, input, weight, weight_scale, out_dtype, input_scale, input_scale_ub, bias):
+    # 1. 展平输入
+    input_2d = input.view(-1, input.shape[-1])
+    output_shape = [*input.shape[:-1], weight.shape[1]]
+    
+    # 2. 量化（使用自己的 QuantFP8 实例）
+    if input.dtype != current_platform.fp8_dtype():
+        qinput, x_scale = self.quant_fp8(input_2d, input_scale, input_scale_ub)
+    else:
+        qinput, x_scale = input_2d, input_scale
+    
+    # 3. GEMM + 反量化（当前调用 cutlass，后续替换为 cuBLASLt）
+    return cublaslt_w8a8_scaled_mm(
+        qinput=qinput,
+        weight=weight,
+        out_dtype=out_dtype,
+        scale_a=x_scale,
+        scale_b=weight_scale,
+        bias=bias,
+        output_shape=output_shape,
+    )
+```
+
+#### 9.5.2 是否有问题？
+
+**当前实现是正确的**，与 vLLM 原生 `Fp8LinearOp.apply()` 逻辑一致。
+
+**潜在问题和注意事项**：
+
+| 问题 | 当前状态 | 说明 |
+|------|----------|------|
+| Padding | ✅ 无问题 | 我们使用 `num_token_padding=None`，不做 padding |
+| Scale mode 检测 | ⚠️ 可改进 | 当前直接调用 CUTLASS，没有检测 per-tensor/per-token |
+| 后端分发 | ⚠️ 简化 | 跳过了 `dispatch_w8a8_scaled_mm()`，直接用 cutlass |
+
+#### 9.5.3 后续替换位置
+
+**只需要修改 `cublaslt_w8a8_scaled_mm` 函数**即可完成 cuBLASLt 替换：
+
+```python
+def cublaslt_w8a8_scaled_mm(*, qinput, weight, out_dtype, scale_a, scale_b, bias, output_shape):
+    """
+    当前实现：调用 cutlass_scaled_mm（验证架构正确性）
+    后续实现：替换为真正的 cuBLASLt kernel
+    """
+    # TODO: Phase 3 完成后替换为真正的 cuBLASLt kernel
+    # output = ops.cublaslt_scaled_mm(qinput, weight, scale_a, scale_b, bias)
+    
+    # 当前：调用 cutlass
+    output = ops.cutlass_scaled_mm(
+        qinput, weight, out_dtype=out_dtype, scale_a=scale_a, scale_b=scale_b, bias=bias
+    )
+    return output.view(*output_shape)
+```
+
+#### 9.5.4 替换时需要注意的点
+
+1. **Layout 一致性**：
+   - CUTLASS 的 B 是 column-major `[K, N]`（stride: K=1, N=K）
+   - cuBLASLt 也使用 column-major，但可能需要调整 leading dimension
+
+2. **Scale 处理**：
+   - `scale_a`: per-token `[M, 1]` 或 per-tensor `[1]`
+   - `scale_b`: per-channel `[N, 1]` 或 per-tensor `[1]`
+   - cuBLASLt 的 per-row/col scale 需要 `OUTER_VEC_32F` mode（SM90+ only）
+
+3. **输出格式**：
+   - 确保 cuBLASLt 输出与 CUTLASS 一致（BF16，相同 shape）
+
+4. **对齐要求**：
+   - cuBLASLt 对指针对齐有更严格要求（16 字节）
+   - 需要检查 qinput、weight 是否满足
+
+---
+
+## 10. 总结与下一步
+
+### 10.1 关键发现
+
+1. **FlashInfer FP8 GEMM 只支持 per-tensor scale**，我们的 Qwen FP8（per-channel W + per-token A）不会使用它
+2. **Padding 只对 torch 后端生效**，CUTLASS 不需要 padding
+3. **Triton 回退只看权重维度**（K 和 N），M 不对齐不会触发回退
+4. **当前 `CuBLASLtFp8LinearOp.apply()` 实现完整正确**，只需替换 `cublaslt_w8a8_scaled_mm` 即可
+
+### 10.2 下一步操作
+
+1. 在 `csrc/` 目录实现真正的 cuBLASLt FP8 GEMM wrapper
+2. 替换 `cublaslt_w8a8_scaled_mm` 中的 `ops.cutlass_scaled_mm` 调用
+3. 运行测试验证正确性和性能
+
+---
+
+## 11. cuBLASLt 集成关键问题分析
+
+本章针对 cuBLASLt 替换 CUTLASS 的关键技术问题进行详细分析。
+
+### 11.1 问题概览与实现计划
+
+| 问题编号 | 问题描述 | 状态 |
+|---------|---------|------|
+| Q1 | Layout 分析：CUTLASS 的 A/W/Output 布局 | ✅ 已分析 |
+| Q2 | cuBLASLt T/N+C/C 格式与 vLLM 的对接 | ✅ 已分析 |
+| Q3 | Scale 维度与反量化机制 | ✅ 已分析 |
+| Q4 | Bias 广播方向 | ✅ 已分析 |
+| Q5 | cuBLASLtMatmul API 调用要点 | ✅ 已分析 |
+
+---
+
+### 11.2 Q1: CUTLASS 的 A/W/Output Layout 分析
+
+#### 11.2.1 Safetensor 原始存储格式
+
+从 checkpoint 分析（Qwen2.5-0.5B-FP8）：
+
+```
+Weight 原始格式:
+    down_proj.weight:       [896, 4864]   FP8    → [N, K] 行主序
+    down_proj.weight_scale: [896, 1]      BF16   → [N, 1] per-channel
+    gate_proj.weight:       [4864, 896]   FP8    → [N, K] 行主序
+    gate_proj.weight_scale: [4864, 1]     BF16   → [N, 1] per-channel
+
+Bias 格式（仅 QKV proj 有 bias）:
+    q_proj.bias: [896]  BF16 → [N] 1D 向量
+    k_proj.bias: [128]  BF16 → [N] 1D 向量
+```
+
+**关键发现**：
+- Weight: `[N, K]` 行主序（N=out_features, K=in_features）
+- weight_scale: `[N, 1]` per-channel（**不是 `[1, K]`**，你之前的猜测需要修正）
+- Bias: `[N]` 1D 向量
+
+#### 11.2.2 vLLM 权重处理流程
+
+在 `compressed_tensors_w8a8_fp8.py` 的 `process_weights_after_loading()` 中：
+
+```python
+# 第 145/151 行：关键的转置操作
+if self.strategy == QuantizationStrategy.TENSOR:
+    weight, weight_scale, input_scale = process_fp8_weight_tensor_strategy(...)
+    weight = weight.t()   # [N, K] → [K, N]
+
+elif self.strategy == QuantizationStrategy.CHANNEL:
+    weight, weight_scale, input_scale = process_fp8_weight_channel_strategy(...)
+    weight = weight.t()   # [N, K] → [K, N]
+```
+
+**转置后的权重格式**：
+- `weight`: `[K, N]`，但在 PyTorch 中 `.t()` 后 **stride 变化**
+- 原始 `[N, K]` 行主序的 stride 是 `(K, 1)`
+- `.t()` 后变成 `[K, N]`，stride 是 `(1, K)` → **这就是列主序！**
+
+#### 11.2.3 CUTLASS 期望的 Layout
+
+从 `scaled_mm_entry.cu` 第 186-188 行的检查：
+
+```cpp
+// Check for strides and alignment
+TORCH_CHECK(a.stride(1) == 1 && c.stride(1) == 1);  // Row-major
+TORCH_CHECK(b.stride(0) == 1);                      // Column-major
+```
+
+从 `scaled_mm.cuh` 第 73-75 行的定义：
+
+```cpp
+ElementAB, cutlass::layout::RowMajor, AlignmentAB,     // A: RowMajor
+ElementAB, cutlass::layout::ColumnMajor, AlignmentAB,  // B: ColumnMajor
+```
+
+**CUTLASS 期望的输入**：
+
+| 矩阵 | 形状 | Layout | stride | 说明 |
+|------|------|--------|--------|------|
+| A (input) | `[M, K]` | RowMajor | `(K, 1)` | 激活，每行连续 |
+| B (weight) | `[K, N]` | ColumnMajor | `(1, K)` | 权重，每列连续 |
+| C (output) | `[M, N]` | RowMajor | `(N, 1)` | 输出，每行连续 |
+
+**PyTorch 视角**：
+- `A [M, K]` 行主序 → stride `(K, 1)` ✅
+- `B [K, N]` 列主序 = `[N, K].t()` → stride `(1, K)` ✅
+- `C [M, N]` 行主序 → stride `(N, 1)` ✅
+
+#### 11.2.4 CUTLASS 计算公式确认
+
+```
+CUTLASS 计算: C[M,N] = A[M,K] × B[K,N]
+```
+
+其中 B 是列主序存储的 `[K, N]`，等价于 PyTorch 中 `weight.t()`。
+
+---
+
+### 11.3 Q2: cuBLASLt T/N+C/C 格式对接
+
+#### 11.3.1 你的需求确认
+
+你需要使用 **W 在左，A 在右** 的计算顺序：
+```
+cuBLASLt 计算: D = W × A^T
+```
+
+并且要求 **T/N + C/C/C** 格式（A 转置，B 不转置，全部列主序）。
+
+#### 11.3.2 Layout 推导
+
+**设定**：
+- PyTorch 传入的 `A [M, K]` 行主序，stride `(K, 1)`
+- PyTorch 传入的 `W [K, N]` 列主序（即 `[N, K].t()`），stride `(1, K)`
+
+**cuBLASLt 用列主序读取行主序 = 隐式转置**：
+
+| 矩阵 | PyTorch 存储 | cuBLASLt 读取方式 | 实际读到的 |
+|------|-------------|------------------|-----------|
+| A `[M, K]` row | 内存: `M×K` 连续 | 列主序读 | `A^T [K, M]` |
+| W `[K, N]` col | 内存: `K×N` 连续 | 列主序读 | `W [K, N]` |
+
+**计算过程**：
+
+```
+cuBLASLt T/N 配置:
+    opA = CUBLAS_OP_T  → 对 "列主序读到的 A^T" 再转置 → 得到 A [M, K]
+    opB = CUBLAS_OP_N  → 对 "列主序读到的 W" 不转置 → 得到 W [K, N]
+    
+等等，这和你想要的 W×A^T 不一样！
+```
+
+**重新理解你的需求**：
+
+你说的 "W 在左，A 在右" 是指 cuBLASLt API 的参数顺序，而不是数学上的矩阵乘法顺序。
+
+让我重新推导：
+
+```
+你想要的最终计算（数学上）: Output[M, N] = A[M, K] × W^T[K, N]
+
+但 vLLM 传给你的 W 已经是 [K, N] 列主序了（已转置过）！
+
+所以实际计算: Output[M, N] = A[M, K] × W_transposed[K, N]
+```
+
+#### 11.3.3 正确的 cuBLASLt 配置
+
+**方案：让 cuBLASLt 计算 D = A × B**
+
+cuBLASLt 默认是列主序，用行主序数据时需要技巧：
+
+```
+A: [M, K] 行主序，stride (K, 1)
+   → cuBLASLt 用列主序读 → 读成 [K, M]
+   → opA = T 转置回来 → 得到 [M, K]
+
+B: [K, N] 列主序，stride (1, K)  
+   → cuBLASLt 用列主序读 → 正好读成 [K, N]
+   → opB = N 不转置 → 得到 [K, N]
+
+D: [M, N] 行主序
+   → cuBLASLt 用列主序写 → 写成 [N, M]^T
+   → 但行主序的 [M, N] 存储等于列主序的 [N, M] ✅
+```
+
+**但是你要求 "W 在左，A 在右"！**
+
+这需要交换 A 和 B 的位置，利用 `(A×B)^T = B^T × A^T` 的性质：
+
+```
+cuBLASLt 参数顺序: D' = B' × A'  （B'在左，A'在右）
+
+设：
+    B' = A^T = [K, M] （用列主序读行主序的 A[M,K]）
+    A' = W   = [K, N] （列主序的 W）
+    
+那么：
+    D' = A^T × W = [K, M]^T × [K, N]  ???  维度不对！
+```
+
+**正确理解**：你想要的是 cuBLASLt 计算 `D^T = W^T × A^T`，然后结果自动变成 `D`：
+
+```
+关系: D = A × W  等价于  D^T = W^T × A^T
+
+所以:
+    opA = T (对 cuBLAS 的第一个矩阵 W)
+    opB = T (对 cuBLAS 的第二个矩阵 A)
+    
+但这是 T/T 配置，不是你要的 T/N！
+```
+
+#### 11.3.4 T/N + C/C/C 配置的正确用法
+
+让我重新理解你的意图。T/N 意味着：
+- 第一个矩阵参数：转置
+- 第二个矩阵参数：不转置
+
+```
+cublasLtMatmul 的标准计算: D = α × op(A) × op(B) + β × C
+
+设:
+    第一个矩阵参数 = W_stored [N, K] 行主序
+    第二个矩阵参数 = A_stored [M, K] 行主序
+    opA = T → W_stored^T = [K, N]
+    opB = N → A_stored   = [M, K]  但维度不匹配！
+```
+
+**问题**：`op(A) × op(B) = [K, N] × [M, K]` 维度不对！
+
+**正确方案**：交换输入顺序
+
+```
+设:
+    第一个矩阵参数 = W_stored [N, K] 行主序，传给 cuBLAS 时告诉它是 [K, N] 列主序
+    第二个矩阵参数 = A_stored [M, K] 行主序，传给 cuBLAS 时告诉它是 [K, M] 列主序
+    opA = N → [K, N]
+    opB = T → [K, M]^T = [M, K]  维度还是不对！
+```
+
+**最终正确配置（N/T + C/C/C）**：
+
+```
+目标: D[M, N] = A[M, K] × W[K, N]
+
+cuBLASLt 配置（利用行主序 = 列主序转置的特性）:
+    实际传入:
+        A_ptr: 指向 W_stored 的内存（行主序 [N, K]）
+        B_ptr: 指向 A_stored 的内存（行主序 [M, K]）
+        C_ptr/D_ptr: 输出内存
+    
+    告诉 cuBLASLt（列主序视角）:
+        A: [K, N] 列主序（实际是行主序 [N, K] 的另一种解读）
+        B: [K, M] 列主序（实际是行主序 [M, K] 的另一种解读）
+        opA = N → A 不变，[K, N]
+        opB = T → B 转置，[K, M]^T = [M, K]
+        
+    计算: D = op(A) × op(B) = [K, N] × [M, K]  维度还是不对！
+```
+
+**我明白了！你需要的是 D^T 的计算**：
+
+```
+目标: D[M, N] = A[M, K] × W[K, N]
+等价: D^T[N, M] = W^T[N, K] × A^T[K, M]
+
+cuBLASLt 配置:
+    传入:
+        A_ptr → W_stored [N, K] 行主序 → cuBLAS 列主序读为 [K, N]
+        B_ptr → A_stored [M, K] 行主序 → cuBLAS 列主序读为 [K, M]
+        
+    opA = T → [K, N]^T = [N, K]
+    opB = N → [K, M]
+    
+    计算: D' = op(A) × op(B) = [N, K] × [K, M] = [N, M] ✅
+    
+    输出:
+        D_ptr → 列主序写 [N, M] → 行主序读为 [M, N] ✅
+```
+
+**最终答案**：
+
+```cpp
+// cuBLASLt T/N + Col/Col/Col 配置
+cublasOperation_t opA = CUBLAS_OP_T;   // 对 W（第一个参数）转置
+cublasOperation_t opB = CUBLAS_OP_N;   // 对 A（第二个参数）不转置
+
+// 矩阵布局
+// W: 行主序 [N, K]，传给 cuBLASLt 声明为列主序 [K, N]，lda = K
+// A: 行主序 [M, K]，传给 cuBLASLt 声明为列主序 [K, M]，ldb = K
+// D: 列主序写出 [N, M]，等于行主序 [M, N]，ldc = N
+
+// 计算: D' = W^T × A = [K, N]^T × [K, M] = [N, K] × [K, M] = [N, M]
+// 输出: 列主序 [N, M] = 行主序 [M, N] ✅
+```
+
+---
+
+### 11.4 Q3: Scale 维度与反量化机制
+
+#### 11.4.1 实际的 Scale 维度（从 checkpoint 确认）
+
+```
+scale_a (input_scale):  per-token dynamic → [M, 1] FP32
+scale_b (weight_scale): per-channel       → [N, 1] FP32 (不是 [1, K]!)
+```
+
+**你之前的猜测需要修正**：weight_scale 是 `[N, 1]` 不是 `[1, K]`。
+
+#### 11.4.2 CUTLASS 的反量化公式
+
+从 `scaled_mm_epilogues_c3x.hpp` 分析：
+
+```cpp
+// ScaledEpilogue 的计算
+using ScaleA = ColOrScalarLoad<float>;  // 列方向加载 → [M, 1] 广播到 [M, N]
+using ScaleB = RowOrScalarLoad<float>;  // 行方向加载 → [N, 1].T = [1, N] 广播到 [M, N]
+
+// EVTCompute0: tmp = ScaleB × Accum
+// EVTCompute1: D = ScaleA × tmp
+
+// 展开: D = ScaleA × (ScaleB × Accum)
+//         = ScaleA[M,1] ⊗ (ScaleB[1,N] ⊗ Accum[M,N])
+//         = (ScaleA[M,1] ⊗ ScaleB[1,N]) ⊗ Accum[M,N]  (广播逐元素乘)
+```
+
+**CUTLASS 反量化公式**：
+
+```
+D[M,N] = scale_a[M,1] ⊙ scale_b[1,N] ⊙ (qA[M,K] × qW[K,N])
+
+其中:
+    qA: 量化后的激活 [M, K] FP8
+    qW: 量化后的权重 [K, N] FP8  
+    scale_a: [M, 1] 广播到 [M, N]
+    scale_b: [N, 1]^T = [1, N] 广播到 [M, N]
+    ⊙: 广播逐元素乘法
+```
+
+#### 11.4.3 cuBLASLt 的 Outer Vector Scaling（SM90+）
+
+从官方文档 3.1.4.3 节：
+
+```
+Outer Vector Scaling for FP8 Data Types:
+
+D_ij = α × scale_A^i × scale_B^j × Σ(a_il × b_lj) + β × scale_C × C_ij
+
+其中:
+    scale_A: 长度为 M 的向量，每行一个 scale
+    scale_B: 长度为 N 的向量，每列一个 scale
+```
+
+**启用方法**：
+
+```cpp
+// 设置 outer vector scaling mode
+int32_t scaleMode = CUBLASLT_MATMUL_MATRIX_SCALE_OUTER_VEC_32F;
+cublasLtMatmulDescSetAttribute(matmulDesc, 
+    CUBLASLT_MATMUL_DESC_A_SCALE_MODE, &scaleMode, sizeof(scaleMode));
+cublasLtMatmulDescSetAttribute(matmulDesc, 
+    CUBLASLT_MATMUL_DESC_B_SCALE_MODE, &scaleMode, sizeof(scaleMode));
+
+// 设置 scale 指针
+float* scaleA = ...;  // 长度 M
+float* scaleB = ...;  // 长度 N
+cublasLtMatmulDescSetAttribute(matmulDesc, 
+    CUBLASLT_MATMUL_DESC_A_SCALE_POINTER, &scaleA, sizeof(scaleA));
+cublasLtMatmulDescSetAttribute(matmulDesc, 
+    CUBLASLT_MATMUL_DESC_B_SCALE_POINTER, &scaleB, sizeof(scaleB));
+```
+
+#### 11.4.4 Scale 适配问题
+
+**CUTLASS 的 scale 语义**（A在左）：
+- scale_a: 对应 A (input)，维度 [M, 1]
+- scale_b: 对应 B (weight)，维度 [N, 1]
+
+**cuBLASLt 的 scale 语义（W在左，A在右）**：
+
+由于我们交换了 A 和 B 的位置（W 作为 cuBLASLt 的第一个参数），需要相应调整：
+
+```
+cuBLASLt 计算: D'[N, M] = W'[N, K] × A'[K, M]
+
+其中:
+    W' = W^T (通过 opA=T 实现)
+    A' = A^T (通过列主序读行主序实现)
+
+scale 对应:
+    cuBLASLt 的 scale_A → 对应 W → 维度 [N] (因为 op(W) 的行数是 N)
+    cuBLASLt 的 scale_B → 对应 A → 维度 [M] (因为 op(A) 的列数是 M)
+```
+
+**关键适配**：需要交换传入 cuBLASLt 的 scale：
+
+```python
+# vLLM 传来的:
+#   scale_a: [M, 1] → 对应 input
+#   scale_b: [N, 1] → 对应 weight
+
+# 传给 cuBLASLt (W在左):
+#   cublaslt_scale_A → scale_b.squeeze() → [N]  (weight scale)
+#   cublaslt_scale_B → scale_a.squeeze() → [M]  (input scale)
+```
+
+---
+
+### 11.5 Q4: Bias 广播方向
+
+#### 11.5.1 Bias 的存储格式
+
+从 checkpoint 确认：
+```
+bias: [N] 1D 向量（N = out_features）
+```
+
+#### 11.5.2 CUTLASS 的 Bias 处理
+
+从 `scaled_mm_epilogues_c3x.hpp`：
+
+```cpp
+// ScaledEpilogueBias 中
+using Bias = RowLoad<ElementD>;  // 行方向加载
+
+// 计算公式:
+// D = ScaleA × (ScaleB × Accum) + Bias
+// 其中 Bias 是 RowLoad，广播到每一行
+```
+
+**Bias 广播方向**：`[1, N]` 广播到 `[M, N]`，即**沿 N 维度（列方向）广播**。
+
+每一行（每个 token）加上相同的 bias 向量。
+
+#### 11.5.3 cuBLASLt 的 Bias 处理
+
+```cpp
+// 设置 epilogue 为 BIAS
+cublasLtEpilogue_t epilogue = CUBLASLT_EPILOGUE_BIAS;
+cublasLtMatmulDescSetAttribute(matmulDesc, 
+    CUBLASLT_MATMUL_DESC_EPILOGUE, &epilogue, sizeof(epilogue));
+
+// 设置 bias 指针和类型
+void* biasPtr = ...;  // [N] 向量
+cublasLtMatmulDescSetAttribute(matmulDesc, 
+    CUBLASLT_MATMUL_DESC_BIAS_POINTER, &biasPtr, sizeof(biasPtr));
+
+cudaDataType_t biasType = CUDA_R_16BF;  // BF16
+cublasLtMatmulDescSetAttribute(matmulDesc, 
+    CUBLASLT_MATMUL_DESC_BIAS_DATA_TYPE, &biasType, sizeof(biasType));
+```
+
+**注意**：由于我们计算的是 `D'[N, M]` 然后存储为行主序 `[M, N]`，bias 的广播方向也需要考虑。
+
+实际上，cuBLASLt 的 bias 是加在输出矩阵的**列方向**（因为它用列主序）。
+- 输出 `D'[N, M]` 列主序
+- bias `[N]` 加到每一列
+- 等价于行主序 `D[M, N]` 中，bias `[N]` 加到每一行 ✅
+
+---
+
+### 11.6 Q5: cuBLASLtMatmul API 调用要点
+
+#### 11.6.1 完整的 API 调用框架
+
+```cpp
+#include <cublasLt.h>
+
+cublasStatus_t cublaslt_fp8_gemm_impl(
+    cublasLtHandle_t handle,
+    int M, int N, int K,
+    const void* W_ptr,        // 行主序 [N, K] FP8
+    const void* A_ptr,        // 行主序 [M, K] FP8
+    void* D_ptr,              // 行主序 [M, N] BF16
+    const float* scale_w,     // [N] weight scale
+    const float* scale_a,     // [M] input scale
+    const void* bias,         // [N] bias (可选)
+    cudaDataType_t biasType,
+    cudaStream_t stream
+) {
+    // 1. 创建 matmul 描述符
+    cublasLtMatmulDesc_t matmulDesc;
+    cublasComputeType_t computeType = CUBLAS_COMPUTE_32F;
+    cublasLtMatmulDescCreate(&matmulDesc, computeType, CUDA_R_32F);
+    
+    // 2. 设置转置操作
+    cublasOperation_t opA = CUBLAS_OP_T;   // W 转置
+    cublasOperation_t opB = CUBLAS_OP_N;   // A 不转置
+    cublasLtMatmulDescSetAttribute(matmulDesc, 
+        CUBLASLT_MATMUL_DESC_TRANSA, &opA, sizeof(opA));
+    cublasLtMatmulDescSetAttribute(matmulDesc, 
+        CUBLASLT_MATMUL_DESC_TRANSB, &opB, sizeof(opB));
+    
+    // 3. 设置 outer vector scaling (SM90+)
+    int8_t fastAccuMode = 1;
+    cublasLtMatmulDescSetAttribute(matmulDesc,
+        CUBLASLT_MATMUL_DESC_FAST_ACCUM, &fastAccuMode, sizeof(fastAccuMode));
+    
+    // Scale 模式和指针
+    int32_t scaleMode = CUBLASLT_MATMUL_MATRIX_SCALE_OUTER_VEC_32F;
+    cublasLtMatmulDescSetAttribute(matmulDesc, 
+        CUBLASLT_MATMUL_DESC_A_SCALE_MODE, &scaleMode, sizeof(scaleMode));
+    cublasLtMatmulDescSetAttribute(matmulDesc, 
+        CUBLASLT_MATMUL_DESC_B_SCALE_MODE, &scaleMode, sizeof(scaleMode));
+    cublasLtMatmulDescSetAttribute(matmulDesc, 
+        CUBLASLT_MATMUL_DESC_A_SCALE_POINTER, &scale_w, sizeof(scale_w));
+    cublasLtMatmulDescSetAttribute(matmulDesc, 
+        CUBLASLT_MATMUL_DESC_B_SCALE_POINTER, &scale_a, sizeof(scale_a));
+    
+    // 4. 设置 Bias (如果有)
+    if (bias != nullptr) {
+        cublasLtEpilogue_t epilogue = CUBLASLT_EPILOGUE_BIAS;
+        cublasLtMatmulDescSetAttribute(matmulDesc, 
+            CUBLASLT_MATMUL_DESC_EPILOGUE, &epilogue, sizeof(epilogue));
+        cublasLtMatmulDescSetAttribute(matmulDesc, 
+            CUBLASLT_MATMUL_DESC_BIAS_POINTER, &bias, sizeof(bias));
+        cublasLtMatmulDescSetAttribute(matmulDesc, 
+            CUBLASLT_MATMUL_DESC_BIAS_DATA_TYPE, &biasType, sizeof(biasType));
+    }
+    
+    // 5. 创建矩阵布局
+    // W: 行主序 [N, K] → 声明为列主序 [K, N]，lda = K
+    cublasLtMatrixLayout_t Adesc;
+    cublasLtMatrixLayoutCreate(&Adesc, CUDA_R_8F_E4M3, K, N, K);
+    
+    // A: 行主序 [M, K] → 声明为列主序 [K, M]，ldb = K
+    cublasLtMatrixLayout_t Bdesc;
+    cublasLtMatrixLayoutCreate(&Bdesc, CUDA_R_8F_E4M3, K, M, K);
+    
+    // D: 列主序 [N, M]，ldc = N → 读为行主序 [M, N]
+    cublasLtMatrixLayout_t Ddesc;
+    cublasLtMatrixLayoutCreate(&Ddesc, CUDA_R_16BF, N, M, N);
+    
+    // 6. 获取最优算法
+    cublasLtMatmulPreference_t preference;
+    cublasLtMatmulPreferenceCreate(&preference);
+    
+    size_t workspaceSize = 64 * 1024 * 1024;  // 64 MB
+    cublasLtMatmulPreferenceSetAttribute(preference, 
+        CUBLASLT_MATMUL_PREF_MAX_WORKSPACE_BYTES, &workspaceSize, sizeof(workspaceSize));
+    
+    cublasLtMatmulHeuristicResult_t heuristicResult;
+    int returnedResults = 0;
+    cublasLtMatmulAlgoGetHeuristic(handle, matmulDesc, 
+        Adesc, Bdesc, Ddesc, Ddesc,
+        preference, 1, &heuristicResult, &returnedResults);
+    
+    // 7. 分配 workspace
+    void* workspace = nullptr;
+    cudaMalloc(&workspace, heuristicResult.workspaceSize);
+    
+    // 8. 执行 GEMM
+    float alpha = 1.0f, beta = 0.0f;
+    cublasLtMatmul(
+        handle, matmulDesc,
+        &alpha,
+        W_ptr, Adesc,   // 第一个矩阵: W
+        A_ptr, Bdesc,   // 第二个矩阵: A
+        &beta,
+        D_ptr, Ddesc,   // C (unused, beta=0)
+        D_ptr, Ddesc,   // D (output)
+        &heuristicResult.algo,
+        workspace, heuristicResult.workspaceSize,
+        stream
+    );
+    
+    // 9. 清理
+    cudaFree(workspace);
+    cublasLtMatmulPreferenceDestroy(preference);
+    cublasLtMatrixLayoutDestroy(Adesc);
+    cublasLtMatrixLayoutDestroy(Bdesc);
+    cublasLtMatrixLayoutDestroy(Ddesc);
+    cublasLtMatmulDescDestroy(matmulDesc);
+    
+    return CUBLAS_STATUS_SUCCESS;
+}
+```
+
+#### 11.6.2 关键注意事项
+
+| 要点 | 说明 |
+|------|------|
+| **矩阵参数顺序** | 第一个是 W（weight），第二个是 A（activation） |
+| **op 配置** | opA=T（转置 W），opB=N（A 不转置） |
+| **Layout 声明** | 行主序数据声明为列主序，维度交换 |
+| **Scale 交换** | cuBLASLt 的 scale_A → weight_scale，scale_B → input_scale |
+| **Bias 类型** | 需要与输出类型匹配或兼容 |
+| **Workspace** | 预分配足够空间，推荐 64MB |
+| **Handle 复用** | 全局缓存 handle，避免重复创建 |
+| **Algorithm 缓存** | 相同问题规模可复用启发式结果 |
+
+#### 11.6.3 Python 侧适配
+
+在 `cublaslt_w8a8_scaled_mm` 中：
+
+```python
+def cublaslt_w8a8_scaled_mm(
+    *,
+    qinput: torch.Tensor,     # [M, K] FP8 行主序
+    weight: torch.Tensor,     # [K, N] FP8 "列主序"（实际是 .t() 后的 view）
+    out_dtype: torch.dtype,
+    scale_a: torch.Tensor,    # [M, 1] input scale
+    scale_b: torch.Tensor,    # [N, 1] weight scale
+    bias: torch.Tensor,       # [N] 或 None
+    output_shape: list,
+    **kwargs,
+) -> torch.Tensor:
+    """
+    cuBLASLt FP8 Scaled MM
+    
+    关键理解：
+    - vLLM 传来的 weight 是 [K,N] 但 stride=(1,K)，是 .t() 后的 view
+    - 物理内存实际是 [N,K] 行主序存储
+    - 我们需要再 .t() 消除这个假转置，让 stride 和物理内存一致
+    """
+    M, K = qinput.shape
+    N = weight.shape[1]  # weight 当前 shape 是 [K, N]
+    
+    # 关键：消除 .t() 造成的 stride 不一致
+    # weight.t() 将 [K,N] stride=(1,K) 变回 [N,K] stride=(K,1)
+    # 这样 stride 就和物理内存布局（行主序 [N,K]）一致了
+    weight_row_major = weight.t()  # [N, K] 行主序，无需 contiguous（本身就是连续的）
+    
+    # 调用 cuBLASLt (注意 scale 顺序交换)
+    output = ops.cublaslt_scaled_mm(
+        W=weight_row_major,        # [N, K] 行主序
+        A=qinput,                  # [M, K] 行主序
+        scale_W=scale_b.squeeze(), # [N] weight scale
+        scale_A=scale_a.squeeze(), # [M] input scale
+        bias=bias,                 # [N] bias
+        out_dtype=out_dtype,
+    )
+    
+    return output.view(*output_shape)
+```
+
+#### 11.6.4 关于 Bias 广播方向的澄清
+
+**cuBLASLt 计算流程**：
+
+```
+1. 输入:
+   W: [N,K] 行主序 → cuBLASLt 列主序读为 [K,N]
+   A: [M,K] 行主序 → cuBLASLt 列主序读为 [K,M]
+
+2. 计算:
+   opA=T: [K,N]^T = [N,K]
+   opB=N: [K,M]
+   D' = [N,K] × [K,M] = [N,M]  (列主序结果)
+
+3. Bias 广播:
+   bias: [N] 向量
+   在列主序 [N,M] 中，bias 加到"每一列"（列主序视角）
+   即: D'[i,j] += bias[i], 对所有 i∈[0,N), j∈[0,M)
+   
+4. 输出:
+   列主序 [N,M] 写入内存
+   按行主序解读 = [M,N] ✅
+   
+   从行主序 [M,N] 视角看:
+   D[j,i] = D'[i,j] 包含了 bias[i]
+   即每一行 j 的第 i 列都加了 bias[i]
+   这就是"bias 沿 N 维度广播"的正确行为 ✅
+```
+
+**总结**：
+- bias `[N]` 在 cuBLASLt 中会自动正确广播
+- 无需额外处理，直接传入即可
+
+---
+
+*文档版本：v1.5*  
 *更新日期：2025-01*  
 *作者：SlideSparse Team*
