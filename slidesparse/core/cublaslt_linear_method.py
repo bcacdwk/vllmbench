@@ -146,6 +146,50 @@ class CuBLASLtFp8LinearOp:
                 bias=bias,
             )
     
+    @staticmethod
+    def apply_for_test(
+        input: torch.Tensor,
+        weight: torch.Tensor,
+        weight_scale: torch.Tensor,
+        out_dtype: torch.dtype | None = None,
+        input_scale: torch.Tensor | None = None,
+        bias: torch.Tensor | None = None,
+        act_quant_static: bool = False,
+        act_quant_group_shape: GroupShape = GroupShape.PER_TOKEN,
+    ) -> torch.Tensor:
+        """
+        Static method for standalone testing of cuBLASLt FP8 Linear operation.
+        
+        This method creates a temporary CuBLASLtFp8LinearOp instance and executes
+        the full quant + GEMM + dequant pipeline through the cuBLASLt path.
+        
+        Args:
+            input: Input tensor [M, K], BF16/FP16 (will be quantized to FP8)
+            weight: Weight tensor [K, N], FP8 (already transposed, column-major)
+            weight_scale: Weight scale [N, 1] or [1]
+            out_dtype: Output dtype, defaults to input.dtype
+            input_scale: Input scale (for static quantization)
+            bias: Optional bias [N]
+            act_quant_static: Whether to use static activation quantization
+            act_quant_group_shape: Activation quantization group shape
+            
+        Returns:
+            Output tensor [M, N], BF16
+        """
+        op = CuBLASLtFp8LinearOp(
+            act_quant_static=act_quant_static,
+            act_quant_group_shape=act_quant_group_shape,
+        )
+        return op.apply(
+            input=input,
+            weight=weight,
+            weight_scale=weight_scale,
+            out_dtype=out_dtype,
+            input_scale=input_scale,
+            input_scale_ub=None,
+            bias=bias,
+        )
+    
     def _apply_cublaslt(
         self,
         input: torch.Tensor,
