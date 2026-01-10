@@ -75,7 +75,7 @@ def test_create_linear_op():
     for config in configs:
         op = CuBLASLtFp8LinearOp(**config)
         assert hasattr(op, "apply"), "缺少 apply 方法"
-        assert hasattr(op, "_fp8_linear_op"), "缺少内部 Fp8LinearOp"
+        assert hasattr(op, "quant_fp8"), "缺少 quant_fp8 实例"
     
     return True, f"测试了 {len(configs)} 种配置"
 

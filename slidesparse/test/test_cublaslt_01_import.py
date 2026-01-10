@@ -66,14 +66,13 @@ def test_import_config_module():
     """测试配置模块导入"""
     from slidesparse.core.cublaslt_config import (
         is_cublaslt_enabled,
+        is_inner_dtype_fp32,
         get_cublaslt_status,
-        VLLM_USE_CUBLASLT,
-        SLIDESPARSE_USE_CUBLASLT,
-        SLIDESPARSE_CUBLASLT_DEBUG,
     )
     
-    # 验证配置值类型
-    assert isinstance(VLLM_USE_CUBLASLT, bool), "VLLM_USE_CUBLASLT 应该是 bool"
+    # 验证函数返回类型
+    assert isinstance(is_cublaslt_enabled(), bool), "is_cublaslt_enabled 应该返回 bool"
+    assert isinstance(is_inner_dtype_fp32(), bool), "is_inner_dtype_fp32 应该返回 bool"
     
     status = get_cublaslt_status()
     enabled = is_cublaslt_enabled()
@@ -103,16 +102,18 @@ def test_import_vllm_bridge():
     """测试 vLLM 空壳转发文件导入"""
     from vllm.model_executor.layers.quantization.cublaslt import (
         is_cublaslt_enabled as vllm_is_enabled,
+        is_inner_dtype_fp32 as vllm_is_fp32,
         wrap_scheme_with_cublaslt as vllm_wrap,
     )
     
     # 验证函数引用一致性
-    from slidesparse.core.cublaslt_config import is_cublaslt_enabled
+    from slidesparse.core.cublaslt_config import is_cublaslt_enabled, is_inner_dtype_fp32
     from slidesparse.core.cublaslt_linear_method import wrap_scheme_with_cublaslt
     
     # 函数应该是同一个对象
-    assert vllm_is_enabled is is_cublaslt_enabled, "函数引用不一致"
-    assert vllm_wrap is wrap_scheme_with_cublaslt, "函数引用不一致"
+    assert vllm_is_enabled is is_cublaslt_enabled, "is_cublaslt_enabled 函数引用不一致"
+    assert vllm_is_fp32 is is_inner_dtype_fp32, "is_inner_dtype_fp32 函数引用不一致"
+    assert vllm_wrap is wrap_scheme_with_cublaslt, "wrap_scheme_with_cublaslt 函数引用不一致"
     
     return True, "vLLM 桥接模块正常"
 
@@ -123,10 +124,11 @@ def test_env_var_parsing():
     import os
     
     # 简化测试：只验证当前状态
-    from slidesparse.core.cublaslt_config import is_cublaslt_enabled
+    from slidesparse.core.cublaslt_config import is_cublaslt_enabled, is_inner_dtype_fp32
     enabled = is_cublaslt_enabled()
+    fp32 = is_inner_dtype_fp32()
     
-    return True, f"当前状态: enabled={enabled}"
+    return True, f"USE_CUBLASLT={enabled}, INNER_DTYPE_FP32={fp32}"
 
 
 # ============================================================================

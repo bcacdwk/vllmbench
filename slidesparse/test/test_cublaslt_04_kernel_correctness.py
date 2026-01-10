@@ -7,10 +7,13 @@
 验证 CuBLASLtFp8LinearOp 的计算正确性。
 
 测试覆盖:
-- 包装器正确性
-- 输出数值一致性  
-- 不同形状的矩阵
-- 边界条件
+- Op 创建和配置
+- Scheme 包装正确性
+- 推理输出验证
+
+环境变量:
+- USE_CUBLASLT=1: 启用 cuBLASLt 路径
+- INNER_DTYPE_FP32=1: GEMM 输出使用 FP32
 """
 
 import sys
@@ -65,40 +68,42 @@ def test_op_creation():
     assert op2 is not None
     
     # 验证属性
-    assert hasattr(op1, "USE_REAL_CUBLASLT")
-    assert hasattr(op1, "_fp8_linear_op")
+    assert hasattr(op1, "quant_fp8"), "缺少 quant_fp8 实例"
+    assert hasattr(op1, "apply"), "缺少 apply 方法"
     
     return True, "Op 创建成功"
 
 
-@test_case("内部 Fp8LinearOp 引用", skip_if=skip_if_no_cuda)
-def test_internal_op_reference():
-    """测试内部 Fp8LinearOp 引用"""
+@test_case("QuantFP8 配置一致性", skip_if=skip_if_no_cuda)
+def test_quant_fp8_config():
+    """测试 QuantFP8 配置一致性"""
     from slidesparse.core.cublaslt_linear_method import CuBLASLtFp8LinearOp
-    from vllm.model_executor.layers.quantization.utils.w8a8_utils import Fp8LinearOp
     
     op = CuBLASLtFp8LinearOp()
     
-    # 验证内部 op 是正确的类型
-    assert isinstance(op._fp8_linear_op, Fp8LinearOp), "内部 op 类型错误"
+    # 验证 quant_fp8 实例存在且配置正确
+    assert op.quant_fp8 is not None, "quant_fp8 实例不存在"
     
     # 验证配置一致性
-    assert op._fp8_linear_op.act_quant_static == op.act_quant_static
+    assert op.quant_fp8.static == op.act_quant_static
     
-    return True, "内部引用正确"
+    return True, "QuantFP8 配置正确"
 
 
-@test_case("USE_REAL_CUBLASLT 标志")
-def test_use_real_cublaslt_flag():
-    """测试 USE_REAL_CUBLASLT 标志"""
-    from slidesparse.core.cublaslt_linear_method import CuBLASLtFp8LinearOp
+@test_case("环境变量检查")
+def test_env_var_check():
+    """测试环境变量配置"""
+    from slidesparse.core.cublaslt_config import (
+        is_cublaslt_enabled,
+        is_inner_dtype_fp32,
+        get_cublaslt_status,
+    )
     
-    op = CuBLASLtFp8LinearOp()
+    enabled = is_cublaslt_enabled()
+    fp32 = is_inner_dtype_fp32()
+    status = get_cublaslt_status()
     
-    # 当前阶段应该是 False
-    assert op.USE_REAL_CUBLASLT == False, "当前阶段应该使用 cutlass"
-    
-    return True, f"USE_REAL_CUBLASLT={op.USE_REAL_CUBLASLT}"
+    return True, f"USE_CUBLASLT={enabled}, INNER_DTYPE_FP32={fp32}"
 
 
 @test_case("Scheme 包装正确性")
@@ -188,8 +193,8 @@ def run_tests(verbose: bool = True) -> bool:
     """运行所有正确性测试"""
     tests = [
         test_op_creation,
-        test_internal_op_reference,
-        test_use_real_cublaslt_flag,
+        test_quant_fp8_config,
+        test_env_var_check,
         test_scheme_wrapper_correctness,
         test_inference_output,
     ]

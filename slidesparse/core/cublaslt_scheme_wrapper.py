@@ -26,7 +26,7 @@ from torch.nn import Parameter
 
 from vllm.logger import init_logger
 
-from .cublaslt_config import is_cublaslt_enabled, SLIDESPARSE_CUBLASLT_DEBUG
+from .cublaslt_config import is_cublaslt_enabled
 
 logger = init_logger(__name__)
 
@@ -54,8 +54,7 @@ class CuBLASLtSchemeWrapper:
         self._use_cublaslt = True  # 标记使用 cuBLASLt 路径
         self._call_count = 0  # 调用计数（debug 用）
         
-        if SLIDESPARSE_CUBLASLT_DEBUG:
-            logger.info(f"[SlideSparse] Created CuBLASLtSchemeWrapper for {type(original_scheme).__name__}")
+        logger.debug(f"[SlideSparse] Created CuBLASLtSchemeWrapper for {type(original_scheme).__name__}")
     
     @property
     def original_scheme(self) -> Any:
@@ -89,9 +88,6 @@ class CuBLASLtSchemeWrapper:
         完全委托给原 scheme，不做任何修改。
         权重格式保持与 compressed-tensors 完全一致。
         """
-        if SLIDESPARSE_CUBLASLT_DEBUG:
-            logger.debug(f"[SlideSparse] create_weights called: input={input_size_per_partition}, output={output_partition_sizes}")
-        
         return self._original_scheme.create_weights(
             layer=layer,
             input_size_per_partition=input_size_per_partition,
@@ -108,18 +104,7 @@ class CuBLASLtSchemeWrapper:
         
         委托给原 scheme。这包括权重转置、scale 处理等。
         """
-        if SLIDESPARSE_CUBLASLT_DEBUG:
-            logger.debug(f"[SlideSparse] process_weights_after_loading called for layer: {type(layer).__name__}")
-        
         self._original_scheme.process_weights_after_loading(layer)
-        
-        if SLIDESPARSE_CUBLASLT_DEBUG:
-            # 记录权重信息
-            if hasattr(layer, 'weight'):
-                w = layer.weight
-                logger.debug(f"[SlideSparse] Weight shape: {w.shape}, dtype: {w.dtype}")
-            if hasattr(layer, 'weight_scale'):
-                logger.debug(f"[SlideSparse] Weight scale shape: {layer.weight_scale.shape}")
     
     def apply_weights(
         self,
@@ -148,18 +133,10 @@ class CuBLASLtSchemeWrapper:
         """
         self._call_count += 1
         
-        if SLIDESPARSE_CUBLASLT_DEBUG and self._call_count <= 3:
-            logger.info(f"[SlideSparse] apply_weights #{self._call_count}: "
-                       f"input shape={x.shape}, dtype={x.dtype}")
-        
         # 当前阶段: 直接调用原 scheme 的 apply_weights
         # 这里包含了完整的 quant -> GEMM -> dequant 流程
         # 后续阶段将在这里替换 GEMM 部分
         output = self._original_scheme.apply_weights(layer, x, bias)
-        
-        if SLIDESPARSE_CUBLASLT_DEBUG and self._call_count <= 3:
-            logger.info(f"[SlideSparse] apply_weights #{self._call_count}: "
-                       f"output shape={output.shape}, dtype={output.dtype}")
         
         return output
     
@@ -184,8 +161,7 @@ def wrap_scheme_if_enabled(scheme: Any) -> Any:
         否则返回原 scheme
     """
     if is_cublaslt_enabled():
-        if SLIDESPARSE_CUBLASLT_DEBUG:
-            logger.info(f"[SlideSparse] Wrapping scheme {type(scheme).__name__} with CuBLASLtSchemeWrapper")
+        logger.debug(f"[SlideSparse] Wrapping scheme {type(scheme).__name__} with CuBLASLtSchemeWrapper")
         return CuBLASLtSchemeWrapper(scheme)
     return scheme
 

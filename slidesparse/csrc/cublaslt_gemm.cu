@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 /**
- * cuBLASLt FP8 GEMM Implementation for SlideSparse
+ * cuBLASLt GEMM Implementation for SlideSparse
  * 
  * 设计目标：
  * =========
- * 1. 使用 cuBLASLt API 实现 FP8 GEMM
- * 2. 支持 Outer Vector Scaling（per-token input scale + per-channel weight scale）
- * 3. 支持 Bias 融合在 epilogue 中
- * 4. 输出 BF16 格式
+ * 1. 使用 cuBLASLt API 实现纯矩阵乘法（不带 scale/bias 融合）
+ * 2. 支持 FP8E4M3 和 INT8 输入
+ * 3. 支持 BF16 和 FP32 输出（inner_dtype）
+ * 4. Dequant + bias 由后续 Triton kernel 处理
  * 
  * 计算流程：
  * =========
- * D[M,N] = scale_A[M] * scale_B[N] * (A[M,K] @ W[N,K]^T) + bias[N]
+ * D[M,N] = A[M,K] @ W[N,K]^T
  * 
  * cuBLASLt 配置：
  * ==============
@@ -19,8 +19,11 @@
  * - W[N,K] 行主序 → 声明列主序 [K,N] → opA=T → [N,K]
  * - A[M,K] 行主序 → 声明列主序 [K,M] → opB=N → [K,M]
  * - D[N,M] 列主序结果 → 按行主序读 = [M,N]
- * - Scale 模式：CUBLASLT_MATMUL_MATRIX_SCALE_OUTER_VEC_32F
- * - Epilogue：CUBLASLT_EPILOGUE_BIAS（可选）
+ * 
+ * 支持的数据类型组合：
+ * ===================
+ * - input_dtype: "fp8e4m3" (FP8E4M3FN) 或 "int8" (INT8)
+ * - inner_dtype: "bf16" (BFloat16) 或 "fp32" (Float32)
  */
 
 #include <torch/extension.h>
@@ -35,6 +38,7 @@
 #include <cstdlib>
 #include <sstream>
 #include <stdexcept>
+#include <string>
 
 // ============================================================================
 // 错误检查宏
@@ -145,37 +149,113 @@ static void* get_workspace(size_t required_size, cudaStream_t stream) {
 }
 
 // ============================================================================
-// cuBLASLt FP8 Scaled MM 实现
+// 数据类型转换辅助函数
 // ============================================================================
 
 /**
- * cuBLASLt FP8 Scaled Matrix Multiplication
+ * 将字符串 input_dtype 转换为 CUDA 数据类型
+ */
+static cudaDataType_t get_cuda_input_dtype(const std::string& input_dtype) {
+  if (input_dtype == "fp8e4m3" || input_dtype == "fp8") {
+    return CUDA_R_8F_E4M3;
+  } else if (input_dtype == "int8") {
+    return CUDA_R_8I;
+  } else {
+    throw std::invalid_argument(
+        "Unsupported input_dtype: " + input_dtype +
+        ". Supported: fp8e4m3, int8");
+  }
+}
+
+/**
+ * 将字符串 inner_dtype 转换为 CUDA 数据类型
+ */
+static cudaDataType_t get_cuda_inner_dtype(const std::string& inner_dtype) {
+  if (inner_dtype == "bf16") {
+    return CUDA_R_16BF;
+  } else if (inner_dtype == "fp32") {
+    return CUDA_R_32F;
+  } else {
+    throw std::invalid_argument(
+        "Unsupported inner_dtype: " + inner_dtype +
+        ". Supported: bf16, fp32");
+  }
+}
+
+/**
+ * 将字符串 inner_dtype 转换为 PyTorch 数据类型
+ */
+static at::ScalarType get_torch_inner_dtype(const std::string& inner_dtype) {
+  if (inner_dtype == "bf16") {
+    return at::kBFloat16;
+  } else if (inner_dtype == "fp32") {
+    return at::kFloat;
+  } else {
+    throw std::invalid_argument(
+        "Unsupported inner_dtype: " + inner_dtype +
+        ". Supported: bf16, fp32");
+  }
+}
+
+/**
+ * 根据 input_dtype 获取计算类型
+ */
+static cublasComputeType_t get_compute_type(const std::string& input_dtype) {
+  if (input_dtype == "fp8e4m3" || input_dtype == "fp8") {
+    return CUBLAS_COMPUTE_32F;
+  } else if (input_dtype == "int8") {
+    return CUBLAS_COMPUTE_32I;
+  } else {
+    throw std::invalid_argument(
+        "Unsupported input_dtype: " + input_dtype);
+  }
+}
+
+/**
+ * 验证 PyTorch tensor 的数据类型是否与 input_dtype 匹配
+ */
+static void validate_tensor_dtype(
+    const torch::Tensor& tensor,
+    const std::string& input_dtype,
+    const std::string& tensor_name) {
+  
+  if (input_dtype == "fp8e4m3" || input_dtype == "fp8") {
+    TORCH_CHECK(tensor.scalar_type() == at::kFloat8_e4m3fn,
+                tensor_name, " must be FP8E4M3, got ", tensor.scalar_type());
+  } else if (input_dtype == "int8") {
+    TORCH_CHECK(tensor.scalar_type() == at::kChar,
+                tensor_name, " must be INT8, got ", tensor.scalar_type());
+  }
+}
+
+// ============================================================================
+// cuBLASLt GEMM 实现（无 scale/bias）
+// ============================================================================
+
+/**
+ * cuBLASLt Matrix Multiplication（纯 GEMM，不带 dequant）
  * 
- * 计算：D[M,N] = alpha * scale_A[M] * scale_B[N] * (A[M,K] @ W[N,K]^T) + bias[N]
+ * 计算：D[M,N] = A[M,K] @ W[N,K]^T
  * 
  * 参数说明：
- * @param W        权重矩阵 [N, K]，FP8E4M3，行主序存储
- * @param A        输入矩阵 [M, K]，FP8E4M3，行主序存储
- * @param scale_W  权重 scale [N]，FP32，per-channel
- * @param scale_A  输入 scale [M]，FP32，per-token
- * @param bias     偏置向量 [N]，BF16（可选，传空 tensor 表示无 bias）
- * @param out_dtype输出数据类型
- * @return         输出矩阵 [M, N]，BF16/FP16/FP32
+ * @param W           权重矩阵 [N, K]，FP8/INT8，行主序存储
+ * @param A           输入矩阵 [M, K]，FP8/INT8，行主序存储
+ * @param input_dtype 输入数据类型字符串："fp8e4m3" 或 "int8"
+ * @param inner_dtype 输出数据类型字符串："bf16" 或 "fp32"
+ * @return            输出矩阵 [M, N]，BF16/FP32（inner_dtype）
  * 
  * 实现细节：
- * - 使用 Outer Vector Scaling：scale_A 和 scale_B 是向量而非标量
  * - W 放在 cuBLASLt 的 A 位置（左矩阵），使用 opA=CUBLAS_OP_T
  * - A 放在 cuBLASLt 的 B 位置（右矩阵），使用 opB=CUBLAS_OP_N
  * - 所有矩阵声明为列主序（实际是行主序内存，利用转置等价）
+ * - alpha = 1.0, beta = 0.0（纯矩阵乘法）
  */
-torch::Tensor cublaslt_scaled_mm(
-    torch::Tensor W,       // [N, K] FP8 行主序
-    torch::Tensor A,       // [M, K] FP8 行主序
-    torch::Tensor scale_W, // [N] FP32
-    torch::Tensor scale_A, // [M] FP32
-    torch::Tensor bias,    // [N] BF16 或空
-    at::ScalarType out_dtype) {
-  
+torch::Tensor cublaslt_mm(
+    torch::Tensor W,               // [N, K] FP8/INT8 行主序
+    torch::Tensor A,               // [M, K] FP8/INT8 行主序
+    const std::string& input_dtype,  // "fp8e4m3" 或 "int8"
+    const std::string& inner_dtype)  // "bf16" 或 "fp32"
+{
   // ========== 参数提取 ==========
   const int64_t N = W.size(0);
   const int64_t K_w = W.size(1);
@@ -189,80 +269,40 @@ torch::Tensor cublaslt_scaled_mm(
   TORCH_CHECK(K_w == K_a, "K dimension mismatch: W.K=", K_w, " vs A.K=", K_a);
   
   // 2. 数据类型检查
-  TORCH_CHECK(W.scalar_type() == at::kFloat8_e4m3fn,
-              "W must be FP8E4M3, got ", W.scalar_type());
-  TORCH_CHECK(A.scalar_type() == at::kFloat8_e4m3fn,
-              "A must be FP8E4M3, got ", A.scalar_type());
-  TORCH_CHECK(scale_W.scalar_type() == at::kFloat,
-              "scale_W must be FP32, got ", scale_W.scalar_type());
-  TORCH_CHECK(scale_A.scalar_type() == at::kFloat,
-              "scale_A must be FP32, got ", scale_A.scalar_type());
+  validate_tensor_dtype(W, input_dtype, "W");
+  validate_tensor_dtype(A, input_dtype, "A");
   
-  // 3. Scale 维度检查
-  TORCH_CHECK(scale_W.numel() == N,
-              "scale_W size mismatch: expected ", N, ", got ", scale_W.numel());
-  TORCH_CHECK(scale_A.numel() == M,
-              "scale_A size mismatch: expected ", M, ", got ", scale_A.numel());
-  
-  // 4. 设备检查
+  // 3. 设备检查
   TORCH_CHECK(W.is_cuda(), "W must be on CUDA");
   TORCH_CHECK(A.is_cuda(), "A must be on CUDA");
-  TORCH_CHECK(scale_W.is_cuda(), "scale_W must be on CUDA");
-  TORCH_CHECK(scale_A.is_cuda(), "scale_A must be on CUDA");
   
-  // 5. Contiguous 检查
+  // 4. Contiguous 检查
   TORCH_CHECK(W.is_contiguous(), "W must be contiguous (row-major)");
   TORCH_CHECK(A.is_contiguous(), "A must be contiguous (row-major)");
-  TORCH_CHECK(scale_W.is_contiguous(), "scale_W must be contiguous");
-  TORCH_CHECK(scale_A.is_contiguous(), "scale_A must be contiguous");
   
-  // 6. Bias 检查（如果有）
-  bool has_bias = bias.defined() && bias.numel() > 0;
-  if (has_bias) {
-    TORCH_CHECK(bias.dim() == 1, "bias must be 1D, got ", bias.dim(), "D");
-    TORCH_CHECK(bias.numel() == N,
-                "bias size mismatch: expected ", N, ", got ", bias.numel());
-    TORCH_CHECK(bias.is_cuda(), "bias must be on CUDA");
-    TORCH_CHECK(bias.is_contiguous(), "bias must be contiguous");
-  }
-  
-  // 7. 对齐检查（cuBLASLt FP8 要求 16 字节对齐）
-  // 对于 FP8，16 字节 = 16 个元素
-  // N, K 必须是 16 的倍数（我们可以保证），M 可能不是（需要上层 padding）
-  // TODO: 如果 M 不是 16 的倍数，这里应该做 padding 或者报警告
-  if (M % 16 != 0) {
+  // 5. 对齐检查（cuBLASLt FP8 要求 16 字节对齐，INT8 要求 4 字节对齐）
+  int64_t align_req = (input_dtype == "fp8e4m3" || input_dtype == "fp8") ? 16 : 4;
+  if (M % align_req != 0 || N % align_req != 0 || K_w % align_req != 0) {
     // 暂时允许，但打印警告
-    // 某些 cuBLASLt 算法可能仍能工作，但性能可能不是最优
     TORCH_WARN_ONCE(
-        "cuBLASLt FP8: M=", M, " is not aligned to 16. "
+        "cuBLASLt: dimensions (M=", M, ", N=", N, ", K=", K_w,
+        ") may not be aligned to ", align_req, ". "
         "This may cause performance degradation or errors on some GPUs.");
   }
   
-  // ========== 确定输出类型 ==========
-  cudaDataType_t cuda_out_dtype;
-  torch::ScalarType torch_out_dtype;
+  // ========== 获取数据类型配置 ==========
+  cudaDataType_t cuda_input_dtype = get_cuda_input_dtype(input_dtype);
+  cudaDataType_t cuda_inner_dtype = get_cuda_inner_dtype(inner_dtype);
+  at::ScalarType torch_inner_dtype = get_torch_inner_dtype(inner_dtype);
+  cublasComputeType_t compute_type = get_compute_type(input_dtype);
   
-  switch (out_dtype) {
-    case at::kBFloat16:
-      cuda_out_dtype = CUDA_R_16BF;
-      torch_out_dtype = at::kBFloat16;
-      break;
-    case at::kHalf:
-      cuda_out_dtype = CUDA_R_16F;
-      torch_out_dtype = at::kHalf;
-      break;
-    case at::kFloat:
-      cuda_out_dtype = CUDA_R_32F;
-      torch_out_dtype = at::kFloat;
-      break;
-    default:
-      TORCH_CHECK(false, "Unsupported output dtype: ", out_dtype);
-  }
+  // Scale 类型始终为 FP32
+  cudaDataType_t scale_type = CUDA_R_32F;
   
   // ========== 分配输出 ==========
   // 输出 D[M, N]，与输入在同一设备
   auto options = torch::TensorOptions()
-                     .dtype(torch_out_dtype)
+                     .dtype(torch_inner_dtype)
                      .device(A.device());
   torch::Tensor D = torch::empty({M, N}, options);
   
@@ -271,11 +311,9 @@ torch::Tensor cublaslt_scaled_mm(
   cudaStream_t stream = at::cuda::getCurrentCUDAStream();
   
   // ========== 创建 MatmulDesc ==========
-  // 计算类型：FP32（FP8 GEMM 要求）
-  // Scale 类型：FP32
   cublasLtMatmulDesc_t matmulDesc = nullptr;
   CHECK_CUBLASLT(cublasLtMatmulDescCreate(
-      &matmulDesc, CUBLAS_COMPUTE_32F, CUDA_R_32F));
+      &matmulDesc, compute_type, scale_type));
   
   // 设置转置操作
   // W 在 cuBLASLt 的 A 位置，需要转置（因为我们用行主序声明为列主序）
@@ -287,55 +325,8 @@ torch::Tensor cublaslt_scaled_mm(
   CHECK_CUBLASLT(cublasLtMatmulDescSetAttribute(
       matmulDesc, CUBLASLT_MATMUL_DESC_TRANSB, &opA, sizeof(opA)));
   
-  // 设置 Scale 模式为 Outer Vector Scaling
-  // 这样 scale_A 和 scale_B 是向量而非标量
-  int32_t scale_mode_A = CUBLASLT_MATMUL_MATRIX_SCALE_OUTER_VEC_32F;
-  int32_t scale_mode_B = CUBLASLT_MATMUL_MATRIX_SCALE_OUTER_VEC_32F;
-  CHECK_CUBLASLT(cublasLtMatmulDescSetAttribute(
-      matmulDesc, CUBLASLT_MATMUL_DESC_A_SCALE_MODE,
-      &scale_mode_A, sizeof(scale_mode_A)));
-  CHECK_CUBLASLT(cublasLtMatmulDescSetAttribute(
-      matmulDesc, CUBLASLT_MATMUL_DESC_B_SCALE_MODE,
-      &scale_mode_B, sizeof(scale_mode_B)));
-  
-  // 设置 Scale 指针
-  // 注意：由于 W 在 cuBLASLt 的 A 位置，scale_W 对应 A_SCALE_POINTER
-  //       A 在 cuBLASLt 的 B 位置，scale_A 对应 B_SCALE_POINTER
-  const void* scale_W_ptr = scale_W.data_ptr();
-  const void* scale_A_ptr = scale_A.data_ptr();
-  CHECK_CUBLASLT(cublasLtMatmulDescSetAttribute(
-      matmulDesc, CUBLASLT_MATMUL_DESC_A_SCALE_POINTER,
-      &scale_W_ptr, sizeof(scale_W_ptr)));
-  CHECK_CUBLASLT(cublasLtMatmulDescSetAttribute(
-      matmulDesc, CUBLASLT_MATMUL_DESC_B_SCALE_POINTER,
-      &scale_A_ptr, sizeof(scale_A_ptr)));
-  
-  // 设置 Epilogue（带或不带 bias）
-  cublasLtEpilogue_t epilogue;
-  if (has_bias) {
-    epilogue = CUBLASLT_EPILOGUE_BIAS;
-    const void* bias_ptr = bias.data_ptr();
-    CHECK_CUBLASLT(cublasLtMatmulDescSetAttribute(
-        matmulDesc, CUBLASLT_MATMUL_DESC_BIAS_POINTER,
-        &bias_ptr, sizeof(bias_ptr)));
-    
-    // 设置 bias 数据类型
-    cudaDataType_t bias_dtype;
-    if (bias.scalar_type() == at::kBFloat16) {
-      bias_dtype = CUDA_R_16BF;
-    } else if (bias.scalar_type() == at::kHalf) {
-      bias_dtype = CUDA_R_16F;
-    } else if (bias.scalar_type() == at::kFloat) {
-      bias_dtype = CUDA_R_32F;
-    } else {
-      TORCH_CHECK(false, "Unsupported bias dtype: ", bias.scalar_type());
-    }
-    CHECK_CUBLASLT(cublasLtMatmulDescSetAttribute(
-        matmulDesc, CUBLASLT_MATMUL_DESC_BIAS_DATA_TYPE,
-        &bias_dtype, sizeof(bias_dtype)));
-  } else {
-    epilogue = CUBLASLT_EPILOGUE_DEFAULT;
-  }
+  // 默认 epilogue（无 bias）
+  cublasLtEpilogue_t epilogue = CUBLASLT_EPILOGUE_DEFAULT;
   CHECK_CUBLASLT(cublasLtMatmulDescSetAttribute(
       matmulDesc, CUBLASLT_MATMUL_DESC_EPILOGUE, &epilogue, sizeof(epilogue)));
   
@@ -364,15 +355,15 @@ torch::Tensor cublaslt_scaled_mm(
   
   // W 布局：声明为列主序 [K, N]，ld = K
   CHECK_CUBLASLT(cublasLtMatrixLayoutCreate(
-      &layoutW, CUDA_R_8F_E4M3, K_w, N, K_w));
+      &layoutW, cuda_input_dtype, K_w, N, K_w));
   
   // A 布局：声明为列主序 [K, M]，ld = K
   CHECK_CUBLASLT(cublasLtMatrixLayoutCreate(
-      &layoutA, CUDA_R_8F_E4M3, K_a, M, K_a));
+      &layoutA, cuda_input_dtype, K_a, M, K_a));
   
   // D 布局：声明为列主序 [N, M]，ld = N
   CHECK_CUBLASLT(cublasLtMatrixLayoutCreate(
-      &layoutD, cuda_out_dtype, N, M, N));
+      &layoutD, cuda_inner_dtype, N, M, N));
   
   // 设置所有矩阵为列主序（这是默认值，但显式设置更清晰）
   cublasLtOrder_t order = CUBLASLT_ORDER_COL;
@@ -394,10 +385,6 @@ torch::Tensor cublaslt_scaled_mm(
       &max_workspace_size, sizeof(max_workspace_size)));
   
   // ========== 获取最优算法 ==========
-  // 使用启发式搜索获取最优算法
-  // 如果 algo=NULL，cuBLASLt 会自动选择（但可能不是最优）
-  // 这里我们获取启发式推荐的最优算法
-  
   cublasLtMatmulHeuristicResult_t heuristicResult = {};
   int returnedAlgoCount = 0;
   
@@ -421,8 +408,6 @@ torch::Tensor cublaslt_scaled_mm(
     algo = &heuristicResult.algo;
     workspace_size = heuristicResult.workspaceSize;
   } else {
-    // 启发式失败，使用默认算法
-    // 注意：algo=NULL 时 cuBLASLt 会内部执行启发式搜索
     workspace_size = WORKSPACE_SIZE;
   }
   
@@ -430,7 +415,7 @@ torch::Tensor cublaslt_scaled_mm(
   void* workspace = get_workspace(workspace_size, stream);
   
   // ========== 执行 Matmul ==========
-  // alpha = 1.0, beta = 0.0（scale 已经在 Outer Vector Scaling 中处理）
+  // alpha = 1.0, beta = 0.0（纯矩阵乘法，scale 由后续 kernel 处理）
   float alpha = 1.0f;
   float beta = 0.0f;
   
@@ -463,33 +448,96 @@ torch::Tensor cublaslt_scaled_mm(
 }
 
 // ============================================================================
+// FP8 专用入口（保持向后兼容）
+// ============================================================================
+
+/**
+ * cuBLASLt FP8 Matrix Multiplication（纯 GEMM，不带 dequant）
+ * 
+ * 这是 FP8 专用的简化接口，inner_dtype 默认为 bf16。
+ * 
+ * 计算：D[M,N] = A[M,K] @ W[N,K]^T
+ * 
+ * @param W           权重矩阵 [N, K]，FP8E4M3，行主序存储
+ * @param A           输入矩阵 [M, K]，FP8E4M3，行主序存储
+ * @param inner_dtype 输出数据类型字符串："bf16"（默认）或 "fp32"
+ * @return            输出矩阵 [M, N]，BF16/FP32
+ */
+torch::Tensor cublaslt_fp8_mm(
+    torch::Tensor W,                       // [N, K] FP8 行主序
+    torch::Tensor A,                       // [M, K] FP8 行主序
+    const std::string& inner_dtype = "bf16")  // "bf16" 或 "fp32"
+{
+  return cublaslt_mm(W, A, "fp8e4m3", inner_dtype);
+}
+
+// ============================================================================
+// INT8 专用入口
+// ============================================================================
+
+/**
+ * cuBLASLt INT8 Matrix Multiplication（纯 GEMM，不带 dequant）
+ * 
+ * 计算：D[M,N] = A[M,K] @ W[N,K]^T
+ * 
+ * @param W           权重矩阵 [N, K]，INT8，行主序存储
+ * @param A           输入矩阵 [M, K]，INT8，行主序存储
+ * @param inner_dtype 输出数据类型字符串："bf16"（默认）或 "fp32"
+ * @return            输出矩阵 [M, N]，BF16/FP32
+ */
+torch::Tensor cublaslt_int8_mm(
+    torch::Tensor W,                       // [N, K] INT8 行主序
+    torch::Tensor A,                       // [M, K] INT8 行主序
+    const std::string& inner_dtype = "bf16")  // "bf16" 或 "fp32"
+{
+  return cublaslt_mm(W, A, "int8", inner_dtype);
+}
+
+// ============================================================================
 // PyTorch 绑定
 // ============================================================================
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
-  m.doc() = "cuBLASLt FP8 GEMM for SlideSparse";
+  m.doc() = "cuBLASLt GEMM for SlideSparse (without scale/bias fusion)";
   
+  // 注意: cublaslt_mm 是内部实现，不对外导出
+  // Python 层应直接调用 cublaslt_fp8_mm 或 cublaslt_int8_mm
+  
+  // FP8 专用入口
   m.def(
-      "cublaslt_scaled_mm",
-      &cublaslt_scaled_mm,
-      "cuBLASLt FP8 Scaled Matrix Multiplication with Outer Vector Scaling\n"
+      "cublaslt_fp8_mm",
+      &cublaslt_fp8_mm,
+      "cuBLASLt FP8 Matrix Multiplication (pure GEMM, no dequant)\n"
       "\n"
-      "Computes: D[M,N] = scale_A[M] * scale_W[N] * (A[M,K] @ W[N,K]^T) + bias[N]\n"
+      "Computes: D[M,N] = A[M,K] @ W[N,K]^T\n"
       "\n"
       "Args:\n"
       "    W: Weight matrix [N, K], FP8E4M3, row-major\n"
       "    A: Input matrix [M, K], FP8E4M3, row-major\n"
-      "    scale_W: Weight scale [N], FP32, per-channel\n"
-      "    scale_A: Input scale [M], FP32, per-token\n"
-      "    bias: Bias vector [N], BF16 (optional, pass empty tensor for no bias)\n"
-      "    out_dtype: Output data type (BFloat16, Half, or Float)\n"
+      "    inner_dtype: Output data type ('bf16' or 'fp32', default 'bf16')\n"
       "\n"
       "Returns:\n"
-      "    Output matrix [M, N], dtype as specified\n",
+      "    Output matrix [M, N], BF16/FP32\n",
       py::arg("W"),
       py::arg("A"),
-      py::arg("scale_W"),
-      py::arg("scale_A"),
-      py::arg("bias"),
-      py::arg("out_dtype"));
+      py::arg("inner_dtype") = "bf16");
+  
+  // INT8 专用入口
+  m.def(
+      "cublaslt_int8_mm",
+      &cublaslt_int8_mm,
+      "cuBLASLt INT8 Matrix Multiplication (pure GEMM, no dequant)\n"
+      "\n"
+      "Computes: D[M,N] = A[M,K] @ W[N,K]^T\n"
+      "\n"
+      "Args:\n"
+      "    W: Weight matrix [N, K], INT8, row-major\n"
+      "    A: Input matrix [M, K], INT8, row-major\n"
+      "    inner_dtype: Output data type ('bf16' or 'fp32', default 'bf16')\n"
+      "\n"
+      "Returns:\n"
+      "    Output matrix [M, N], BF16/FP32\n",
+      py::arg("W"),
+      py::arg("A"),
+      py::arg("inner_dtype") = "bf16");
 }

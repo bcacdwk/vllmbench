@@ -2,13 +2,15 @@
 # -*- coding: utf-8 -*-
 # SPDX-License-Identifier: Apache-2.0
 """
-SlideSparse 测试基础设施
+SlideSparse cuBLASLt 测试工具库
 
-提供统一的测试工具类和辅助函数，确保测试的:
-- 泛用性: 支持不同模型、不同 GPU、不同配置
-- 鲁棒性: 完善的错误处理、资源清理、超时控制
-- 可扩展性: 易于添加新测试用例、新模型支持
-
+提供统一的测试基础设施，包括：
+- 测试状态和结果数据类
+- 测试装饰器和运行器
+- 环境检测工具
+- 模型查找工具
+- CUDA 内存管理
+- 性能测试工具
 """
 
 import os
@@ -23,10 +25,54 @@ from enum import Enum
 from contextlib import contextmanager
 from pathlib import Path
 
-# 添加项目根目录到 Python 路径
+# ============================================================================
+# 路径设置
+# ============================================================================
+
 SCRIPT_DIR = Path(__file__).parent.absolute()
-PROJECT_ROOT = SCRIPT_DIR.parent.parent
+TEST_DIR = SCRIPT_DIR.parent
+PROJECT_ROOT = TEST_DIR.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
+
+
+# ============================================================================
+# ANSI 颜色
+# ============================================================================
+
+class Colors:
+    """终端颜色"""
+    RED = '\033[0;31m'
+    GREEN = '\033[0;32m'
+    YELLOW = '\033[1;33m'
+    BLUE = '\033[0;34m'
+    CYAN = '\033[0;36m'
+    MAGENTA = '\033[0;35m'
+    BOLD = '\033[1m'
+    NC = '\033[0m'  # No Color
+    
+    @classmethod
+    def red(cls, text: str) -> str:
+        return f"{cls.RED}{text}{cls.NC}"
+    
+    @classmethod
+    def green(cls, text: str) -> str:
+        return f"{cls.GREEN}{text}{cls.NC}"
+    
+    @classmethod
+    def yellow(cls, text: str) -> str:
+        return f"{cls.YELLOW}{text}{cls.NC}"
+    
+    @classmethod
+    def blue(cls, text: str) -> str:
+        return f"{cls.BLUE}{text}{cls.NC}"
+    
+    @classmethod
+    def cyan(cls, text: str) -> str:
+        return f"{cls.CYAN}{text}{cls.NC}"
+    
+    @classmethod
+    def bold(cls, text: str) -> str:
+        return f"{cls.BOLD}{text}{cls.NC}"
 
 
 # ============================================================================
@@ -55,7 +101,16 @@ class TestResult:
     details: Dict[str, Any] = field(default_factory=dict)
     
     def __str__(self) -> str:
-        status_str = f"{self.status.value} {self.name}"
+        status_char = self.status.value
+        if self.status == TestStatus.PASSED:
+            status_str = Colors.green(f"{status_char} {self.name}")
+        elif self.status == TestStatus.FAILED:
+            status_str = Colors.red(f"{status_char} {self.name}")
+        elif self.status == TestStatus.SKIPPED:
+            status_str = Colors.yellow(f"{status_char} {self.name}")
+        else:
+            status_str = Colors.yellow(f"{status_char} {self.name}")
+        
         if self.message:
             status_str += f": {self.message}"
         if self.duration > 0:
@@ -99,10 +154,16 @@ class TestSuiteResult:
             "=" * 60,
             f"测试套件: {self.name}",
             "-" * 60,
-            f"通过: {self.passed}  失败: {self.failed}  跳过: {self.skipped}",
-            f"耗时: {self.duration:.2f}s",
-            "-" * 60,
         ]
+        
+        passed_str = Colors.green(f"通过: {self.passed}")
+        failed_str = Colors.red(f"失败: {self.failed}") if self.failed > 0 else f"失败: {self.failed}"
+        skipped_str = Colors.yellow(f"跳过: {self.skipped}") if self.skipped > 0 else f"跳过: {self.skipped}"
+        
+        lines.append(f"{passed_str}  {failed_str}  {skipped_str}")
+        lines.append(f"耗时: {self.duration:.2f}s")
+        lines.append("-" * 60)
+        
         for r in self.results:
             lines.append(f"  {r}")
         lines.append("=" * 60)
@@ -238,9 +299,8 @@ class EnvironmentChecker:
     
     @classmethod
     def supports_fp8(cls) -> bool:
-        """检查是否支持 FP8"""
+        """检查是否支持 FP8 (sm_89+)"""
         cc = cls.cuda_compute_capability()
-        # sm_89 (Ada) 或更高支持 FP8
         return cc >= (8, 9)
     
     @classmethod
@@ -255,6 +315,17 @@ class EnvironmentChecker:
         return cls._cache["cublaslt_enabled"]
     
     @classmethod
+    def is_inner_dtype_fp32(cls) -> bool:
+        """检查 INNER_DTYPE_FP32 是否启用"""
+        if "inner_dtype_fp32" not in cls._cache:
+            try:
+                from slidesparse.core.cublaslt_config import is_inner_dtype_fp32
+                cls._cache["inner_dtype_fp32"] = is_inner_dtype_fp32()
+            except ImportError:
+                cls._cache["inner_dtype_fp32"] = False
+        return cls._cache["inner_dtype_fp32"]
+    
+    @classmethod
     def get_env_info(cls) -> Dict[str, Any]:
         """获取完整环境信息"""
         info = {
@@ -263,6 +334,7 @@ class EnvironmentChecker:
             "cuda_cc": cls.cuda_compute_capability(),
             "supports_fp8": cls.supports_fp8(),
             "cublaslt_enabled": cls.is_cublaslt_enabled(),
+            "inner_dtype_fp32": cls.is_inner_dtype_fp32(),
         }
         
         # Python 版本
@@ -289,7 +361,7 @@ class EnvironmentChecker:
         """打印环境信息"""
         info = cls.get_env_info()
         print("=" * 60)
-        print("环境信息")
+        print(Colors.bold("环境信息"))
         print("-" * 60)
         print(f"  Python: {info['python_version']}")
         print(f"  PyTorch: {info['torch_version']}")
@@ -299,7 +371,14 @@ class EnvironmentChecker:
             print(f"  GPU: {info['cuda_device']}")
             print(f"  Compute Capability: {info['cuda_cc']}")
             print(f"  FP8 支持: {'是' if info['supports_fp8'] else '否'}")
-        print(f"  cuBLASLt: {'启用' if info['cublaslt_enabled'] else '禁用'}")
+        
+        # cuBLASLt 状态
+        cublaslt_status = Colors.green("启用") if info['cublaslt_enabled'] else Colors.yellow("禁用")
+        print(f"  cuBLASLt: {cublaslt_status}")
+        
+        if info['cublaslt_enabled']:
+            inner_dtype = "FP32" if info['inner_dtype_fp32'] else "BF16"
+            print(f"  INNER_DTYPE: {inner_dtype}")
         print("=" * 60)
 
 
@@ -390,22 +469,34 @@ class ModelFinder:
         return models[0] if models else None
     
     @classmethod
-    def get_model_info(cls, model_path: Path) -> Dict[str, Any]:
-        """获取模型信息"""
-        info = {"path": str(model_path), "name": model_path.name}
+    def get_test_models(cls, model_type: str = "FP8", max_count: int = 2) -> List[Path]:
+        """
+        获取测试用模型列表
         
-        config_path = model_path / "config.json"
-        if config_path.exists():
-            try:
-                with open(config_path) as f:
-                    config = json.load(f)
-                info["architecture"] = config.get("architectures", ["Unknown"])[0]
-                info["hidden_size"] = config.get("hidden_size", 0)
-                info["num_layers"] = config.get("num_hidden_layers", 0)
-            except Exception:
-                pass
+        优先返回 Qwen2.5-0.5B 和 Llama3.2-1B
+        """
+        priority = ["Qwen2.5-0.5B", "Llama3.2-1B"]
+        models = cls.find_models(model_type)
         
-        return info
+        result = []
+        # 先添加优先模型
+        for name in priority:
+            for model in models:
+                if name in model.name and model not in result:
+                    result.append(model)
+                    if len(result) >= max_count:
+                        break
+            if len(result) >= max_count:
+                break
+        
+        # 如果不够，补充其他模型
+        for model in models:
+            if model not in result:
+                result.append(model)
+            if len(result) >= max_count:
+                break
+        
+        return result
 
 
 # ============================================================================
@@ -425,24 +516,17 @@ def cuda_memory_manager():
 
 
 @contextmanager
-def timeout_context(seconds: float, message: str = "操作超时"):
-    """超时控制上下文 (仅 Unix)"""
-    import signal
-    
-    def handler(signum, frame):
-        raise TimeoutError(message)
-    
-    if hasattr(signal, 'SIGALRM'):
-        old_handler = signal.signal(signal.SIGALRM, handler)
-        signal.alarm(int(seconds))
-        try:
-            yield
-        finally:
-            signal.alarm(0)
-            signal.signal(signal.SIGALRM, old_handler)
-    else:
-        # Windows 不支持 SIGALRM
+def suppress_vllm_logs():
+    """抑制 vLLM 的日志输出"""
+    old_level = os.environ.get("VLLM_LOGGING_LEVEL", "")
+    os.environ["VLLM_LOGGING_LEVEL"] = "ERROR"
+    try:
         yield
+    finally:
+        if old_level:
+            os.environ["VLLM_LOGGING_LEVEL"] = old_level
+        else:
+            os.environ.pop("VLLM_LOGGING_LEVEL", None)
 
 
 # ============================================================================
@@ -476,7 +560,7 @@ class TestRunner:
         
         if self.verbose:
             print("=" * 60)
-            print(f"测试套件: {self.suite_name}")
+            print(Colors.bold(f"测试套件: {self.suite_name}"))
             print("=" * 60)
         
         for test in tests:
@@ -506,12 +590,6 @@ class Benchmarker:
     ) -> Tuple[float, float]:
         """
         执行基准测试
-        
-        Args:
-            func: 要测试的函数
-            warmup: 预热次数
-            repeat: 重复次数
-            synchronize: 是否同步 CUDA
         
         Returns:
             (平均时间 ms, 标准差 ms)
@@ -544,46 +622,9 @@ class Benchmarker:
     @staticmethod
     def compute_tflops(flops: int, time_ms: float) -> float:
         """计算 TFLOPS"""
+        if time_ms <= 0:
+            return 0.0
         return flops / (time_ms * 1e-3) / 1e12
-
-
-# ============================================================================
-# 断言工具
-# ============================================================================
-
-class Assertions:
-    """断言工具类"""
-    
-    @staticmethod
-    def assert_close(
-        actual,
-        expected,
-        rtol: float = 1e-3,
-        atol: float = 1e-5,
-        msg: str = ""
-    ) -> Tuple[bool, str]:
-        """断言两个张量接近"""
-        import torch
-        
-        if not torch.allclose(actual, expected, rtol=rtol, atol=atol):
-            max_diff = (actual - expected).abs().max().item()
-            mean_diff = (actual - expected).abs().mean().item()
-            return False, f"{msg} max_diff={max_diff:.6f}, mean_diff={mean_diff:.6f}"
-        return True, f"{msg} 通过"
-    
-    @staticmethod
-    def assert_equal(actual, expected, msg: str = "") -> Tuple[bool, str]:
-        """断言相等"""
-        if actual != expected:
-            return False, f"{msg} 期望 {expected}, 实际 {actual}"
-        return True, f"{msg} 通过"
-    
-    @staticmethod
-    def assert_true(condition: bool, msg: str = "") -> Tuple[bool, str]:
-        """断言为真"""
-        if not condition:
-            return False, f"{msg} 条件不满足"
-        return True, f"{msg} 通过"
 
 
 # ============================================================================
@@ -617,3 +658,54 @@ def skip_if_cublaslt_disabled() -> Tuple[bool, str]:
     if not EnvironmentChecker.is_cublaslt_enabled():
         return (True, "cuBLASLt 未启用 (设置 USE_CUBLASLT=1)")
     return (False, "")
+
+
+# ============================================================================
+# 命令行参数解析
+# ============================================================================
+
+def parse_common_args(description: str):
+    """
+    解析通用命令行参数
+    
+    测试路径说明:
+    - 默认（无参数）：测试 cuBLASLt 路径 (USE_CUBLASLT=1)
+    - --ext-cutlass：测试外挂 CUTLASS 路径 (USE_CUBLASLT=0)
+    - --inner-fp32：cuBLASLt 使用 FP32 内部计算
+    
+    三种路径:
+    1. 原生 CUTLASS: vLLM 原本的 Fp8LinearOp 路径（baseline）
+    2. 外挂 CUTLASS: CuBLASLtFp8LinearMethod + USE_CUBLASLT=0
+    3. cuBLASLt: CuBLASLtFp8LinearMethod + USE_CUBLASLT=1
+    """
+    import argparse
+    parser = argparse.ArgumentParser(description=description)
+    parser.add_argument("--inner-fp32", action="store_true", 
+                        help="cuBLASLt 使用 FP32 内部计算 (INNER_DTYPE_FP32=1)")
+    parser.add_argument("--ext-cutlass", action="store_true",
+                        help="测试外挂 CUTLASS 路径（不启用 cuBLASLt）")
+    return parser
+
+
+def apply_env_args(args):
+    """
+    应用环境变量参数
+    
+    默认行为（无 --ext-cutlass）：
+        USE_CUBLASLT=1，测试 cuBLASLt 路径
+    
+    加 --ext-cutlass：
+        USE_CUBLASLT=0，测试外挂 CUTLASS 路径
+    """
+    # 默认启用 cuBLASLt，除非指定 --ext-cutlass
+    if hasattr(args, 'ext_cutlass') and args.ext_cutlass:
+        os.environ["USE_CUBLASLT"] = "0"
+    else:
+        os.environ["USE_CUBLASLT"] = "1"
+    
+    # FP32 内部计算（仅 cuBLASLt 生效）
+    if hasattr(args, 'inner_fp32') and args.inner_fp32:
+        os.environ["INNER_DTYPE_FP32"] = "1"
+    
+    # 清除缓存以重新读取环境变量
+    EnvironmentChecker.clear_cache()
