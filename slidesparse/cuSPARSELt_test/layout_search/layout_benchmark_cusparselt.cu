@@ -26,8 +26,8 @@
 //    (如果 B 是稀疏矩阵则相反)
 //
 // 4. 数据类型支持 (本实现):
-//    - INT8: Input A/B=CUDA_R_8I, Output C/D=CUDA_R_16BF
-//    - FP8:  Input A/B=CUDA_R_8F_E4M3, Output=CUDA_R_16BF
+//    - INT8: Input A/B=CUDA_R_8I, Output C/D=bf16/fp32
+//    - FP8:  Input A/B=CUDA_R_8F_E4M3, Output=bf16/fp32
 //
 // 5. 内存对齐: alignment 必须是 16 的倍数
 
@@ -115,10 +115,11 @@ static cudaDataType to_cuda_dtype(const std::string &dtype) {
   throw std::invalid_argument("不支持的数据类型: " + dtype + "。支持: int8, fp8e4m3");
 }
 
-static cudaDataType cuda_out_dtype(const std::string &dtype) {
-  // 输出统一为 BF16，支持更好的后续处理和精度
-  if (dtype == "int8" || dtype == "fp8e4m3") return CUDA_R_16BF;
-  throw std::invalid_argument("不支持的数据类型: " + dtype);
+static cudaDataType cuda_out_dtype(const std::string &outdtype) {
+  // 输出类型：支持 bf16 和 fp32
+  if (outdtype == "bf16") return CUDA_R_16BF;
+  if (outdtype == "fp32") return CUDA_R_32F;
+  throw std::invalid_argument("不支持的输出数据类型: " + outdtype + "。支持: bf16, fp32");
 }
 
 static cusparseComputeType compute_type_from_dtype(const std::string &dtype) {
@@ -132,9 +133,10 @@ static int dtype_size(const std::string &dtype) {
   return 1;
 }
 
-static int out_dtype_size(const std::string &dtype) {
-  // 输出统一为 BF16 (2 字节)
-  if (dtype == "int8" || dtype == "fp8e4m3") return 2;  // bfloat16
+static int out_dtype_size(const std::string &outdtype) {
+  // 输出类型字节数：bf16=2, fp32=4
+  if (outdtype == "bf16") return 2;  // bfloat16
+  if (outdtype == "fp32") return 4;  // float32
   return 2;
 }
 
@@ -169,6 +171,7 @@ py::dict test_layout(
     const std::string &orderA_str,  // "Col" or "Row"
     const std::string &orderR_str,  // "Col" or "Row" (输出矩阵顺序)
     const std::string &dtype,
+    const std::string &outdtype,    // "bf16" or "fp32" (输出数据类型)
     int warmup,
     int repeat,
     bool test_segment_k  // 是否测试 Segment-K (split_k=-1)，由 Python 端根据架构决定
@@ -186,7 +189,7 @@ py::dict test_layout(
   cusparseOrder_t orderR = parse_order(orderR_str);
 
   cudaDataType type_AB = to_cuda_dtype(dtype);
-  cudaDataType type_C = cuda_out_dtype(dtype);
+  cudaDataType type_C = cuda_out_dtype(outdtype);
   cusparseComputeType comp_type = compute_type_from_dtype(dtype);
   unsigned alignment = 16;
 
@@ -223,7 +226,7 @@ py::dict test_layout(
 
   size_t W_size = W_elems * dtype_size(dtype);
   size_t A_size = A_elems * dtype_size(dtype);
-  size_t R_size = R_elems * out_dtype_size(dtype);
+  size_t R_size = R_elems * out_dtype_size(outdtype);
 
   // 分配设备内存
   void *dW = nullptr, *dA = nullptr, *dR = nullptr;
@@ -597,6 +600,7 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
         py::arg("opW"), py::arg("opA"),
         py::arg("orderW"), py::arg("orderA"), py::arg("orderR"),
         py::arg("dtype"),
+        py::arg("outdtype") = "bf16",
         py::arg("warmup") = 10,
         py::arg("repeat") = 50,
         py::arg("test_segment_k") = false);

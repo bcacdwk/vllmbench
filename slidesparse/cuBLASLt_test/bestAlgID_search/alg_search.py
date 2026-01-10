@@ -18,8 +18,11 @@ cuBLASLt 算法离线搜索
 - W[N,K]^T_col * A[K,M]_col = C[N,M]_col
 
 运行示例:
-CUDA_VISIBLE_DEVICES=0 python3 alg_search.py --dtype int8 --verify --compile
-CUDA_VISIBLE_DEVICES=0 python3 alg_search.py --dtype fp8e4m3 --verify
+CUDA_VISIBLE_DEVICES=0 python3 alg_search.py --dtype int8 --outdtype bf16 --verify --compile
+CUDA_VISIBLE_DEVICES=0 python3 alg_search.py --dtype fp8e4m3 --outdtype bf16 --verify
+
+CUDA_VISIBLE_DEVICES=0 python3 alg_search.py --dtype int8 --outdtype fp32 --verify
+CUDA_VISIBLE_DEVICES=0 python3 alg_search.py --dtype fp8e4m3 --outdtype fp32 --verify
 
 """
 
@@ -354,7 +357,7 @@ def decode_algo_data(algo_data_b64: str) -> bytes:
 
 # === 运行一次 layout 的搜索 ===
 
-def run_search(ext, dtype: str, nk_list: List[Tuple[int, int]], m_list: List[int],
+def run_search(ext, dtype: str, outdtype: str, nk_list: List[Tuple[int, int]], m_list: List[int],
                warmup: int, repeat: int, verify: bool, verbose: bool = True) -> Dict:
     """
     运行算法搜索。
@@ -384,6 +387,7 @@ def run_search(ext, dtype: str, nk_list: List[Tuple[int, int]], m_list: List[int
             m_list,
             layout,
             dtype,
+            outdtype,
             warmup,
             repeat,
             verify,
@@ -415,6 +419,7 @@ def run_search(ext, dtype: str, nk_list: List[Tuple[int, int]], m_list: List[int
     
     return {
         "dtype": dtype,
+        "outdtype": outdtype,
         "results": results,
         "M_list": m_list,
         "NK_list": nk_list,
@@ -422,12 +427,12 @@ def run_search(ext, dtype: str, nk_list: List[Tuple[int, int]], m_list: List[int
 
 # === 落盘工具 ===
 
-def save_outputs(out_dir: Path, gpu_short_name: str, arch_name: str, dtype: str,
+def save_outputs(out_dir: Path, gpu_short_name: str, arch_name: str, dtype: str, outdtype: str,
                  search_ret: Dict, warmup: int, repeat: int, verify: bool) -> Path:
     """
     保存搜索结果到 CSV 和 JSON 文件。
     
-    文件夹命名: {GPU}_{cc}_{dtype}，如 A100_cc80_INT8
+    文件夹命名: {GPU}_{cc}_{dtype}_{outdtype}，如 A100_cc80_INT8_BF16
     文件命名: alg_id_benchmark_results.csv, alg_id_LUT.json
     
     CSV 排序规则：先按 M 升序，M 相同时按 nk_list 传入顺序排序。
@@ -442,8 +447,8 @@ def save_outputs(out_dir: Path, gpu_short_name: str, arch_name: str, dtype: str,
     layout = "TNCCcol"  # 固定布局，仅用于元数据记录
     prop = torch.cuda.get_device_properties(0)
     
-    # 子目录命名: {GPU}_{cc}_{dtype}
-    subdir_name = f"{gpu_short_name}_cc{prop.major}{prop.minor}_{dtype.upper()}"
+    # 子目录命名: {GPU}_{cc}_{dtype}_{outdtype}
+    subdir_name = f"{gpu_short_name}_cc{prop.major}{prop.minor}_{dtype.upper()}_{outdtype.upper()}"
     subdir = out_dir / subdir_name
     subdir.mkdir(parents=True, exist_ok=True)
     
@@ -466,6 +471,7 @@ def save_outputs(out_dir: Path, gpu_short_name: str, arch_name: str, dtype: str,
         "arch_name": arch_name,
         "layout": layout,
         "dtype": dtype,
+        "outdtype": outdtype,
         "alg_count": alg_count,
         "config_count": config_count,
         "warmup": warmup,
@@ -487,7 +493,7 @@ def save_outputs(out_dir: Path, gpu_short_name: str, arch_name: str, dtype: str,
         f"# alg_count: {alg_count}, config_count: {config_count}",
         f"# torch: {torch.__version__}",
         f"# CUDA driver: {cuda_driver_ver}, runtime: {cuda_runtime_ver}",
-        f"# layout: {layout}, dtype: {dtype}, warmup={warmup}, repeat={repeat}, verify={verify}",
+        f"# layout: {layout}, dtype: {dtype}, outdtype: {outdtype}, warmup={warmup}, repeat={repeat}, verify={verify}",
         f"# M_list: {search_ret['M_list']}",
         f"# NK_list: {search_ret['NK_list']}",
     ]
@@ -612,8 +618,11 @@ def save_outputs(out_dir: Path, gpu_short_name: str, arch_name: str, dtype: str,
 # 支持的 dtype 列表
 SUPPORTED_DTYPES = ["int8", "fp8e4m3"]
 
+# 支持的输出 dtype 列表
+SUPPORTED_OUTDTYPES = ["bf16", "fp32"]
 
-def probe_dtype_support(ext, dtype: str, layout: str = "TNCCcol") -> Tuple[bool, str]:
+
+def probe_dtype_support(ext, dtype: str, outdtype: str = "bf16", layout: str = "TNCCcol") -> Tuple[bool, str]:
     """
     通过实际调用 cuBLASLt 来探测 dtype 是否被当前 GPU 支持。
     
@@ -622,6 +631,7 @@ def probe_dtype_support(ext, dtype: str, layout: str = "TNCCcol") -> Tuple[bool,
     Args:
         ext: 编译好的 CUDA 扩展模块
         dtype: 要测试的数据类型
+        outdtype: 输出数据类型
         layout: 布局类型
     
     Returns:
@@ -643,6 +653,7 @@ def probe_dtype_support(ext, dtype: str, layout: str = "TNCCcol") -> Tuple[bool,
             [M],           # M_list
             layout,
             dtype,
+            outdtype,
             1,             # warmup
             1,             # repeat
             False,         # verify
@@ -671,13 +682,14 @@ def probe_dtype_support(ext, dtype: str, layout: str = "TNCCcol") -> Tuple[bool,
         torch.cuda.empty_cache()
 
 
-def check_dtype_support(ext, dtype: str, arch_name: str, verbose: bool = True) -> None:
+def check_dtype_support(ext, dtype: str, outdtype: str, arch_name: str, verbose: bool = True) -> None:
     """
     检查 dtype 是否被当前 GPU 支持（通过实际测试）。
     
     Args:
         ext: 编译好的 CUDA 扩展模块
         dtype: 要测试的数据类型
+        outdtype: 输出数据类型
         arch_name: 架构名称（用于显示）
         verbose: 是否显示详细信息
     
@@ -690,10 +702,16 @@ def check_dtype_support(ext, dtype: str, arch_name: str, verbose: bool = True) -
             f"支持的类型: {', '.join(SUPPORTED_DTYPES)}"
         )
     
-    if verbose:
-        print(f"[预测试] 检测 dtype={dtype} 在 {arch_name} 上的支持情况...", end=" ", flush=True)
+    if outdtype not in SUPPORTED_OUTDTYPES:
+        raise ValueError(
+            f"不支持的输出数据类型: {outdtype}\n"
+            f"支持的类型: {', '.join(SUPPORTED_OUTDTYPES)}"
+        )
     
-    supported, message = probe_dtype_support(ext, dtype)
+    if verbose:
+        print(f"[预测试] 检测 dtype={dtype}, outdtype={outdtype} 在 {arch_name} 上的支持情况...", end=" ", flush=True)
+    
+    supported, message = probe_dtype_support(ext, dtype, outdtype)
     
     if supported:
         if verbose:
@@ -711,7 +729,8 @@ def check_dtype_support(ext, dtype: str, arch_name: str, verbose: bool = True) -
 
 def parse_args():
     p = argparse.ArgumentParser(description="cuBLASLt 算法离线搜索 v1.0")
-    p.add_argument("--dtype", default="int8", choices=SUPPORTED_DTYPES, help="数据类型")
+    p.add_argument("--dtype", default="int8", choices=SUPPORTED_DTYPES, help="输入数据类型")
+    p.add_argument("--outdtype", default="bf16", choices=SUPPORTED_OUTDTYPES, help="输出数据类型")
     p.add_argument("--warmup", type=int, default=25)
     p.add_argument("--repeat", type=int, default=100)
     p.add_argument("--verify", action="store_true", help="开启正确性校验")
@@ -734,7 +753,7 @@ def main():
     arch_name, arch_suffix, sm_code = detect_arch()
     prop = torch.cuda.get_device_properties(0)
     print(f"GPU: {prop.name} (CC {prop.major}.{prop.minor}, {arch_name})")
-    print(f"参数: dtype={args.dtype}, warmup={args.warmup}, repeat={args.repeat}")
+    print(f"参数: dtype={args.dtype}, outdtype={args.outdtype}, warmup={args.warmup}, repeat={args.repeat}")
     if args.verify:
         print("注意: 已开启 verify 模式，会降低搜索速度")
     print()
@@ -751,7 +770,7 @@ def main():
 
     # === 预测试 dtype 兼容性（通过实际调用 cuBLASLt）===
     try:
-        check_dtype_support(ext, args.dtype, arch_name, verbose=True)
+        check_dtype_support(ext, args.dtype, args.outdtype, arch_name, verbose=True)
     except ValueError as e:
         print(f"\n❌ 错误: {e}")
         print("")
@@ -769,6 +788,7 @@ def main():
     ret = run_search(
         ext,
         args.dtype,
+        args.outdtype,
         nk_list,
         m_list,
         args.warmup,
@@ -781,6 +801,7 @@ def main():
         gpu_short_name,
         arch_name,
         args.dtype,
+        args.outdtype,
         ret,
         args.warmup,
         args.repeat,

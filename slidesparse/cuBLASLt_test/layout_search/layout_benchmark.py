@@ -14,8 +14,11 @@ Layout 组合说明：
 4. T/T + Col/Row + (Col/Row)  - opW=T, opA=T, orderW=Col, orderA=Row
 
 运行示例:
-CUDA_VISIBLE_DEVICES=0 python3 layout_benchmark.py --dtype int8 --compile
-CUDA_VISIBLE_DEVICES=0 python3 layout_benchmark.py --dtype fp8e4m3
+CUDA_VISIBLE_DEVICES=0 python3 layout_benchmark.py --dtype int8 --outdtype bf16 --compile
+CUDA_VISIBLE_DEVICES=0 python3 layout_benchmark.py --dtype fp8e4m3 --outdtype bf16
+
+CUDA_VISIBLE_DEVICES=0 python3 layout_benchmark.py --dtype int8 --outdtype fp32
+CUDA_VISIBLE_DEVICES=0 python3 layout_benchmark.py --dtype fp8e4m3 --outdtype fp32
 
 """
 
@@ -255,10 +258,13 @@ def default_m_list() -> List[int]:
 # === 支持的 dtype ===
 SUPPORTED_DTYPES = ["int8", "fp8e4m3"]
 
+# === 支持的输出 dtype ===
+SUPPORTED_OUTDTYPES = ["bf16", "fp32"]
+
 
 # === 测试运行 ===
 
-def run_layout_benchmark(ext, dtype: str, nk_list: List[Tuple[int, int, str]], 
+def run_layout_benchmark(ext, dtype: str, outdtype: str, nk_list: List[Tuple[int, int, str]], 
                          m_list: List[int], warmup: int, repeat: int,
                          verbose: bool = True) -> Dict:
     """
@@ -312,6 +318,7 @@ def run_layout_benchmark(ext, dtype: str, nk_list: List[Tuple[int, int, str]],
                             layout_cfg["orderA"],
                             orderR,
                             dtype,
+                            outdtype,
                             warmup,
                             repeat,
                         )
@@ -349,6 +356,7 @@ def run_layout_benchmark(ext, dtype: str, nk_list: List[Tuple[int, int, str]],
     
     return {
         "dtype": dtype,
+        "outdtype": outdtype,
         "nk_list": [(n, k, name) for n, k, name in nk_list],
         "m_list": m_list,
         "results": results,
@@ -357,12 +365,12 @@ def run_layout_benchmark(ext, dtype: str, nk_list: List[Tuple[int, int, str]],
 
 # === 结果保存 ===
 
-def save_outputs(out_dir: Path, gpu_short_name: str, arch_name: str, dtype: str,
+def save_outputs(out_dir: Path, gpu_short_name: str, arch_name: str, dtype: str, outdtype: str,
                  benchmark_ret: Dict, warmup: int, repeat: int) -> Path:
     """保存测试结果到 CSV 和 JSON 文件"""
     prop = torch.cuda.get_device_properties(0)
     
-    subdir_name = f"{gpu_short_name}_cc{prop.major}{prop.minor}_{dtype.upper()}"
+    subdir_name = f"{gpu_short_name}_cc{prop.major}{prop.minor}_{dtype.upper()}_{outdtype.upper()}"
     subdir = out_dir / subdir_name
     subdir.mkdir(parents=True, exist_ok=True)
     
@@ -377,6 +385,7 @@ def save_outputs(out_dir: Path, gpu_short_name: str, arch_name: str, dtype: str,
         "compute_capability": f"{prop.major}.{prop.minor}",
         "arch_name": arch_name,
         "dtype": dtype,
+        "outdtype": outdtype,
         "warmup": warmup,
         "repeat": repeat,
         "torch_version": torch.__version__,
@@ -393,7 +402,7 @@ def save_outputs(out_dir: Path, gpu_short_name: str, arch_name: str, dtype: str,
     lines = []
     lines.append(f"# GPU: {prop.name}")
     lines.append(f"# CC: {prop.major}.{prop.minor}")
-    lines.append(f"# dtype: {dtype}, warmup={warmup}, repeat={repeat}")
+    lines.append(f"# dtype: {dtype}, outdtype: {outdtype}, warmup={warmup}, repeat={repeat}")
     lines.append(f"# Layouts: {[cfg['name'] for cfg in LAYOUT_CONFIGS]}")
     # CSV列顺序: tops, lat, id, ws, waves (best结果)
     lines.append("M,N,K,layout,orderR,supported,alg_count,config_count,best_tops,best_lat_us,best_id,best_ws,best_waves")
@@ -442,7 +451,7 @@ def save_outputs(out_dir: Path, gpu_short_name: str, arch_name: str, dtype: str,
 
 # === dtype 兼容性预测试 ===
 
-def probe_dtype_support(ext, dtype: str) -> Tuple[bool, str]:
+def probe_dtype_support(ext, dtype: str, outdtype: str = "bf16") -> Tuple[bool, str]:
     """探测 dtype 是否被当前 GPU 支持"""
     N, K, M = 32, 32, 16
     
@@ -451,6 +460,7 @@ def probe_dtype_support(ext, dtype: str) -> Tuple[bool, str]:
             N, K, M,
             "T", "N", "Col", "Col", "Col",  # TN+CC+Col
             dtype,
+            outdtype,
             1, 1,  # warmup, repeat
         )
         
@@ -465,7 +475,7 @@ def probe_dtype_support(ext, dtype: str) -> Tuple[bool, str]:
         torch.cuda.empty_cache()
 
 
-def check_dtype_support(ext, dtype: str, arch_name: str, verbose: bool = True) -> None:
+def check_dtype_support(ext, dtype: str, outdtype: str, arch_name: str, verbose: bool = True) -> None:
     """检查 dtype 是否被支持"""
     if dtype not in SUPPORTED_DTYPES:
         raise ValueError(
@@ -473,10 +483,16 @@ def check_dtype_support(ext, dtype: str, arch_name: str, verbose: bool = True) -
             f"支持的类型: {', '.join(SUPPORTED_DTYPES)}"
         )
     
-    if verbose:
-        print(f"[预测试] 检测 dtype={dtype} 在 {arch_name} 上的支持情况...", end=" ", flush=True)
+    if outdtype not in SUPPORTED_OUTDTYPES:
+        raise ValueError(
+            f"不支持的输出数据类型: {outdtype}\n"
+            f"支持的类型: {', '.join(SUPPORTED_OUTDTYPES)}"
+        )
     
-    supported, message = probe_dtype_support(ext, dtype)
+    if verbose:
+        print(f"[预测试] 检测 dtype={dtype}, outdtype={outdtype} 在 {arch_name} 上的支持情况...", end=" ", flush=True)
+    
+    supported, message = probe_dtype_support(ext, dtype, outdtype)
     
     if supported:
         if verbose:
@@ -494,7 +510,8 @@ def check_dtype_support(ext, dtype: str, arch_name: str, verbose: bool = True) -
 
 def parse_args():
     p = argparse.ArgumentParser(description="cuBLASLt Layout 性能测试")
-    p.add_argument("--dtype", default="int8", choices=SUPPORTED_DTYPES, help="数据类型")
+    p.add_argument("--dtype", default="int8", choices=SUPPORTED_DTYPES, help="输入数据类型")
+    p.add_argument("--outdtype", default="bf16", choices=SUPPORTED_OUTDTYPES, help="输出数据类型")
     p.add_argument("--warmup", type=int, default=10)
     p.add_argument("--repeat", type=int, default=50)
     p.add_argument("--compile", action="store_true", help="强制重新编译 CUDA 扩展")
@@ -515,7 +532,7 @@ def main():
     arch_name, arch_suffix, sm_code = detect_arch()
     prop = torch.cuda.get_device_properties(0)
     print(f"GPU: {prop.name} (CC {prop.major}.{prop.minor}, {arch_name})")
-    print(f"参数: dtype={args.dtype}, warmup={args.warmup}, repeat={args.repeat}")
+    print(f"参数: dtype={args.dtype}, outdtype={args.outdtype}, warmup={args.warmup}, repeat={args.repeat}")
     print()
 
     out_dir = Path(args.out_dir) if args.out_dir else Path("./layout_benchmark_results")
@@ -527,7 +544,7 @@ def main():
     ext = load_extension(verbose=True, force_compile=args.compile)
 
     try:
-        check_dtype_support(ext, args.dtype, arch_name, verbose=True)
+        check_dtype_support(ext, args.dtype, args.outdtype, arch_name, verbose=True)
     except ValueError as e:
         print(f"\n❌ 错误: {e}")
         return
@@ -545,6 +562,7 @@ def main():
     ret = run_layout_benchmark(
         ext,
         args.dtype,
+        args.outdtype,
         nk_list,
         m_list,
         args.warmup,
@@ -557,6 +575,7 @@ def main():
         gpu_short_name,
         arch_name,
         args.dtype,
+        args.outdtype,
         ret,
         args.warmup,
         args.repeat,

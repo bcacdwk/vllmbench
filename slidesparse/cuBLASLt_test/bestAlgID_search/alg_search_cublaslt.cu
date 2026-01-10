@@ -2,7 +2,7 @@
 // 固定的layout: 权重W在左，T/N + C/C GEMM，输出矩阵order固定为 Column 主序
 // C[N,M]_col = W[N,K]^T_col * A[K,M]_col
 // 支持的数据类型：int8, fp8e4m3
-// 输出类型：CUDA_R_16BF (BFloat16)
+// 输出类型：bf16 (CUDA_R_16BF) 或 fp32 (CUDA_R_32F)
 
 #include <torch/extension.h>
 #include <ATen/cuda/CUDAContext.h>
@@ -53,10 +53,11 @@ static cudaDataType to_cuda_dtype(const std::string &dtype) {
   throw std::invalid_argument("不支持的数据类型: " + dtype + "。支持: int8, fp8e4m3");
 }
 
-static cudaDataType cuda_out_dtype(const std::string &dtype) {
-  // 输出统一为 BF16，支持更好的后续处理和精度
-  if (dtype == "int8" || dtype == "fp8e4m3") return CUDA_R_16BF;
-  throw std::invalid_argument("不支持的数据类型: " + dtype);
+static cudaDataType cuda_out_dtype(const std::string &outdtype) {
+  // 输出类型：支持 bf16 和 fp32
+  if (outdtype == "bf16") return CUDA_R_16BF;
+  if (outdtype == "fp32") return CUDA_R_32F;
+  throw std::invalid_argument("不支持的输出数据类型: " + outdtype + "。支持: bf16, fp32");
 }
 
 static cublasComputeType_t compute_type_from_dtype(const std::string &dtype) {
@@ -118,6 +119,7 @@ struct AlgRecord {
 py::dict search_topk(torch::Tensor W_bf16, torch::Tensor A_bf16,
                      const std::vector<int64_t> &M_list,
                      const std::string &layout, const std::string &dtype,
+                     const std::string &outdtype,
                      int warmup, int repeat, bool verify,
                      const std::vector<int64_t> &blacklist_ids,
                      int topk) {
@@ -154,7 +156,7 @@ py::dict search_topk(torch::Tensor W_bf16, torch::Tensor A_bf16,
   torch::Tensor W_q;
   torch::Tensor A_q;
   cudaDataType type_AB = to_cuda_dtype(dtype);
-  cudaDataType type_C = cuda_out_dtype(dtype);
+  cudaDataType type_C = cuda_out_dtype(outdtype);
   cublasComputeType_t comp_type = compute_type_from_dtype(dtype);
   cudaDataType scale_type = scale_type_from_dtype(dtype);
 
@@ -239,9 +241,13 @@ py::dict search_topk(torch::Tensor W_bf16, torch::Tensor A_bf16,
     // PyTorch 默认 Row Major，为了兼容，我们创建 [M, N] 的 tensor
     // 这样 PyTorch 的 Row Major [M, N] 等价于 Column Major [N, M]
     torch::Tensor C_out;
-    // 输出统一为 BF16
+    // 根据 outdtype 创建输出 tensor
     // Column Major [N, M] 等价于 Row Major [M, N] 的转置
-    C_out = torch::zeros({M, N}, torch::dtype(torch::kBFloat16).device(W_q.device()));
+    if (outdtype == "fp32") {
+      C_out = torch::zeros({M, N}, torch::dtype(torch::kFloat32).device(W_q.device()));
+    } else {
+      C_out = torch::zeros({M, N}, torch::dtype(torch::kBFloat16).device(W_q.device()));
+    }
 
     // 创建矩阵乘法描述符
     cublasLtMatmulDesc_t matmulDesc = nullptr;
@@ -564,7 +570,8 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
         py::arg("A_bf16"), 
         py::arg("M_list"), 
         py::arg("layout"),
-        py::arg("dtype") = "int8", 
+        py::arg("dtype") = "int8",
+        py::arg("outdtype") = "bf16",
         py::arg("warmup") = 25,
         py::arg("repeat") = 100, 
         py::arg("verify") = false,
