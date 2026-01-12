@@ -1,369 +1,249 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
 """
-Dequant + Bias Triton Kernel 性能测试
+Dequant + Bias Kernel Benchmark
 
-用法:
-  python3 run_benchmark.py                  # 使用 autotune 版本（预热时自动调优）
-  python3 run_benchmark.py --tuned          # 使用已调优的固定配置版本
-  python3 run_benchmark.py --correctness    # 只运行正确性测试
-  python3 run_benchmark.py --dtype bf16     # 只测试 BF16 输入
-  python3 run_benchmark.py --dtype fp32     # 只测试 FP32 输入
+Usage:
+    python3 run_benchmark.py --dtype bf16   # Test BF16 input
+    python3 run_benchmark.py --dtype fp32   # Test FP32 input
 """
+
+import sys
+import argparse
+import importlib.util
+from pathlib import Path
+from types import ModuleType
 
 import torch
+import triton
+import triton.language as tl
 import triton.testing as testing
-import argparse
-import sys
-import os
-from pathlib import Path
-import importlib.util
+
+# Add parent to path for utils import
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from utils import get_gpu_cc, get_tuned_kernel_filename
 
 
 # =============================================================================
-# 理论带宽计算
+# Test Configuration
 # =============================================================================
 
-# H100 PCIe 峰值内存带宽 (GB/s)
-GPU_PEAK_BANDWIDTH_GBPS = 2000.0
-
-
-def calculate_theoretical_time_us(M: int, N: int, input_dtype: torch.dtype, bandwidth_gbps: float) -> float:
-    """
-    计算理论最小执行时间 (微秒)
-    
-    内存访问:
-    - 读: gemm_output [M, N] (input_dtype)
-    - 读: scale_a [M, 1] (FP32 = 4 bytes)
-    - 读: scale_b [1, N] (FP32 = 4 bytes)
-    - 读: bias [N] (BF16 = 2 bytes)
-    - 写: output [M, N] (BF16 = 2 bytes)
-    """
-    input_bytes = 2 if input_dtype == torch.bfloat16 else 4  # BF16=2, FP32=4
-    
-    # 计算总字节数
-    bytes_read_gemm = M * N * input_bytes
-    bytes_read_scale_a = M * 4  # FP32
-    bytes_read_scale_b = N * 4  # FP32
-    bytes_read_bias = N * 2    # BF16
-    bytes_write_output = M * N * 2  # BF16
-    
-    total_bytes = (bytes_read_gemm + bytes_read_scale_a + bytes_read_scale_b + 
-                   bytes_read_bias + bytes_write_output)
-    
-    # 带宽转换: GB/s -> bytes/µs (1 GB/s = 1e9 bytes/s = 1e3 bytes/µs)
-    bandwidth_bytes_per_us = bandwidth_gbps * 1e3
-    
-    # 理论最小时间
-    theoretical_time_us = total_bytes / bandwidth_bytes_per_us
-    
-    return theoretical_time_us
-
-
-def calculate_bandwidth_efficiency(actual_time_us: float, M: int, N: int, 
-                                   input_dtype: torch.dtype, bandwidth_gbps: float) -> float:
-    """计算实际带宽利用率 (%)"""
-    theoretical_time_us = calculate_theoretical_time_us(M, N, input_dtype, bandwidth_gbps)
-    return (theoretical_time_us / actual_time_us) * 100.0
-
-
-def calculate_achieved_bandwidth_gbps(actual_time_us: float, M: int, N: int, 
-                                       input_dtype: torch.dtype) -> float:
-    """计算实际达到的带宽 (GB/s)"""
-    input_bytes = 2 if input_dtype == torch.bfloat16 else 4
-    
-    bytes_read_gemm = M * N * input_bytes
-    bytes_read_scale_a = M * 4
-    bytes_read_scale_b = N * 4
-    bytes_read_bias = N * 2
-    bytes_write_output = M * N * 2
-    
-    total_bytes = (bytes_read_gemm + bytes_read_scale_a + bytes_read_scale_b + 
-                   bytes_read_bias + bytes_write_output)
-    
-    # bytes / µs -> GB/s (bytes / µs * 1e-3 = GB/s)
-    achieved_bandwidth = total_bytes / actual_time_us * 1e-3
-    
-    return achieved_bandwidth
-
-
-# =============================================================================
-# 动态加载 Kernel
-# =============================================================================
-
-def load_triton_kernel(tuned: bool = False):
-    """动态加载 triton kernel"""
-    kernels_dir = Path(__file__).parent
-    
-    if tuned:
-        module_path = kernels_dir / "dequant_bias_kernel_tuned.py"
-        func_name = "dequant_bias_triton_tuned"
-    else:
-        module_path = kernels_dir / "autotune_dequant_bias.py"
-        func_name = "dequant_bias_autotune"
-    
-    if not module_path.exists():
-        print(f"❌ 文件不存在: {module_path}")
-        return None, None
-    
-    spec = importlib.util.spec_from_file_location(func_name, module_path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    
-    triton_func = getattr(module, func_name)
-    
-    # PyTorch 参考实现
-    if tuned:
-        pytorch_func = module.dequant_bias_pytorch
-    else:
-        # autotune 版本需要单独加载 pytorch 实现
-        from slidesparse.csrc.fused_dequant_bias.basic_dequant_bias import dequant_bias_pytorch
-        pytorch_func = dequant_bias_pytorch
-    
-    return triton_func, pytorch_func
-
-
-# =============================================================================
-# 测试配置 (参考 autotune_example)
-# =============================================================================
-
-# BitNet 模型常见的隐藏层大小
+M_VALUES = [16, 128, 1024, 4096, 16384, 65536]
 N_VALUES = [2560, 3840, 13824]
 
-# batch size / sequence length 变化
-M_VALUES = [
-    1, 16, 32, 48, 64, 80, 96, 112, 128,
-    192, 256, 384, 512, 768, 1024, 1536, 2048, 3072, 4096,
-    6144, 8192, 10240, 12288, 14336, 16384, 20480, 24576, 32768, 40960, 49152, 65536
-]
+WARMUP = 25
+REP = 100
 
 
 # =============================================================================
-# 正确性测试
+# Theoretical Baseline (pure memory copy with tuned config)
 # =============================================================================
 
-def test_correctness(tuned: bool = False):
-    """测试 Triton 实现的正确性"""
-    print("=" * 80)
-    print(f"正确性测试 {'[TUNED]' if tuned else '[AUTOTUNE]'}")
-    print("=" * 80)
+@triton.jit
+def _memcpy_kernel(
+    in_ptr, out_ptr, M, N,
+    stride_im, stride_in, stride_om, stride_on,
+    BLOCK_M: tl.constexpr, BLOCK_N: tl.constexpr,
+):
+    pid_m = tl.program_id(0)
+    pid_n = tl.program_id(1)
+    offs_m = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
+    offs_n = pid_n * BLOCK_N + tl.arange(0, BLOCK_N)
+    mask = (offs_m[:, None] < M) & (offs_n[None, :] < N)
     
-    triton_func, pytorch_func = load_triton_kernel(tuned)
-    if triton_func is None:
-        return False
+    in_offs = offs_m[:, None] * stride_im + offs_n[None, :] * stride_in
+    val = tl.load(in_ptr + in_offs, mask=mask, other=0.0)
+    
+    out_offs = offs_m[:, None] * stride_om + offs_n[None, :] * stride_on
+    tl.store(out_ptr + out_offs, val.to(tl.bfloat16), mask=mask)
+
+
+def make_theoretical_baseline(get_config_func):
+    """Create theoretical baseline function that uses tuned config"""
+    
+    def theoretical_baseline(input_tensor: torch.Tensor) -> torch.Tensor:
+        """Pure memory copy baseline using tuned BLOCK_M, BLOCK_N, num_warps, num_stages"""
+        M, N = input_tensor.shape
+        output = torch.empty((M, N), dtype=torch.bfloat16, device=input_tensor.device)
+        
+        # Use the same config as tuned kernel
+        BLOCK_M, BLOCK_N, num_warps, num_stages = get_config_func(M, N)
+        grid = (triton.cdiv(M, BLOCK_M), triton.cdiv(N, BLOCK_N))
+        
+        _memcpy_kernel[grid](
+            input_tensor, output, M, N,
+            input_tensor.stride(0), input_tensor.stride(1),
+            output.stride(0), output.stride(1),
+            BLOCK_M=BLOCK_M, BLOCK_N=BLOCK_N,
+            num_warps=num_warps, num_stages=num_stages,
+        )
+        return output
+    
+    return theoretical_baseline
+
+
+# =============================================================================
+# Load Kernels
+# =============================================================================
+
+def _load_module(module_path: Path, module_name: str) -> ModuleType | None:
+    """Helper to load a Python module from file path"""
+    if not module_path.exists():
+        return None
+    spec = importlib.util.spec_from_file_location(module_name, module_path)
+    if spec is None or spec.loader is None:
+        return None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def load_tuned_module(inner_fp32: bool) -> ModuleType | None:
+    """Load the auto-tuned kernel module from build/"""
+    build_dir = Path(__file__).parent / "build"
+    dtype_tag = "FP32" if inner_fp32 else "BF16"
+    filename = get_tuned_kernel_filename("dequant_bias_tuned", dtype_tag)
+    module_path = build_dir / filename
+    
+    module = _load_module(module_path, "tuned_kernel")
+    if module is None:
+        print(f"ERROR: Tuned kernel not found: {module_path}")
+        print(f"Please run: python3 autotune_autogen_dequant_bias.py" + (" --inner-fp32" if inner_fp32 else ""))
+        return None
+    
+    return module
+
+
+def load_basic_module() -> ModuleType | None:
+    """Load the basic kernel module (contains untuned kernel and pytorch reference)"""
+    module_path = Path(__file__).parent / "basic_dequant_bias_triton.py"
+    
+    module = _load_module(module_path, "basic_kernel")
+    if module is None:
+        print(f"ERROR: Basic kernel not found: {module_path}")
+        return None
+    
+    return module
+
+
+# =============================================================================
+# Correctness Test
+# =============================================================================
+
+def test_correctness(tuned_func, untuned_func, pytorch_ref_func, input_dtype: torch.dtype):
+    """Test correctness against PyTorch reference"""
+    print("\n" + "=" * 70)
+    print("Correctness Test")
+    print("=" * 70)
     
     torch.manual_seed(42)
-    
-    basic_shapes = [
-        (128, 256), (256, 512), (512, 1024), (1024, 2048),
-        (2048, 4096), (4096, 4096), (1, 1024), (1024, 1), (127, 513),
-    ]
-    
     all_passed = True
     
-    # BF16 输入测试
-    print("\nBF16 输入测试:")
-    print("-" * 60)
-    for M, N in basic_shapes:
-        gemm_output = torch.randn(M, N, dtype=torch.bfloat16, device='cuda')
-        scale_a = torch.rand(M, 1, dtype=torch.float32, device='cuda') * 0.1 + 0.01
-        scale_b = torch.rand(1, N, dtype=torch.float32, device='cuda') * 0.1 + 0.01
+    # Sample shapes to avoid OOM (skip large M * N combinations)
+    test_shapes = [(M, N) for M in M_VALUES for N in N_VALUES if M * N <= 64 * 1024 * 1024]
+    
+    for M, N in test_shapes:
+        gemm = torch.randn(M, N, dtype=input_dtype, device='cuda')
+        scale_a = torch.rand(M, dtype=torch.float32, device='cuda') * 0.1 + 0.01
+        scale_b = torch.rand(N, dtype=torch.float32, device='cuda') * 0.1 + 0.01
         bias = torch.randn(N, dtype=torch.bfloat16, device='cuda')
         
-        ref = pytorch_func(gemm_output, scale_a, scale_b, bias)
-        out = triton_func(gemm_output, scale_a, scale_b, bias)
+        ref = pytorch_ref_func(gemm, scale_a, scale_b, bias, torch.bfloat16)
+        out_tuned = tuned_func(gemm, scale_a, scale_b, bias)
+        out_untuned = untuned_func(gemm, scale_a, scale_b, bias)
         
-        max_diff = (ref.float() - out.float()).abs().max().item()
-        passed = max_diff < 1e-2
+        diff_tuned = (ref.float() - out_tuned.float()).abs().max().item()
+        diff_untuned = (ref.float() - out_untuned.float()).abs().max().item()
+        
+        passed = diff_tuned < 1e-2 and diff_untuned < 1e-2
         all_passed = all_passed and passed
-        print(f"[{'✓' if passed else '✗'}] BF16 ({M:5d}, {N:5d}): max_diff={max_diff:.6f}")
-    
-    # FP32 输入测试
-    print("\nFP32 输入测试:")
-    print("-" * 60)
-    for M, N in basic_shapes:
-        gemm_output = torch.randn(M, N, dtype=torch.float32, device='cuda')
-        scale_a = torch.rand(M, 1, dtype=torch.float32, device='cuda') * 0.1 + 0.01
-        scale_b = torch.rand(1, N, dtype=torch.float32, device='cuda') * 0.1 + 0.01
-        bias = torch.randn(N, dtype=torch.bfloat16, device='cuda')
         
-        ref = pytorch_func(gemm_output, scale_a, scale_b, bias)
-        out = triton_func(gemm_output, scale_a, scale_b, bias)
+        status = "PASS" if passed else "FAIL"
+        print(f"  [{status}] M={M:<6} N={N:<6} tuned_diff={diff_tuned:.6f} untuned_diff={diff_untuned:.6f}")
         
-        max_diff = (ref.float() - out.float()).abs().max().item()
-        passed = max_diff < 1e-2
-        all_passed = all_passed and passed
-        print(f"[{'✓' if passed else '✗'}] FP32 ({M:5d}, {N:5d}): max_diff={max_diff:.6f}")
+        # Free memory
+        del gemm, scale_a, scale_b, bias, ref, out_tuned, out_untuned
+        torch.cuda.empty_cache()
     
-    # BitNet 常用形状
-    print("\nBitNet 形状测试:")
-    print("-" * 60)
-    for N in N_VALUES:
-        for M in [1, 64, 256, 1024, 4096]:
-            gemm_output = torch.randn(M, N, dtype=torch.bfloat16, device='cuda')
-            scale_a = torch.rand(M, 1, dtype=torch.float32, device='cuda') * 0.1 + 0.01
-            scale_b = torch.rand(1, N, dtype=torch.float32, device='cuda') * 0.1 + 0.01
-            bias = torch.randn(N, dtype=torch.bfloat16, device='cuda')
-            
-            ref = pytorch_func(gemm_output, scale_a, scale_b, bias)
-            out = triton_func(gemm_output, scale_a, scale_b, bias)
-            
-            max_diff = (ref.float() - out.float()).abs().max().item()
-            passed = max_diff < 1e-2
-            all_passed = all_passed and passed
-            print(f"[{'✓' if passed else '✗'}] ({M:5d}, {N:5d}): max_diff={max_diff:.6f}")
-    
-    print("\n" + "=" * 80)
-    print(f"正确性测试 {'全部通过 ✓' if all_passed else '存在失败 ✗'}")
-    print("=" * 80)
-    
+    print("-" * 70)
+    print(f"Result: {'ALL PASSED' if all_passed else 'SOME FAILED'}")
     return all_passed
 
 
 # =============================================================================
-# 性能测试
+# Throughput Benchmark
 # =============================================================================
 
-def run_benchmark_single_dtype(
-    dtype: torch.dtype, 
-    dtype_name: str,
-    triton_func, 
-    pytorch_func,
-    warmup: int, 
-    rep: int,
-    tuned: bool,
-    bandwidth_gbps: float,
-):
-    """单个 dtype 的性能测试"""
-    tuned_str = "[TUNED]" if tuned else "[AUTOTUNE]"
-    print(f"\n{'='*80}")
-    print(f"{dtype_name} 输入性能测试 {tuned_str}")
-    print(f"GPU 峰值带宽: {bandwidth_gbps:.0f} GB/s")
-    print(f"{'='*80}")
+def run_benchmark(tuned_func, untuned_func, baseline_func, input_dtype: torch.dtype):
+    """Run throughput benchmark: theoretical vs untuned vs tuned"""
+    print("\n" + "=" * 70)
+    print("Throughput Benchmark")
+    print("=" * 70)
+    dtype_name = "FP32" if input_dtype == torch.float32 else "BF16"
+    print(f"Input: {dtype_name}, Output: BF16, Warmup: {WARMUP}, Rep: {REP}")
+    print(f"Baseline: memcpy kernel using same tuned (BLOCK_M, BLOCK_N, warps, stages)")
+    print()
     
-    results = {}
+    # Header
+    print(f"{'M':<7} {'N':<7} | {'Baseline(us)':<12} {'Untuned(us)':<12} {'Tuned(us)':<11} | {'vs Base':<10} {'vs Untuned':<10}")
+    print("-" * 90)
     
-    for N in N_VALUES:
-        print(f"\n--- N={N} ---")
-        print(f"{'M':<8} | {'Theory(µs)':<11} | {'PyTorch(µs)':<12} | {'Triton(µs)':<11} | {'BW(GB/s)':<10} | {'BW Eff%':<8} | {'Speedup'}")
-        print("-" * 95)
-        
-        results[N] = {}
-        
-        for M in M_VALUES:
-            # 生成数据
-            gemm_output = torch.randn(M, N, dtype=dtype, device='cuda')
-            scale_a = torch.rand(M, 1, dtype=torch.float32, device='cuda') * 0.1 + 0.01
-            scale_b = torch.rand(1, N, dtype=torch.float32, device='cuda') * 0.1 + 0.01
+    results: list[dict] = []
+    
+    for M in M_VALUES:
+        for N in N_VALUES:
+            # Generate data
+            gemm = torch.randn(M, N, dtype=input_dtype, device='cuda')
+            scale_a = torch.rand(M, dtype=torch.float32, device='cuda') * 0.1 + 0.01
+            scale_b = torch.rand(N, dtype=torch.float32, device='cuda') * 0.1 + 0.01
             bias = torch.randn(N, dtype=torch.bfloat16, device='cuda')
             
-            # 计算理论最小时间
-            theoretical_time_us = calculate_theoretical_time_us(M, N, dtype, bandwidth_gbps)
+            # Benchmark baseline (pure memory copy with tuned config)
+            t_baseline: float = testing.do_bench(
+                lambda: baseline_func(gemm),
+                warmup=WARMUP, rep=REP, return_mode="min"
+            ) * 1000  # type: ignore  # ms -> us
             
-            # Benchmark PyTorch
-            t_pytorch = testing.do_bench(
-                lambda: pytorch_func(gemm_output, scale_a, scale_b, bias),
-                warmup=warmup, rep=rep, return_mode="min"
-            )
+            # Benchmark untuned kernel
+            t_untuned: float = testing.do_bench(
+                lambda: untuned_func(gemm, scale_a, scale_b, bias),
+                warmup=WARMUP, rep=REP, return_mode="min"
+            ) * 1000  # type: ignore  # ms -> us
             
-            # Benchmark Triton
-            t_triton = testing.do_bench(
-                lambda: triton_func(gemm_output, scale_a, scale_b, bias),
-                warmup=warmup, rep=rep, return_mode="min"
-            )
+            # Benchmark tuned kernel
+            t_tuned: float = testing.do_bench(
+                lambda: tuned_func(gemm, scale_a, scale_b, bias),
+                warmup=WARMUP, rep=REP, return_mode="min"
+            ) * 1000  # type: ignore  # ms -> us
             
-            speedup = t_pytorch / t_triton
+            # Speedup ratios
+            speedup_vs_baseline = t_baseline / t_tuned  # <1 expected (tuned slower than memcpy)
+            speedup_vs_untuned = t_untuned / t_tuned  # >1 means tuned is faster
             
-            # do_bench 返回 ms，转为 µs
-            triton_time_us = t_triton * 1000
-            pytorch_time_us = t_pytorch * 1000
+            results.append({
+                'M': M, 'N': N,
+                'baseline': t_baseline,
+                'untuned': t_untuned,
+                'tuned': t_tuned,
+                'speedup_baseline': speedup_vs_baseline,
+                'speedup_untuned': speedup_vs_untuned,
+            })
             
-            # 计算带宽效率和实际带宽
-            bandwidth_efficiency = calculate_bandwidth_efficiency(triton_time_us, M, N, dtype, bandwidth_gbps)
-            achieved_bandwidth = calculate_achieved_bandwidth_gbps(triton_time_us, M, N, dtype)
+            print(f"{M:<7} {N:<7} | {t_baseline:<12.2f} {t_untuned:<12.2f} {t_tuned:<11.2f} | {speedup_vs_baseline:<10.2f} {speedup_vs_untuned:<10.2f}")
             
-            results[N][M] = {
-                'pytorch': pytorch_time_us,
-                'triton': triton_time_us,
-                'speedup': speedup,
-                'theoretical': theoretical_time_us,
-                'bandwidth_efficiency': bandwidth_efficiency,
-                'achieved_bandwidth': achieved_bandwidth,
-            }
-            
-            print(f"{M:<8} | {theoretical_time_us:>9.2f}   | {pytorch_time_us:>10.2f}   | {triton_time_us:>9.2f}   | {achieved_bandwidth:>8.1f}   | {bandwidth_efficiency:>6.1f}%  | {speedup:>6.2f}x")
+            # Free memory
+            del gemm, scale_a, scale_b, bias
+            torch.cuda.empty_cache()
     
-    # 汇总
-    print(f"\n{dtype_name} 汇总:")
-    print("-" * 70)
-    for N in N_VALUES:
-        speedups = [results[N][M]['speedup'] for M in M_VALUES]
-        efficiencies = [results[N][M]['bandwidth_efficiency'] for M in M_VALUES]
-        bandwidths = [results[N][M]['achieved_bandwidth'] for M in M_VALUES]
-        avg_speedup = sum(speedups) / len(speedups)
-        avg_efficiency = sum(efficiencies) / len(efficiencies)
-        max_efficiency = max(efficiencies)
-        max_bandwidth = max(bandwidths)
-        print(f"  N={N}: 平均加速 {avg_speedup:.2f}x | 平均带宽效率 {avg_efficiency:.1f}% | 最高效率 {max_efficiency:.1f}% | 峰值带宽 {max_bandwidth:.1f} GB/s")
-    
-    return results
-
-
-def run_benchmark(dtype_filter: str, warmup: int, rep: int, tuned: bool):
-    """运行性能测试"""
-    triton_func, pytorch_func = load_triton_kernel(tuned)
-    if triton_func is None:
-        return None
-    
-    # 使用 H100 PCIe 峰值带宽
-    bandwidth_gbps = GPU_PEAK_BANDWIDTH_GBPS
-    
-    tuned_str = "[TUNED]" if tuned else "[AUTOTUNE]"
-    print(f"\n{'='*80}")
-    print(f"Dequant + Bias Kernel 性能测试 {tuned_str}")
-    print(f"{'='*80}")
-    print(f"测试配置: {len(N_VALUES)} 个 N 值 x {len(M_VALUES)} 个 M 值")
-    print(f"N 值: {N_VALUES}")
-    print(f"Warmup: {warmup}, Rep: {rep}")
-    print(f"GPU 峰值带宽: {bandwidth_gbps:.0f} GB/s")
-    
-    results = {}
-    
-    # BF16 测试
-    if dtype_filter in [None, 'bf16']:
-        results['bf16'] = run_benchmark_single_dtype(
-            torch.bfloat16, "BF16", triton_func, pytorch_func, warmup, rep, tuned, bandwidth_gbps
-        )
-    
-    # FP32 测试
-    if dtype_filter in [None, 'fp32']:
-        results['fp32'] = run_benchmark_single_dtype(
-            torch.float32, "FP32", triton_func, pytorch_func, warmup, rep, tuned, bandwidth_gbps
-        )
-    
-    # 总结
-    print(f"\n{'='*80}")
-    print("总结")
-    print(f"{'='*80}")
-    
-    if 'bf16' in results and 'fp32' in results:
-        print(f"\n{'N':<8} | {'BF16 Speedup':>14} | {'BF16 BW Eff':>12} | {'FP32 Speedup':>14} | {'FP32 BW Eff':>12}")
-        print("-" * 75)
-        for N in N_VALUES:
-            bf16_speedups = [results['bf16'][N][M]['speedup'] for M in M_VALUES]
-            bf16_effs = [results['bf16'][N][M]['bandwidth_efficiency'] for M in M_VALUES]
-            fp32_speedups = [results['fp32'][N][M]['speedup'] for M in M_VALUES]
-            fp32_effs = [results['fp32'][N][M]['bandwidth_efficiency'] for M in M_VALUES]
-            bf16_avg_speedup = sum(bf16_speedups) / len(bf16_speedups)
-            bf16_avg_eff = sum(bf16_effs) / len(bf16_effs)
-            fp32_avg_speedup = sum(fp32_speedups) / len(fp32_speedups)
-            fp32_avg_eff = sum(fp32_effs) / len(fp32_effs)
-            print(f"{N:<8} | {bf16_avg_speedup:>13.2f}x | {bf16_avg_eff:>10.1f}%  | {fp32_avg_speedup:>13.2f}x | {fp32_avg_eff:>10.1f}%")
-        
-        print(f"\n说明:")
-        print(f"  - Theory(µs): 基于 GPU 峰值带宽 ({bandwidth_gbps:.0f} GB/s) 计算的理论最小执行时间")
-        print(f"  - BW(GB/s): Triton kernel 实际达到的内存带宽")
-        print(f"  - BW Eff%: 带宽效率 = 理论时间 / 实际时间 × 100%")
-        print(f"  - 带宽效率越接近 100%，说明 kernel 越接近理论峰值性能")
+    # Summary
+    print("\n" + "-" * 90)
+    print("Summary:")
+    avg_baseline = sum(r['speedup_baseline'] for r in results) / len(results)
+    avg_untuned = sum(r['speedup_untuned'] for r in results) / len(results)
+    max_untuned = max(r['speedup_untuned'] for r in results)
+    min_untuned = min(r['speedup_untuned'] for r in results)
+    print(f"  vs Baseline: Avg {avg_baseline:.2f}x  (expected <1, tuned does compute, baseline only memcpy)")
+    print(f"  vs Untuned:  Avg {avg_untuned:.2f}x  Min {min_untuned:.2f}x  Max {max_untuned:.2f}x")
     
     return results
 
@@ -374,41 +254,60 @@ def run_benchmark(dtype_filter: str, warmup: int, rep: int, tuned: bool):
 
 def main():
     parser = argparse.ArgumentParser(description="Dequant + Bias Kernel Benchmark")
-    parser.add_argument('--tuned', action='store_true',
-                        help='使用已调优的固定配置版本 (dequant_bias_kernel_tuned.py)')
-    parser.add_argument('--correctness', action='store_true',
-                        help='只运行正确性测试')
-    parser.add_argument('--dtype', type=str, default=None, choices=['bf16', 'fp32'],
-                        help='只测试指定 dtype')
-    parser.add_argument('--warmup', type=int, default=25, help='Warmup iterations')
-    parser.add_argument('--rep', type=int, default=100, help='Benchmark repetitions')
+    parser.add_argument('--dtype', type=str, required=True, choices=['bf16', 'fp32'],
+                        help='Input dtype: bf16 or fp32')
     args = parser.parse_args()
     
     if not torch.cuda.is_available():
-        print("❌ CUDA 不可用")
+        print("ERROR: CUDA not available")
         return 1
     
-    print("=" * 80)
-    print("Dequant + Bias Triton Kernel Benchmark")
-    print("=" * 80)
-    print(f"GPU: {torch.cuda.get_device_name()}")
+    inner_fp32 = (args.dtype == 'fp32')
+    input_dtype = torch.float32 if inner_fp32 else torch.bfloat16
+    dtype_tag = "FP32" if inner_fp32 else "BF16"
+    
+    print("=" * 70)
+    print("Dequant + Bias Kernel Benchmark")
+    print("=" * 70)
+    print(f"GPU:     {torch.cuda.get_device_name()} ({get_gpu_cc()})")
     print(f"PyTorch: {torch.__version__}")
-    import triton
-    print(f"Triton: {triton.__version__}")
-    print(f"Mode: {'TUNED (固定配置)' if args.tuned else 'AUTOTUNE (预热时调优)'}")
+    print(f"Triton:  {triton.__version__}")
+    print(f"Input:   {args.dtype.upper()}")
+    print(f"Kernel:  {get_tuned_kernel_filename('dequant_bias_tuned', dtype_tag)}")
     
-    if args.correctness:
-        success = test_correctness(args.tuned)
-        return 0 if success else 1
+    # Load tuned module
+    tuned_module = load_tuned_module(inner_fp32)
+    if tuned_module is None:
+        return 1
     
-    run_benchmark(args.dtype, args.warmup, args.rep, args.tuned)
+    tuned_func = tuned_module.dequant_bias_triton
+    get_config_func = tuned_module._get_config
     
-    print(f"\n{'='*80}")
-    print("Benchmark 完成!")
-    print(f"{'='*80}")
+    # Create baseline using tuned config
+    baseline_func = make_theoretical_baseline(get_config_func)
+    
+    # Load basic module
+    basic_module = load_basic_module()
+    if basic_module is None:
+        return 1
+    
+    untuned_func = basic_module.dequant_bias_triton
+    pytorch_ref_func = basic_module.dequant_bias_pytorch
+    
+    # Correctness test
+    if not test_correctness(tuned_func, untuned_func, pytorch_ref_func, input_dtype):
+        print("\nERROR: Correctness test failed!")
+        return 1
+    
+    # Throughput benchmark
+    run_benchmark(tuned_func, untuned_func, baseline_func, input_dtype)
+    
+    print("\n" + "=" * 70)
+    print("Done!")
+    print("=" * 70)
     
     return 0
 
 
 if __name__ == "__main__":
-    exit(main())
+    sys.exit(main())

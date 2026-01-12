@@ -7,7 +7,7 @@ SlideSparse FP8 Linear Method
 1. 完全复用 CompressedTensorsW8A8Fp8 的 create_weights() 和 process_weights_after_loading()
 2. 仅在 apply_weights() 中替换 GEMM 后端
 3. cuBLASLt 只做纯矩阵乘法，不融合 scale/bias
-4. Dequant + bias 由后续 Triton kernel 处理（TODO）
+4. Dequant + bias 由后续 Triton kernel 处理
 
 架构说明:
 =========
@@ -28,9 +28,9 @@ SlideSparse FP8 Linear Method
 
 环境变量:
 =========
-1. DISABLE_SLIDESPARSE=1  → 完全禁用 SlideSparse，使用 vLLM 原生路径
-2. USE_CUBLASLT=1         → 从外挂 CUTLASS 切换到 cuBLASLt kernel
-3. INNER_DTYPE_FP32=1     → GEMM 输出用 FP32（仅 USE_CUBLASLT=1 时生效）
+1. DISABLE_SLIDESPARSE=1              → 完全禁用 SlideSparse，使用 vLLM 原生路径
+2. USE_CUBLASLT or USE_CUSPARSELT=1   → 从外挂 CUTLASS 切换到 cuBLASLt/cuSPARSELt kernel
+3. INNER_DTYPE_FP32=1                 → GEMM 输出用 FP32, 否则默认使用 BF16
 
 cuBLASLt kernel 位置:
     slidesparse/csrc/cublaslt_gemm/cublaslt_gemm.cu

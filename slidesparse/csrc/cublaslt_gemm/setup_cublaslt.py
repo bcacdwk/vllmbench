@@ -34,57 +34,21 @@ import os
 import sys
 import glob
 import shutil
-import platform
 import argparse
 from pathlib import Path
 
 import torch
 from torch.utils.cpp_extension import load
 
-
-def get_python_version_tag() -> str:
-    """获取 Python 版本标签，如 py312"""
-    major = sys.version_info.major
-    minor = sys.version_info.minor
-    return f"py{major}{minor}"
-
-
-def get_arch_tag() -> str:
-    """获取系统架构标签，如 x86_64 或 aarch64"""
-    machine = platform.machine()
-    if machine in ("x86_64", "AMD64"):
-        return "x86_64"
-    elif machine in ("aarch64", "arm64"):
-        return "aarch64"
-    else:
-        return machine.lower()
-
-
-def get_gpu_cc() -> str:
-    """获取当前 GPU 的 Compute Capability，如 cc90"""
-    if not torch.cuda.is_available():
-        raise RuntimeError("CUDA not available. Cannot determine GPU CC.")
-    
-    prop = torch.cuda.get_device_properties(0)
-    return f"cc{prop.major}{prop.minor}"
-
-
-def get_gpu_short_name() -> str:
-    """获取 GPU 简称，如 H100, A100"""
-    prop = torch.cuda.get_device_properties(0)
-    full_name = prop.name
-    
-    # 移除 "NVIDIA " 前缀
-    if "NVIDIA " in full_name:
-        full_name = full_name.replace("NVIDIA ", "")
-    
-    # 提取型号
-    for sep in [" ", "-"]:
-        idx = full_name.find(sep)
-        if idx > 0:
-            return full_name[:idx]
-    
-    return full_name.replace(" ", "_")
+# Add parent to path for utils import
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from utils import (
+    get_python_version_tag,
+    get_arch_tag,
+    get_gpu_cc,
+    get_gpu_name,
+    get_extension_name as _get_extension_name,
+)
 
 
 def get_extension_name() -> str:
@@ -96,11 +60,7 @@ def get_extension_name() -> str:
     支持同一 build 目录下存放多个不同 CC 的 .so，
     运行时根据当前 GPU 自动选择匹配的版本。
     """
-    py_tag = get_python_version_tag()
-    arch_tag = get_arch_tag()
-    cc_tag = get_gpu_cc()
-    
-    return f"cublaslt_{py_tag}_{arch_tag}_{cc_tag}"
+    return _get_extension_name("cublaslt")
 
 
 def get_nvcc_arch_flags() -> list:

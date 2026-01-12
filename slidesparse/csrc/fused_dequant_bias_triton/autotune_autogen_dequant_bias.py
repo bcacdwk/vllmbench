@@ -1,108 +1,98 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
 """
-Dequant + Bias Kernel 自动调优脚本
+Dequant + Bias Kernel Autotune & Code Generation Script
 
-python3 autotune_autogen_dequant_bias.py
+Usage:
+    python3 autotune_autogen_dequant_bias.py              # BF16 input (default)
+    python3 autotune_autogen_dequant_bias.py --inner-fp32 # FP32 input
+    python3 autotune_autogen_dequant_bias.py --info       # Show naming info only
 
-功能:
-1. 对所有 (M, N) 组合使用 autotune 找最优配置
-2. 分析结果，生成最优的 if-else 分支策略
-3. 自动生成一个不需要 autotune 的固定配置 Kernel 文件
+Output:
+    build/dequant_bias_tuned_py312_x86_64_cc90_BF16.py  (or _FP32.py)
 """
+
+import os
+import sys
+import argparse
+from pathlib import Path
+from typing import Optional
 
 import torch
 import triton
 import triton.language as tl
-from typing import Optional
-import os
 
-
-# =============================================================================
-# Autotune 版本的 Kernel（用于找最优配置）
-# =============================================================================
-
-@triton.autotune(
-    configs=[
-        # Tier 1: 基础配置
-        triton.Config({'BLOCK_M': 32, 'BLOCK_N': 32}, num_warps=4, num_stages=2),
-        triton.Config({'BLOCK_M': 32, 'BLOCK_N': 32}, num_warps=4, num_stages=4),
-        triton.Config({'BLOCK_M': 32, 'BLOCK_N': 64}, num_warps=4, num_stages=2),
-        triton.Config({'BLOCK_M': 32, 'BLOCK_N': 64}, num_warps=4, num_stages=4),
-        triton.Config({'BLOCK_M': 32, 'BLOCK_N': 128}, num_warps=4, num_stages=2),
-        triton.Config({'BLOCK_M': 32, 'BLOCK_N': 128}, num_warps=4, num_stages=4),
-        
-        # Tier 2: 中等配置
-        triton.Config({'BLOCK_M': 64, 'BLOCK_N': 32}, num_warps=4, num_stages=2),
-        triton.Config({'BLOCK_M': 64, 'BLOCK_N': 32}, num_warps=4, num_stages=4),
-        triton.Config({'BLOCK_M': 64, 'BLOCK_N': 64}, num_warps=4, num_stages=2),
-        triton.Config({'BLOCK_M': 64, 'BLOCK_N': 64}, num_warps=4, num_stages=4),
-        triton.Config({'BLOCK_M': 64, 'BLOCK_N': 64}, num_warps=8, num_stages=2),
-        triton.Config({'BLOCK_M': 64, 'BLOCK_N': 64}, num_warps=8, num_stages=4),
-        triton.Config({'BLOCK_M': 64, 'BLOCK_N': 128}, num_warps=8, num_stages=2),
-        triton.Config({'BLOCK_M': 64, 'BLOCK_N': 128}, num_warps=8, num_stages=4),
-        
-        # Tier 3: 大块配置
-        triton.Config({'BLOCK_M': 128, 'BLOCK_N': 32}, num_warps=8, num_stages=2),
-        triton.Config({'BLOCK_M': 128, 'BLOCK_N': 32}, num_warps=8, num_stages=4),
-        triton.Config({'BLOCK_M': 128, 'BLOCK_N': 64}, num_warps=8, num_stages=2),
-        triton.Config({'BLOCK_M': 128, 'BLOCK_N': 64}, num_warps=8, num_stages=4),
-        triton.Config({'BLOCK_M': 128, 'BLOCK_N': 128}, num_warps=8, num_stages=2),
-        triton.Config({'BLOCK_M': 128, 'BLOCK_N': 128}, num_warps=8, num_stages=4),
-        
-        # Tier 4: H100 优化配置
-        triton.Config({'BLOCK_M': 256, 'BLOCK_N': 32}, num_warps=8, num_stages=4),
-        triton.Config({'BLOCK_M': 256, 'BLOCK_N': 64}, num_warps=16, num_stages=4),
-        triton.Config({'BLOCK_M': 64, 'BLOCK_N': 256}, num_warps=16, num_stages=4),
-        triton.Config({'BLOCK_M': 128, 'BLOCK_N': 128}, num_warps=16, num_stages=4),
-    ],
-    key=['M', 'N'],
+# Add parent to path for utils import
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from utils import (
+    get_python_version_tag,
+    get_arch_tag,
+    get_gpu_cc,
+    get_gpu_name,
+    get_tuned_kernel_filename,
+    get_dequant_bias_autotune_configs,
 )
+
+
+def get_output_filename(inner_fp32: bool) -> str:
+    """Generate output filename: dequant_bias_tuned_py312_x86_64_cc90_BF16.py"""
+    dtype_tag = "FP32" if inner_fp32 else "BF16"
+    return get_tuned_kernel_filename("dequant_bias_tuned", dtype_tag)
+
+
+# Get autotune configs from utils
+AUTOTUNE_CONFIGS = get_dequant_bias_autotune_configs()
+
+
+# =============================================================================
+# Test Matrix Sizes
+# =============================================================================
+
+N_VALUES = [2560, 3840, 13824]  # BitNet hidden sizes
+
+M_VALUES = [
+    1, 16, 32, 64, 128, 256, 512, 1024, 2048, 3072, 4096,
+    6144, 8192, 10240, 12288, 14336, 16384, 20480, 24576,
+    32768, 40960, 49152, 65536
+]
+
+
+# =============================================================================
+# Autotune Kernel
+# =============================================================================
+
+@triton.autotune(configs=AUTOTUNE_CONFIGS, key=['M', 'N'])
 @triton.jit
 def _dequant_bias_kernel_autotune(
-    gemm_output_ptr,
-    scale_a_ptr,
-    scale_b_ptr,
-    bias_ptr,
-    output_ptr,
-    M,
-    N,
-    stride_gm,
-    stride_gn,
-    stride_om,
-    stride_on,
-    BLOCK_M: tl.constexpr,
-    BLOCK_N: tl.constexpr,
-    INPUT_FP32: tl.constexpr,
+    gemm_ptr, scale_a_ptr, scale_b_ptr, bias_ptr, out_ptr,
+    M, N,
+    stride_gm, stride_gn, stride_om, stride_on,
+    BLOCK_M: tl.constexpr, BLOCK_N: tl.constexpr, INPUT_FP32: tl.constexpr,
 ):
     pid_m = tl.program_id(0)
     pid_n = tl.program_id(1)
     
-    row_start = pid_m * BLOCK_M
-    col_start = pid_n * BLOCK_N
+    offs_m = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
+    offs_n = pid_n * BLOCK_N + tl.arange(0, BLOCK_N)
     
-    row_offs = row_start + tl.arange(0, BLOCK_M)
-    col_offs = col_start + tl.arange(0, BLOCK_N)
+    mask_m = offs_m < M
+    mask_n = offs_n < N
+    mask_2d = mask_m[:, None] & mask_n[None, :]
     
-    row_mask = row_offs < M
-    col_mask = col_offs < N
-    mask_2d = row_mask[:, None] & col_mask[None, :]
+    scale_a = tl.load(scale_a_ptr + offs_m, mask=mask_m, other=1.0)
+    scale_b = tl.load(scale_b_ptr + offs_n, mask=mask_n, other=1.0)
+    bias = tl.load(bias_ptr + offs_n, mask=mask_n, other=0.0).to(tl.float32)
     
-    scale_a = tl.load(scale_a_ptr + row_offs, mask=row_mask, other=1.0)
-    scale_b = tl.load(scale_b_ptr + col_offs, mask=col_mask, other=1.0)
-    bias = tl.load(bias_ptr + col_offs, mask=col_mask, other=0.0)
-    bias = bias.to(tl.float32)
-    
-    gemm_offs = row_offs[:, None] * stride_gm + col_offs[None, :] * stride_gn
-    gemm_val = tl.load(gemm_output_ptr + gemm_offs, mask=mask_2d, other=0.0)
+    gemm_offs = offs_m[:, None] * stride_gm + offs_n[None, :] * stride_gn
+    val = tl.load(gemm_ptr + gemm_offs, mask=mask_2d, other=0.0)
     
     if not INPUT_FP32:
-        gemm_val = gemm_val.to(tl.float32)
+        val = val.to(tl.float32)
     
-    output_val = gemm_val * scale_a[:, None] * scale_b[None, :]
-    output_val = output_val + bias[None, :]
-    output_val = output_val.to(tl.bfloat16)
+    val = val * scale_a[:, None] * scale_b[None, :] + bias[None, :]
     
-    output_offs = row_offs[:, None] * stride_om + col_offs[None, :] * stride_on
-    tl.store(output_ptr + output_offs, output_val, mask=mask_2d)
+    out_offs = offs_m[:, None] * stride_om + offs_n[None, :] * stride_on
+    tl.store(out_ptr + out_offs, val.to(tl.bfloat16), mask=mask_2d)
 
 
 def dequant_bias_autotune(
@@ -111,375 +101,316 @@ def dequant_bias_autotune(
     scale_b: torch.Tensor,
     bias: torch.Tensor,
 ) -> torch.Tensor:
-    """用于 autotune 的包装函数"""
     M, N = gemm_output.shape
     input_fp32 = gemm_output.dtype == torch.float32
     
-    if scale_a.numel() == 1:
-        scale_a = scale_a.view(1).expand(M).contiguous().float()
-    else:
-        scale_a = scale_a.view(-1).contiguous().float()
-    
-    if scale_b.numel() == 1:
-        scale_b = scale_b.view(1).expand(N).contiguous().float()
-    else:
-        scale_b = scale_b.view(-1).contiguous().float()
-    
+    scale_a = scale_a.view(-1).contiguous().float() if scale_a.numel() > 1 else scale_a.view(1).expand(M).contiguous().float()
+    scale_b = scale_b.view(-1).contiguous().float() if scale_b.numel() > 1 else scale_b.view(1).expand(N).contiguous().float()
     bias = bias.view(-1).contiguous().to(torch.bfloat16)
     output = torch.empty((M, N), dtype=torch.bfloat16, device=gemm_output.device)
     
     grid = lambda meta: (triton.cdiv(M, meta['BLOCK_M']), triton.cdiv(N, meta['BLOCK_N']))
     
-    stride_gm, stride_gn = gemm_output.stride()
-    stride_om, stride_on = output.stride()
-    
     _dequant_bias_kernel_autotune[grid](
-        gemm_output,
-        scale_a,
-        scale_b,
-        bias,
-        output,
+        gemm_output, scale_a, scale_b, bias, output,
         M, N,
-        stride_gm, stride_gn,
-        stride_om, stride_on,
+        gemm_output.stride(0), gemm_output.stride(1),
+        output.stride(0), output.stride(1),
         INPUT_FP32=input_fp32,
     )
-    
     return output
 
 
 # =============================================================================
-# Autotune 运行
+# Tuning Runner
 # =============================================================================
 
-def run_tuning(input_dtype=torch.bfloat16):
-    """运行调优，返回结果字典 {N: {M: config_dict}}"""
-    if not torch.cuda.is_available():
-        print("CUDA not available, skipping.")
-        return None
-
-    N_values = [2560, 3840, 13824]
-    M_values = [
-        1, 16, 32, 48, 64, 80, 96, 112, 128,
-        192, 256, 384, 512, 768, 1024, 1536, 2048, 3072, 4096,
-        6144, 8192, 10240, 12288, 14336, 16384, 20480, 24576, 32768, 40960, 49152, 65536
-    ]
-
-    dtype_name = "FP32" if input_dtype == torch.float32 else "BF16"
-    print(f"\nStarting offline tuning for {dtype_name} input...")
-    print(f"{len(N_values)} N values x {len(M_values)} M values")
-    print("=" * 80)
-
-    results = {}
-    max_N, max_M = max(N_values), max(M_values)
+def run_tuning(inner_fp32: bool):
+    """Run autotune and collect best configs for each (M, N)"""
+    input_dtype = torch.float32 if inner_fp32 else torch.bfloat16
+    dtype_name = "FP32" if inner_fp32 else "BF16"
     
-    # 预分配缓冲区
-    gemm_buffer = torch.randn(max_M, max_N, dtype=input_dtype, device="cuda")
-    scale_a_buffer = torch.rand(max_M, dtype=torch.float32, device="cuda") * 0.1 + 0.01
-    scale_b_buffer = torch.rand(max_N, dtype=torch.float32, device="cuda") * 0.1 + 0.01
-    bias_buffer = torch.randn(max_N, dtype=torch.bfloat16, device="cuda")
+    print(f"\nTuning for {dtype_name} input...")
+    print(f"N values: {N_VALUES}")
+    print(f"M values: {len(M_VALUES)} points")
+    print("=" * 70)
+    
+    results = {}
+    max_M, max_N = max(M_VALUES), max(N_VALUES)
+    
+    # Pre-allocate buffers
+    gemm_buf = torch.randn(max_M, max_N, dtype=input_dtype, device="cuda")
+    scale_a_buf = torch.rand(max_M, dtype=torch.float32, device="cuda") * 0.1 + 0.01
+    scale_b_buf = torch.rand(max_N, dtype=torch.float32, device="cuda") * 0.1 + 0.01
+    bias_buf = torch.randn(max_N, dtype=torch.bfloat16, device="cuda")
     torch.cuda.synchronize()
-
-    for n in N_values:
+    
+    for n in N_VALUES:
         results[n] = {}
-        print(f"\n[Tuning N={n}]")
-        for m in M_values:
-            print(f"  M={m:<5} ... ", end="", flush=True)
-            
-            gemm = gemm_buffer[:m, :n].contiguous()
-            scale_a = scale_a_buffer[:m]
-            scale_b = scale_b_buffer[:n]
-            bias = bias_buffer[:n]
+        print(f"\n[N={n}]")
+        
+        for m in M_VALUES:
+            gemm = gemm_buf[:m, :n].contiguous()
+            scale_a = scale_a_buf[:m]
+            scale_b = scale_b_buf[:n]
+            bias = bias_buf[:n]
             
             try:
-                # 运行 autotune
+                # Run autotune
                 dequant_bias_autotune(gemm, scale_a, scale_b, bias)
                 torch.cuda.synchronize()
                 
-                # 获取最优配置
-                best_config = None
-                for key, config in _dequant_bias_kernel_autotune.cache.items():
+                # Extract best config from cache
+                best_cfg = None
+                for key, cfg in _dequant_bias_kernel_autotune.cache.items():
                     if isinstance(key, tuple) and len(key) >= 2:
-                        if key[0] == m and key[1] == n:
-                            best_config = config
+                        cached_m, cached_n = key[0], key[1]
+                        if cached_m == m and cached_n == n:
+                            best_cfg = cfg
                             break
                 
-                if best_config:
-                    cfg = {
-                        'BLOCK_M': best_config.kwargs['BLOCK_M'],
-                        'BLOCK_N': best_config.kwargs['BLOCK_N'],
-                        'num_warps': best_config.num_warps,
-                        'num_stages': best_config.num_stages,
+                if best_cfg:
+                    results[n][m] = {
+                        'BLOCK_M': best_cfg.kwargs['BLOCK_M'],
+                        'BLOCK_N': best_cfg.kwargs['BLOCK_N'],
+                        'num_warps': best_cfg.num_warps,
+                        'num_stages': best_cfg.num_stages,
                     }
-                    print(f"Done. BLOCK_M={cfg['BLOCK_M']}, BLOCK_N={cfg['BLOCK_N']}, warps={cfg['num_warps']}, stages={cfg['num_stages']}")
-                    results[n][m] = cfg
+                    cfg = results[n][m]
+                    print(f"  M={m:<6} -> ({cfg['BLOCK_M']:>3}, {cfg['BLOCK_N']:>3}) w={cfg['num_warps']:<2} s={cfg['num_stages']}")
                 else:
-                    print("Config not found in cache")
+                    print(f"  M={m:<6} -> [cache miss]")
+                    
             except Exception as e:
-                print(f"Error: {e}")
+                print(f"  M={m:<6} -> ERROR: {e}")
     
-    return results, M_values
+    return results
 
 
-def analyze_and_build_branches(results, M_values):
-    """分析调优结果，构建 if-else 分支策略"""
+def build_branches(results):
+    """Analyze results and build interval-based branch strategy"""
     branches = {}
+    
     for n, m_configs in results.items():
         sorted_ms = sorted(m_configs.keys())
         if not sorted_ms:
             continue
         
         intervals = []
-        prev_cfg = None
+        prev_key = None
         interval_start = None
         
         for m in sorted_ms:
             cfg = m_configs[m]
             cfg_key = (cfg['BLOCK_M'], cfg['BLOCK_N'], cfg['num_warps'], cfg['num_stages'])
-            if cfg_key != prev_cfg:
-                if prev_cfg is not None:
+            
+            if cfg_key != prev_key:
+                if prev_key is not None:
                     intervals.append((interval_start, m, m_configs[interval_start]))
                 interval_start = m
-                prev_cfg = cfg_key
+                prev_key = cfg_key
         
         if interval_start is not None:
             intervals.append((interval_start, None, m_configs[interval_start]))
         
         branches[n] = intervals
+    
     return branches
 
 
-def generate_kernel_code(results, M_values, branches):
-    """生成完整的 Kernel 代码"""
+# =============================================================================
+# Code Generator
+# =============================================================================
+
+def generate_kernel_code(branches, inner_fp32: bool) -> str:
+    """Generate the tuned kernel Python file"""
     
-    def gen_m_branches(intervals, indent):
-        lines = []
-        if not intervals:
-            lines.append(f"{indent}return 64, 64, 8, 4  # default")
-            return lines
-        
-        for i, (m_start, m_end, cfg) in enumerate(intervals):
-            ret = f"{cfg['BLOCK_M']}, {cfg['BLOCK_N']}, {cfg['num_warps']}, {cfg['num_stages']}"
-            if i == 0:
-                if m_end is None:
-                    lines.append(f"{indent}return {ret}")
-                else:
-                    lines.append(f"{indent}if M < {m_end}:")
-                    lines.append(f"{indent}    return {ret}")
-            elif m_end is None:
-                lines.append(f"{indent}else:")
-                lines.append(f"{indent}    return {ret}")
-            else:
-                lines.append(f"{indent}elif M < {m_end}:")
-                lines.append(f"{indent}    return {ret}")
-        return lines
+    dtype_tag = "FP32" if inner_fp32 else "BF16"
+    input_fp32_const = "True" if inner_fp32 else "False"
     
+    # Generate config selector function
     def gen_config_selector():
-        lines = []
-        lines.append("def _get_tuned_config(M: int, N: int) -> tuple:")
-        lines.append('    """根据 M, N 返回最优配置: (BLOCK_M, BLOCK_N, num_warps, num_stages)"""')
+        lines = ["def _get_config(M: int, N: int) -> tuple:"]
+        lines.append('    """Returns (BLOCK_M, BLOCK_N, num_warps, num_stages)"""')
         
         n_values = sorted(branches.keys())
         for i, n in enumerate(n_values):
-            if i == 0:
-                lines.append(f"    if N == {n}:")
-            else:
-                lines.append(f"    elif N == {n}:")
-            lines.extend(gen_m_branches(branches.get(n, []), "        "))
+            cond = "if" if i == 0 else "elif"
+            lines.append(f"    {cond} N == {n}:")
+            
+            intervals = branches.get(n, [])
+            if not intervals:
+                lines.append("        return 64, 64, 8, 4")
+                continue
+            
+            for j, (m_start, m_end, cfg) in enumerate(intervals):
+                ret = f"{cfg['BLOCK_M']}, {cfg['BLOCK_N']}, {cfg['num_warps']}, {cfg['num_stages']}"
+                if j == 0:
+                    if m_end is None:
+                        lines.append(f"        return {ret}")
+                    else:
+                        lines.append(f"        if M < {m_end}:")
+                        lines.append(f"            return {ret}")
+                elif m_end is None:
+                    lines.append(f"        return {ret}")
+                else:
+                    lines.append(f"        elif M < {m_end}:")
+                    lines.append(f"            return {ret}")
         
-        lines.append("    else:")
-        lines.append("        # 默认配置")
-        lines.append("        if M <= 128:")
-        lines.append("            return 32, 64, 4, 4")
-        lines.append("        elif M <= 2048:")
-        lines.append("            return 64, 64, 4, 4")
-        lines.append("        else:")
-        lines.append("            return 128, 64, 8, 4")
+        # Default fallback for unknown N
+        lines.append("    if M <= 128:")
+        lines.append("        return 32, 64, 4, 4")
+        lines.append("    elif M <= 4096:")
+        lines.append("        return 64, 64, 8, 4")
+        lines.append("    return 128, 64, 8, 4")
+        
         return "\n".join(lines)
-
+    
     config_selector = gen_config_selector()
     
-    kernel_code = f'''"""
-Auto-generated Dequant + Bias Triton Kernel (Tuned, No Autotune)
-Generated by autotune_autogen_dequant_bias.py
-DO NOT EDIT MANUALLY
-
-"""
+    code = f'''# Auto-generated by autotune_autogen_dequant_bias.py
+# Target: {get_gpu_name()} ({get_gpu_cc()}), Input: {dtype_tag}
+# DO NOT EDIT
 
 import torch
 import triton
 import triton.language as tl
 
-
-
 {config_selector}
 
 
-
 @triton.jit
-def _dequant_bias_kernel_tuned(
-    gemm_output_ptr,
-    scale_a_ptr,
-    scale_b_ptr,
-    bias_ptr,
-    output_ptr,
-    M,
-    N,
-    stride_gm,
-    stride_gn,
-    stride_om,
-    stride_on,
-    BLOCK_M: tl.constexpr,
-    BLOCK_N: tl.constexpr,
-    INPUT_FP32: tl.constexpr,
+def _dequant_bias_kernel(
+    gemm_ptr, scale_a_ptr, scale_b_ptr, bias_ptr, out_ptr,
+    M, N, stride_gm, stride_gn, stride_om, stride_on,
+    BLOCK_M: tl.constexpr, BLOCK_N: tl.constexpr,
 ):
-
     pid_m = tl.program_id(0)
     pid_n = tl.program_id(1)
+    offs_m = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
+    offs_n = pid_n * BLOCK_N + tl.arange(0, BLOCK_N)
+    mask_m = offs_m < M
+    mask_n = offs_n < N
+    mask_2d = mask_m[:, None] & mask_n[None, :]
     
-    row_start = pid_m * BLOCK_M
-    col_start = pid_n * BLOCK_N
+    scale_a = tl.load(scale_a_ptr + offs_m, mask=mask_m, other=1.0)
+    scale_b = tl.load(scale_b_ptr + offs_n, mask=mask_n, other=1.0)
+    bias = tl.load(bias_ptr + offs_n, mask=mask_n, other=0.0).to(tl.float32)
     
-    row_offs = row_start + tl.arange(0, BLOCK_M)
-    col_offs = col_start + tl.arange(0, BLOCK_N)
+    gemm_offs = offs_m[:, None] * stride_gm + offs_n[None, :] * stride_gn
+    val = tl.load(gemm_ptr + gemm_offs, mask=mask_2d, other=0.0)
+    val = val.to(tl.float32) * scale_a[:, None] * scale_b[None, :] + bias[None, :]
     
-    row_mask = row_offs < M
-    col_mask = col_offs < N
-    mask_2d = row_mask[:, None] & col_mask[None, :]
-    
-    scale_a = tl.load(scale_a_ptr + row_offs, mask=row_mask, other=1.0)
-    scale_b = tl.load(scale_b_ptr + col_offs, mask=col_mask, other=1.0)
-    bias = tl.load(bias_ptr + col_offs, mask=col_mask, other=0.0)
-    bias = bias.to(tl.float32)
-    
-    gemm_offs = row_offs[:, None] * stride_gm + col_offs[None, :] * stride_gn
-    gemm_val = tl.load(gemm_output_ptr + gemm_offs, mask=mask_2d, other=0.0)
-    
-    if not INPUT_FP32:
-        gemm_val = gemm_val.to(tl.float32)
-    
-    output_val = gemm_val * scale_a[:, None] * scale_b[None, :]
-    output_val = output_val + bias[None, :]
-    
-    output_val = output_val.to(tl.bfloat16)
-    
-    output_offs = row_offs[:, None] * stride_om + col_offs[None, :] * stride_on
-    tl.store(output_ptr + output_offs, output_val, mask=mask_2d)
+    out_offs = offs_m[:, None] * stride_om + offs_n[None, :] * stride_on
+    tl.store(out_ptr + out_offs, val.to(tl.bfloat16), mask=mask_2d)
 
 
-def dequant_bias_triton_tuned(
+def dequant_bias_triton(
     gemm_output: torch.Tensor,
     scale_a: torch.Tensor,
     scale_b: torch.Tensor,
     bias: torch.Tensor,
     out_dtype: torch.dtype = torch.bfloat16,
 ) -> torch.Tensor:
-
-    assert gemm_output.is_cuda, "gemm_output must be on CUDA"
-    assert gemm_output.is_contiguous(), "gemm_output must be contiguous"
-    assert gemm_output.dtype in [torch.bfloat16, torch.float32]
-    
+    assert gemm_output.is_cuda and gemm_output.is_contiguous()
     M, N = gemm_output.shape
-    input_fp32 = gemm_output.dtype == torch.float32
     
-    if scale_a.numel() == 1:
-        scale_a = scale_a.view(1).expand(M).contiguous().float()
-    else:
-        scale_a = scale_a.view(-1).contiguous().float()
-    
-    if scale_b.numel() == 1:
-        scale_b = scale_b.view(1).expand(N).contiguous().float()
-    else:
-        scale_b = scale_b.view(-1).contiguous().float()
-    
+    scale_a = scale_a.view(-1).contiguous().float() if scale_a.numel() > 1 else scale_a.expand(M).contiguous().float()
+    scale_b = scale_b.view(-1).contiguous().float() if scale_b.numel() > 1 else scale_b.expand(N).contiguous().float()
     bias = bias.view(-1).contiguous().to(torch.bfloat16)
-    
     output = torch.empty((M, N), dtype=torch.bfloat16, device=gemm_output.device)
     
-    BLOCK_M, BLOCK_N, num_warps, num_stages = _get_tuned_config(M, N)
-    
+    BLOCK_M, BLOCK_N, num_warps, num_stages = _get_config(M, N)
     grid = (triton.cdiv(M, BLOCK_M), triton.cdiv(N, BLOCK_N))
     
-    stride_gm, stride_gn = gemm_output.stride()
-    stride_om, stride_on = output.stride()
-    
-    _dequant_bias_kernel_tuned[grid](
-        gemm_output,
-        scale_a,
-        scale_b,
-        bias,
-        output,
+    _dequant_bias_kernel[grid](
+        gemm_output, scale_a, scale_b, bias, output,
         M, N,
-        stride_gm, stride_gn,
-        stride_om, stride_on,
-        BLOCK_M=BLOCK_M,
-        BLOCK_N=BLOCK_N,
-        INPUT_FP32=input_fp32,
-        num_warps=num_warps,
-        num_stages=num_stages,
+        gemm_output.stride(0), gemm_output.stride(1),
+        output.stride(0), output.stride(1),
+        BLOCK_M=BLOCK_M, BLOCK_N=BLOCK_N,
+        num_warps=num_warps, num_stages=num_stages,
     )
-    
-    if out_dtype != torch.bfloat16:
-        output = output.to(out_dtype)
-    
-    return output
+    return output.to(out_dtype) if out_dtype != torch.bfloat16 else output
 
-__all__ = ['dequant_bias_triton_tuned', '_get_tuned_config']
+
+__all__ = ['dequant_bias_triton', '_get_config']
 '''
-    return kernel_code
+    return code
 
+
+# =============================================================================
+# Main
+# =============================================================================
 
 def main():
-    print("=" * 80)
-    print("Dequant + Bias Kernel Autotune")
-    print("=" * 80)
+    parser = argparse.ArgumentParser(description="Dequant+Bias Kernel Autotune & Codegen")
+    parser.add_argument('--inner-fp32', action='store_true', help='Use FP32 input (default: BF16)')
+    parser.add_argument('--info', action='store_true', help='Show naming info only')
+    parser.add_argument('--output-dir', type=str, default=None, help='Output directory (default: ./build)')
+    args = parser.parse_args()
     
     if not torch.cuda.is_available():
-        print("CUDA not available!")
-        return
+        print("ERROR: CUDA not available")
+        return 1
     
-    print(f"CUDA Device: {torch.cuda.get_device_name(0)}")
+    print("=" * 70)
+    print("Dequant + Bias Kernel Autotune")
+    print("=" * 70)
+    print(f"GPU:     {get_gpu_name()} ({get_gpu_cc()})")
+    print(f"Python:  {get_python_version_tag()}")
+    print(f"Arch:    {get_arch_tag()}")
     print(f"PyTorch: {torch.__version__}")
-    print(f"Triton: {triton.__version__}")
+    print(f"Triton:  {triton.__version__}")
+    print(f"Input:   {'FP32' if args.inner_fp32 else 'BF16'}")
+    print(f"Output:  {get_output_filename(args.inner_fp32)}")
     
-    # 运行 BF16 输入的调优
-    print("\n" + "=" * 80)
-    print("Step 1: Running autotune for BF16 input...")
-    print("=" * 80)
+    if args.info:
+        return 0
     
-    result = run_tuning(torch.bfloat16)
-    if result is None:
-        return
-    results, M_values = result
+    # Step 1: Run autotune
+    print("\n" + "=" * 70)
+    print("Step 1: Running autotune...")
+    print("=" * 70)
+    results = run_tuning(args.inner_fp32)
     
-    # 分析结果
-    print("\n" + "=" * 80)
-    print("Step 2: Analyzing results and building branch strategy...")
-    print("=" * 80)
+    # Step 2: Build branches
+    print("\n" + "=" * 70)
+    print("Step 2: Building branch strategy...")
+    print("=" * 70)
+    branches = build_branches(results)
     
-    branches = analyze_and_build_branches(results, M_values)
     for n, intervals in branches.items():
-        print(f"\nN={n}: {len(intervals)} branches")
+        print(f"\nN={n}: {len(intervals)} intervals")
         for m_start, m_end, cfg in intervals:
             end_str = f"< {m_end}" if m_end else "to max"
-            print(f"  M >= {m_start} {end_str}: BLOCK_M={cfg['BLOCK_M']}, BLOCK_N={cfg['BLOCK_N']}, warps={cfg['num_warps']}, stages={cfg['num_stages']}")
+            print(f"  M >= {m_start:<5} {end_str:<12} -> ({cfg['BLOCK_M']}, {cfg['BLOCK_N']}) w={cfg['num_warps']} s={cfg['num_stages']}")
     
-    # 生成代码
-    print("\n" + "=" * 80)
-    print("Step 3: Generating tuned kernel code...")
-    print("=" * 80)
+    # Step 3: Generate code
+    print("\n" + "=" * 70)
+    print("Step 3: Generating kernel code...")
+    print("=" * 70)
     
-    kernel_code = generate_kernel_code(results, M_values, branches)
+    kernel_code = generate_kernel_code(branches, args.inner_fp32)
     
-    output_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 
-                               "Tuned_Fused_Dequant_Bias_donotmodify.py")
+    # Determine output path
+    if args.output_dir:
+        output_dir = Path(args.output_dir)
+    else:
+        output_dir = Path(__file__).parent / "build"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    output_file = output_dir / get_output_filename(args.inner_fp32)
+    
     with open(output_file, "w") as f:
         f.write(kernel_code)
     
-    print(f"\nGenerated kernel saved to: {output_file}")
-    print(f"File size: {len(kernel_code)} bytes")
-    print("\nDone! You can now use dequant_bias_triton_tuned() from Tuned_Fused_Dequant_Bias_donotmodify.py")
+    print(f"\nGenerated: {output_file}")
+    print(f"Size: {len(kernel_code)} bytes")
+    print("\nDone!")
+    
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
