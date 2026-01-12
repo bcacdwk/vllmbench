@@ -38,8 +38,8 @@ from slidesparse.core.SlideSparseLinearMethod_FP8 import (
     cutlass_FP8_linear,
     # 统一工厂函数
     wrap_scheme_fp8,
-    # Extension 加载（测试用）
-    _get_extension,
+    # GEMM Extension
+    _get_gemm_extension,
 )
 
 __all__ = [
@@ -58,6 +58,6 @@ __all__ = [
     "cutlass_FP8_linear",
     # 统一工厂函数
     "wrap_scheme_fp8",
-    # Extension 加载（测试用）
-    "_get_extension",
+    # GEMM Extension
+    "_get_gemm_extension",
 ]

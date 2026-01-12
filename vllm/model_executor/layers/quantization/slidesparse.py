@@ -69,7 +69,7 @@ try:
         # 统一工厂函数
         wrap_scheme_fp8,
         # Extension 加载（测试用）
-        _get_extension,
+        _get_gemm_extension,
     )
     
     _IMPORT_SUCCESS = True
@@ -100,7 +100,7 @@ except ImportError as e:
     def wrap_scheme_fp8(scheme):
         return scheme
     
-    def _get_extension(backend):
+    def _get_gemm_extension(backend):
         raise NotImplementedError("SlideSparse import failed")
     
     # Stub classes
@@ -137,5 +137,5 @@ __all__ = [
     # 统一工厂函数
     "wrap_scheme_fp8",
     # Extension 加载（测试用）
-    "_get_extension",
+    "_get_gemm_extension",
 ]

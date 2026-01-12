@@ -9,16 +9,14 @@ test_01_bridge.py - SlideSparse 桥接与集成测试
 2. 配置系统（环境变量）
 3. vLLM 集成点
 4. 关键类和函数的存在性
+5. cuBLASLt / cuSPARSELt Extension 加载
 
 使用方法:
-    python3 test_01_bridge.py                    # 默认: SlideSparse + CUTLASS fallback
-    python3 test_01_bridge.py --use-cublaslt     # SlideSparse + cuBLASLt
-    python3 test_01_bridge.py --use-cusparselt   # SlideSparse + cuSPARSELt
+    python3 test_01_bridge.py
 
-环境变量:
-    DISABLE_SLIDESPARSE=1  →  禁用 SlideSparse
-    USE_CUBLASLT=1         →  cuBLASLt kernel
-    USE_CUSPARSELT=1       →  cuSPARSELt kernel
+说明:
+    此测试不需要任何参数，会全面测试所有桥接功能，
+    包括 CUTLASS fallback、cuBLASLt、cuSPARSELt 三种后端的 Extension 加载。
 """
 
 import os
@@ -33,8 +31,6 @@ from test_utils import (
     test_case,
     EnvironmentChecker,
     Colors,
-    parse_common_args,
-    apply_env_args,
 )
 
 
@@ -71,7 +67,7 @@ def test_import_core():
         # 工厂函数
         wrap_scheme_fp8,
         # Extension 加载
-        _get_extension,
+        _get_gemm_extension,
     )
     
     # 验证导出的符号类型
@@ -81,7 +77,7 @@ def test_import_core():
     assert callable(is_inner_dtype_fp32)
     assert callable(get_slidesparse_status)
     assert callable(wrap_scheme_fp8)
-    assert callable(_get_extension)
+    assert callable(_get_gemm_extension)
     
     return True, "核心接口导入成功"
 
@@ -120,7 +116,7 @@ def test_import_linear_method():
         # 工厂函数
         wrap_scheme_fp8,
         # Extension 加载
-        _get_extension,
+        _get_gemm_extension,
     )
     
     # 验证类结构
@@ -135,7 +131,7 @@ def test_import_linear_method():
     assert callable(cutlass_FP8_linear)
     
     # 验证 Extension 加载函数
-    assert callable(_get_extension)
+    assert callable(_get_gemm_extension)
     
     return True, "类结构正确"
 
@@ -374,10 +370,10 @@ def test_wrap_scheme_fp8():
 @test_case("cuBLASLt Extension 加载状态")
 def test_cublaslt_extension_load():
     """测试 cuBLASLt extension 加载状态"""
-    from slidesparse.core.SlideSparseLinearMethod_FP8 import _get_extension
+    from slidesparse.core.SlideSparseLinearMethod_FP8 import _get_gemm_extension
     
     try:
-        ext = _get_extension("cublaslt")
+        ext = _get_gemm_extension("cublaslt")
         # 验证导出的函数
         has_fp8_mm = hasattr(ext, "cublaslt_fp8_mm")
         if has_fp8_mm:
@@ -394,10 +390,10 @@ def test_cublaslt_extension_load():
 @test_case("cuBLASLt Extension 函数签名")
 def test_cublaslt_extension_signatures():
     """测试 cuBLASLt extension 导出函数的签名"""
-    from slidesparse.core.SlideSparseLinearMethod_FP8 import _get_extension
+    from slidesparse.core.SlideSparseLinearMethod_FP8 import _get_gemm_extension
     
     try:
-        ext = _get_extension("cublaslt")
+        ext = _get_gemm_extension("cublaslt")
     except ModuleNotFoundError:
         return TestResult(
             name="cuBLASLt Extension 函数签名",
@@ -429,10 +425,10 @@ def test_cublaslt_extension_signatures():
 @test_case("cuSPARSELt Extension 加载状态")
 def test_cusparselt_extension_load():
     """测试 cuSPARSELt extension 加载状态"""
-    from slidesparse.core.SlideSparseLinearMethod_FP8 import _get_extension
+    from slidesparse.core.SlideSparseLinearMethod_FP8 import _get_gemm_extension
     
     try:
-        ext = _get_extension("cusparselt")
+        ext = _get_gemm_extension("cusparselt")
         # 验证导出的函数
         has_fp8_mm = hasattr(ext, "cusparselt_fp8_mm")
         if has_fp8_mm:
@@ -449,10 +445,10 @@ def test_cusparselt_extension_load():
 @test_case("cuSPARSELt Extension 函数签名")
 def test_cusparselt_extension_signatures():
     """测试 cuSPARSELt extension 导出函数的签名"""
-    from slidesparse.core.SlideSparseLinearMethod_FP8 import _get_extension
+    from slidesparse.core.SlideSparseLinearMethod_FP8 import _get_gemm_extension
     
     try:
-        ext = _get_extension("cusparselt")
+        ext = _get_gemm_extension("cusparselt")
     except ModuleNotFoundError:
         return TestResult(
             name="cuSPARSELt Extension 函数签名",
@@ -528,11 +524,7 @@ def run_tests(verbose: bool = True) -> bool:
 
 
 if __name__ == "__main__":
-    parser = parse_common_args("SlideSparse 桥接与集成测试")
-    args = parser.parse_args()
-    
-    apply_env_args(args)
-    
+
     success = run_tests(verbose=True)
-    
+
     sys.exit(0 if success else 1)

@@ -2,46 +2,43 @@
 """
 SlideSparse FP8 Linear Method
 
-设计原则:
-=========
-1. 完全复用 CompressedTensorsW8A8Fp8 的 create_weights() 和 process_weights_after_loading()
-2. 仅在 apply_weights() 中替换 GEMM 后端
-3. cuBLASLt 只做纯矩阵乘法，不融合 scale/bias
-4. Dequant + bias 由后续 Triton kernel 处理
+本模块是 SlideSparse 的核心，通过外挂方式替换 vLLM 的 FP8 Linear 计算路径。
 
-架构说明:
-=========
-原始 CompressedTensorsW8A8Fp8.apply_weights():
-    input (BF16) -> quant (FP8) -> GEMM+Dequant (cutlass_scaled_mm) -> output (BF16)
+架构说明
+========
+SlideSparse 通过包装 vLLM 原有的 CompressedTensorsW8A8Fp8 scheme 实现外挂：
+- create_weights / process_weights_after_loading: 完全委托给原始 scheme
+- apply_weights: 替换为 SlideSparse 的 kernel 路径
 
-我们的 cuBLASLtFp8LinearMethod.apply():
-    input (BF16) -> quant (FP8) -> GEMM (cublaslt_mm) -> Dequant+Bias (Triton) -> output (BF16)
-                      ↑                    ↑                    ↑
-               完全复制原代码      cuBLASLt kernel        TODO: Triton kernel
-                              (无 scale/bias 融合)
+三条 Kernel 路径（通过环境变量选择）
+====================================
+1. CUTLASS (默认 fallback)
+   - 直接调用 vLLM 的 cutlass_scaled_mm，融合 GEMM + dequant + bias
+   
+2. cuBLASLt (USE_CUBLASLT=1)
+   - GEMM: cuBLASLt FP8 矩阵乘法（无 scale/bias 融合）
+   - Dequant+Bias: 外挂 Triton kernel
+   
+3. cuSPARSELt (USE_CUSPARSELT=1)
+   - GEMM: cuSPARSELt 2:4 稀疏 FP8 矩阵乘法（无 scale/bias 融合）
+   - Dequant+Bias: 外挂 Triton kernel
 
-数据类型说明:
-============
-- input_dtype: 输入量化精度，目前支持 FP8E4M3（Python 端固定）
-- inner_dtype: GEMM 输出精度，BF16（默认）或 FP32（通过环境变量控制）
-- out_dtype: 最终输出精度，由 vLLM 上层指定，经过 dequant 后得到
+数据类型
+========
+- input_dtype:  输入量化精度，FP8E4M3
+- inner_dtype:  GEMM 输出精度，BF16（默认）或 FP32（INNER_DTYPE_FP32=1）
+- out_dtype:    最终输出精度，由 vLLM 上层指定
 
-环境变量:
-=========
-1. DISABLE_SLIDESPARSE=1              → 完全禁用 SlideSparse，使用 vLLM 原生路径
-2. USE_CUBLASLT or USE_CUSPARSELT=1   → 从外挂 CUTLASS 切换到 cuBLASLt/cuSPARSELt kernel
-3. INNER_DTYPE_FP32=1                 → GEMM 输出用 FP32, 否则默认使用 BF16
-
-cuBLASLt kernel 位置:
-    slidesparse/csrc/cublaslt_gemm/cublaslt_gemm.cu
+环境变量
+========
+- DISABLE_SLIDESPARSE=1   : 完全禁用 SlideSparse，使用 vLLM 原生路径
+- USE_CUBLASLT=1          : 使用 cuBLASLt kernel
+- USE_CUSPARSELT=1        : 使用 cuSPARSELt kernel（与 USE_CUBLASLT 互斥）
+- INNER_DTYPE_FP32=1      : GEMM 输出用 FP32（仅 cuBLASLt/cuSPARSELt 生效）
 """
 
 from .config import is_slidesparse_enabled, is_cublaslt_enabled, is_cusparselt_enabled, is_inner_dtype_fp32, get_slidesparse_status
 
-import importlib
-import os
-import sys
-import platform
 from pathlib import Path
 from typing import Optional
 
@@ -54,11 +51,14 @@ from vllm.model_executor.layers.quantization.input_quant_fp8 import QuantFP8
 from vllm.model_executor.layers.quantization.utils.quant_utils import GroupShape
 from vllm.platforms import current_platform
 
+# 使用统一的 slidesparse 工具库
+from slidesparse.utils import load_module, normalize_dtype
+
 logger = init_logger(__name__)
 
 
 # ============================================================================
-# 环境变量配置（从 cublaslt_config 统一管理）
+# 环境变量配置（从 config 统一管理）
 # ============================================================================
 
 def get_inner_dtype_str() -> str:
@@ -78,56 +78,55 @@ def get_inner_dtype_torch() -> torch.dtype:
 # CSRC 目录（用于模块加载）
 _CSRC_DIR = Path(__file__).parent.parent / "csrc"
 
-# 确保 utils 可导入
-if str(_CSRC_DIR) not in sys.path:
-    sys.path.insert(0, str(_CSRC_DIR))
 
-from utils import load_tuned_module
-
-
-def _get_extension(backend: str):
+def _get_gemm_extension(backend: str):
     """
-    获取指定后端的 extension（懒加载）
+    获取指定后端的 GEMM extension（懒加载）
     
     Args:
         backend: "cublaslt" 或 "cusparselt"
         
     Returns:
         加载的 extension 模块
+        
+    Note:
+        GEMM extension 运行时支持多种数据类型（FP8E4M3, INT8），
+        文件名不包含 dtype，格式为: {backend}_gemm_{GPU}_{CC}_{PyVer}_{CUDAVer}_{Arch}.so
     """
     if backend not in ("cublaslt", "cusparselt"):
         raise ValueError(f"Unsupported backend: {backend}")
     
-    build_dir = _CSRC_DIR / f"{backend}_gemm" / "build"
-    module = load_tuned_module(backend, build_dir)
-    logger.info_once(f"{backend} extension loaded")
+    # prefix 是 cublaslt_gemm 或 cusparselt_gemm
+    prefix = f"{backend}_gemm"
+    build_dir = _CSRC_DIR / prefix / "build"
+    
+    # 使用统一 load_module，不带 dtype（因为运行时支持多种类型）
+    module = load_module(prefix, search_dir=build_dir, ext=".so")
+    logger.info_once(f"{backend} GEMM extension loaded")
     return module
 
 
 # ============================================================================
-# Dequant + Bias Kernel (Triton tuned 版本)
+# Dequant + Bias Kernel
 # ============================================================================
 
-# Triton kernel 缓存
-_dequant_bias_triton_fn = None
+_dequant_bias_fn = None  # 缓存加载的 kernel 函数
 
 
-def _get_dequant_bias_triton():
-    """获取 Triton dequant+bias kernel（懒加载）"""
-    global _dequant_bias_triton_fn
-    if _dequant_bias_triton_fn is not None:
-        return _dequant_bias_triton_fn
+def _load_dequant_bias_kernel():
+    """加载 Triton dequant+bias kernel（懒加载，仅调用一次）"""
+    global _dequant_bias_fn
+    if _dequant_bias_fn is not None:
+        return _dequant_bias_fn
     
-    # 确定 dtype tag
+    # dtype_tag 对应 GEMM 输出精度
     dtype_tag = "FP32" if is_inner_dtype_fp32() else "BF16"
-    
-    # 加载模块
     build_dir = _CSRC_DIR / "fused_dequant_bias_triton" / "build"
-    module = load_tuned_module("dequant_bias_tuned", build_dir, dtype_tag)
+    module = load_module("dequant_bias_tuned", dtype=dtype_tag, search_dir=build_dir, ext=".py")
     
-    _dequant_bias_triton_fn = module.dequant_bias_triton
-    logger.info_once(f"Triton dequant+bias kernel loaded: {dtype_tag}")
-    return _dequant_bias_triton_fn
+    _dequant_bias_fn = module.dequant_bias_triton
+    logger.info_once(f"Dequant+bias kernel loaded (inner_dtype={dtype_tag})")
+    return _dequant_bias_fn
 
 
 def dequant_bias_kernel(
@@ -152,17 +151,33 @@ def dequant_bias_kernel(
     Returns:
         dequant 后的输出 [M, N]，out_dtype
     """
-    triton_fn = _get_dequant_bias_triton()
-    
-    # Triton kernel 需要 bias 非 None
+    fn = _load_dequant_bias_kernel()
     if bias is None:
         bias = torch.zeros(gemm_output.shape[1], dtype=torch.bfloat16, device=gemm_output.device)
-    
-    return triton_fn(gemm_output, scale_a, scale_b, bias, out_dtype)
+    return fn(gemm_output, scale_a, scale_b, bias, out_dtype)
 
 
 # ============================================================================
-# FP8 Linear 函数（三个平级的 kernel 路径）
+# FP8 Linear 函数
+# ============================================================================
+#
+# 三个函数签名完全相同，仅 GEMM 后端不同：
+#   - cuBLASLt_FP8_linear:  cuBLASLt dense GEMM + Triton dequant
+#   - cuSPARSELt_FP8_linear: cuSPARSELt 2:4 sparse GEMM + Triton dequant
+#   - cutlass_FP8_linear:    vLLM 原生 cutlass_scaled_mm (融合 dequant)
+#
+# 参数说明：
+#   qinput:       [M, K] FP8，量化后的输入
+#   weight:       [K, N] FP8，vLLM 的 .t() view（物理内存是 [N,K] 行主序）
+#   out_dtype:    最终输出类型
+#   scale_a:      [M, 1] or [1] FP32，输入 scale
+#   scale_b:      [N, 1] or [1] FP32，权重 scale
+#   bias:         [N] or None
+#   output_shape: 输出形状
+#
+# 计算流程 (cuBLASLt/cuSPARSELt):
+#   1. GEMM:   inner[M,N] = qinput[M,K] @ weight[N,K]^T
+#   2. Dequant: out[M,N] = inner * scale_a * scale_b + bias
 # ============================================================================
 
 def cuBLASLt_FP8_linear(
@@ -176,75 +191,21 @@ def cuBLASLt_FP8_linear(
     output_shape: list,
     **kwargs,
 ) -> torch.Tensor:
-    """
-    cuBLASLt FP8 Linear（完整流程：GEMM + Dequant + Bias）
+    """cuBLASLt dense FP8 GEMM + Triton dequant"""
+    ext = _get_gemm_extension("cublaslt")
     
-    调用链:
-        cuBLASLt_FP8_linear()           # Python: 完整 Linear
-          ├── ext.cublaslt_fp8_mm()      # CUDA: 纯 GEMM
-          └── dequant_bias_kernel()      # Python/Triton: dequant
-    
-    计算流程:
-    1. GEMM: inner_output[M,N] = qinput[M,K] @ weight[N,K]^T  (cuBLASLt)
-    2. Dequant: output[M,N] = inner_output * scale_a * scale_b + bias
-    
-    注意: weight 是 vLLM 经过 .t() 后的 view，stride=(1, K)
-          物理内存实际是 [N, K] 行主序
-    
-    Args:
-        qinput: 量化后的输入 [M, K] FP8E4M3，行主序
-        weight: 量化后的权重 [K, N] FP8 (.t() 后的 view，实际是 [N, K] 行主序)
-        out_dtype: 最终输出数据类型（经过 dequant 后）
-        scale_a: 输入 scale [M, 1] 或 [1] FP32 (per-token)
-        scale_b: 权重 scale [N, 1] 或 [1] FP32 (per-channel)
-        bias: 偏置 [N] 或 None
-        output_shape: 输出形状
-        
-    Returns:
-        输出张量 [*output_shape]，out_dtype
-    """
-    ext = _get_extension("cublaslt")
-    
-    # 关键转换:
-    # weight 是 [K, N] stride=(1, K)，需要 .t() 回 [N, K] stride=(K, 1)
-    # 这个 .t() 只改变 view，不移动内存
-    weight_row_major = weight.t()
-    
-    if not weight_row_major.is_contiguous():
-        logger.warning_once(
-            "weight.t() is not contiguous, making contiguous copy. "
-            "This may indicate a memory layout issue."
-        )
-        weight_row_major = weight_row_major.contiguous()
-    
-    # 获取 inner_dtype
-    inner_dtype_str = get_inner_dtype_str()
+    # 转换 weight view: [K,N] stride=(1,K) → [N,K] stride=(K,1)
+    weight_nk = weight.t()
+    if not weight_nk.is_contiguous():
+        logger.warning_once("weight.t() not contiguous, making copy")
+        weight_nk = weight_nk.contiguous()
     
     try:
-        # 调用 cuBLASLt kernel（纯 GEMM，无 scale/bias）
-        # D[M,N] = qinput[M,K] @ weight[N,K]^T
-        gemm_output = ext.cublaslt_fp8_mm(
-            weight_row_major,  # W [N, K] FP8 行主序
-            qinput,            # A [M, K] FP8 行主序
-            inner_dtype_str,   # "bf16" 或 "fp32"
-        )
-        
-        # Dequant + Bias (TODO: 替换为 Triton kernel)
-        output = dequant_bias_kernel(
-            gemm_output=gemm_output,
-            scale_a=scale_a,
-            scale_b=scale_b,
-            bias=bias,
-            out_dtype=out_dtype,
-        )
-        
+        gemm_output = ext.cublaslt_fp8_mm(weight_nk, qinput, get_inner_dtype_str())
+        output = dequant_bias_kernel(gemm_output, scale_a, scale_b, bias, out_dtype)
         return output.view(*output_shape)
-        
     except Exception as e:
-        raise RuntimeError(
-            f"cuBLASLt kernel execution failed: {e}. "
-            "If this is unexpected, check GPU compatibility or rebuild the extension."
-        ) from e
+        raise RuntimeError(f"cuBLASLt execution failed: {e}") from e
 
 
 def cuSPARSELt_FP8_linear(
@@ -258,75 +219,20 @@ def cuSPARSELt_FP8_linear(
     output_shape: list,
     **kwargs,
 ) -> torch.Tensor:
-    """
-    cuSPARSELt FP8 Linear（完整流程：稀疏 GEMM + Dequant + Bias）
+    """cuSPARSELt 2:4 sparse FP8 GEMM + Triton dequant"""
+    ext = _get_gemm_extension("cusparselt")
     
-    调用链:
-        cuSPARSELt_FP8_linear()          # Python: 完整 Linear
-          ├── ext.cusparselt_fp8_mm()     # CUDA: 稀疏 GEMM
-          └── dequant_bias_kernel()       # Python/Triton: dequant
-    
-    计算流程:
-    1. GEMM: inner_output[M,N] = qinput[M,K] @ sparse_weight[N,K]^T  (cuSPARSELt)
-    2. Dequant: output[M,N] = inner_output * scale_a * scale_b + bias
-    
-    注意: weight 是 vLLM 经过 .t() 后的 view，stride=(1, K)
-          物理内存实际是 [N, K] 行主序
-    
-    Args:
-        qinput: 量化后的输入 [M, K] FP8E4M3，行主序
-        weight: 量化后的权重 [K, N] FP8 (.t() 后的 view，实际是 [N, K] 行主序)
-        out_dtype: 最终输出数据类型（经过 dequant 后）
-        scale_a: 输入 scale [M, 1] 或 [1] FP32 (per-token)
-        scale_b: 权重 scale [N, 1] 或 [1] FP32 (per-channel)
-        bias: 偏置 [N] 或 None
-        output_shape: 输出形状
-        
-    Returns:
-        输出张量 [*output_shape]，out_dtype
-    """
-    ext = _get_extension("cusparselt")
-    
-    # 关键转换:
-    # weight 是 [K, N] stride=(1, K)，需要 .t() 回 [N, K] stride=(K, 1)
-    # 这个 .t() 只改变 view，不移动内存
-    weight_row_major = weight.t()
-    
-    if not weight_row_major.is_contiguous():
-        logger.warning_once(
-            "weight.t() is not contiguous, making contiguous copy. "
-            "This may indicate a memory layout issue."
-        )
-        weight_row_major = weight_row_major.contiguous()
-    
-    # 获取 inner_dtype
-    inner_dtype_str = get_inner_dtype_str()
+    weight_nk = weight.t()
+    if not weight_nk.is_contiguous():
+        logger.warning_once("weight.t() not contiguous, making copy")
+        weight_nk = weight_nk.contiguous()
     
     try:
-        # 调用 cuSPARSELt kernel（稀疏 GEMM，无 scale/bias）
-        # D[M,N] = qinput[M,K] @ weight[N,K]^T
-        gemm_output = ext.cusparselt_fp8_mm(
-            weight_row_major,  # W [N, K] FP8 行主序
-            qinput,            # A [M, K] FP8 行主序
-            inner_dtype_str,   # "bf16" 或 "fp32"
-        )
-        
-        # Dequant + Bias (TODO: 替换为 Triton kernel)
-        output = dequant_bias_kernel(
-            gemm_output=gemm_output,
-            scale_a=scale_a,
-            scale_b=scale_b,
-            bias=bias,
-            out_dtype=out_dtype,
-        )
-        
+        gemm_output = ext.cusparselt_fp8_mm(weight_nk, qinput, get_inner_dtype_str())
+        output = dequant_bias_kernel(gemm_output, scale_a, scale_b, bias, out_dtype)
         return output.view(*output_shape)
-        
     except Exception as e:
-        raise RuntimeError(
-            f"cuSPARSELt kernel execution failed: {e}. "
-            "If this is unexpected, check GPU compatibility or rebuild the extension."
-        ) from e
+        raise RuntimeError(f"cuSPARSELt execution failed: {e}") from e
 
 
 def cutlass_FP8_linear(
@@ -340,24 +246,7 @@ def cutlass_FP8_linear(
     output_shape: list,
     **kwargs,
 ) -> torch.Tensor:
-    """
-    CUTLASS FP8 Linear（vLLM 原生 cutlass_scaled_mm 的薄包装）
-    
-    这是 SlideSparse 的默认 fallback 路径。
-    直接调用 vLLM 的 ops.cutlass_scaled_mm。
-    
-    Args:
-        qinput: 量化后的输入 [M, K] FP8E4M3
-        weight: 量化后的权重 [K, N] FP8
-        out_dtype: 最终输出数据类型
-        scale_a: 输入 scale [M, 1] 或 [1] FP32
-        scale_b: 权重 scale [N, 1] 或 [1] FP32
-        bias: 偏置 [N] 或 None
-        output_shape: 输出形状
-        
-    Returns:
-        输出张量 [*output_shape]，out_dtype
-    """
+    """vLLM 原生 CUTLASS (融合 GEMM + dequant + bias)"""
     output = ops.cutlass_scaled_mm(
         qinput, weight, out_dtype=out_dtype,
         scale_a=scale_a, scale_b=scale_b, bias=bias

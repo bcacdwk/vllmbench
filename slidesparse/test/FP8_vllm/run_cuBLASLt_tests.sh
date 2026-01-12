@@ -1,18 +1,16 @@
 #!/bin/bash
 # SPDX-License-Identifier: Apache-2.0
 # =============================================================================
-# run_all_tests.sh - SlideSparse FP8 一键测试脚本
+# SlideSparse cuBLASLt 一键测试脚本
 #
 # 功能:
 #   1. 编译 cuBLASLt Extension（如果需要）
-#   2. 依次运行 4 个测试脚本
+#   2. 依次运行 4 个测试脚本（使用 cuBLASLt 后端）
 #
 # 使用方法:
-#   chmod +x /root/vllmbench/slidesparse/test/FP8/run_all_tests.sh
-#   ./run_all_tests.sh                      # 默认: CUTLASS fallback
-#   ./run_all_tests.sh --use-cublaslt       # cuBLASLt + BF16
-#   ./run_all_tests.sh --use-cublaslt --inner-fp32  # cuBLASLt + FP32
-#   ./run_all_tests.sh --use-cusparselt     # cuSPARSELt
+#   chmod +x run_cuBLASLt_tests.sh
+#   ./run_cuBLASLt_tests.sh                 # cuBLASLt + BF16（默认）
+#   ./run_cuBLASLt_tests.sh --inner-fp32    # cuBLASLt + FP32
 #   
 # =============================================================================
 
@@ -31,24 +29,13 @@ NC='\033[0m' # No Color
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CUBLASLT_DIR="$(dirname "$(dirname "$SCRIPT_DIR")")/csrc/cublaslt_gemm"
 
-# 解析参数
-USE_CUBLASLT=0
-USE_CUSPARSELT=0
+# 默认配置：cuBLASLt + BF16
 INNER_FP32=0
-TEST_ARGS=""
+TEST_ARGS="--use-cublaslt"
 
+# 解析参数
 while [[ $# -gt 0 ]]; do
     case $1 in
-        --use-cublaslt)
-            USE_CUBLASLT=1
-            TEST_ARGS="$TEST_ARGS --use-cublaslt"
-            shift
-            ;;
-        --use-cusparselt)
-            USE_CUSPARSELT=1
-            TEST_ARGS="$TEST_ARGS --use-cusparselt"
-            shift
-            ;;
         --inner-fp32)
             INNER_FP32=1
             TEST_ARGS="$TEST_ARGS --inner-fp32"
@@ -57,42 +44,41 @@ while [[ $# -gt 0 ]]; do
         -h|--help)
             echo "Usage: $0 [OPTIONS]"
             echo ""
+            echo "SlideSparse cuBLASLt 测试脚本"
+            echo ""
             echo "Options:"
-            echo "  (无参数)                    CUTLASS fallback"
-            echo "  --use-cublaslt              cuBLASLt + BF16"
-            echo "  --use-cublaslt --inner-fp32 cuBLASLt + FP32"
-            echo "  --use-cusparselt            cuSPARSELt"
-            echo "  -h, --help                  显示帮助信息"
+            echo "  (无参数)       cuBLASLt + BF16（默认）"
+            echo "  --inner-fp32   cuBLASLt + FP32"
+            echo "  -h, --help     显示帮助信息"
+            echo ""
+            echo "说明:"
+            echo "  此脚本专门用于测试 cuBLASLt 后端。"
+            echo "  test_01_bridge.py 不需要参数，会测试所有桥接功能。"
+            echo "  test_02/03/04 使用 --use-cublaslt 参数。"
             exit 0
             ;;
         *)
             echo -e "${RED}未知参数: $1${NC}"
+            echo "使用 -h 或 --help 查看帮助"
             exit 1
             ;;
     esac
 done
 
 # 确定后端名称
-if [[ $USE_CUBLASLT -eq 1 ]]; then
-    if [[ $INNER_FP32 -eq 1 ]]; then
-        BACKEND_NAME="cuBLASLt + FP32"
-    else
-        BACKEND_NAME="cuBLASLt + BF16"
-    fi
-elif [[ $USE_CUSPARSELT -eq 1 ]]; then
-    BACKEND_NAME="cuSPARSELt"
+if [[ $INNER_FP32 -eq 1 ]]; then
+    BACKEND_NAME="cuBLASLt + FP32"
 else
-    BACKEND_NAME="CUTLASS fallback"
+    BACKEND_NAME="cuBLASLt + BF16"
 fi
 
 # 打印横幅
 print_banner() {
     echo ""
     echo -e "${CYAN}════════════════════════════════════════════════════════════════════════════════${NC}"
-    echo -e "${BOLD}                    SlideSparse FP8 一键测试脚本${NC}"
+    echo -e "${BOLD}                    SlideSparse cuBLASLt 一键测试脚本${NC}"
     echo -e "${CYAN}════════════════════════════════════════════════════════════════════════════════${NC}"
     echo -e "  ${BLUE}后端:${NC} ${BACKEND_NAME}"
-    echo -e "  ${BLUE}参数:${NC} ${TEST_ARGS:-"(无)"}"
     echo -e "${CYAN}════════════════════════════════════════════════════════════════════════════════${NC}"
     echo ""
 }
@@ -112,11 +98,15 @@ print_step() {
 run_test() {
     local test_script=$1
     local test_name=$2
+    local test_args=$3
     
     echo -e "${CYAN}>>> 运行: ${test_name}${NC}"
+    if [[ -n "$test_args" ]]; then
+        echo -e "${CYAN}    参数: ${test_args}${NC}"
+    fi
     echo ""
     
-    if python3 "${SCRIPT_DIR}/${test_script}" $TEST_ARGS; then
+    if python3 "${SCRIPT_DIR}/${test_script}" $test_args; then
         echo ""
         echo -e "${GREEN}✓ ${test_name} 完成${NC}"
         return 0
@@ -134,49 +124,48 @@ main() {
     
     print_banner
     
-    # Step 0: 编译 cuBLASLt Extension（如果使用 cuBLASLt）
-    if [[ $USE_CUBLASLT -eq 1 ]]; then
-        print_step "0/4" "编译 cuBLASLt Extension"
-        
-        if [[ -f "${CUBLASLT_DIR}/setup_cublaslt.py" ]]; then
-            echo -e "${CYAN}>>> 运行: python3 setup_cublaslt.py build${NC}"
+    # Step 0: 编译 cuBLASLt Extension
+    print_step "0/4" "编译 cuBLASLt Extension"
+    
+    if [[ -f "${CUBLASLT_DIR}/build_cublaslt.py" ]]; then
+        echo -e "${CYAN}>>> 运行: python3 build_cublaslt.py build${NC}"
+        echo ""
+        cd "${CUBLASLT_DIR}"
+        if python3 build_cublaslt.py build; then
             echo ""
-            cd "${CUBLASLT_DIR}"
-            if python3 setup_cublaslt.py build; then
-                echo ""
-                echo -e "${GREEN}✓ cuBLASLt Extension 编译完成${NC}"
-            else
-                echo ""
-                echo -e "${RED}✗ cuBLASLt Extension 编译失败${NC}"
-                exit 1
-            fi
-            cd "${SCRIPT_DIR}"
+            echo -e "${GREEN}✓ cuBLASLt Extension 编译完成${NC}"
         else
-            echo -e "${YELLOW}⚠ 未找到 setup_cublaslt.py，跳过编译${NC}"
+            echo ""
+            echo -e "${RED}✗ cuBLASLt Extension 编译失败${NC}"
+            exit 1
         fi
+        cd "${SCRIPT_DIR}"
+    else
+        echo -e "${RED}✗ 未找到 build_cublaslt.py${NC}"
+        exit 1
     fi
     
-    # Step 1: 桥接与集成测试
+    # Step 1: 桥接与集成测试（不需要参数，测试所有功能）
     print_step "1/4" "桥接与集成测试 (test_01_bridge.py)"
-    if ! run_test "test_01_bridge.py" "桥接与集成测试"; then
+    if ! run_test "test_01_bridge.py" "桥接与集成测试" ""; then
         failed_tests+=("test_01_bridge.py")
     fi
     
     # Step 2: Kernel 正确性测试
     print_step "2/4" "Kernel 正确性测试 (test_02_kernel.py)"
-    if ! run_test "test_02_kernel.py" "Kernel 正确性测试"; then
+    if ! run_test "test_02_kernel.py" "Kernel 正确性测试" "$TEST_ARGS"; then
         failed_tests+=("test_02_kernel.py")
     fi
     
     # Step 3: 端到端推理对比
     print_step "3/4" "端到端推理对比 (test_03_inference.py)"
-    if ! run_test "test_03_inference.py" "端到端推理对比"; then
+    if ! run_test "test_03_inference.py" "端到端推理对比" "$TEST_ARGS"; then
         failed_tests+=("test_03_inference.py")
     fi
     
     # Step 4: 吞吐量对比测试
     print_step "4/4" "吞吐量对比测试 (test_04_throughput.py)"
-    if ! run_test "test_04_throughput.py" "吞吐量对比测试"; then
+    if ! run_test "test_04_throughput.py" "吞吐量对比测试" "$TEST_ARGS"; then
         failed_tests+=("test_04_throughput.py")
     fi
     
