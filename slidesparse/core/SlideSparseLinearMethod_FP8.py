@@ -1,8 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """
-SlideSparse cuBLASLt FP8 Linear Method
-
-这是 Phase 3 的核心实现：cuBLASLt Dense 基线搭建。
+SlideSparse FP8 Linear Method
 
 设计原则:
 =========
@@ -16,7 +14,7 @@ SlideSparse cuBLASLt FP8 Linear Method
 原始 CompressedTensorsW8A8Fp8.apply_weights():
     input (BF16) -> quant (FP8) -> GEMM+Dequant (cutlass_scaled_mm) -> output (BF16)
 
-我们的 CuBLASLtFp8LinearMethod.apply():
+我们的 cuBLASLtFp8LinearMethod.apply():
     input (BF16) -> quant (FP8) -> GEMM (cublaslt_mm) -> Dequant+Bias (Triton) -> output (BF16)
                       ↑                    ↑                    ↑
                完全复制原代码      cuBLASLt kernel        TODO: Triton kernel
@@ -28,16 +26,17 @@ SlideSparse cuBLASLt FP8 Linear Method
 - inner_dtype: GEMM 输出精度，BF16（默认）或 FP32（通过环境变量控制）
 - out_dtype: 最终输出精度，由 vLLM 上层指定，经过 dequant 后得到
 
-环境变量（只有两个）:
-==================
-1. USE_CUBLASLT=1        → 从 CUTLASS 切换到 cuBLASLt
-2. INNER_DTYPE_FP32=1    → GEMM 输出用 FP32（仅 USE_CUBLASLT=1 时生效）
+环境变量:
+=========
+1. DISABLE_SLIDESPARSE=1  → 完全禁用 SlideSparse，使用 vLLM 原生路径
+2. USE_CUBLASLT=1         → 从外挂 CUTLASS 切换到 cuBLASLt kernel
+3. INNER_DTYPE_FP32=1     → GEMM 输出用 FP32（仅 USE_CUBLASLT=1 时生效）
 
 cuBLASLt kernel 位置:
     slidesparse/csrc/cublaslt_gemm.cu
 """
 
-from .cublaslt_config import is_cublaslt_enabled, is_inner_dtype_fp32, get_cublaslt_status
+from .config import is_slidesparse_enabled, is_cublaslt_enabled, is_cusparselt_enabled, is_inner_dtype_fp32, get_slidesparse_status
 
 import os
 import sys
@@ -231,10 +230,10 @@ def dequant_bias_kernel(
 
 
 # ============================================================================
-# cuBLASLt Linear 函数（GEMM + Dequant）
+# FP8 Linear 函数（三个平级的 kernel 路径）
 # ============================================================================
 
-def cublaslt_fp8_linear(
+def cuBLASLt_FP8_linear(
     *,
     qinput: torch.Tensor,
     weight: torch.Tensor,
@@ -249,7 +248,7 @@ def cublaslt_fp8_linear(
     cuBLASLt FP8 Linear（完整流程：GEMM + Dequant + Bias）
     
     调用链:
-        cublaslt_fp8_linear()           # Python: 完整 Linear
+        cuBLASLt_FP8_linear()           # Python: 完整 Linear
           ├── ext.cublaslt_fp8_mm()      # CUDA: 纯 GEMM
           └── dequant_bias_kernel()      # Python/Triton: dequant
     
@@ -272,78 +271,57 @@ def cublaslt_fp8_linear(
     Returns:
         输出张量 [*output_shape]，out_dtype
     """
-    M, K = qinput.shape
-    N = weight.shape[1]
+    # 必须成功加载 extension，否则报错
+    ext = _load_cublaslt_extension()
+    if ext is None:
+        raise RuntimeError(
+            "cuBLASLt extension failed to load. "
+            "Please build the extension: cd slidesparse/csrc && python setup_cublaslt.py build"
+        )
     
-    # 检查是否启用 cuBLASLt
-    use_cublaslt = is_cublaslt_enabled()
+    # 关键转换:
+    # weight 是 [K, N] stride=(1, K)，需要 .t() 回 [N, K] stride=(K, 1)
+    # 这个 .t() 只改变 view，不移动内存
+    weight_row_major = weight.t()
     
-    if use_cublaslt:
-        # USE_CUBLASLT=1 时，必须成功加载 extension，否则报错
-        ext = _load_cublaslt_extension()
-        if ext is None:
-            raise RuntimeError(
-                "USE_CUBLASLT=1 but cuBLASLt extension failed to load. "
-                "Please build the extension: cd slidesparse/csrc && python setup_cublaslt.py build"
-            )
-        # ========== cuBLASLt 路径 ==========
-        # 
-        # 关键转换:
-        # weight 是 [K, N] stride=(1, K)，需要 .t() 回 [N, K] stride=(K, 1)
-        # 这个 .t() 只改变 view，不移动内存
-        
-        # 恢复 weight 为 [N, K] 行主序
-        weight_row_major = weight.t()
-        
-        if not weight_row_major.is_contiguous():
-            logger.warning_once(
-                "weight.t() is not contiguous, making contiguous copy. "
-                "This may indicate a memory layout issue."
-            )
-            weight_row_major = weight_row_major.contiguous()
-        
-        # 获取 inner_dtype
-        inner_dtype_str = get_inner_dtype_str()
-        
-        try:
-            # 调用 cuBLASLt kernel（纯 GEMM，无 scale/bias）
-            # D[M,N] = qinput[M,K] @ weight[N,K]^T
-            gemm_output = ext.cublaslt_fp8_mm(
-                weight_row_major,  # W [N, K] FP8 行主序
-                qinput,            # A [M, K] FP8 行主序
-                inner_dtype_str,   # "bf16" 或 "fp32"
-            )
-            
-            # Dequant + Bias (TODO: 替换为 Triton kernel)
-            output = dequant_bias_kernel(
-                gemm_output=gemm_output,
-                scale_a=scale_a,
-                scale_b=scale_b,
-                bias=bias,
-                out_dtype=out_dtype,
-            )
-            
-            return output.view(*output_shape)
-            
-        except Exception as e:
-            # USE_CUBLASLT=1 时，kernel 执行失败直接报错，不 fallback
-            raise RuntimeError(
-                f"cuBLASLt kernel execution failed: {e}. "
-                "If this is unexpected, check GPU compatibility or rebuild the extension."
-            ) from e
+    if not weight_row_major.is_contiguous():
+        logger.warning_once(
+            "weight.t() is not contiguous, making contiguous copy. "
+            "This may indicate a memory layout issue."
+        )
+        weight_row_major = weight_row_major.contiguous()
     
-    # ========== 外挂 CUTLASS 路径 ==========
-    # USE_CUBLASLT=0 时，使用 vLLM 原生的 cutlass_scaled_mm
-    # 这仍然是通过我们的 CuBLASLtFp8LinearMethod 调用的（外挂路径）
-    output = ops.cutlass_scaled_mm(
-        qinput, weight, out_dtype=out_dtype,
-        scale_a=scale_a, scale_b=scale_b, bias=bias
-    )
-    return output.view(*output_shape)
+    # 获取 inner_dtype
+    inner_dtype_str = get_inner_dtype_str()
+    
+    try:
+        # 调用 cuBLASLt kernel（纯 GEMM，无 scale/bias）
+        # D[M,N] = qinput[M,K] @ weight[N,K]^T
+        gemm_output = ext.cublaslt_fp8_mm(
+            weight_row_major,  # W [N, K] FP8 行主序
+            qinput,            # A [M, K] FP8 行主序
+            inner_dtype_str,   # "bf16" 或 "fp32"
+        )
+        
+        # Dequant + Bias (TODO: 替换为 Triton kernel)
+        output = dequant_bias_kernel(
+            gemm_output=gemm_output,
+            scale_a=scale_a,
+            scale_b=scale_b,
+            bias=bias,
+            out_dtype=out_dtype,
+        )
+        
+        return output.view(*output_shape)
+        
+    except Exception as e:
+        raise RuntimeError(
+            f"cuBLASLt kernel execution failed: {e}. "
+            "If this is unexpected, check GPU compatibility or rebuild the extension."
+        ) from e
 
 
-# TODO: INT8 版本的 Linear 函数
-def cublaslt_int8_linear(
+def cuSPARSELt_FP8_linear(
     *,
     qinput: torch.Tensor,
     weight: torch.Tensor,
@@ -355,35 +333,94 @@ def cublaslt_int8_linear(
     **kwargs,
 ) -> torch.Tensor:
     """
-    cuBLASLt INT8 Linear（完整流程：GEMM + Dequant + Bias）
+    cuSPARSELt FP8 Linear（完整流程：稀疏 GEMM + Dequant + Bias）
+    
+    TODO: 实现 cuSPARSELt 稀疏加速
     
     调用链:
-        cublaslt_int8_linear()          # Python: 完整 Linear
-          ├── ext.cublaslt_int8_mm()    # CUDA: 纯 GEMM
-          └── dequant_bias_kernel()     # Python/Triton: dequant（复用）
+        cuSPARSELt_FP8_linear()          # Python: 完整 Linear
+          ├── ext.cusparselt_fp8_mm()     # CUDA: 稀疏 GEMM (TODO)
+          └── dequant_bias_kernel()       # Python/Triton: dequant
     
-    TODO: 实现 INT8 量化路径
+    计算流程:
+    1. GEMM: inner_output[M,N] = qinput[M,K] @ sparse_weight[N,K]^T  (cuSPARSELt)
+    2. Dequant: output[M,N] = inner_output * scale_a * scale_b + bias
+    
+    Args:
+        qinput: 量化后的输入 [M, K] FP8E4M3，行主序
+        weight: 量化后的权重 [K, N] FP8（稀疏格式）
+        out_dtype: 最终输出数据类型（经过 dequant 后）
+        scale_a: 输入 scale [M, 1] 或 [1] FP32 (per-token)
+        scale_b: 权重 scale [N, 1] 或 [1] FP32 (per-channel)
+        bias: 偏置 [N] 或 None
+        output_shape: 输出形状
+        
+    Returns:
+        输出张量 [*output_shape]，out_dtype
     """
+    # TODO: 实现 cuSPARSELt extension 加载和调用
     raise NotImplementedError(
-        "cublaslt_int8_linear is not implemented yet. "
-        "Please use cublaslt_fp8_linear for FP8 quantization."
+        "cuSPARSELt FP8 Linear is not implemented yet. "
+        "Please use USE_CUBLASLT=1 or default CUTLASS fallback."
     )
 
 
-class CuBLASLtFp8LinearOp:
+def cutlass_FP8_linear(
+    *,
+    qinput: torch.Tensor,
+    weight: torch.Tensor,
+    out_dtype: torch.dtype,
+    scale_a: torch.Tensor,
+    scale_b: torch.Tensor,
+    bias: Optional[torch.Tensor],
+    output_shape: list,
+    **kwargs,
+) -> torch.Tensor:
     """
-    cuBLASLt FP8 Linear Operation
+    CUTLASS FP8 Linear（vLLM 原生 cutlass_scaled_mm 的薄包装）
+    
+    这是 SlideSparse 的默认 fallback 路径。
+    直接调用 vLLM 的 ops.cutlass_scaled_mm。
+    
+    Args:
+        qinput: 量化后的输入 [M, K] FP8E4M3
+        weight: 量化后的权重 [K, N] FP8
+        out_dtype: 最终输出数据类型
+        scale_a: 输入 scale [M, 1] 或 [1] FP32
+        scale_b: 权重 scale [N, 1] 或 [1] FP32
+        bias: 偏置 [N] 或 None
+        output_shape: 输出形状
+        
+    Returns:
+        输出张量 [*output_shape]，out_dtype
+    """
+    output = ops.cutlass_scaled_mm(
+        qinput, weight, out_dtype=out_dtype,
+        scale_a=scale_a, scale_b=scale_b, bias=bias
+    )
+    return output.view(*output_shape)
+
+
+# ============================================================================
+# SlideSparse FP8 Linear Op（统一入口，根据环境变量选择 kernel）
+# ============================================================================
+
+class SlideSparseFp8LinearOp:
+    """
+    SlideSparse FP8 Linear Operation
     
     这个类独立实现 FP8 Linear 操作，不依赖 vLLM 的 Fp8LinearOp：
     1. 自己创建 QuantFP8 实例进行输入量化
-    2. 调用 cublaslt_fp8_linear 执行 GEMM + Dequant
-    3. 便于后续的 kernel 替换和性能测试
+    2. 根据环境变量选择 kernel 路径：
+       - USE_CUBLASLT=1: cuBLASLt_FP8_linear
+       - USE_CUSPARSELT=1: cuSPARSELt_FP8_linear
+       - 默认: cutlass_FP8_linear (fallback)
     
     调用链:
-        CuBLASLtFp8LinearOp.apply()
-          └── cublaslt_fp8_linear()       # Python: GEMM + dequant
-                ├── ext.cublaslt_fp8_mm()  # CUDA: 纯 GEMM
-                └── dequant_bias_kernel()  # dequant
+        SlideSparseFp8LinearOp.apply()
+          ├── cuBLASLt_FP8_linear()    # USE_CUBLASLT=1
+          ├── cuSPARSELt_FP8_linear()  # USE_CUSPARSELT=1
+          └── cutlass_FP8_linear()     # 默认 fallback
     """
     
     def __init__(
@@ -392,7 +429,7 @@ class CuBLASLtFp8LinearOp:
         act_quant_group_shape: GroupShape = GroupShape.PER_TOKEN,
     ):
         """
-        初始化 cuBLASLt FP8 Linear Op
+        初始化 SlideSparse FP8 Linear Op
         
         Args:
             act_quant_static: 是否使用静态激活量化
@@ -408,10 +445,21 @@ class CuBLASLtFp8LinearOp:
             num_token_padding=None,
         )
         
+        # 确定 kernel 路径
+        if is_cublaslt_enabled():
+            self._kernel_name = "cuBLASLt"
+            self._linear_fn = cuBLASLt_FP8_linear
+        elif is_cusparselt_enabled():
+            self._kernel_name = "cuSPARSELt"
+            self._linear_fn = cuSPARSELt_FP8_linear
+        else:
+            self._kernel_name = "CUTLASS"
+            self._linear_fn = cutlass_FP8_linear
+        
         logger.info_once(
-            f"CuBLASLtFp8LinearOp initialized "
-            f"(USE_CUBLASLT={is_cublaslt_enabled()}, "
-            f"inner_dtype={get_inner_dtype_str()}, "
+            f"SlideSparseFp8LinearOp initialized "
+            f"(kernel={self._kernel_name}, "
+            f"inner_dtype={get_inner_dtype_str() if is_cublaslt_enabled() or is_cusparselt_enabled() else 'N/A'}, "
             f"static={act_quant_static}, "
             f"group_shape={act_quant_group_shape})"
         )
@@ -431,7 +479,7 @@ class CuBLASLtFp8LinearOp:
         
         完整流程:
         1. input (BF16) -> quant -> qinput (FP8), x_scale
-        2. qinput @ weight.T -> inner_output (cuBLASLt GEMM)
+        2. qinput @ weight.T -> inner_output (选定的 GEMM kernel)
         3. inner_output * scale_a * scale_b + bias -> output (Dequant)
         
         Args:
@@ -463,8 +511,8 @@ class CuBLASLtFp8LinearOp:
         else:
             qinput, x_scale = input_2d, input_scale
         
-        # GEMM + Dequant
-        return cublaslt_fp8_linear(
+        # 调用选定的 kernel 路径
+        return self._linear_fn(
             qinput=qinput,
             weight=weight,
             out_dtype=out_dtype,
@@ -475,35 +523,30 @@ class CuBLASLtFp8LinearOp:
         )
 
 
-# TODO: CuBLASLtInt8LinearOp - INT8 版本
-# class CuBLASLtInt8LinearOp:
-#     """
-#     cuBLASLt INT8 Linear Operation
-#     
-#     调用链:
-#         CuBLASLtInt8LinearOp.apply()
-#           └── cublaslt_int8_linear()      # Python: GEMM + dequant
-#                 ├── ext.cublaslt_int8_mm() # CUDA: 纯 GEMM
-#                 └── dequant_bias_kernel()  # dequant (复用)
-#     """
-#     pass
+# 兼容别名
+cuBLASLtFp8LinearOp = SlideSparseFp8LinearOp
 
 
-class CuBLASLtFp8LinearMethod:
+# ============================================================================
+# SlideSparse FP8 Linear Method
+# ============================================================================
+
+class SlideSparseFp8LinearMethod:
     """
-    cuBLASLt FP8 Linear Method
+    SlideSparse FP8 Linear Method
     
-    这是一个独立的 LinearMethod 实现，用于验证 cuBLASLt 替换的可行性。
+    这是一个独立的 LinearMethod 实现，根据环境变量选择 kernel 路径。
     
     关键设计:
     1. 不继承任何 vllm 的类，避免依赖问题
     2. 所有方法签名与 LinearMethodBase 兼容
     3. 内部复用 CompressedTensorsW8A8Fp8 的 create_weights 和 process_weights_after_loading
+    4. 通过 SlideSparseFp8LinearOp 选择 cuBLASLt/cuSPARSELt/CUTLASS 路径
     """
     
     def __init__(self, original_scheme):
         """
-        初始化 cuBLASLt FP8 Linear Method
+        初始化 SlideSparse FP8 Linear Method
         
         Args:
             original_scheme: 原始的 CompressedTensorsW8A8Fp8 scheme
@@ -513,15 +556,16 @@ class CuBLASLtFp8LinearMethod:
         self.is_static_input_scheme = original_scheme.is_static_input_scheme
         self.act_q_group_shape = original_scheme.act_q_group_shape
         
-        # 创建 cuBLASLt Op
-        self.cublaslt_fp8_linear = CuBLASLtFp8LinearOp(
+        # 创建 SlideSparse Op（内部根据环境变量选择 kernel）
+        self.slidesparse_fp8_linear = SlideSparseFp8LinearOp(
             act_quant_static=self.is_static_input_scheme,
             act_quant_group_shape=self.act_q_group_shape,
         )
         
         logger.info_once(
-            f"CuBLASLtFp8LinearMethod initialized, "
-            f"wrapping: {type(original_scheme).__name__}"
+            f"SlideSparseFp8LinearMethod initialized, "
+            f"wrapping: {type(original_scheme).__name__}, "
+            f"kernel: {self.slidesparse_fp8_linear._kernel_name}"
         )
     
     def create_weights(
@@ -557,8 +601,8 @@ class CuBLASLtFp8LinearMethod:
         x: torch.Tensor,
         bias: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        """应用权重（执行线性变换），使用 cuBLASLt 路径"""
-        return self.cublaslt_fp8_linear.apply(
+        """应用权重（执行线性变换），使用选定的 kernel 路径"""
+        return self.slidesparse_fp8_linear.apply(
             input=x,
             weight=layer.weight,
             weight_scale=layer.weight_scale,
@@ -566,6 +610,15 @@ class CuBLASLtFp8LinearMethod:
             input_scale=getattr(layer, "input_scale", None),
             bias=bias,
         )
+
+
+# 兼容别名
+cuBLASLtFp8LinearMethod = SlideSparseFp8LinearMethod
+
+
+# ============================================================================
+# 工厂函数
+# ============================================================================
 
 
 def wrap_scheme_with_cublaslt(original_scheme):
@@ -581,21 +634,70 @@ def wrap_scheme_with_cublaslt(original_scheme):
         original_scheme: 原始的 CompressedTensorsScheme
         
     Returns:
-        如果 cuBLASLt 启用且 scheme 是 W8A8Fp8，返回包装后的 scheme
+        如果 scheme 是 W8A8Fp8，返回包装后的 scheme
         否则返回原始 scheme
     """
-    if not is_cublaslt_enabled():
-        return original_scheme
-    
     scheme_name = type(original_scheme).__name__
     if "W8A8Fp8" in scheme_name:
         logger.info_once(
-            f"Wrapping {scheme_name} with CuBLASLtFp8LinearMethod"
+            f"Wrapping {scheme_name} with SlideSparseFp8LinearMethod (cuBLASLt)"
         )
-        return CuBLASLtFp8LinearMethod(original_scheme)
+        return SlideSparseFp8LinearMethod(original_scheme)
     else:
         logger.warning_once(
             f"cuBLASLt wrapper not supported for {scheme_name}, "
             "using original scheme"
         )
+        return original_scheme
+
+
+def wrap_scheme_with_cusparselt(original_scheme):
+    """
+    工厂函数：将原始 scheme 包装为 cuSPARSELt 版本
+    
+    使用示例（在 compressed_tensors.py 的 get_scheme() 中）:
+        if is_cusparselt_enabled():
+            scheme = wrap_scheme_with_cusparselt(scheme)
+        return scheme
+    
+    Args:
+        original_scheme: 原始的 CompressedTensorsScheme
+        
+    Returns:
+        如果 scheme 是 W8A8Fp8，返回包装后的 scheme（内部会检测 kernel）
+        否则返回原始 scheme
+    """
+    scheme_name = type(original_scheme).__name__
+    if "W8A8Fp8" in scheme_name:
+        logger.info_once(
+            f"Wrapping {scheme_name} with SlideSparseFp8LinearMethod (cuSPARSELt)"
+        )
+        # 使用统一的 SlideSparseFp8LinearMethod，内部会根据环境变量选择 kernel
+        return SlideSparseFp8LinearMethod(original_scheme)
+    else:
+        logger.warning_once(
+            f"cuSPARSELt wrapper not supported for {scheme_name}, "
+            "using original scheme"
+        )
+        return original_scheme
+
+
+def wrap_scheme_fp8(original_scheme):
+    """
+    统一的 FP8 scheme 包装入口
+    
+    根据环境变量自动选择 cuBLASLt 或 cuSPARSELt 包装器。
+    
+    Args:
+        original_scheme: 原始的 CompressedTensorsScheme
+        
+    Returns:
+        包装后的 scheme 或原始 scheme
+    """
+    if is_cublaslt_enabled():
+        return wrap_scheme_with_cublaslt(original_scheme)
+    elif is_cusparselt_enabled():
+        return wrap_scheme_with_cusparselt(original_scheme)
+    else:
+        # 默认 CUTLASS fallback，不做包装
         return original_scheme

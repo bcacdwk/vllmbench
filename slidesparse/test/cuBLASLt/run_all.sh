@@ -1,14 +1,20 @@
 #!/bin/bash
 # ============================================================================
-# SlideSparse cuBLASLt 测试运行脚本
+# SlideSparse 测试运行脚本
 # ============================================================================
 #
 # 使用方法:
-#   ./run_all.sh                    # 运行所有测试 (cuBLASLt 路径)
-#   ./run_all.sh --ext-cutlass      # 测试外挂 CUTLASS 路径
-#   ./run_all.sh --inner-fp32       # cuBLASLt + FP32 中间精度
-#   ./run_all.sh 01                 # 只运行 01_bridge 测试
-#   ./run_all.sh 02 03              # 运行 02_kernel 和 03_inference
+#   ./run_all.sh                      # 运行所有测试 (默认: SlideSparse + 外挂 CUTLASS)
+#   ./run_all.sh --use-cublaslt       # 测试 cuBLASLt kernel
+#   ./run_all.sh --disable-slidesparse # 测试 vLLM 原生路径 (baseline)
+#   ./run_all.sh --inner-fp32         # cuBLASLt + FP32 中间精度
+#   ./run_all.sh 01                   # 只运行 01_bridge 测试
+#   ./run_all.sh 02 03                # 运行 02_kernel 和 03_inference
+#
+# 三种测试路径:
+#   1. vLLM 原生路径 (baseline): --disable-slidesparse
+#   2. SlideSparse + 外挂 CUTLASS (对照组): 默认行为
+#   3. SlideSparse + cuBLASLt (实验组): --use-cublaslt
 #
 # ============================================================================
 
@@ -28,15 +34,25 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 
 # 默认配置
-EXT_CUTLASS=""
+DISABLE_SLIDESPARSE=""
+USE_CUBLASLT=""
 INNER_FP32=""
 SPECIFIC_TESTS=()
 
 # 解析参数
 while [[ $# -gt 0 ]]; do
     case $1 in
+        --disable-slidesparse)
+            DISABLE_SLIDESPARSE=1
+            shift
+            ;;
+        --use-cublaslt)
+            USE_CUBLASLT=1
+            shift
+            ;;
         --ext-cutlass)
-            EXT_CUTLASS=1
+            # 兼容旧参数，等同于默认行为
+            USE_CUBLASLT=""
             shift
             ;;
         --inner-fp32)
@@ -51,9 +67,11 @@ while [[ $# -gt 0 ]]; do
             echo "Usage: $0 [OPTIONS] [TEST_NUMBERS...]"
             echo ""
             echo "Options:"
-            echo "  --ext-cutlass  测试外挂 CUTLASS 路径 (USE_CUBLASLT=0)"
-            echo "  --inner-fp32   cuBLASLt 使用 FP32 中间精度 (INNER_DTYPE_FP32=1)"
-            echo "  -h, --help     显示帮助"
+            echo "  --disable-slidesparse  禁用 SlideSparse hook，测试 vLLM 原生路径 (baseline)"
+            echo "  --use-cublaslt         启用 cuBLASLt kernel (USE_CUBLASLT=1)"
+            echo "  --ext-cutlass          使用外挂 CUTLASS 路径（等同于默认行为）"
+            echo "  --inner-fp32           GEMM 输出使用 FP32 (INNER_DTYPE_FP32=1)"
+            echo "  -h, --help             显示帮助"
             echo ""
             echo "Test numbers:"
             echo "  01  桥接与集成测试"
@@ -62,11 +80,11 @@ while [[ $# -gt 0 ]]; do
             echo "  04  吞吐量测试"
             echo ""
             echo "Examples:"
-            echo "  $0                         # 运行所有测试 (cuBLASLt)"
-            echo "  $0 --ext-cutlass           # 测试外挂 CUTLASS 路径"
-            echo "  $0 --inner-fp32            # cuBLASLt + FP32"
-            echo "  $0 01 02                   # 只运行 01 和 02"
-            echo "  $0 --ext-cutlass 02 03     # 外挂 CUTLASS 运行 02 和 03"
+            echo "  $0                              # 默认: SlideSparse + 外挂 CUTLASS"
+            echo "  $0 --use-cublaslt               # SlideSparse + cuBLASLt"
+            echo "  $0 --disable-slidesparse        # vLLM 原生路径 (baseline)"
+            echo "  $0 --use-cublaslt --inner-fp32  # cuBLASLt + FP32"
+            echo "  $0 01 02                        # 只运行 01 和 02"
             exit 0
             ;;
         *)
@@ -77,14 +95,20 @@ while [[ $# -gt 0 ]]; do
 done
 
 # 设置环境变量
-if [ -n "$EXT_CUTLASS" ]; then
-    export USE_CUBLASLT=0
+if [ -n "$DISABLE_SLIDESPARSE" ]; then
+    export DISABLE_SLIDESPARSE=1
+    unset USE_CUBLASLT
+    unset INNER_DTYPE_FP32
 else
-    export USE_CUBLASLT=1
-fi
-
-if [ -n "$INNER_FP32" ]; then
-    export INNER_DTYPE_FP32=1
+    export DISABLE_SLIDESPARSE=0
+    if [ -n "$USE_CUBLASLT" ]; then
+        export USE_CUBLASLT=1
+    else
+        export USE_CUBLASLT=0
+    fi
+    if [ -n "$INNER_FP32" ]; then
+        export INNER_DTYPE_FP32=1
+    fi
 fi
 
 # 切换到项目根目录
@@ -92,16 +116,21 @@ cd "$PROJECT_ROOT"
 
 # 打印配置
 echo -e "${BOLD}========================================${NC}"
-echo -e "${BOLD}SlideSparse cuBLASLt 测试套件${NC}"
+echo -e "${BOLD}SlideSparse 测试套件${NC}"
 echo -e "${BOLD}========================================${NC}"
 echo ""
 echo -e "配置:"
-echo -e "  USE_CUBLASLT:     ${USE_CUBLASLT}"
-echo -e "  INNER_DTYPE_FP32: ${INNER_DTYPE_FP32:-0}"
-if [ -n "$EXT_CUTLASS" ]; then
-    echo -e "  测试路径:         外挂 CUTLASS"
+echo -e "  DISABLE_SLIDESPARSE: ${DISABLE_SLIDESPARSE:-0}"
+if [ "${DISABLE_SLIDESPARSE:-0}" = "1" ]; then
+    echo -e "  测试路径:            ${YELLOW}vLLM 原生路径 (baseline)${NC}"
 else
-    echo -e "  测试路径:         cuBLASLt"
+    echo -e "  USE_CUBLASLT:        ${USE_CUBLASLT:-0}"
+    echo -e "  INNER_DTYPE_FP32:    ${INNER_DTYPE_FP32:-0}"
+    if [ "${USE_CUBLASLT:-0}" = "1" ]; then
+        echo -e "  测试路径:            ${GREEN}SlideSparse + cuBLASLt${NC}"
+    else
+        echo -e "  测试路径:            ${CYAN}SlideSparse + 外挂 CUTLASS${NC}"
+    fi
 fi
 echo ""
 
@@ -129,8 +158,10 @@ fi
 
 # 构建传递给 Python 脚本的参数
 PYTHON_ARGS=""
-if [ -n "$EXT_CUTLASS" ]; then
-    PYTHON_ARGS="$PYTHON_ARGS --ext-cutlass"
+if [ -n "$DISABLE_SLIDESPARSE" ]; then
+    PYTHON_ARGS="$PYTHON_ARGS --disable-slidesparse"
+elif [ -n "$USE_CUBLASLT" ]; then
+    PYTHON_ARGS="$PYTHON_ARGS --use-cublaslt"
 fi
 if [ -n "$INNER_FP32" ]; then
     PYTHON_ARGS="$PYTHON_ARGS --inner-fp32"

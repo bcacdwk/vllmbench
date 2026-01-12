@@ -4,16 +4,16 @@
 """
 04_throughput.py - 吞吐量对比测试
 
-对比 vLLM 原生 CUTLASS 和 slidesparse 后端的吞吐量差异。
+对比 vLLM 原生路径 和 SlideSparse 后端的吞吐量差异。
 
 对比路径:
 =========
                         ┌─────────────────────────────────────┐
-    [vLLM 原生 CUTLASS] │  USE_CUBLASLT=0, 无 slidesparse hook│  ← 基准
+    [vLLM 原生路径]     │  DISABLE_SLIDESPARSE=1              │  ← 基准
                         └─────────────────────────────────────┘
                               vs
                         ┌─────────────────────────────────────┐
-    [slidesparse 后端]  │  根据参数选择不同 kernel            │  ← 测试
+    [SlideSparse 后端]  │  根据参数选择不同 kernel            │  ← 测试
                         └─────────────────────────────────────┘
 
 测试指标:
@@ -21,15 +21,14 @@
 - Decode 吞吐量 (tokens/s): 短输入 + 长输出
 
 使用方法:
-    python3 04_throughput.py                # 对比: 原生 CUTLASS vs cuBLASLt
-    python3 04_throughput.py --inner-fp32   # 对比: 原生 CUTLASS vs cuBLASLt(FP32累加)
+    python3 04_throughput.py                          # 默认: vLLM 原生 vs SlideSparse+外挂CUTLASS
+    python3 04_throughput.py --use-cublaslt           # vLLM 原生 vs SlideSparse+cuBLASLt
+    python3 04_throughput.py --use-cublaslt --inner-fp32  # cuBLASLt + FP32 中间累加
 
-    python3 04_throughput.py --ext-cutlass  # 对比: 原生 CUTLASS vs 外挂 CUTLASS (应相同)
-
-slidesparse 后端说明:
-    默认:         USE_CUBLASLT=1 → cuBLASLt kernel
-    --ext-cutlass: USE_CUBLASLT=0 → 外挂 CUTLASS kernel
-    --inner-fp32:  INNER_DTYPE_FP32=1 → cuBLASLt + FP32 中间累加
+三种测试路径:
+    1. vLLM 原生路径 (baseline): DISABLE_SLIDESPARSE=1
+    2. SlideSparse + 外挂 CUTLASS (对照组): 默认
+    3. SlideSparse + cuBLASLt (实验组): USE_CUBLASLT=1
 """
 
 import os
@@ -140,10 +139,10 @@ def get_backend_name(use_cublaslt: bool, inner_fp32: bool) -> str:
     """获取后端名称"""
     if use_cublaslt:
         if inner_fp32:
-            return "cuBLASLt (FP32累加)"
-        return "cuBLASLt"
+            return "SlideSparse + cuBLASLt (FP32累加)"
+        return "SlideSparse + cuBLASLt"
     else:
-        return "外挂 CUTLASS"
+        return "SlideSparse + 外挂 CUTLASS"
 
 
 def run_comparison_throughput(
@@ -157,7 +156,7 @@ def run_comparison_throughput(
     
     Args:
         model_path: 模型路径
-        use_cublaslt: slidesparse 后端是否使用 cuBLASLt
+        use_cublaslt: SlideSparse 后端是否使用 cuBLASLt
         inner_fp32: 是否使用 FP32 中间累加
         verbose: 是否打印详细信息
     
@@ -168,16 +167,17 @@ def run_comparison_throughput(
     
     if verbose:
         print("\n" + "=" * 90)
-        print(Colors.bold("vLLM 原生 CUTLASS vs slidesparse 吞吐量对比"))
+        print(Colors.bold("vLLM 原生路径 vs SlideSparse 吞吐量对比"))
         print("=" * 90)
         print(f"模型: {model_path.name}")
-        print(f"基准: vLLM 原生 CUTLASS")
-        print(f"测试: slidesparse {backend_name}")
+        print(f"基准: vLLM 原生路径 (DISABLE_SLIDESPARSE=1)")
+        print(f"测试: {backend_name}")
         print("=" * 90)
     
     results = {}
     
     # 保存原环境变量
+    old_disable = os.environ.get("DISABLE_SLIDESPARSE")
     old_cublaslt = os.environ.get("USE_CUBLASLT")
     old_inner_fp32 = os.environ.get("INNER_DTYPE_FP32")
     
@@ -188,10 +188,11 @@ def run_comparison_throughput(
         print(f"配置: 8 prompts × 256 input tokens × 1 output token")
         print(f"{Colors.cyan('━' * 40)}")
     
-    # 基准: vLLM 原生 CUTLASS
+    # 基准: vLLM 原生路径
     if verbose:
-        print(f"\n  {Colors.blue('[基准] vLLM 原生 CUTLASS...')}")
-    os.environ["USE_CUBLASLT"] = "0"
+        print(f"\n  {Colors.blue('[基准] vLLM 原生路径...')}")
+    os.environ["DISABLE_SLIDESPARSE"] = "1"
+    os.environ.pop("USE_CUBLASLT", None)
     os.environ.pop("INNER_DTYPE_FP32", None)
     
     baseline_prefill = run_throughput_test(
@@ -203,10 +204,11 @@ def run_comparison_throughput(
     )
     baseline_prefill_tps = baseline_prefill["input_tokens"] / baseline_prefill["total_time"]
     
-    # 测试: slidesparse 后端
+    # 测试: SlideSparse 后端
     if verbose:
-        print(f"  {Colors.green(f'[测试] slidesparse {backend_name}...')}")
+        print(f"  {Colors.green(f'[测试] {backend_name}...')}")
     
+    os.environ["DISABLE_SLIDESPARSE"] = "0"
     if use_cublaslt:
         os.environ["USE_CUBLASLT"] = "1"
         if inner_fp32:
@@ -214,7 +216,7 @@ def run_comparison_throughput(
         else:
             os.environ.pop("INNER_DTYPE_FP32", None)
     else:
-        os.environ["USE_CUBLASLT"] = "0"
+        os.environ.pop("USE_CUBLASLT", None)
         os.environ.pop("INNER_DTYPE_FP32", None)
     
     test_prefill = run_throughput_test(
@@ -235,7 +237,7 @@ def run_comparison_throughput(
     
     if verbose:
         print(f"\n  结果:")
-        print(f"    原生 CUTLASS: {baseline_prefill_tps:>10.1f} tok/s")
+        print(f"    vLLM 原生路径: {baseline_prefill_tps:>10.1f} tok/s")
         print(f"    {backend_name}: {test_prefill_tps:>10.1f} tok/s")
         speedup_str = f"{prefill_speedup:.3f}x"
         if prefill_speedup > 1.02:
@@ -253,10 +255,11 @@ def run_comparison_throughput(
         print(f"配置: 4 prompts × 16 input tokens × 128 output tokens")
         print(f"{Colors.cyan('━' * 40)}")
     
-    # 基准: vLLM 原生 CUTLASS
+    # 基准: vLLM 原生路径
     if verbose:
-        print(f"\n  {Colors.blue('[基准] vLLM 原生 CUTLASS...')}")
-    os.environ["USE_CUBLASLT"] = "0"
+        print(f"\n  {Colors.blue('[基准] vLLM 原生路径...')}")
+    os.environ["DISABLE_SLIDESPARSE"] = "1"
+    os.environ.pop("USE_CUBLASLT", None)
     os.environ.pop("INNER_DTYPE_FP32", None)
     
     baseline_decode = run_throughput_test(
@@ -268,10 +271,11 @@ def run_comparison_throughput(
     )
     baseline_decode_tps = baseline_decode["throughput_tok"]
     
-    # 测试: slidesparse 后端
+    # 测试: SlideSparse 后端
     if verbose:
-        print(f"  {Colors.green(f'[测试] slidesparse {backend_name}...')}")
+        print(f"  {Colors.green(f'[测试] {backend_name}...')}")
     
+    os.environ["DISABLE_SLIDESPARSE"] = "0"
     if use_cublaslt:
         os.environ["USE_CUBLASLT"] = "1"
         if inner_fp32:
@@ -279,7 +283,7 @@ def run_comparison_throughput(
         else:
             os.environ.pop("INNER_DTYPE_FP32", None)
     else:
-        os.environ["USE_CUBLASLT"] = "0"
+        os.environ.pop("USE_CUBLASLT", None)
         os.environ.pop("INNER_DTYPE_FP32", None)
     
     test_decode = run_throughput_test(
@@ -300,7 +304,7 @@ def run_comparison_throughput(
     
     if verbose:
         print(f"\n  结果:")
-        print(f"    原生 CUTLASS: {baseline_decode_tps:>10.1f} tok/s")
+        print(f"    vLLM 原生路径: {baseline_decode_tps:>10.1f} tok/s")
         print(f"    {backend_name}: {test_decode_tps:>10.1f} tok/s")
         speedup_str = f"{decode_speedup:.3f}x"
         if decode_speedup > 1.02:
@@ -312,6 +316,10 @@ def run_comparison_throughput(
         print(f"    加速比: {speedup_str}")
     
     # 恢复环境变量
+    if old_disable is not None:
+        os.environ["DISABLE_SLIDESPARSE"] = old_disable
+    else:
+        os.environ.pop("DISABLE_SLIDESPARSE", None)
     if old_cublaslt is not None:
         os.environ["USE_CUBLASLT"] = old_cublaslt
     else:
@@ -329,7 +337,7 @@ def run_comparison_throughput(
         print(f"  Prefill: {results['prefill']['speedup']:.3f}x")
         print(f"  Decode:  {results['decode']['speedup']:.3f}x")
         if not use_cublaslt:
-            print(f"\n  {Colors.yellow('注意')}: --ext-cutlass 模式下两边都是 CUTLASS，加速比应≈1.0")
+            print(f"\n  {Colors.yellow('注意')}: 默认使用外挂 CUTLASS，若要测试 cuBLASLt 请使用 --use-cublaslt")
         print(f"{'=' * 90}")
     
     return results
@@ -355,8 +363,8 @@ if __name__ == "__main__":
         print(Colors.red("错误: 未找到 FP8 模型"))
         sys.exit(1)
     
-    # 根据参数决定测试的 slidesparse 后端
-    use_cublaslt = not getattr(args, 'ext_cutlass', False)
+    # 根据参数决定测试的 SlideSparse 后端
+    use_cublaslt = getattr(args, 'use_cublaslt', False)
     inner_fp32 = getattr(args, 'inner_fp32', False)
     
     # 运行吞吐量对比

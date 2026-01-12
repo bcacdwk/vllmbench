@@ -4,29 +4,28 @@
 """
 03_inference.py - 端到端推理输出对比
 
-对于相同的 prompt，分别用 vLLM 原生 CUTLASS 和 slidesparse 后端运行推理，
+对于相同的 prompt，分别用 vLLM 原生路径 和 SlideSparse 后端运行推理，
 并排打印输出让用户直观比较精度差异。
 
 对比路径:
 =========
                         ┌─────────────────────────────────────┐
-    [vLLM 原生 CUTLASS] │  USE_CUBLASLT=0, 无 slidesparse hook│  ← 基准
+    [vLLM 原生路径]     │  DISABLE_SLIDESPARSE=1              │  ← 基准
                         └─────────────────────────────────────┘
                               vs
                         ┌─────────────────────────────────────┐
-    [slidesparse 后端]  │  根据参数选择不同 kernel            │  ← 测试
+    [SlideSparse 后端]  │  根据参数选择不同 kernel            │  ← 测试
                         └─────────────────────────────────────┘
 
 使用方法:
-    python3 03_inference.py                # 对比: 原生 CUTLASS vs cuBLASLt
-    python3 03_inference.py --inner-fp32   # 对比: 原生 CUTLASS vs cuBLASLt(FP32累加)
+    python3 03_inference.py                          # 默认: vLLM 原生 vs SlideSparse+外挂CUTLASS
+    python3 03_inference.py --use-cublaslt           # vLLM 原生 vs SlideSparse+cuBLASLt
+    python3 03_inference.py --use-cublaslt --inner-fp32  # cuBLASLt + FP32 中间累加
 
-    python3 03_inference.py --ext-cutlass  # 对比: 原生 CUTLASS vs 外挂 CUTLASS
-
-slidesparse 后端说明:
-    默认:         USE_CUBLASLT=1 → cuBLASLt kernel
-    --ext-cutlass: USE_CUBLASLT=0 → 外挂 CUTLASS kernel
-    --inner-fp32:  INNER_DTYPE_FP32=1 → cuBLASLt + FP32 中间累加
+三种测试路径:
+    1. vLLM 原生路径 (baseline): DISABLE_SLIDESPARSE=1
+    2. SlideSparse + 外挂 CUTLASS (对照组): 默认
+    3. SlideSparse + cuBLASLt (实验组): USE_CUBLASLT=1
 """
 
 import os
@@ -61,17 +60,17 @@ TEST_PROMPTS = [
 
 
 # ============================================================================
-# 核心功能：vLLM 原生 CUTLASS vs slidesparse 后端 输出对比
+# 核心功能：vLLM 原生路径 vs SlideSparse 后端 输出对比
 # ============================================================================
 
 def get_backend_name(use_cublaslt: bool, inner_fp32: bool) -> str:
     """获取后端名称"""
     if use_cublaslt:
         if inner_fp32:
-            return "cuBLASLt (FP32累加)"
-        return "cuBLASLt"
+            return "SlideSparse + cuBLASLt (FP32累加)"
+        return "SlideSparse + cuBLASLt"
     else:
-        return "外挂 CUTLASS"
+        return "SlideSparse + 外挂 CUTLASS"
 
 
 def run_comparison_inference(
@@ -83,12 +82,12 @@ def run_comparison_inference(
     verbose: bool = True,
 ) -> List[Tuple[str, str, str]]:
     """
-    运行 vLLM 原生 CUTLASS 和 slidesparse 后端推理并对比输出
+    运行 vLLM 原生路径 和 SlideSparse 后端推理并对比输出
     
     Args:
         model_path: 模型路径
         prompts: 提示词列表
-        use_cublaslt: slidesparse 后端是否使用 cuBLASLt (False=外挂CUTLASS)
+        use_cublaslt: SlideSparse 后端是否使用 cuBLASLt (False=外挂CUTLASS)
         inner_fp32: 是否使用 FP32 中间累加
         max_tokens: 最大生成 token 数
         verbose: 是否打印详细信息
@@ -108,25 +107,27 @@ def run_comparison_inference(
     
     if verbose:
         print("\n" + "=" * 80)
-        print(Colors.bold("vLLM 原生 CUTLASS vs slidesparse 推理输出对比"))
+        print(Colors.bold("vLLM 原生路径 vs SlideSparse 推理输出对比"))
         print("=" * 80)
         print(f"模型: {model_path.name}")
-        print(f"基准: vLLM 原生 CUTLASS")
-        print(f"测试: slidesparse {backend_name}")
+        print(f"基准: vLLM 原生路径 (DISABLE_SLIDESPARSE=1)")
+        print(f"测试: {backend_name}")
         print(f"采样: temperature=0.0, max_tokens={max_tokens}")
         print("=" * 80)
     
-    # 1. 运行 vLLM 原生 CUTLASS (基准)
-    #    设置 USE_CUBLASLT=0，slidesparse hook 不生效，走 vLLM 原生路径
+    # 1. 运行 vLLM 原生路径 (基准)
+    #    设置 DISABLE_SLIDESPARSE=1，SlideSparse hook 不生效，走 vLLM 原生路径
     if verbose:
-        print(f"\n{Colors.cyan('[1/2] 运行 vLLM 原生 CUTLASS (基准)...')}")
+        print(f"\n{Colors.cyan('[1/2] 运行 vLLM 原生路径 (基准)...')}")
     
     # 保存原环境变量
+    old_disable = os.environ.get("DISABLE_SLIDESPARSE")
     old_cublaslt = os.environ.get("USE_CUBLASLT")
     old_inner_fp32 = os.environ.get("INNER_DTYPE_FP32")
     
-    # 基准: 禁用 slidesparse hook
-    os.environ["USE_CUBLASLT"] = "0"
+    # 基准: 禁用 SlideSparse hook
+    os.environ["DISABLE_SLIDESPARSE"] = "1"
+    os.environ.pop("USE_CUBLASLT", None)
     os.environ.pop("INNER_DTYPE_FP32", None)
     
     with cuda_memory_manager():
@@ -143,11 +144,14 @@ def run_comparison_inference(
         
         del llm_baseline
     
-    # 2. 运行 slidesparse 后端 (测试)
+    # 2. 运行 SlideSparse 后端 (测试)
     if verbose:
-        print(f"\n{Colors.cyan(f'[2/2] 运行 slidesparse {backend_name}...')}")
+        print(f"\n{Colors.cyan(f'[2/2] 运行 {backend_name}...')}")
     
-    # 设置 slidesparse 后端参数
+    # 启用 SlideSparse
+    os.environ["DISABLE_SLIDESPARSE"] = "0"
+    
+    # 设置 SlideSparse 后端参数
     if use_cublaslt:
         os.environ["USE_CUBLASLT"] = "1"
         if inner_fp32:
@@ -174,6 +178,10 @@ def run_comparison_inference(
         del llm_test
     
     # 恢复环境变量
+    if old_disable is not None:
+        os.environ["DISABLE_SLIDESPARSE"] = old_disable
+    else:
+        os.environ.pop("DISABLE_SLIDESPARSE", None)
     if old_cublaslt is not None:
         os.environ["USE_CUBLASLT"] = old_cublaslt
     else:
@@ -194,7 +202,7 @@ def run_comparison_inference(
         ):
             print(f"\n{Colors.bold(f'[Prompt {i+1}]')} {prompt}")
             print("-" * 80)
-            print(f"{Colors.blue('原生 CUTLASS:')} {baseline_out}")
+            print(f"{Colors.blue('vLLM 原生:')} {baseline_out}")
             print()
             print(f"{Colors.green(f'{backend_name}:')} {test_out}")
             
@@ -225,10 +233,10 @@ if __name__ == "__main__":
         print(Colors.red("错误: 未找到 FP8 模型"))
         sys.exit(1)
     
-    # 根据参数决定测试的 slidesparse 后端
-    # --ext-cutlass: 测试外挂 CUTLASS (USE_CUBLASLT=0)
-    # 默认: 测试 cuBLASLt (USE_CUBLASLT=1)
-    use_cublaslt = not getattr(args, 'ext_cutlass', False)
+    # 根据参数决定测试的 SlideSparse 后端
+    # --use-cublaslt: 测试 cuBLASLt kernel
+    # 默认: 测试外挂 CUTLASS (USE_CUBLASLT=0)
+    use_cublaslt = getattr(args, 'use_cublaslt', False)
     inner_fp32 = getattr(args, 'inner_fp32', False)
     
     # 运行输出对比

@@ -2,27 +2,28 @@
 # -*- coding: utf-8 -*-
 # SPDX-License-Identifier: Apache-2.0
 """
-02_kernel.py - cuBLASLt Kernel 正确性测试
+02_kernel.py - SlideSparse Kernel 正确性测试
 
-验证 cuBLASLt FP8 GEMM kernel 的计算正确性：
-1. 使用随机数据对比 原生 CUTLASS 和 cuBLASLt/外挂CUTLASS 输出
+验证 SlideSparse FP8 GEMM kernel 的计算正确性：
+1. 使用随机数据对比 vLLM 原生路径 和 SlideSparse 路径的输出
 2. 测试不同矩阵尺寸 (M, N, K)
 3. 验证 INNER_DTYPE_FP32 选项
 
 测试流程:
     input (BF16) -> quant (FP8) -> GEMM -> dequant+bias -> output (BF16)
                                     ↑
-                    原生 CUTLASS (baseline) vs cuBLASLt/外挂CUTLASS (test)
+                    vLLM 原生 (baseline) vs SlideSparse (test)
 
 使用方法:
-    python3 02_kernel.py                      # 对比 原生 CUTLASS vs cuBLASLt
-    python3 02_kernel.py --inner-fp32         # cuBLASLt + FP32 中间结果
+    python3 02_kernel.py                        # 默认: SlideSparse + 外挂 CUTLASS
+    python3 02_kernel.py --use-cublaslt         # SlideSparse + cuBLASLt
+    python3 02_kernel.py --use-cublaslt --inner-fp32  # cuBLASLt + FP32 中间结果
+    python3 02_kernel.py --disable-slidesparse  # vLLM 原生路径 (baseline only)
 
-    python3 02_kernel.py --ext-cutlass        # 对比 原生 CUTLASS vs 外挂 CUTLASS
-
-路径说明:
-    默认: USE_CUBLASLT=1 → cuBLASLt kernel
-    --ext-cutlass: USE_CUBLASLT=0 → 外挂 CUTLASS
+三种测试路径:
+    1. vLLM 原生路径 (baseline): DISABLE_SLIDESPARSE=1
+    2. SlideSparse + 外挂 CUTLASS (对照组): 默认
+    3. SlideSparse + cuBLASLt (实验组): USE_CUBLASLT=1
 """
 
 import os
@@ -174,7 +175,7 @@ def run_cublaslt(
     bias: torch.Tensor,
 ) -> torch.Tensor:
     """运行 cuBLASLt"""
-    from slidesparse.core.cublaslt_linear_method import CuBLASLtFp8LinearOp
+    from slidesparse.core.SlideSparseLinearMethod_FP8 import CuBLASLtFp8LinearOp
     from vllm.model_executor.layers.quantization.utils.quant_utils import GroupShape
     
     op = CuBLASLtFp8LinearOp(
@@ -249,7 +250,7 @@ def test_fp8_support():
 @test_case("Op 基本功能", skip_if=skip_if_no_fp8)
 def test_op_basic():
     """测试 Op 基本运行"""
-    from slidesparse.core.cublaslt_linear_method import CuBLASLtFp8LinearOp
+    from slidesparse.core.SlideSparseLinearMethod_FP8 import CuBLASLtFp8LinearOp
     from vllm.model_executor.layers.quantization.utils.quant_utils import GroupShape
     
     with cuda_memory_manager():
