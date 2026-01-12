@@ -33,13 +33,8 @@ from slidesparse.core.SchemeWrapperW8A8_FP8 import (
     SlideSparseSchemeWrapperFP8,
     wrap_scheme_if_enabled,
     is_slidesparse_scheme,
-    # 兼容别名
-    cuBLASLtSchemeWrapper,
-    cuSPARSELtSchemeWrapper,
-    is_cublaslt_scheme,
 )
 from slidesparse.core.SlideSparseLinearMethod_FP8 import (
-    # 主要类（新名称）
     SlideSparseFp8LinearMethod,
     SlideSparseFp8LinearOp,
     # 三个 kernel 函数
@@ -50,9 +45,6 @@ from slidesparse.core.SlideSparseLinearMethod_FP8 import (
     wrap_scheme_with_cublaslt,
     wrap_scheme_with_cusparselt,
     wrap_scheme_fp8,
-    # 兼容别名
-    cuBLASLtFp8LinearMethod,
-    cuBLASLtFp8LinearOp,
 )
 
 __all__ = [
@@ -66,7 +58,7 @@ __all__ = [
     "SlideSparseSchemeWrapperFP8",
     "wrap_scheme_if_enabled",
     "is_slidesparse_scheme",
-    # 线性层方法（主要类）
+    # 线性层方法
     "SlideSparseFp8LinearMethod",
     "SlideSparseFp8LinearOp",
     # 三个 kernel 函数
@@ -77,10 +69,4 @@ __all__ = [
     "wrap_scheme_with_cublaslt",
     "wrap_scheme_with_cusparselt",
     "wrap_scheme_fp8",
-    # 兼容别名（向后兼容）
-    "cuBLASLtSchemeWrapper",
-    "cuSPARSELtSchemeWrapper",
-    "is_cublaslt_scheme",
-    "cuBLASLtFp8LinearMethod",
-    "cuBLASLtFp8LinearOp",
 ]

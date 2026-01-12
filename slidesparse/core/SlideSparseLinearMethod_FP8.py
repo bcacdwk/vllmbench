@@ -523,10 +523,6 @@ class SlideSparseFp8LinearOp:
         )
 
 
-# 兼容别名
-cuBLASLtFp8LinearOp = SlideSparseFp8LinearOp
-
-
 # ============================================================================
 # SlideSparse FP8 Linear Method
 # ============================================================================
@@ -610,10 +606,6 @@ class SlideSparseFp8LinearMethod:
             input_scale=getattr(layer, "input_scale", None),
             bias=bias,
         )
-
-
-# 兼容别名
-cuBLASLtFp8LinearMethod = SlideSparseFp8LinearMethod
 
 
 # ============================================================================

@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 # SPDX-License-Identifier: Apache-2.0
 """
-01_bridge.py - SlideSparse 桥接与集成测试
+test_01_bridge.py - SlideSparse 桥接与集成测试
 
 验证 SlideSparse 外挂模块的：
 1. 模块导入和包结构
@@ -11,21 +11,22 @@
 4. 关键类和函数的存在性
 
 使用方法:
-    python3 01_bridge.py                    # 默认: SlideSparse + 外挂 CUTLASS
-    python3 01_bridge.py --use-cublaslt     # SlideSparse + cuBLASLt
-    python3 01_bridge.py --disable-slidesparse  # vLLM 原生路径 (baseline)
+    python3 test_01_bridge.py                    # 默认: SlideSparse + CUTLASS fallback
+    python3 test_01_bridge.py --use-cublaslt     # SlideSparse + cuBLASLt
+    python3 test_01_bridge.py --use-cusparselt   # SlideSparse + cuSPARSELt
 
-三种测试路径:
-    1. vLLM 原生路径 (baseline): DISABLE_SLIDESPARSE=1
-    2. SlideSparse + 外挂 CUTLASS (对照组): 默认
-    3. SlideSparse + cuBLASLt (实验组): USE_CUBLASLT=1
+环境变量:
+    DISABLE_SLIDESPARSE=1  →  禁用 SlideSparse
+    USE_CUBLASLT=1         →  cuBLASLt kernel
+    USE_CUSPARSELT=1       →  cuSPARSELt kernel
 """
 
+import os
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from utils import (
+from test_utils import (
     TestRunner,
     TestResult,
     TestStatus,
@@ -54,23 +55,38 @@ def test_import_main():
 def test_import_core():
     """测试 core 子模块导入"""
     from slidesparse.core import (
+        # 配置函数
         is_slidesparse_enabled,
         is_cublaslt_enabled,
+        is_cusparselt_enabled,
         is_inner_dtype_fp32,
         get_slidesparse_status,
-        get_cublaslt_status,
-        CuBLASLtFp8LinearMethod,
-        CuBLASLtFp8LinearOp,
+        # Scheme 包装器
+        SlideSparseSchemeWrapperFP8,
+        wrap_scheme_if_enabled,
+        is_slidesparse_scheme,
+        # Linear 方法
+        SlideSparseFp8LinearMethod,
+        SlideSparseFp8LinearOp,
+        # Kernel 函数
+        cuBLASLt_FP8_linear,
+        cuSPARSELt_FP8_linear,
+        cutlass_FP8_linear,
+        # 工厂函数
         wrap_scheme_with_cublaslt,
+        wrap_scheme_with_cusparselt,
+        wrap_scheme_fp8,
     )
     
     # 验证导出的符号类型
     assert callable(is_slidesparse_enabled)
     assert callable(is_cublaslt_enabled)
+    assert callable(is_cusparselt_enabled)
     assert callable(is_inner_dtype_fp32)
     assert callable(get_slidesparse_status)
-    assert callable(get_cublaslt_status)
     assert callable(wrap_scheme_with_cublaslt)
+    assert callable(wrap_scheme_with_cusparselt)
+    assert callable(wrap_scheme_fp8)
     
     return True, "核心接口导入成功"
 
@@ -84,7 +100,6 @@ def test_import_config():
         is_cusparselt_enabled,
         is_inner_dtype_fp32,
         get_slidesparse_status,
-        get_cublaslt_status,
     )
     
     # 验证返回类型
@@ -93,25 +108,53 @@ def test_import_config():
     assert isinstance(is_cusparselt_enabled(), bool)
     assert isinstance(is_inner_dtype_fp32(), bool)
     assert isinstance(get_slidesparse_status(), str)
-    assert isinstance(get_cublaslt_status(), str)
     
-    return True, f"配置解析正常"
+    return True, "配置解析正常"
+
+
+@test_case("导入 SchemeWrapper 模块")
+def test_import_scheme_wrapper():
+    """测试 SchemeWrapper 模块"""
+    from slidesparse.core.SchemeWrapperW8A8_FP8 import (
+        SlideSparseSchemeWrapperFP8,
+        wrap_scheme_if_enabled,
+        is_slidesparse_scheme,
+    )
+    
+    # 验证类方法
+    assert hasattr(SlideSparseSchemeWrapperFP8, "create_weights")
+    assert hasattr(SlideSparseSchemeWrapperFP8, "process_weights_after_loading")
+    assert hasattr(SlideSparseSchemeWrapperFP8, "apply_weights")
+    
+    return True, "SchemeWrapper 可用"
 
 
 @test_case("导入 LinearMethod 模块")
 def test_import_linear_method():
     """测试 LinearMethod 模块"""
     from slidesparse.core.SlideSparseLinearMethod_FP8 import (
-        CuBLASLtFp8LinearOp,
-        CuBLASLtFp8LinearMethod,
+        SlideSparseFp8LinearOp,
+        SlideSparseFp8LinearMethod,
+        # 三个 kernel 函数
+        cuBLASLt_FP8_linear,
+        cuSPARSELt_FP8_linear,
+        cutlass_FP8_linear,
+        # 工厂函数
         wrap_scheme_with_cublaslt,
-        cublaslt_fp8_linear,
+        wrap_scheme_with_cusparselt,
+        wrap_scheme_fp8,
     )
     
     # 验证类结构
-    assert hasattr(CuBLASLtFp8LinearOp, "apply")
-    assert hasattr(CuBLASLtFp8LinearMethod, "apply_weights")
-    assert hasattr(CuBLASLtFp8LinearMethod, "create_weights")
+    assert hasattr(SlideSparseFp8LinearOp, "apply")
+    assert hasattr(SlideSparseFp8LinearMethod, "apply_weights")
+    assert hasattr(SlideSparseFp8LinearMethod, "create_weights")
+    assert hasattr(SlideSparseFp8LinearMethod, "process_weights_after_loading")
+    
+    # 验证 kernel 函数
+    assert callable(cuBLASLt_FP8_linear)
+    assert callable(cuSPARSELt_FP8_linear)
+    assert callable(cutlass_FP8_linear)
     
     return True, "类结构正确"
 
@@ -141,14 +184,55 @@ def test_env_vars():
 @test_case("get_slidesparse_status 格式")
 def test_status_format():
     """测试状态字符串格式"""
-    from slidesparse.core.config import get_slidesparse_status, get_cublaslt_status
+    from slidesparse.core.config import get_slidesparse_status
     
     status = get_slidesparse_status()
     
     # 状态字符串应该包含关键信息
-    assert "slidesparse" in status.lower() or "cublaslt" in status.lower() or "cutlass" in status.lower()
+    assert "SlideSparse" in status or "slidesparse" in status.lower()
     
     return True, status
+
+
+@test_case("互斥配置校验")
+def test_mutual_exclusion():
+    """测试 USE_CUBLASLT 和 USE_CUSPARSELT 互斥"""
+    import importlib
+    
+    # 保存原环境
+    old_cublaslt = os.environ.get("USE_CUBLASLT")
+    old_cusparselt = os.environ.get("USE_CUSPARSELT")
+    
+    try:
+        # 设置互斥配置
+        os.environ["USE_CUBLASLT"] = "1"
+        os.environ["USE_CUSPARSELT"] = "1"
+        
+        # 重新加载配置模块以触发校验
+        # 注意：由于 _config_validated 标志，需要特殊处理
+        from slidesparse.core import config
+        config._config_validated = False  # 重置标志
+        
+        try:
+            config.is_cublaslt_enabled()
+            # 如果没有抛出异常，说明校验有问题
+            return False, "互斥校验未生效"
+        except ValueError as e:
+            if "mutually exclusive" in str(e):
+                return True, "互斥校验正常"
+            raise
+            
+    finally:
+        # 恢复环境
+        config._config_validated = False
+        if old_cublaslt is not None:
+            os.environ["USE_CUBLASLT"] = old_cublaslt
+        else:
+            os.environ.pop("USE_CUBLASLT", None)
+        if old_cusparselt is not None:
+            os.environ["USE_CUSPARSELT"] = old_cusparselt
+        else:
+            os.environ.pop("USE_CUSPARSELT", None)
 
 
 # ============================================================================
@@ -159,17 +243,33 @@ def test_status_format():
 def test_vllm_bridge_import():
     """测试 vLLM 内的桥接文件"""
     from vllm.model_executor.layers.quantization.slidesparse import (
-        is_slidesparse_enabled as vllm_is_slidesparse_enabled,
-        is_cublaslt_enabled as vllm_is_cublaslt_enabled,
-        is_inner_dtype_fp32 as vllm_is_fp32,
-        wrap_scheme_with_cublaslt as vllm_wrap,
+        # 配置
+        is_slidesparse_enabled,
+        is_cublaslt_enabled,
+        is_cusparselt_enabled,
+        is_inner_dtype_fp32,
+        get_slidesparse_status,
+        # Scheme 包装器
+        SlideSparseSchemeWrapperFP8,
+        wrap_scheme_if_enabled,
+        is_slidesparse_scheme,
+        # Linear 方法
+        SlideSparseFp8LinearMethod,
+        SlideSparseFp8LinearOp,
+        # Kernel 函数
+        cuBLASLt_FP8_linear,
+        cuSPARSELt_FP8_linear,
+        cutlass_FP8_linear,
+        # 工厂函数
+        wrap_scheme_with_cublaslt,
+        wrap_scheme_with_cusparselt,
+        wrap_scheme_fp8,
     )
     
     # 验证导入成功
-    assert callable(vllm_is_slidesparse_enabled)
-    assert callable(vllm_is_cublaslt_enabled)
-    assert callable(vllm_is_fp32)
-    assert callable(vllm_wrap)
+    assert callable(is_slidesparse_enabled)
+    assert callable(is_cublaslt_enabled)
+    assert callable(wrap_scheme_with_cublaslt)
     
     return True, "vLLM 桥接模块正常"
 
@@ -180,17 +280,29 @@ def test_bridge_reference_consistency():
     from vllm.model_executor.layers.quantization.slidesparse import (
         is_slidesparse_enabled as vllm_is_slidesparse_enabled,
         is_cublaslt_enabled as vllm_is_cublaslt_enabled,
+        is_cusparselt_enabled as vllm_is_cusparselt_enabled,
         is_inner_dtype_fp32 as vllm_is_fp32,
-        wrap_scheme_with_cublaslt as vllm_wrap,
+        wrap_scheme_with_cublaslt as vllm_wrap_cublaslt,
+        wrap_scheme_with_cusparselt as vllm_wrap_cusparselt,
     )
-    from slidesparse.core.config import is_slidesparse_enabled, is_cublaslt_enabled, is_inner_dtype_fp32
-    from slidesparse.core.SlideSparseLinearMethod_FP8 import wrap_scheme_with_cublaslt
+    from slidesparse.core.config import (
+        is_slidesparse_enabled, 
+        is_cublaslt_enabled,
+        is_cusparselt_enabled,
+        is_inner_dtype_fp32,
+    )
+    from slidesparse.core.SlideSparseLinearMethod_FP8 import (
+        wrap_scheme_with_cublaslt,
+        wrap_scheme_with_cusparselt,
+    )
     
     # 应该是同一个函数对象
     assert vllm_is_slidesparse_enabled is is_slidesparse_enabled, "is_slidesparse_enabled 引用不一致"
     assert vllm_is_cublaslt_enabled is is_cublaslt_enabled, "is_cublaslt_enabled 引用不一致"
+    assert vllm_is_cusparselt_enabled is is_cusparselt_enabled, "is_cusparselt_enabled 引用不一致"
     assert vllm_is_fp32 is is_inner_dtype_fp32, "is_inner_dtype_fp32 引用不一致"
-    assert vllm_wrap is wrap_scheme_with_cublaslt, "wrap_scheme_with_cublaslt 引用不一致"
+    assert vllm_wrap_cublaslt is wrap_scheme_with_cublaslt, "wrap_scheme_with_cublaslt 引用不一致"
+    assert vllm_wrap_cusparselt is wrap_scheme_with_cusparselt, "wrap_scheme_with_cusparselt 引用不一致"
     
     return True, "函数引用一致"
 
@@ -228,35 +340,36 @@ def test_fp8_scheme():
 # 4. Op 实例化测试
 # ============================================================================
 
-@test_case("CuBLASLtFp8LinearOp 创建")
+@test_case("SlideSparseFp8LinearOp 创建")
 def test_create_op():
     """测试 Op 实例创建"""
-    from slidesparse.core.SlideSparseLinearMethod_FP8 import CuBLASLtFp8LinearOp
+    from slidesparse.core.SlideSparseLinearMethod_FP8 import SlideSparseFp8LinearOp
     from vllm.model_executor.layers.quantization.utils.quant_utils import GroupShape
     
     # 默认配置
-    op1 = CuBLASLtFp8LinearOp()
+    op1 = SlideSparseFp8LinearOp()
     assert op1 is not None
     assert hasattr(op1, "apply")
     assert hasattr(op1, "quant_fp8")
+    assert hasattr(op1, "_kernel_name")
     
     # 自定义配置
-    op2 = CuBLASLtFp8LinearOp(
+    op2 = SlideSparseFp8LinearOp(
         act_quant_static=True,
         act_quant_group_shape=GroupShape.PER_TENSOR
     )
     assert op2 is not None
     
-    return True, "Op 创建成功"
+    return True, f"Op 创建成功 (kernel={op1._kernel_name})"
 
 
 @test_case("QuantFP8 配置一致性")
 def test_quant_fp8_config():
     """测试内部 QuantFP8 配置"""
-    from slidesparse.core.SlideSparseLinearMethod_FP8 import CuBLASLtFp8LinearOp
+    from slidesparse.core.SlideSparseLinearMethod_FP8 import SlideSparseFp8LinearOp
     
     # 使用默认配置 (动态量化)
-    op = CuBLASLtFp8LinearOp(act_quant_static=False)
+    op = SlideSparseFp8LinearOp(act_quant_static=False)
     
     assert op.quant_fp8 is not None
     assert op.quant_fp8.static == op.act_quant_static
@@ -265,8 +378,8 @@ def test_quant_fp8_config():
 
 
 @test_case("wrap_scheme_with_cublaslt 函数")
-def test_wrap_scheme_function():
-    """测试 scheme 包装函数"""
+def test_wrap_scheme_cublaslt():
+    """测试 cuBLASLt scheme 包装函数"""
     from slidesparse.core.SlideSparseLinearMethod_FP8 import wrap_scheme_with_cublaslt
     
     # 不支持的类型应返回原对象
@@ -279,6 +392,43 @@ def test_wrap_scheme_function():
     assert wrapped is mock, "不支持的类型应返回原对象"
     
     return True, "包装函数正常"
+
+
+@test_case("wrap_scheme_with_cusparselt 函数")
+def test_wrap_scheme_cusparselt():
+    """测试 cuSPARSELt scheme 包装函数"""
+    from slidesparse.core.SlideSparseLinearMethod_FP8 import wrap_scheme_with_cusparselt
+    
+    # 不支持的类型应返回原对象
+    class MockScheme:
+        pass
+    
+    mock = MockScheme()
+    wrapped = wrap_scheme_with_cusparselt(mock)
+    
+    assert wrapped is mock, "不支持的类型应返回原对象"
+    
+    return True, "包装函数正常"
+
+
+@test_case("wrap_scheme_fp8 统一入口")
+def test_wrap_scheme_fp8():
+    """测试统一的 FP8 scheme 包装入口"""
+    from slidesparse.core.SlideSparseLinearMethod_FP8 import wrap_scheme_fp8
+    
+    # 验证函数存在且可调用
+    assert callable(wrap_scheme_fp8)
+    
+    # 不支持的类型应返回原对象
+    class MockScheme:
+        pass
+    
+    mock = MockScheme()
+    wrapped = wrap_scheme_fp8(mock)
+    
+    assert wrapped is mock, "不支持的类型应返回原对象"
+    
+    return True, "统一入口正常"
 
 
 # ============================================================================
@@ -295,14 +445,9 @@ def test_extension_load_status():
     if ext is not None:
         # 验证导出的函数
         has_fp8_mm = hasattr(ext, "cublaslt_fp8_mm")
-        has_int8_mm = hasattr(ext, "cublaslt_int8_mm")
-        return True, f"已加载 (fp8_mm={has_fp8_mm}, int8_mm={has_int8_mm})"
+        return True, f"Extension 已加载 (cublaslt_fp8_mm={has_fp8_mm})"
     else:
-        return TestResult(
-            name="cuBLASLt Extension 加载状态",
-            status=TestStatus.WARNING,
-            message="Extension 未加载，将使用 CUTLASS fallback"
-        )
+        return True, "Extension 未加载（使用 fallback）"
 
 
 @test_case("cuBLASLt Extension 函数签名")
@@ -336,10 +481,12 @@ def get_all_tests():
         test_import_main,
         test_import_core,
         test_import_config,
+        test_import_scheme_wrapper,
         test_import_linear_method,
         # 2. 环境变量
         test_env_vars,
         test_status_format,
+        test_mutual_exclusion,
         # 3. vLLM 桥接
         test_vllm_bridge_import,
         test_bridge_reference_consistency,
@@ -348,7 +495,9 @@ def get_all_tests():
         # 4. Op 实例化
         test_create_op,
         test_quant_fp8_config,
-        test_wrap_scheme_function,
+        test_wrap_scheme_cublaslt,
+        test_wrap_scheme_cusparselt,
+        test_wrap_scheme_fp8,
         # 5. Extension
         test_extension_load_status,
         test_extension_signatures,

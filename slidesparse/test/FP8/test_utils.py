@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 # SPDX-License-Identifier: Apache-2.0
 """
-SlideSparse cuBLASLt 测试工具库
+SlideSparse 测试工具库
 
 提供统一的测试基础设施，包括：
 - 测试状态和结果数据类
@@ -11,19 +11,44 @@ SlideSparse cuBLASLt 测试工具库
 - 模型查找工具
 - CUDA 内存管理
 - 性能测试工具
+
+环境变量设计（两层控制）:
+========================
+
+第一层：是否启用 SlideSparse
+    DISABLE_SLIDESPARSE=1  →  禁用 SlideSparse，使用 vLLM 原生路径
+    DISABLE_SLIDESPARSE=0  →  启用 SlideSparse（默认）
+
+第二层：Kernel 后端选择（三选一，互斥）
+    USE_CUBLASLT=1         →  cuBLASLt kernel
+    USE_CUSPARSELT=1       →  cuSPARSELt kernel (TODO)
+    默认（两者都不设置）   →  CUTLASS fallback
+
+附加选项：
+    INNER_DTYPE_FP32=1     →  GEMM 输出使用 FP32（仅 cuBLASLt/cuSPARSELt 时生效）
+
+命令行参数映射：
+===============
+    --disable-slidesparse  →  DISABLE_SLIDESPARSE=1（baseline，不走 SlideSparse）
+    --use-cutlass          →  USE_CUBLASLT=0, USE_CUSPARSELT=0（默认）
+    --use-cublaslt         →  USE_CUBLASLT=1
+    --use-cusparselt       →  USE_CUSPARSELT=1
+    --inner-fp32           →  INNER_DTYPE_FP32=1
 """
 
 import os
 import sys
 import time
-import json
 import functools
 import traceback
+import argparse
+import statistics
 from typing import Optional, List, Dict, Any, Callable, Tuple
 from dataclasses import dataclass, field
 from enum import Enum
 from contextlib import contextmanager
 from pathlib import Path
+
 
 # ============================================================================
 # 路径设置
@@ -69,6 +94,10 @@ class Colors:
     @classmethod
     def cyan(cls, text: str) -> str:
         return f"{cls.CYAN}{text}{cls.NC}"
+    
+    @classmethod
+    def magenta(cls, text: str) -> str:
+        return f"{cls.MAGENTA}{text}{cls.NC}"
     
     @classmethod
     def bold(cls, text: str) -> str:
@@ -326,6 +355,17 @@ class EnvironmentChecker:
         return cls._cache["cublaslt_enabled"]
     
     @classmethod
+    def is_cusparselt_enabled(cls) -> bool:
+        """检查 cuSPARSELt kernel 是否启用"""
+        if "cusparselt_enabled" not in cls._cache:
+            try:
+                from slidesparse.core.config import is_cusparselt_enabled
+                cls._cache["cusparselt_enabled"] = is_cusparselt_enabled()
+            except ImportError:
+                cls._cache["cusparselt_enabled"] = False
+        return cls._cache["cusparselt_enabled"]
+    
+    @classmethod
     def is_inner_dtype_fp32(cls) -> bool:
         """检查 INNER_DTYPE_FP32 是否启用"""
         if "inner_dtype_fp32" not in cls._cache:
@@ -337,6 +377,19 @@ class EnvironmentChecker:
         return cls._cache["inner_dtype_fp32"]
     
     @classmethod
+    def get_kernel_name(cls) -> str:
+        """获取当前选择的 kernel 名称"""
+        if not cls.is_slidesparse_enabled():
+            return "vLLM 原生 (CUTLASS)"
+        if cls.is_cublaslt_enabled():
+            inner = "FP32" if cls.is_inner_dtype_fp32() else "BF16"
+            return f"cuBLASLt ({inner})"
+        if cls.is_cusparselt_enabled():
+            inner = "FP32" if cls.is_inner_dtype_fp32() else "BF16"
+            return f"cuSPARSELt ({inner})"
+        return "CUTLASS (fallback)"
+    
+    @classmethod
     def get_env_info(cls) -> Dict[str, Any]:
         """获取完整环境信息"""
         info = {
@@ -346,7 +399,9 @@ class EnvironmentChecker:
             "supports_fp8": cls.supports_fp8(),
             "slidesparse_enabled": cls.is_slidesparse_enabled(),
             "cublaslt_enabled": cls.is_cublaslt_enabled(),
+            "cusparselt_enabled": cls.is_cusparselt_enabled(),
             "inner_dtype_fp32": cls.is_inner_dtype_fp32(),
+            "kernel_name": cls.get_kernel_name(),
         }
         
         # Python 版本
@@ -372,34 +427,44 @@ class EnvironmentChecker:
     def print_env_info(cls):
         """打印环境信息"""
         info = cls.get_env_info()
-        print("=" * 60)
+        print("=" * 70)
         print(Colors.bold("环境信息"))
-        print("-" * 60)
+        print("-" * 70)
         print(f"  Python: {info['python_version']}")
         print(f"  PyTorch: {info['torch_version']}")
-        print(f"  vLLM: v0.13.0-SlideSparse")
+        print(f"  vLLM: {info['vllm_version']}")
         print(f"  CUDA: {'可用' if info['has_cuda'] else '不可用'}")
         if info['has_cuda']:
             print(f"  GPU: {info['cuda_device']}")
-            print(f"  Compute Capability: {info['cuda_cc']}")
-            print(f"  FP8 支持: {'是' if info['supports_fp8'] else '否'}")
+            print(f"  Compute Capability: sm_{info['cuda_cc'][0]}{info['cuda_cc'][1]}")
+            fp8_status = Colors.green("支持") if info['supports_fp8'] else Colors.red("不支持")
+            print(f"  FP8: {fp8_status}")
+        
+        print("-" * 70)
         
         # SlideSparse 状态
-        slidesparse_status = Colors.green("启用") if info['slidesparse_enabled'] else Colors.yellow("禁用")
+        if info['slidesparse_enabled']:
+            slidesparse_status = Colors.green("启用")
+        else:
+            slidesparse_status = Colors.yellow("禁用 (vLLM 原生路径)")
         print(f"  SlideSparse: {slidesparse_status}")
         
         if info['slidesparse_enabled']:
-            # Kernel 选择
+            # Kernel 选择（三选一）
             if info['cublaslt_enabled']:
-                kernel_status = Colors.green("cuBLASLt")
+                kernel_status = Colors.cyan("cuBLASLt")
+            elif info['cusparselt_enabled']:
+                kernel_status = Colors.magenta("cuSPARSELt")
             else:
                 kernel_status = Colors.yellow("CUTLASS (fallback)")
-            print(f"  Kernel: {kernel_status}")
+            print(f"  Kernel 后端: {kernel_status}")
             
-            if info['cublaslt_enabled']:
+            # Inner dtype（仅 cuBLASLt/cuSPARSELt 时显示）
+            if info['cublaslt_enabled'] or info['cusparselt_enabled']:
                 inner_dtype = "FP32" if info['inner_dtype_fp32'] else "BF16"
-                print(f"  INNER_DTYPE: {inner_dtype}")
-        print("=" * 60)
+                print(f"  GEMM Inner Dtype: {inner_dtype}")
+        
+        print("=" * 70)
 
 
 # ============================================================================
@@ -615,7 +680,6 @@ class Benchmarker:
             (平均时间 ms, 标准差 ms)
         """
         import torch
-        import statistics
         
         # Warmup
         for _ in range(warmup):
@@ -640,10 +704,11 @@ class Benchmarker:
         return mean_time, std_time
     
     @staticmethod
-    def compute_tflops(flops: int, time_ms: float) -> float:
-        """计算 TFLOPS"""
+    def compute_tflops(M: int, N: int, K: int, time_ms: float) -> float:
+        """计算 GEMM TFLOPS"""
         if time_ms <= 0:
             return 0.0
+        flops = 2 * M * N * K
         return flops / (time_ms * 1e-3) / 1e12
 
 
@@ -661,7 +726,8 @@ def skip_if_no_fp8() -> Tuple[bool, str]:
     if not EnvironmentChecker.has_cuda():
         return (True, "需要 CUDA")
     if not EnvironmentChecker.supports_fp8():
-        return (True, f"需要 sm_89+, 当前 {EnvironmentChecker.cuda_compute_capability()}")
+        cc = EnvironmentChecker.cuda_compute_capability()
+        return (True, f"需要 sm_89+, 当前 sm_{cc[0]}{cc[1]}")
     return (False, "")
 
 
@@ -687,75 +753,214 @@ def skip_if_cublaslt_disabled() -> Tuple[bool, str]:
     return (False, "")
 
 
+def skip_if_cusparselt_disabled() -> Tuple[bool, str]:
+    """如果 cuSPARSELt 禁用则跳过"""
+    if not EnvironmentChecker.is_cusparselt_enabled():
+        return (True, "cuSPARSELt 未启用 (设置 USE_CUSPARSELT=1)")
+    return (False, "")
+
+
 # ============================================================================
 # 命令行参数解析
 # ============================================================================
 
-def parse_common_args(description: str):
+def parse_common_args(description: str) -> argparse.ArgumentParser:
     """
     解析通用命令行参数
     
-    测试路径说明:
-    ============
-    三种测试路径:
-    1. vLLM 原生路径 (baseline): DISABLE_SLIDESPARSE=1
-    2. SlideSparse + 外挂 CUTLASS (对照组): 默认行为或 --ext-cutlass
-    3. SlideSparse + cuBLASLt (实验组): --use-cublaslt
+    环境变量设计（两层）：
+    ====================
     
-    环境变量:
-    ========
-    - DISABLE_SLIDESPARSE=1: 禁用 SlideSparse hook，使用 vLLM 原生路径
-    - USE_CUBLASLT=1: 启用 cuBLASLt kernel（否则使用外挂 CUTLASS）
-    - INNER_DTYPE_FP32=1: GEMM 输出使用 FP32
+    第一层：是否启用 SlideSparse
+        --disable-slidesparse  →  DISABLE_SLIDESPARSE=1（baseline）
+        默认                   →  DISABLE_SLIDESPARSE=0（启用 SlideSparse）
+    
+    第二层：Kernel 后端选择（三选一，互斥）
+        --use-cutlass    →  CUTLASS fallback（默认）
+        --use-cublaslt   →  USE_CUBLASLT=1
+        --use-cusparselt →  USE_CUSPARSELT=1
+    
+    附加选项：
+        --inner-fp32     →  INNER_DTYPE_FP32=1
     """
-    import argparse
-    parser = argparse.ArgumentParser(description=description)
-    parser.add_argument("--disable-slidesparse", action="store_true",
-                        help="禁用 SlideSparse hook，使用 vLLM 原生路径 (baseline)")
-    parser.add_argument("--use-cublaslt", action="store_true",
-                        help="启用 cuBLASLt kernel (USE_CUBLASLT=1)")
-    parser.add_argument("--ext-cutlass", action="store_true",
-                        help="使用外挂 CUTLASS 路径（不启用 cuBLASLt）- 等同于默认行为")
-    parser.add_argument("--inner-fp32", action="store_true", 
-                        help="GEMM 输出使用 FP32 (INNER_DTYPE_FP32=1)")
+    parser = argparse.ArgumentParser(
+        description=description,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+示例:
+  %(prog)s                          # 默认: SlideSparse + CUTLASS fallback
+  %(prog)s --disable-slidesparse    # vLLM 原生路径 (baseline)
+  %(prog)s --use-cublaslt           # SlideSparse + cuBLASLt
+  %(prog)s --use-cublaslt --inner-fp32  # cuBLASLt + FP32 累加
+  %(prog)s --use-cusparselt         # SlideSparse + cuSPARSELt (TODO)
+        """
+    )
+    
+    # 第一层：SlideSparse 开关
+    parser.add_argument(
+        "--disable-slidesparse", 
+        action="store_true",
+        help="禁用 SlideSparse，使用 vLLM 原生路径 (baseline)"
+    )
+    
+    # 第二层：Kernel 后端选择（互斥组）
+    kernel_group = parser.add_mutually_exclusive_group()
+    kernel_group.add_argument(
+        "--use-cutlass", 
+        action="store_true",
+        help="使用 CUTLASS fallback（默认）"
+    )
+    kernel_group.add_argument(
+        "--use-cublaslt", 
+        action="store_true",
+        help="使用 cuBLASLt kernel"
+    )
+    kernel_group.add_argument(
+        "--use-cusparselt", 
+        action="store_true",
+        help="使用 cuSPARSELt kernel (TODO)"
+    )
+    
+    # 附加选项
+    parser.add_argument(
+        "--inner-fp32", 
+        action="store_true", 
+        help="GEMM 输出使用 FP32（仅 cuBLASLt/cuSPARSELt 时生效）"
+    )
+    
     return parser
 
 
-def apply_env_args(args):
+def apply_env_args(args: argparse.Namespace) -> None:
     """
     应用环境变量参数
     
-    三种测试路径:
-    1. vLLM 原生路径 (baseline):
-       --disable-slidesparse → DISABLE_SLIDESPARSE=1
-       
-    2. SlideSparse + 外挂 CUTLASS (对照组):
-       默认行为或 --ext-cutlass → DISABLE_SLIDESPARSE=0, USE_CUBLASLT=0
-       
-    3. SlideSparse + cuBLASLt (实验组):
-       --use-cublaslt → DISABLE_SLIDESPARSE=0, USE_CUBLASLT=1
+    根据命令行参数设置对应的环境变量
     """
-    # 1. 处理 DISABLE_SLIDESPARSE
-    if hasattr(args, 'disable_slidesparse') and args.disable_slidesparse:
+    # 第一层：DISABLE_SLIDESPARSE
+    if getattr(args, 'disable_slidesparse', False):
         os.environ["DISABLE_SLIDESPARSE"] = "1"
-        # baseline 模式下，清除其他 SlideSparse 相关环境变量
+        # baseline 模式下，清除其他环境变量
         os.environ.pop("USE_CUBLASLT", None)
+        os.environ.pop("USE_CUSPARSELT", None)
         os.environ.pop("INNER_DTYPE_FP32", None)
     else:
         os.environ["DISABLE_SLIDESPARSE"] = "0"
         
-        # 2. 处理 USE_CUBLASLT
-        if hasattr(args, 'use_cublaslt') and args.use_cublaslt:
+        # 第二层：Kernel 后端选择
+        if getattr(args, 'use_cublaslt', False):
             os.environ["USE_CUBLASLT"] = "1"
+            os.environ.pop("USE_CUSPARSELT", None)
+        elif getattr(args, 'use_cusparselt', False):
+            os.environ["USE_CUSPARSELT"] = "1"
+            os.environ.pop("USE_CUBLASLT", None)
         else:
-            # 默认或 --ext-cutlass: 使用外挂 CUTLASS
-            os.environ["USE_CUBLASLT"] = "0"
+            # 默认或 --use-cutlass: CUTLASS fallback
+            os.environ.pop("USE_CUBLASLT", None)
+            os.environ.pop("USE_CUSPARSELT", None)
         
-        # 3. 处理 INNER_DTYPE_FP32（仅在 USE_CUBLASLT=1 时有效）
-        if hasattr(args, 'inner_fp32') and args.inner_fp32:
+        # 附加选项：INNER_DTYPE_FP32
+        if getattr(args, 'inner_fp32', False):
             os.environ["INNER_DTYPE_FP32"] = "1"
         else:
             os.environ.pop("INNER_DTYPE_FP32", None)
     
     # 清除缓存以重新读取环境变量
+    EnvironmentChecker.clear_cache()
+
+
+def get_backend_name(use_cublaslt: bool = False, use_cusparselt: bool = False, 
+                     inner_fp32: bool = False) -> str:
+    """
+    根据参数获取后端名称
+    
+    用于测试输出显示
+    """
+    if use_cublaslt:
+        suffix = " (FP32累加)" if inner_fp32 else ""
+        return f"SlideSparse + cuBLASLt{suffix}"
+    elif use_cusparselt:
+        suffix = " (FP32累加)" if inner_fp32 else ""
+        return f"SlideSparse + cuSPARSELt{suffix}"
+    else:
+        return "SlideSparse + CUTLASS"
+
+
+def set_env_for_baseline() -> Dict[str, Optional[str]]:
+    """
+    设置环境变量为 baseline (vLLM 原生路径)
+    
+    Returns:
+        保存的原环境变量，用于恢复
+    """
+    saved = {
+        "DISABLE_SLIDESPARSE": os.environ.get("DISABLE_SLIDESPARSE"),
+        "USE_CUBLASLT": os.environ.get("USE_CUBLASLT"),
+        "USE_CUSPARSELT": os.environ.get("USE_CUSPARSELT"),
+        "INNER_DTYPE_FP32": os.environ.get("INNER_DTYPE_FP32"),
+    }
+    
+    os.environ["DISABLE_SLIDESPARSE"] = "1"
+    os.environ.pop("USE_CUBLASLT", None)
+    os.environ.pop("USE_CUSPARSELT", None)
+    os.environ.pop("INNER_DTYPE_FP32", None)
+    
+    EnvironmentChecker.clear_cache()
+    return saved
+
+
+def set_env_for_test(use_cublaslt: bool = False, use_cusparselt: bool = False,
+                     inner_fp32: bool = False) -> Dict[str, Optional[str]]:
+    """
+    设置环境变量为测试配置
+    
+    Args:
+        use_cublaslt: 使用 cuBLASLt kernel
+        use_cusparselt: 使用 cuSPARSELt kernel
+        inner_fp32: 使用 FP32 累加
+    
+    Returns:
+        保存的原环境变量，用于恢复
+    """
+    saved = {
+        "DISABLE_SLIDESPARSE": os.environ.get("DISABLE_SLIDESPARSE"),
+        "USE_CUBLASLT": os.environ.get("USE_CUBLASLT"),
+        "USE_CUSPARSELT": os.environ.get("USE_CUSPARSELT"),
+        "INNER_DTYPE_FP32": os.environ.get("INNER_DTYPE_FP32"),
+    }
+    
+    os.environ["DISABLE_SLIDESPARSE"] = "0"
+    
+    if use_cublaslt:
+        os.environ["USE_CUBLASLT"] = "1"
+        os.environ.pop("USE_CUSPARSELT", None)
+    elif use_cusparselt:
+        os.environ["USE_CUSPARSELT"] = "1"
+        os.environ.pop("USE_CUBLASLT", None)
+    else:
+        os.environ.pop("USE_CUBLASLT", None)
+        os.environ.pop("USE_CUSPARSELT", None)
+    
+    if inner_fp32:
+        os.environ["INNER_DTYPE_FP32"] = "1"
+    else:
+        os.environ.pop("INNER_DTYPE_FP32", None)
+    
+    EnvironmentChecker.clear_cache()
+    return saved
+
+
+def restore_env(saved: Dict[str, Optional[str]]) -> None:
+    """
+    恢复环境变量
+    
+    Args:
+        saved: 之前保存的环境变量
+    """
+    for key, value in saved.items():
+        if value is not None:
+            os.environ[key] = value
+        else:
+            os.environ.pop(key, None)
+    
     EnvironmentChecker.clear_cache()

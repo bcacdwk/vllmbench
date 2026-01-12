@@ -211,16 +211,3 @@ def wrap_scheme_if_enabled(scheme: Any) -> Any:
 def is_slidesparse_scheme(scheme: Any) -> bool:
     """检查 scheme 是否是 SlideSparse 包装器"""
     return isinstance(scheme, SlideSparseSchemeWrapperFP8)
-
-
-# ============================================================================
-# 兼容别名（对称命名）
-# ============================================================================
-
-# cuBLASLt 别名
-cuBLASLtSchemeWrapper = SlideSparseSchemeWrapperFP8
-is_cublaslt_scheme = is_slidesparse_scheme
-
-# cuSPARSELt 别名（指向同一个类，内部根据环境变量选择 kernel）
-cuSPARSELtSchemeWrapper = SlideSparseSchemeWrapperFP8
-is_cusparselt_scheme = is_slidesparse_scheme
