@@ -35,8 +35,8 @@ from dataclasses import dataclass
 # 抑制 vLLM 日志
 os.environ["VLLM_LOGGING_LEVEL"] = "ERROR"
 
-sys.path.insert(0, str(Path(__file__).parent))
-from test_utils import (
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from utils import (
     EnvironmentChecker,
     ModelFinder,
     Colors,

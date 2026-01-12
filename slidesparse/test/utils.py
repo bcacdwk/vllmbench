@@ -54,9 +54,11 @@ from pathlib import Path
 # 路径设置
 # ============================================================================
 
-SCRIPT_DIR = Path(__file__).parent.absolute()
-TEST_DIR = SCRIPT_DIR.parent
-PROJECT_ROOT = TEST_DIR.parent.parent
+# utils.py 现在位于 slidesparse/test/utils.py
+# 目录结构: PROJECT_ROOT/slidesparse/test/utils.py
+TEST_DIR = Path(__file__).parent.absolute()  # slidesparse/test
+SLIDESPARSE_DIR = TEST_DIR.parent            # slidesparse
+PROJECT_ROOT = SLIDESPARSE_DIR.parent        # vllmbench (项目根目录)
 sys.path.insert(0, str(PROJECT_ROOT))
 
 

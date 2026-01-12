@@ -1171,6 +1171,490 @@ def print_system_info():
 
 
 # =============================================================================
+# 模型信息管理
+# =============================================================================
+
+# 模型大小参考（用于估算显存需求）
+MODEL_SIZE_GB = {
+    "0.5B": 0.9,
+    "1B": 1.9,
+    "1.5B": 2.1,
+    "3B": 4.0,
+    "7B": 8.1,
+    "14B": 15.2,
+}
+
+
+@dataclass
+class ModelEntry:
+    """
+    单个模型的信息条目
+    
+    Attributes:
+        key: 模型短键名（如 "qwen2.5-7b-fp8"）
+        family: 模型系列（如 "qwen", "llama"）
+        version: 版本号（如 "2.5", "3.2"）
+        size: 模型大小（如 "7B", "1.5B"）
+        quant: 量化类型（如 "fp8", "int8"）
+        hf_name: HuggingFace 模型名（如 "Qwen2.5-7B-Instruct-FP8-dynamic"）
+        local_name: 本地文件夹名（如 "Qwen2.5-7B-FP8"）
+        hf_org: HuggingFace 组织名（默认 "RedHatAI"）
+    """
+    key: str
+    family: str
+    version: str
+    size: str
+    quant: str
+    hf_name: str
+    local_name: str
+    hf_org: str = "RedHatAI"
+    
+    @property
+    def hf_path(self) -> str:
+        """完整的 HuggingFace 路径"""
+        return f"{self.hf_org}/{self.hf_name}"
+    
+    @property
+    def quant_normalized(self) -> str:
+        """标准化的量化类型"""
+        return normalize_dtype(self.quant) if self.quant.lower() not in ("int8",) else "INT8"
+    
+    @property
+    def estimated_gb(self) -> float:
+        """估算的显存需求 (GB)"""
+        size_upper = self.size.upper()
+        return MODEL_SIZE_GB.get(size_upper, 0.0)
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """转换为字典"""
+        return {
+            "key": self.key,
+            "family": self.family,
+            "version": self.version,
+            "size": self.size,
+            "quant": self.quant,
+            "quant_normalized": self.quant_normalized,
+            "hf_name": self.hf_name,
+            "hf_path": self.hf_path,
+            "local_name": self.local_name,
+            "estimated_gb": self.estimated_gb,
+        }
+
+
+class ModelRegistry:
+    """
+    模型注册表
+    
+    管理所有支持的量化模型，提供搜索、过滤、路径构建等功能。
+    
+    命名规范：
+        - key: {family}{version}-{size}-{quant}  例如 "qwen2.5-7b-fp8"
+        - local_name: {Family}{Version}-{Size}-{QUANT}  例如 "Qwen2.5-7B-FP8"
+    
+    使用示例：
+        >>> registry = ModelRegistry()
+        >>> 
+        >>> # 获取所有 FP8 模型
+        >>> for entry in registry.list(quant="fp8"):
+        ...     print(entry.key, entry.local_name)
+        >>> 
+        >>> # 获取特定模型
+        >>> entry = registry.get("qwen2.5-7b-fp8")
+        >>> print(entry.hf_path)
+        >>> 
+        >>> # 按 family 过滤
+        >>> for entry in registry.list(family="llama"):
+        ...     print(entry.key)
+    """
+    
+    # 内置模型定义
+    # 格式: (family, version, size, quant, hf_name, local_name)
+    _BUILTIN_MODELS = [
+        # Qwen2.5 INT8
+        ("qwen", "2.5", "0.5B", "int8", "Qwen2.5-0.5B-Instruct-quantized.w8a8", "Qwen2.5-0.5B-INT8"),
+        ("qwen", "2.5", "1.5B", "int8", "Qwen2.5-1.5B-Instruct-quantized.w8a8", "Qwen2.5-1.5B-INT8"),
+        ("qwen", "2.5", "3B", "int8", "Qwen2.5-3B-Instruct-quantized.w8a8", "Qwen2.5-3B-INT8"),
+        ("qwen", "2.5", "7B", "int8", "Qwen2.5-7B-Instruct-quantized.w8a8", "Qwen2.5-7B-INT8"),
+        ("qwen", "2.5", "14B", "int8", "Qwen2.5-14B-Instruct-quantized.w8a8", "Qwen2.5-14B-INT8"),
+        # Qwen2.5 FP8
+        ("qwen", "2.5", "0.5B", "fp8", "Qwen2.5-0.5B-Instruct-FP8-dynamic", "Qwen2.5-0.5B-FP8"),
+        ("qwen", "2.5", "1.5B", "fp8", "Qwen2.5-1.5B-Instruct-FP8-dynamic", "Qwen2.5-1.5B-FP8"),
+        ("qwen", "2.5", "3B", "fp8", "Qwen2.5-3B-Instruct-FP8-dynamic", "Qwen2.5-3B-FP8"),
+        ("qwen", "2.5", "7B", "fp8", "Qwen2.5-7B-Instruct-FP8-dynamic", "Qwen2.5-7B-FP8"),
+        ("qwen", "2.5", "14B", "fp8", "Qwen2.5-14B-Instruct-FP8-dynamic", "Qwen2.5-14B-FP8"),
+        # Llama3.2 INT8
+        ("llama", "3.2", "1B", "int8", "Llama-3.2-1B-Instruct-quantized.w8a8", "Llama3.2-1B-INT8"),
+        ("llama", "3.2", "3B", "int8", "Llama-3.2-3B-Instruct-quantized.w8a8", "Llama3.2-3B-INT8"),
+        # Llama3.2 FP8
+        ("llama", "3.2", "1B", "fp8", "Llama-3.2-1B-Instruct-FP8-dynamic", "Llama3.2-1B-FP8"),
+        ("llama", "3.2", "3B", "fp8", "Llama-3.2-3B-Instruct-FP8-dynamic", "Llama3.2-3B-FP8"),
+    ]
+    
+    def __init__(self, hf_org: str = "RedHatAI"):
+        """
+        初始化模型注册表
+        
+        Args:
+            hf_org: 默认的 HuggingFace 组织名
+        """
+        self.hf_org = hf_org
+        self._models: Dict[str, ModelEntry] = {}
+        
+        # 加载内置模型
+        for family, version, size, quant, hf_name, local_name in self._BUILTIN_MODELS:
+            key = self._make_key(family, version, size, quant)
+            self._models[key] = ModelEntry(
+                key=key,
+                family=family,
+                version=version,
+                size=size,
+                quant=quant,
+                hf_name=hf_name,
+                local_name=local_name,
+                hf_org=hf_org,
+            )
+    
+    @staticmethod
+    def _make_key(family: str, version: str, size: str, quant: str) -> str:
+        """生成模型 key"""
+        return f"{family}{version}-{size.lower()}-{quant.lower()}"
+    
+    def register(
+        self,
+        family: str,
+        version: str,
+        size: str,
+        quant: str,
+        hf_name: str,
+        local_name: str,
+        hf_org: Optional[str] = None,
+    ) -> ModelEntry:
+        """
+        注册新模型
+        
+        Args:
+            family: 模型系列
+            version: 版本号
+            size: 模型大小
+            quant: 量化类型
+            hf_name: HuggingFace 模型名
+            local_name: 本地文件夹名
+            hf_org: HuggingFace 组织名
+            
+        Returns:
+            注册的模型条目
+        """
+        key = self._make_key(family, version, size, quant)
+        entry = ModelEntry(
+            key=key,
+            family=family,
+            version=version,
+            size=size,
+            quant=quant,
+            hf_name=hf_name,
+            local_name=local_name,
+            hf_org=hf_org or self.hf_org,
+        )
+        self._models[key] = entry
+        return entry
+    
+    def get(self, key: str) -> Optional[ModelEntry]:
+        """
+        获取模型条目
+        
+        Args:
+            key: 模型 key（如 "qwen2.5-7b-fp8"）
+            
+        Returns:
+            模型条目，不存在返回 None
+        """
+        return self._models.get(key.lower())
+    
+    def __getitem__(self, key: str) -> ModelEntry:
+        """通过 key 获取模型（KeyError if not found）"""
+        entry = self.get(key)
+        if entry is None:
+            raise KeyError(f"模型不存在: {key}")
+        return entry
+    
+    def __contains__(self, key: str) -> bool:
+        """检查模型是否存在"""
+        return key.lower() in self._models
+    
+    def __len__(self) -> int:
+        """模型数量"""
+        return len(self._models)
+    
+    def __iter__(self):
+        """迭代所有模型"""
+        return iter(self._models.values())
+    
+    def list(
+        self,
+        *,
+        family: Optional[str] = None,
+        version: Optional[str] = None,
+        size: Optional[str] = None,
+        quant: Optional[str] = None,
+        sort_by_size: bool = True,
+    ) -> List[ModelEntry]:
+        """
+        列出符合条件的模型
+        
+        Args:
+            family: 过滤模型系列（qwen, llama）
+            version: 过滤版本号（2.5, 3.2）
+            size: 过滤模型大小（0.5B, 7B）
+            quant: 过滤量化类型（fp8, int8）
+            sort_by_size: 是否按模型大小排序
+            
+        Returns:
+            符合条件的模型列表
+        """
+        results = []
+        
+        for entry in self._models.values():
+            if family and entry.family.lower() != family.lower():
+                continue
+            if version and entry.version != version:
+                continue
+            if size and entry.size.lower() != size.lower():
+                continue
+            if quant and entry.quant.lower() != quant.lower():
+                continue
+            results.append(entry)
+        
+        if sort_by_size:
+            # 按模型大小排序
+            def size_key(e: ModelEntry) -> float:
+                s = e.size.upper().replace("B", "")
+                try:
+                    return float(s)
+                except ValueError:
+                    return 0.0
+            results.sort(key=size_key)
+        
+        return results
+    
+    def keys(
+        self,
+        *,
+        family: Optional[str] = None,
+        quant: Optional[str] = None,
+    ) -> List[str]:
+        """
+        获取模型 key 列表
+        
+        Args:
+            family: 过滤模型系列
+            quant: 过滤量化类型
+            
+        Returns:
+            模型 key 列表
+        """
+        return [e.key for e in self.list(family=family, quant=quant)]
+    
+    def to_dict(self) -> Dict[str, Dict[str, Any]]:
+        """导出为字典"""
+        return {k: v.to_dict() for k, v in self._models.items()}
+
+
+# 全局模型注册表实例
+model_registry = ModelRegistry()
+
+
+# =============================================================================
+# 模型路径和检查便捷函数
+# =============================================================================
+
+def get_model_registry() -> ModelRegistry:
+    """获取全局模型注册表"""
+    return model_registry
+
+
+def get_model_info(key: str) -> Dict[str, Any]:
+    """
+    获取模型信息
+    
+    Args:
+        key: 模型 key
+        
+    Returns:
+        模型信息字典
+        
+    Raises:
+        KeyError: 模型不存在
+    """
+    entry = model_registry.get(key)
+    if entry is None:
+        raise KeyError(f"模型不存在: {key}. 可用模型: {', '.join(model_registry.keys())}")
+    return entry.to_dict()
+
+
+def list_models(
+    *,
+    family: Optional[str] = None,
+    quant: Optional[str] = None,
+) -> List[str]:
+    """
+    列出模型 key
+    
+    Args:
+        family: 过滤模型系列
+        quant: 过滤量化类型
+        
+    Returns:
+        模型 key 列表
+    """
+    return model_registry.keys(family=family, quant=quant)
+
+
+def build_model_dir_name(
+    family: str,
+    version: str,
+    size: str,
+    quant: str,
+) -> str:
+    """
+    构建模型目录名
+    
+    格式: {Family}{Version}-{Size}-{QUANT}
+    例如: Qwen2.5-7B-FP8, Llama3.2-1B-INT8
+    
+    Args:
+        family: 模型系列（qwen, llama）
+        version: 版本号（2.5, 3.2）
+        size: 模型大小（7B, 1B）
+        quant: 量化类型（fp8, int8）
+        
+    Returns:
+        目录名字符串
+    """
+    # 首字母大写
+    family_cap = family.capitalize()
+    size_upper = size.upper()
+    quant_upper = "FP8" if quant.lower() == "fp8" else "INT8"
+    return f"{family_cap}{version}-{size_upper}-{quant_upper}"
+
+
+def parse_model_key(key: str) -> Dict[str, str]:
+    """
+    解析模型 key
+    
+    Args:
+        key: 模型 key（如 "qwen2.5-7b-fp8"）
+        
+    Returns:
+        解析结果字典 {"family", "version", "size", "quant"}
+        
+    Raises:
+        ValueError: 无法解析
+    """
+    # 尝试从注册表获取
+    entry = model_registry.get(key)
+    if entry:
+        return {
+            "family": entry.family,
+            "version": entry.version,
+            "size": entry.size,
+            "quant": entry.quant,
+        }
+    
+    # 尝试手动解析: {family}{version}-{size}-{quant}
+    # 例如: qwen2.5-7b-fp8, llama3.2-1b-int8
+    import re
+    match = re.match(r'^([a-z]+)([\d.]+)-(\d+\.?\d*b)-([a-z0-9]+)$', key.lower())
+    if match:
+        return {
+            "family": match.group(1),
+            "version": match.group(2),
+            "size": match.group(3).upper(),
+            "quant": match.group(4),
+        }
+    
+    raise ValueError(f"无法解析模型 key: {key}")
+
+
+def check_quant_support(quant: str) -> Tuple[bool, str]:
+    """
+    检查当前 GPU 是否支持指定的量化类型
+    
+    Args:
+        quant: 量化类型（fp8, int8）
+        
+    Returns:
+        (supported, message)
+    """
+    quant_lower = quant.lower()
+    
+    if quant_lower == "int8":
+        # INT8: CC >= 8.0 (Ampere+)
+        if hw_info.cc_major >= 8:
+            return True, f"GPU {hw_info.gpu_name} (CC {hw_info.cc_tag}) supports INT8"
+        return False, (
+            f"GPU {hw_info.gpu_name} (CC {hw_info.cc_tag}) does not support efficient INT8 Tensor Core.\n"
+            f"INT8 requires Ampere (CC 8.0+) or newer."
+        )
+    
+    elif quant_lower == "fp8":
+        # FP8: CC >= 8.9 (Ada/Hopper+)
+        if hw_info.supports_fp8:
+            return True, f"GPU {hw_info.gpu_name} (CC {hw_info.cc_tag}) supports FP8"
+        return False, (
+            f"GPU {hw_info.gpu_name} (CC {hw_info.cc_tag}) does not support native FP8.\n"
+            f"FP8 requires Ada (CC 8.9+) or Hopper (CC 9.0+) or newer."
+        )
+    
+    else:
+        return False, f"Unknown quantization type: {quant}"
+
+
+def get_model_local_path(
+    key: str,
+    checkpoint_dir: Union[str, Path] = "checkpoints",
+) -> Path:
+    """
+    获取模型本地路径
+    
+    Args:
+        key: 模型 key
+        checkpoint_dir: checkpoints 根目录
+        
+    Returns:
+        模型本地目录路径
+        
+    Raises:
+        KeyError: 模型不存在
+    """
+    entry = model_registry[key]
+    return Path(checkpoint_dir) / entry.local_name
+
+
+def check_model_downloaded(
+    key: str,
+    checkpoint_dir: Union[str, Path] = "checkpoints",
+) -> Tuple[bool, str]:
+    """
+    检查模型是否已下载
+    
+    Args:
+        key: 模型 key
+        checkpoint_dir: checkpoints 根目录
+        
+    Returns:
+        (downloaded, message)
+    """
+    try:
+        local_path = get_model_local_path(key, checkpoint_dir)
+    except KeyError as e:
+        return False, str(e)
+    
+    if local_path.is_dir() and (local_path / "config.json").exists():
+        return True, f"Model exists: {local_path}"
+    return False, f"Model not found: {local_path}"
+
+
+# =============================================================================
 # 导出
 # =============================================================================
 
@@ -1213,6 +1697,20 @@ __all__ = [
     "get_arch_tag",
     "get_sm_code",
     "print_system_info",
+    
+    # 模型管理
+    "MODEL_SIZE_GB",
+    "ModelEntry",
+    "ModelRegistry",
+    "model_registry",
+    "get_model_registry",
+    "get_model_info",
+    "list_models",
+    "build_model_dir_name",
+    "parse_model_key",
+    "check_quant_support",
+    "get_model_local_path",
+    "check_model_downloaded",
 ]
 
 
