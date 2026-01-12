@@ -44,7 +44,7 @@ from slidesparse.utils import (
 if str(_SCRIPT_DIR.parent) not in sys.path:
     sys.path.insert(0, str(_SCRIPT_DIR.parent))
 
-from utils import get_quant_or_dequant_autotune_configs
+from utils import get_dequant_autotune_configs
 
 
 def get_output_filename(inner_fp32: bool) -> str:
@@ -54,7 +54,7 @@ def get_output_filename(inner_fp32: bool) -> str:
 
 
 # Get autotune configs from utils
-AUTOTUNE_CONFIGS = get_quant_or_dequant_autotune_configs()
+AUTOTUNE_CONFIGS = get_dequant_autotune_configs()
 
 
 # =============================================================================

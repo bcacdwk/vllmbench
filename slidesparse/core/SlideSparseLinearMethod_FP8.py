@@ -161,38 +161,54 @@ def dequant_bias_kernel(
 # FP8 Linear 函数
 # ============================================================================
 #
-# 三个函数签名完全相同，仅 GEMM 后端不同：
-#   - cuBLASLt_FP8_linear:  cuBLASLt dense GEMM + Triton dequant
-#   - cuSPARSELt_FP8_linear: cuSPARSELt 2:4 sparse GEMM + Triton dequant
-#   - cutlass_FP8_linear:    vLLM 原生 cutlass_scaled_mm (融合 dequant)
+# 三个函数签名完全相同，每个函数内部完成 quant + GEMM + dequant:
+#   - cuBLASLt_FP8_linear:   quant + cuBLASLt dense GEMM + Triton dequant
+#   - cuSPARSELt_FP8_linear: quant + cuSPARSELt 2:4 sparse GEMM + Triton dequant
+#   - cutlass_FP8_linear:    quant + vLLM cutlass_scaled_mm (融合 dequant)
 #
 # 参数说明：
-#   qinput:       [M, K] FP8，量化后的输入
+#   input:        [M, K] BF16/FP16，原始输入（未量化）
 #   weight:       [K, N] FP8，vLLM 的 .t() view（物理内存是 [N,K] 行主序）
 #   out_dtype:    最终输出类型
-#   scale_a:      [M, 1] or [1] FP32，输入 scale
 #   scale_b:      [N, 1] or [1] FP32，权重 scale
 #   bias:         [N] or None
 #   output_shape: 输出形状
+#   quant_fn:     QuantFP8 实例，用于输入量化
+#   input_scale:  输入 scale（静态量化时使用）
+#   input_scale_ub: 输入 scale 上界
 #
-# 计算流程 (cuBLASLt/cuSPARSELt):
-#   1. GEMM:   inner[M,N] = qinput[M,K] @ weight[N,K]^T
-#   2. Dequant: out[M,N] = inner * scale_a * scale_b + bias
+# 计算流程:
+#   1. Quant:   qinput[M,K], scale_a = quant_fn(input)
+#   2. GEMM:    inner[M,N] = qinput[M,K] @ weight[N,K]^T
+#   3. Dequant: out[M,N] = inner * scale_a * scale_b + bias
+#
+# 注意: cuBLASLt/cuSPARSELt 的 quant 步骤目前使用 vLLM 原生 QuantFP8，
+#       TODO: 替换为 Triton 实现的 quant kernel
 # ============================================================================
 
 def cuBLASLt_FP8_linear(
     *,
-    qinput: torch.Tensor,
+    input: torch.Tensor,
     weight: torch.Tensor,
     out_dtype: torch.dtype,
-    scale_a: torch.Tensor,
     scale_b: torch.Tensor,
     bias: Optional[torch.Tensor],
     output_shape: list,
+    quant_fn: Optional[QuantFP8] = None,
+    input_scale: Optional[torch.Tensor] = None,
+    input_scale_ub: Optional[torch.Tensor] = None,
     **kwargs,
 ) -> torch.Tensor:
     """cuBLASLt dense FP8 GEMM + Triton dequant"""
     ext = _get_gemm_extension("cublaslt")
+    
+    # TODO: 使用 Triton 实现的 quant kernel
+    # 目前暂时使用 vLLM 原生的 QuantFP8
+    if input.dtype != current_platform.fp8_dtype():
+        assert quant_fn is not None, "quant_fn required for non-FP8 input"
+        qinput, scale_a = quant_fn(input, input_scale, input_scale_ub)
+    else:
+        qinput, scale_a = input, input_scale
     
     # 转换 weight view: [K,N] stride=(1,K) → [N,K] stride=(K,1)
     weight_nk = weight.t()
@@ -210,17 +226,27 @@ def cuBLASLt_FP8_linear(
 
 def cuSPARSELt_FP8_linear(
     *,
-    qinput: torch.Tensor,
+    input: torch.Tensor,
     weight: torch.Tensor,
     out_dtype: torch.dtype,
-    scale_a: torch.Tensor,
     scale_b: torch.Tensor,
     bias: Optional[torch.Tensor],
     output_shape: list,
+    quant_fn: Optional[QuantFP8] = None,
+    input_scale: Optional[torch.Tensor] = None,
+    input_scale_ub: Optional[torch.Tensor] = None,
     **kwargs,
 ) -> torch.Tensor:
     """cuSPARSELt 2:4 sparse FP8 GEMM + Triton dequant"""
     ext = _get_gemm_extension("cusparselt")
+    
+    # TODO: 使用 Triton 实现的 quant kernel
+    # 目前暂时使用 vLLM 原生的 QuantFP8
+    if input.dtype != current_platform.fp8_dtype():
+        assert quant_fn is not None, "quant_fn required for non-FP8 input"
+        qinput, scale_a = quant_fn(input, input_scale, input_scale_ub)
+    else:
+        qinput, scale_a = input, input_scale
     
     weight_nk = weight.t()
     if not weight_nk.is_contiguous():
@@ -237,16 +263,25 @@ def cuSPARSELt_FP8_linear(
 
 def cutlass_FP8_linear(
     *,
-    qinput: torch.Tensor,
+    input: torch.Tensor,
     weight: torch.Tensor,
     out_dtype: torch.dtype,
-    scale_a: torch.Tensor,
     scale_b: torch.Tensor,
     bias: Optional[torch.Tensor],
     output_shape: list,
+    quant_fn: Optional[QuantFP8] = None,
+    input_scale: Optional[torch.Tensor] = None,
+    input_scale_ub: Optional[torch.Tensor] = None,
     **kwargs,
 ) -> torch.Tensor:
     """vLLM 原生 CUTLASS (融合 GEMM + dequant + bias)"""
+    # Quantize input if not already FP8
+    if input.dtype != current_platform.fp8_dtype():
+        assert quant_fn is not None, "quant_fn required for non-FP8 input"
+        qinput, scale_a = quant_fn(input, input_scale, input_scale_ub)
+    else:
+        qinput, scale_a = input, input_scale
+    
     output = ops.cutlass_scaled_mm(
         qinput, weight, out_dtype=out_dtype,
         scale_a=scale_a, scale_b=scale_b, bias=bias
@@ -354,25 +389,17 @@ class SlideSparseFp8LinearOp:
         if out_dtype is None:
             out_dtype = input.dtype
         
-        # Quantize input if not already FP8
-        if input.dtype != current_platform.fp8_dtype():
-            qinput, x_scale = self.quant_fp8(
-                input_2d,
-                input_scale,
-                input_scale_ub,
-            )
-        else:
-            qinput, x_scale = input_2d, input_scale
-        
-        # 调用选定的 kernel 路径
+        # 调用选定的 kernel 路径（quant 在各 linear 函数内部进行）
         return self._linear_fn(
-            qinput=qinput,
+            input=input_2d,
             weight=weight,
             out_dtype=out_dtype,
-            scale_a=x_scale,
             scale_b=weight_scale,
             bias=bias,
             output_shape=output_shape,
+            quant_fn=self.quant_fp8,
+            input_scale=input_scale,
+            input_scale_ub=input_scale_ub,
         )
 
 

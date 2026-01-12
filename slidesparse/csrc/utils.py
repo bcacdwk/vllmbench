@@ -313,13 +313,13 @@ def get_gemm_ldflags(backend: str) -> List[str]:
 # Triton Autotune 配置
 # =============================================================================
 
-def get_quant_or_dequant_autotune_configs():
+def get_dequant_autotune_configs():
     """
     获取 dequant+bias kernel 的 Triton autotune 配置
     
     覆盖: SM80(A100), SM89(4090), SM90(H100), SM100(B200), SM120(5080)
     
-    因为 M 是灵活可变的batchsize 此处相当于是搜索 R[M,N] = A[M,K] * W[N,K] 中的 [M,N] 或者 [M,K]
+    因为 M 是灵活可变的batchsize 此处相当于是搜索 R[M,N] = A[M,K] * W[N,K] 中的 [M,N]
     
     Returns:
         triton.Config 对象列表
@@ -437,6 +437,139 @@ def get_quant_or_dequant_autotune_configs():
     ]
 
 
+def get_quant_autotune_configs():
+    """
+    获取 quant (per-row quantization) kernel 的 Triton autotune 配置
+    
+    覆盖: SM80(A100), SM89(4090), SM90(H100), SM100(B200), SM120(5080)
+    
+    因为 M 是灵活可变的batchsize 此处相当于是搜索 R[M,N] = A[M,K] * W[N,K] 中的 [M,K]
+
+    - BLOCK_K 是主要的块大小参数，控制每次循环处理的元素数
+    - M 虽然不在 kernel 块参数中，但影响最佳 num_warps/num_stages
+    - autotune key = ['M', 'K']
+    
+    BLOCK_K 选择原则：
+    - 必须是 2 的幂次
+    - 典型值：512, 1024, 2048, 4096, 8192
+    - K=2560 → BLOCK_K=2048/4096 (1-2 次循环)
+    - K=6912 → BLOCK_K=4096/8192 (1-2 次循环)
+    
+    num_warps 选择原则：
+    - 小 M（1-64）：1-4 warps
+    - 中 M（64-4096）：4-8 warps
+    - 大 M（4096+）：8-32 warps
+    
+    Returns:
+        triton.Config 对象列表
+    """
+    import triton
+    
+    return [
+        # =====================================================================
+        # Tier 1: 小 BLOCK_K (适合小 K 或需要低寄存器压力)
+        # =====================================================================
+        triton.Config({'BLOCK_K': 512}, num_warps=1, num_stages=1),
+        triton.Config({'BLOCK_K': 512}, num_warps=1, num_stages=2),
+        triton.Config({'BLOCK_K': 512}, num_warps=2, num_stages=2),
+        triton.Config({'BLOCK_K': 512}, num_warps=4, num_stages=2),
+        triton.Config({'BLOCK_K': 512}, num_warps=4, num_stages=3),
+        
+        # =====================================================================
+        # Tier 2: 中等 BLOCK_K (K <= 2048 的默认选择)
+        # =====================================================================
+        triton.Config({'BLOCK_K': 1024}, num_warps=1, num_stages=1),
+        triton.Config({'BLOCK_K': 1024}, num_warps=1, num_stages=2),
+        triton.Config({'BLOCK_K': 1024}, num_warps=2, num_stages=2),
+        triton.Config({'BLOCK_K': 1024}, num_warps=4, num_stages=2),
+        triton.Config({'BLOCK_K': 1024}, num_warps=4, num_stages=3),
+        triton.Config({'BLOCK_K': 1024}, num_warps=8, num_stages=2),
+        triton.Config({'BLOCK_K': 1024}, num_warps=8, num_stages=3),
+        
+        # =====================================================================
+        # Tier 3: 大 BLOCK_K (K=2560-4096 的默认选择)
+        # =====================================================================
+        triton.Config({'BLOCK_K': 2048}, num_warps=1, num_stages=1),
+        triton.Config({'BLOCK_K': 2048}, num_warps=1, num_stages=2),
+        triton.Config({'BLOCK_K': 2048}, num_warps=2, num_stages=2),
+        triton.Config({'BLOCK_K': 2048}, num_warps=4, num_stages=2),
+        triton.Config({'BLOCK_K': 2048}, num_warps=4, num_stages=3),
+        triton.Config({'BLOCK_K': 2048}, num_warps=4, num_stages=4),
+        triton.Config({'BLOCK_K': 2048}, num_warps=8, num_stages=2),
+        triton.Config({'BLOCK_K': 2048}, num_warps=8, num_stages=3),
+        triton.Config({'BLOCK_K': 2048}, num_warps=8, num_stages=4),
+        triton.Config({'BLOCK_K': 2048}, num_warps=16, num_stages=2),
+        triton.Config({'BLOCK_K': 2048}, num_warps=16, num_stages=3),
+        
+        # =====================================================================
+        # Tier 4: 超大 BLOCK_K (K=4096-8192 的默认选择)
+        # =====================================================================
+        triton.Config({'BLOCK_K': 4096}, num_warps=1, num_stages=1),
+        triton.Config({'BLOCK_K': 4096}, num_warps=1, num_stages=2),
+        triton.Config({'BLOCK_K': 4096}, num_warps=2, num_stages=2),
+        triton.Config({'BLOCK_K': 4096}, num_warps=4, num_stages=2),
+        triton.Config({'BLOCK_K': 4096}, num_warps=4, num_stages=3),
+        triton.Config({'BLOCK_K': 4096}, num_warps=4, num_stages=4),
+        triton.Config({'BLOCK_K': 4096}, num_warps=8, num_stages=2),
+        triton.Config({'BLOCK_K': 4096}, num_warps=8, num_stages=3),
+        triton.Config({'BLOCK_K': 4096}, num_warps=8, num_stages=4),
+        triton.Config({'BLOCK_K': 4096}, num_warps=16, num_stages=2),
+        triton.Config({'BLOCK_K': 4096}, num_warps=16, num_stages=3),
+        triton.Config({'BLOCK_K': 4096}, num_warps=16, num_stages=4),
+        triton.Config({'BLOCK_K': 4096}, num_warps=32, num_stages=2),
+        triton.Config({'BLOCK_K': 4096}, num_warps=32, num_stages=3),
+        
+        # =====================================================================
+        # Tier 5: 极大 BLOCK_K (K > 6000 的选择，如 K=6912)
+        # =====================================================================
+        triton.Config({'BLOCK_K': 8192}, num_warps=1, num_stages=1),
+        triton.Config({'BLOCK_K': 8192}, num_warps=2, num_stages=1),
+        triton.Config({'BLOCK_K': 8192}, num_warps=4, num_stages=1),
+        triton.Config({'BLOCK_K': 8192}, num_warps=4, num_stages=2),
+        triton.Config({'BLOCK_K': 8192}, num_warps=4, num_stages=3),
+        triton.Config({'BLOCK_K': 8192}, num_warps=4, num_stages=4),
+        triton.Config({'BLOCK_K': 8192}, num_warps=8, num_stages=1),
+        triton.Config({'BLOCK_K': 8192}, num_warps=8, num_stages=2),
+        triton.Config({'BLOCK_K': 8192}, num_warps=8, num_stages=3),
+        triton.Config({'BLOCK_K': 8192}, num_warps=16, num_stages=1),
+        triton.Config({'BLOCK_K': 8192}, num_warps=16, num_stages=2),
+        triton.Config({'BLOCK_K': 8192}, num_warps=16, num_stages=3),
+        triton.Config({'BLOCK_K': 8192}, num_warps=32, num_stages=1),
+        triton.Config({'BLOCK_K': 8192}, num_warps=32, num_stages=2),
+        triton.Config({'BLOCK_K': 8192}, num_warps=32, num_stages=3),
+        
+        # =====================================================================
+        # Tier 6: 边界探索 - 小 M 特殊优化
+        # =====================================================================
+        # 小 M (1-16) 需要低 num_warps
+        triton.Config({'BLOCK_K': 2048}, num_warps=1, num_stages=3),
+        triton.Config({'BLOCK_K': 2048}, num_warps=1, num_stages=4),
+        triton.Config({'BLOCK_K': 4096}, num_warps=1, num_stages=3),
+        triton.Config({'BLOCK_K': 4096}, num_warps=1, num_stages=4),
+        
+        # =====================================================================
+        # Tier 7: 边界探索 - 大 M 特殊优化  
+        # =====================================================================
+        # 大 M (16384+) 需要高 num_warps
+        triton.Config({'BLOCK_K': 2048}, num_warps=32, num_stages=2),
+        triton.Config({'BLOCK_K': 4096}, num_warps=32, num_stages=4),
+        triton.Config({'BLOCK_K': 8192}, num_warps=32, num_stages=4),
+    ]
+
+
+def get_quant_or_dequant_autotune_configs():
+    """
+    获取 quant/dequant 通用的 Triton autotune 配置
+    
+    这是旧版 2D tiled kernel 的配置（BLOCK_M x BLOCK_N/BLOCK_K）
+    对于新版 per-row kernel，请使用 get_quant_autotune_configs()
+    
+    Returns:
+        triton.Config 对象列表（等同于 get_dequant_autotune_configs）
+    """
+    return get_dequant_autotune_configs()
+
+
 
 # =============================================================================
 # 导出
@@ -458,5 +591,7 @@ __all__ = [
     'CUSPARSELT_LDFLAGS',
     'get_gemm_ldflags',
     # Triton 配置
+    'get_dequant_autotune_configs',
+    'get_quant_autotune_configs',
     'get_quant_or_dequant_autotune_configs',
 ]
