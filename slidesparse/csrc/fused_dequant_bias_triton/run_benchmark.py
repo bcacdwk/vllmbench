@@ -116,7 +116,7 @@ def load_triton_kernel(tuned: bool = False):
         pytorch_func = module.dequant_bias_pytorch
     else:
         # autotune 版本需要单独加载 pytorch 实现
-        from dequant_bias_kernel import dequant_bias_pytorch
+        from slidesparse.csrc.fused_dequant_bias.basic_dequant_bias import dequant_bias_pytorch
         pytorch_func = dequant_bias_pytorch
     
     return triton_func, pytorch_func

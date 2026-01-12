@@ -484,10 +484,6 @@ def run_performance_comparison(
                 
                 match_str = Colors.green("✓") if is_match else Colors.red("✗")
                 speedup_str = f"{speedup:.3f}x"
-                if speedup > 1.02:
-                    speedup_str = Colors.green(speedup_str)
-                elif speedup < 0.98:
-                    speedup_str = Colors.red(speedup_str)
                 
                 if verbose:
                     print(f"{case.name:<20} | {case.M:>6} | {case.N:>6} | {case.K:>6} | "

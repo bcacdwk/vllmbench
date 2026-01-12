@@ -29,7 +29,7 @@ NC='\033[0m' # No Color
 
 # 脚本所在目录
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CSRC_DIR="$(dirname "$(dirname "$SCRIPT_DIR")")/csrc"
+CUBLASLT_DIR="$(dirname "$(dirname "$SCRIPT_DIR")")/csrc/cublaslt_gemm"
 
 # 解析参数
 USE_CUBLASLT=0
@@ -138,10 +138,10 @@ main() {
     if [[ $USE_CUBLASLT -eq 1 ]]; then
         print_step "0/4" "编译 cuBLASLt Extension"
         
-        if [[ -f "${CSRC_DIR}/setup_cublaslt.py" ]]; then
+        if [[ -f "${CUBLASLT_DIR}/setup_cublaslt.py" ]]; then
             echo -e "${CYAN}>>> 运行: python3 setup_cublaslt.py build${NC}"
             echo ""
-            cd "${CSRC_DIR}"
+            cd "${CUBLASLT_DIR}"
             if python3 setup_cublaslt.py build; then
                 echo ""
                 echo -e "${GREEN}✓ cuBLASLt Extension 编译完成${NC}"

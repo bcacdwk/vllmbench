@@ -19,7 +19,7 @@
 | `dequant_bias_kernel_tuned.py` | **调优后的 Kernel**（自动生成，固定配置） | ✅ 使用 |
 | `autotune_dequant_bias.py` | Autotune 脚本 + autotune 版本 Kernel | ✅ 使用 |
 | `run_benchmark.py` | **统一测试脚本** | ✅ 使用 |
-| `dequant_fused.py` | PyTorch 参考实现 (原始版本) | 🔧 参考 |
+| `dequant_torch.py` | PyTorch 参考实现 (原始版本) | 🔧 参考 |
 
 ---
 
@@ -305,18 +305,3 @@ output = dequant_bias_triton_tuned(gemm_output, scale_a, scale_b, bias)
 gemm_fp32 = torch.randn(1024, 2560, dtype=torch.float32, device='cuda')
 output = dequant_bias_triton_tuned(gemm_fp32, scale_a, scale_b, bias)
 ```
-
----
-
-## 清理建议
-
-可以删除以下废弃文件：
-```bash
-rm dequant_fused_triton.py  # 旧版实现
-rm test_dequant_fused.py    # 旧版测试
-```
-
-保留文件：
-- `dequant_bias_kernel.py` - 主要实现
-- `test_dequant_bias.py` - 测试脚本
-- `dequant_fused.py` - PyTorch 参考实现（可选保留用于调试）

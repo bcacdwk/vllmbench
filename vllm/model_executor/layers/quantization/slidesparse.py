@@ -24,13 +24,13 @@ SlideSparse 会在 CompressedTensorsW8A8Fp8 的基础上进行透明 hook。
 =========
 - DISABLE_SLIDESPARSE=1: 完全禁用 SlideSparse，使用 vLLM 原生路径
 - USE_CUBLASLT=1: 启用 cuBLASLt kernel
-- USE_CUSPARSELT=1: 启用 cuSPARSELt kernel (TODO)
+- USE_CUSPARSELT=1: 启用 cuSPARSELt kernel
 - INNER_DTYPE_FP32=1: GEMM 输出使用 FP32（仅 cuBLASLt/cuSPARSELt 时生效）
 
 架构说明:
 =========
 - cuBLASLt_FP8_linear: 纯 cuBLASLt kernel 路径
-- cuSPARSELt_FP8_linear: 纯 cuSPARSELt kernel 路径 (TODO)
+- cuSPARSELt_FP8_linear: 纯 cuSPARSELt kernel 路径
 - cutlass_FP8_linear: CUTLASS kernel fallback 路径
 - SlideSparseFp8LinearOp: 根据环境变量选择上述三个 kernel 之一
 """
@@ -59,11 +59,6 @@ try:
         is_inner_dtype_fp32,
         get_slidesparse_status,
     )
-    from slidesparse.core.SchemeWrapperW8A8_FP8 import (
-        SlideSparseSchemeWrapperFP8,
-        wrap_scheme_if_enabled,
-        is_slidesparse_scheme,
-    )
     from slidesparse.core.SlideSparseLinearMethod_FP8 import (
         SlideSparseFp8LinearMethod,
         SlideSparseFp8LinearOp,
@@ -71,10 +66,10 @@ try:
         cuBLASLt_FP8_linear,
         cuSPARSELt_FP8_linear,
         cutlass_FP8_linear,
-        # 工厂函数
-        wrap_scheme_with_cublaslt,
-        wrap_scheme_with_cusparselt,
+        # 统一工厂函数
         wrap_scheme_fp8,
+        # Extension 加载（测试用）
+        _get_extension,
     )
     
     _IMPORT_SUCCESS = True
@@ -102,25 +97,11 @@ except ImportError as e:
     def get_slidesparse_status():
         return "SlideSparse backend UNAVAILABLE (import failed)"
     
-    # Fallback stub class
-    class SlideSparseSchemeWrapperFP8:
-        def __init__(self, scheme):
-            self._original_scheme = scheme
-    
-    def wrap_scheme_if_enabled(scheme):
-        return scheme
-    
-    def is_slidesparse_scheme(scheme):
-        return False
-    
-    def wrap_scheme_with_cublaslt(scheme):
-        return scheme
-    
-    def wrap_scheme_with_cusparselt(scheme):
-        return scheme
-    
     def wrap_scheme_fp8(scheme):
         return scheme
+    
+    def _get_extension(backend):
+        raise NotImplementedError("SlideSparse import failed")
     
     # Stub classes
     class SlideSparseFp8LinearMethod:
@@ -146,10 +127,6 @@ __all__ = [
     "is_cusparselt_enabled",
     "is_inner_dtype_fp32",
     "get_slidesparse_status",
-    # Scheme 包装器
-    "SlideSparseSchemeWrapperFP8",
-    "wrap_scheme_if_enabled",
-    "is_slidesparse_scheme",
     # 线性层方法
     "SlideSparseFp8LinearMethod",
     "SlideSparseFp8LinearOp",
@@ -157,8 +134,8 @@ __all__ = [
     "cuBLASLt_FP8_linear",
     "cuSPARSELt_FP8_linear",
     "cutlass_FP8_linear",
-    # 工厂函数
-    "wrap_scheme_with_cublaslt",
-    "wrap_scheme_with_cusparselt",
+    # 统一工厂函数
     "wrap_scheme_fp8",
+    # Extension 加载（测试用）
+    "_get_extension",
 ]

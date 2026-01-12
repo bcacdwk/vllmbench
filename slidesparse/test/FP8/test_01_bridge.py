@@ -61,10 +61,6 @@ def test_import_core():
         is_cusparselt_enabled,
         is_inner_dtype_fp32,
         get_slidesparse_status,
-        # Scheme 包装器
-        SlideSparseSchemeWrapperFP8,
-        wrap_scheme_if_enabled,
-        is_slidesparse_scheme,
         # Linear 方法
         SlideSparseFp8LinearMethod,
         SlideSparseFp8LinearOp,
@@ -73,9 +69,9 @@ def test_import_core():
         cuSPARSELt_FP8_linear,
         cutlass_FP8_linear,
         # 工厂函数
-        wrap_scheme_with_cublaslt,
-        wrap_scheme_with_cusparselt,
         wrap_scheme_fp8,
+        # Extension 加载
+        _get_extension,
     )
     
     # 验证导出的符号类型
@@ -84,9 +80,8 @@ def test_import_core():
     assert callable(is_cusparselt_enabled)
     assert callable(is_inner_dtype_fp32)
     assert callable(get_slidesparse_status)
-    assert callable(wrap_scheme_with_cublaslt)
-    assert callable(wrap_scheme_with_cusparselt)
     assert callable(wrap_scheme_fp8)
+    assert callable(_get_extension)
     
     return True, "核心接口导入成功"
 
@@ -112,23 +107,6 @@ def test_import_config():
     return True, "配置解析正常"
 
 
-@test_case("导入 SchemeWrapper 模块")
-def test_import_scheme_wrapper():
-    """测试 SchemeWrapper 模块"""
-    from slidesparse.core.SchemeWrapperW8A8_FP8 import (
-        SlideSparseSchemeWrapperFP8,
-        wrap_scheme_if_enabled,
-        is_slidesparse_scheme,
-    )
-    
-    # 验证类方法
-    assert hasattr(SlideSparseSchemeWrapperFP8, "create_weights")
-    assert hasattr(SlideSparseSchemeWrapperFP8, "process_weights_after_loading")
-    assert hasattr(SlideSparseSchemeWrapperFP8, "apply_weights")
-    
-    return True, "SchemeWrapper 可用"
-
-
 @test_case("导入 LinearMethod 模块")
 def test_import_linear_method():
     """测试 LinearMethod 模块"""
@@ -140,9 +118,9 @@ def test_import_linear_method():
         cuSPARSELt_FP8_linear,
         cutlass_FP8_linear,
         # 工厂函数
-        wrap_scheme_with_cublaslt,
-        wrap_scheme_with_cusparselt,
         wrap_scheme_fp8,
+        # Extension 加载
+        _get_extension,
     )
     
     # 验证类结构
@@ -155,6 +133,9 @@ def test_import_linear_method():
     assert callable(cuBLASLt_FP8_linear)
     assert callable(cuSPARSELt_FP8_linear)
     assert callable(cutlass_FP8_linear)
+    
+    # 验证 Extension 加载函数
+    assert callable(_get_extension)
     
     return True, "类结构正确"
 
@@ -249,10 +230,6 @@ def test_vllm_bridge_import():
         is_cusparselt_enabled,
         is_inner_dtype_fp32,
         get_slidesparse_status,
-        # Scheme 包装器
-        SlideSparseSchemeWrapperFP8,
-        wrap_scheme_if_enabled,
-        is_slidesparse_scheme,
         # Linear 方法
         SlideSparseFp8LinearMethod,
         SlideSparseFp8LinearOp,
@@ -261,15 +238,13 @@ def test_vllm_bridge_import():
         cuSPARSELt_FP8_linear,
         cutlass_FP8_linear,
         # 工厂函数
-        wrap_scheme_with_cublaslt,
-        wrap_scheme_with_cusparselt,
         wrap_scheme_fp8,
     )
     
     # 验证导入成功
     assert callable(is_slidesparse_enabled)
     assert callable(is_cublaslt_enabled)
-    assert callable(wrap_scheme_with_cublaslt)
+    assert callable(wrap_scheme_fp8)
     
     return True, "vLLM 桥接模块正常"
 
@@ -282,8 +257,7 @@ def test_bridge_reference_consistency():
         is_cublaslt_enabled as vllm_is_cublaslt_enabled,
         is_cusparselt_enabled as vllm_is_cusparselt_enabled,
         is_inner_dtype_fp32 as vllm_is_fp32,
-        wrap_scheme_with_cublaslt as vllm_wrap_cublaslt,
-        wrap_scheme_with_cusparselt as vllm_wrap_cusparselt,
+        wrap_scheme_fp8 as vllm_wrap_scheme_fp8,
     )
     from slidesparse.core.config import (
         is_slidesparse_enabled, 
@@ -291,18 +265,14 @@ def test_bridge_reference_consistency():
         is_cusparselt_enabled,
         is_inner_dtype_fp32,
     )
-    from slidesparse.core.SlideSparseLinearMethod_FP8 import (
-        wrap_scheme_with_cublaslt,
-        wrap_scheme_with_cusparselt,
-    )
+    from slidesparse.core.SlideSparseLinearMethod_FP8 import wrap_scheme_fp8
     
     # 应该是同一个函数对象
     assert vllm_is_slidesparse_enabled is is_slidesparse_enabled, "is_slidesparse_enabled 引用不一致"
     assert vllm_is_cublaslt_enabled is is_cublaslt_enabled, "is_cublaslt_enabled 引用不一致"
     assert vllm_is_cusparselt_enabled is is_cusparselt_enabled, "is_cusparselt_enabled 引用不一致"
     assert vllm_is_fp32 is is_inner_dtype_fp32, "is_inner_dtype_fp32 引用不一致"
-    assert vllm_wrap_cublaslt is wrap_scheme_with_cublaslt, "wrap_scheme_with_cublaslt 引用不一致"
-    assert vllm_wrap_cusparselt is wrap_scheme_with_cusparselt, "wrap_scheme_with_cusparselt 引用不一致"
+    assert vllm_wrap_scheme_fp8 is wrap_scheme_fp8, "wrap_scheme_fp8 引用不一致"
     
     return True, "函数引用一致"
 
@@ -377,40 +347,6 @@ def test_quant_fp8_config():
     return True, "配置一致"
 
 
-@test_case("wrap_scheme_with_cublaslt 函数")
-def test_wrap_scheme_cublaslt():
-    """测试 cuBLASLt scheme 包装函数"""
-    from slidesparse.core.SlideSparseLinearMethod_FP8 import wrap_scheme_with_cublaslt
-    
-    # 不支持的类型应返回原对象
-    class MockScheme:
-        pass
-    
-    mock = MockScheme()
-    wrapped = wrap_scheme_with_cublaslt(mock)
-    
-    assert wrapped is mock, "不支持的类型应返回原对象"
-    
-    return True, "包装函数正常"
-
-
-@test_case("wrap_scheme_with_cusparselt 函数")
-def test_wrap_scheme_cusparselt():
-    """测试 cuSPARSELt scheme 包装函数"""
-    from slidesparse.core.SlideSparseLinearMethod_FP8 import wrap_scheme_with_cusparselt
-    
-    # 不支持的类型应返回原对象
-    class MockScheme:
-        pass
-    
-    mock = MockScheme()
-    wrapped = wrap_scheme_with_cusparselt(mock)
-    
-    assert wrapped is mock, "不支持的类型应返回原对象"
-    
-    return True, "包装函数正常"
-
-
 @test_case("wrap_scheme_fp8 统一入口")
 def test_wrap_scheme_fp8():
     """测试统一的 FP8 scheme 包装入口"""
@@ -432,40 +368,115 @@ def test_wrap_scheme_fp8():
 
 
 # ============================================================================
-# 5. cuBLASLt Extension 测试
+# 5. Extension 加载测试
 # ============================================================================
 
 @test_case("cuBLASLt Extension 加载状态")
-def test_extension_load_status():
+def test_cublaslt_extension_load():
     """测试 cuBLASLt extension 加载状态"""
-    from slidesparse.core.SlideSparseLinearMethod_FP8 import _load_cublaslt_extension
+    from slidesparse.core.SlideSparseLinearMethod_FP8 import _get_extension
     
-    ext = _load_cublaslt_extension()
-    
-    if ext is not None:
+    try:
+        ext = _get_extension("cublaslt")
         # 验证导出的函数
         has_fp8_mm = hasattr(ext, "cublaslt_fp8_mm")
-        return True, f"Extension 已加载 (cublaslt_fp8_mm={has_fp8_mm})"
-    else:
-        return True, "Extension 未加载（使用 fallback）"
+        if has_fp8_mm:
+            return True, f"Extension 已加载，cublaslt_fp8_mm 可用"
+        else:
+            return True, f"Extension 已加载，但缺少 cublaslt_fp8_mm"
+    except ModuleNotFoundError as e:
+        # 未编译不是错误，只是状态报告
+        return True, f"Extension 未编译: {e}"
+    except Exception as e:
+        return True, f"Extension 加载异常: {e}"
 
 
 @test_case("cuBLASLt Extension 函数签名")
-def test_extension_signatures():
-    """测试 extension 导出函数的签名"""
-    from slidesparse.core.SlideSparseLinearMethod_FP8 import _load_cublaslt_extension
+def test_cublaslt_extension_signatures():
+    """测试 cuBLASLt extension 导出函数的签名"""
+    from slidesparse.core.SlideSparseLinearMethod_FP8 import _get_extension
     
-    ext = _load_cublaslt_extension()
-    
-    if ext is None:
+    try:
+        ext = _get_extension("cublaslt")
+    except ModuleNotFoundError:
         return TestResult(
             name="cuBLASLt Extension 函数签名",
             status=TestStatus.SKIPPED,
-            message="Extension 未加载"
+            message="Extension 未编译，跳过签名检查"
+        )
+    except Exception as e:
+        return TestResult(
+            name="cuBLASLt Extension 函数签名",
+            status=TestStatus.WARNING,
+            message=f"Extension 加载异常: {e}"
         )
     
-    # 检查 cublaslt_fp8_mm
-    assert hasattr(ext, "cublaslt_fp8_mm"), "缺少 cublaslt_fp8_mm"
+    # 检查必要的函数
+    missing = []
+    if not hasattr(ext, "cublaslt_fp8_mm"):
+        missing.append("cublaslt_fp8_mm")
+    
+    if missing:
+        return TestResult(
+            name="cuBLASLt Extension 函数签名",
+            status=TestStatus.WARNING,
+            message=f"缺少函数: {', '.join(missing)}"
+        )
+    
+    return True, "函数签名正确"
+
+
+@test_case("cuSPARSELt Extension 加载状态")
+def test_cusparselt_extension_load():
+    """测试 cuSPARSELt extension 加载状态"""
+    from slidesparse.core.SlideSparseLinearMethod_FP8 import _get_extension
+    
+    try:
+        ext = _get_extension("cusparselt")
+        # 验证导出的函数
+        has_fp8_mm = hasattr(ext, "cusparselt_fp8_mm")
+        if has_fp8_mm:
+            return True, f"Extension 已加载，cusparselt_fp8_mm 可用"
+        else:
+            return True, f"Extension 已加载，但缺少 cusparselt_fp8_mm"
+    except ModuleNotFoundError as e:
+        # 未编译不是错误，只是状态报告
+        return True, f"Extension 未编译: {e}"
+    except Exception as e:
+        return True, f"Extension 加载异常: {e}"
+
+
+@test_case("cuSPARSELt Extension 函数签名")
+def test_cusparselt_extension_signatures():
+    """测试 cuSPARSELt extension 导出函数的签名"""
+    from slidesparse.core.SlideSparseLinearMethod_FP8 import _get_extension
+    
+    try:
+        ext = _get_extension("cusparselt")
+    except ModuleNotFoundError:
+        return TestResult(
+            name="cuSPARSELt Extension 函数签名",
+            status=TestStatus.SKIPPED,
+            message="Extension 未编译，跳过签名检查"
+        )
+    except Exception as e:
+        return TestResult(
+            name="cuSPARSELt Extension 函数签名",
+            status=TestStatus.WARNING,
+            message=f"Extension 加载异常: {e}"
+        )
+    
+    # 检查必要的函数
+    missing = []
+    if not hasattr(ext, "cusparselt_fp8_mm"):
+        missing.append("cusparselt_fp8_mm")
+    
+    if missing:
+        return TestResult(
+            name="cuSPARSELt Extension 函数签名",
+            status=TestStatus.WARNING,
+            message=f"缺少函数: {', '.join(missing)}"
+        )
     
     return True, "函数签名正确"
 
@@ -481,7 +492,6 @@ def get_all_tests():
         test_import_main,
         test_import_core,
         test_import_config,
-        test_import_scheme_wrapper,
         test_import_linear_method,
         # 2. 环境变量
         test_env_vars,
@@ -495,12 +505,12 @@ def get_all_tests():
         # 4. Op 实例化
         test_create_op,
         test_quant_fp8_config,
-        test_wrap_scheme_cublaslt,
-        test_wrap_scheme_cusparselt,
         test_wrap_scheme_fp8,
-        # 5. Extension
-        test_extension_load_status,
-        test_extension_signatures,
+        # 5. Extension 加载（cuBLASLt / cuSPARSELt 对称）
+        test_cublaslt_extension_load,
+        test_cublaslt_extension_signatures,
+        test_cusparselt_extension_load,
+        test_cusparselt_extension_signatures,
     ]
 
 

@@ -72,11 +72,36 @@ DECODE_CONFIG = {
 # 辅助函数
 # ============================================================================
 
-def generate_dummy_prompt(length: int) -> str:
-    """生成指定 token 长度的 dummy prompt"""
-    words = ["Hello", "world", "this", "is", "a", "test", "prompt", "for", "benchmark"]
-    prompt = " ".join(words * (length // len(words) + 1))
-    return prompt
+def generate_dummy_prompt(length: int, seed: int = 0) -> str:
+    """
+    生成指定 token 长度的 dummy prompt
+    
+    Args:
+        length: 目标 token 长度（近似）
+        seed: 随机种子，不同 seed 生成不同内容，避免 prefix caching
+    """
+    import random
+    rng = random.Random(seed)
+    
+    # 使用多样化的词汇，每个词约 1-2 tokens
+    words = [
+        "Hello", "world", "this", "is", "a", "test", "prompt", "for", "benchmark",
+        "The", "quick", "brown", "fox", "jumps", "over", "lazy", "dog", "and",
+        "Python", "programming", "language", "machine", "learning", "artificial",
+        "intelligence", "deep", "neural", "network", "transformer", "attention",
+        "model", "training", "inference", "optimization", "performance", "speed",
+    ]
+    
+    # 随机打乱词汇顺序，确保不同 seed 生成不同的 prompt
+    shuffled_words = words.copy()
+    rng.shuffle(shuffled_words)
+    
+    # 生成足够长度的文本
+    result_words = []
+    for i in range(length):
+        result_words.append(shuffled_words[i % len(shuffled_words)])
+    
+    return " ".join(result_words)
 
 
 @dataclass
@@ -128,8 +153,11 @@ def run_phase_test(
             enforce_eager=True,
         )
         
-        # 生成 prompts
-        prompts = [generate_dummy_prompt(prompt_len) for _ in range(num_prompts)]
+        # 生成 prompts（每个 prompt 使用不同 seed，避免 prefix caching）
+        prompts = [generate_dummy_prompt(prompt_len, seed=i) for i in range(num_prompts)]
+        
+        # Warmup 用不同的 prompts（seed 从 1000 开始，避免和正式测试重叠）
+        warmup_prompts = [generate_dummy_prompt(prompt_len, seed=1000+i) for i in range(2)]
         
         sampling_params = SamplingParams(
             temperature=0.0,
@@ -139,7 +167,7 @@ def run_phase_test(
         
         # Warmup
         for _ in range(warmup):
-            _ = llm.generate(prompts[:2], sampling_params)
+            _ = llm.generate(warmup_prompts, sampling_params)
         
         # 正式测试
         torch.cuda.synchronize()

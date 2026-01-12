@@ -33,11 +33,12 @@ SlideSparse FP8 Linear Method
 3. INNER_DTYPE_FP32=1     → GEMM 输出用 FP32（仅 USE_CUBLASLT=1 时生效）
 
 cuBLASLt kernel 位置:
-    slidesparse/csrc/cublaslt_gemm.cu
+    slidesparse/csrc/cublaslt_gemm/cublaslt_gemm.cu
 """
 
 from .config import is_slidesparse_enabled, is_cublaslt_enabled, is_cusparselt_enabled, is_inner_dtype_fp32, get_slidesparse_status
 
+import importlib
 import os
 import sys
 import platform
@@ -71,106 +72,50 @@ def get_inner_dtype_torch() -> torch.dtype:
 
 
 # ============================================================================
-# cuBLASLt Extension 加载
+# Extension 加载（cuBLASLt / cuSPARSELt 统一入口）
 # ============================================================================
 
-_cublaslt_ext = None
-_cublaslt_ext_loaded = False
+_extensions = {"cublaslt": None, "cusparselt": None}
 
 
-def _get_extension_name() -> str:
+def _get_extension(backend: str):
     """
-    生成与编译脚本一致的扩展名
+    获取指定后端的 extension（懒加载）
     
-    格式: slidesparse_cublaslt_py312_x86_64_cc90
-    """
-    # Python 版本
-    py_tag = f"py{sys.version_info.major}{sys.version_info.minor}"
-    
-    # 系统架构
-    machine = platform.machine()
-    if machine in ("x86_64", "AMD64"):
-        arch_tag = "x86_64"
-    elif machine in ("aarch64", "arm64"):
-        arch_tag = "aarch64"
-    else:
-        arch_tag = machine.lower()
-    
-    # GPU CC
-    if torch.cuda.is_available():
-        prop = torch.cuda.get_device_properties(0)
-        cc_tag = f"cc{prop.major}{prop.minor}"
-    else:
-        cc_tag = "cc00"  # fallback
-    
-    return f"slidesparse_cublaslt_{py_tag}_{arch_tag}_{cc_tag}"
-
-
-def _load_cublaslt_extension():
-    """
-    懒加载 cuBLASLt extension
-    
-    加载顺序:
-    1. 尝试直接 import（如果已安装到 Python 环境）
-    2. 尝试从 slidesparse/csrc/build 目录加载对应架构的 .so
-    
-    返回:
-        extension module 或 None（如果加载失败）
-    """
-    global _cublaslt_ext, _cublaslt_ext_loaded
-    
-    if _cublaslt_ext_loaded:
-        return _cublaslt_ext
-    
-    _cublaslt_ext_loaded = True
-    ext_name = _get_extension_name()
-    
-    # 方法 1: 尝试直接 import
-    try:
-        import importlib
-        _cublaslt_ext = importlib.import_module(ext_name)
-        logger.info_once(f"cuBLASLt extension loaded: {ext_name}")
-        return _cublaslt_ext
-    except ImportError:
-        pass
-    
-    # 方法 2: 从 build 目录加载
-    csrc_dir = Path(__file__).parent.parent / "csrc"
-    build_dir = csrc_dir / "build"
-    
-    if build_dir.exists():
-        # 查找匹配的 .so 文件
-        so_pattern = f"{ext_name}*.so"
-        so_files = list(build_dir.glob(so_pattern))
+    Args:
+        backend: "cublaslt" 或 "cusparselt"
         
-        if so_files:
-            so_path = so_files[0]
-            
-            # 将 build 目录加入 sys.path
-            build_dir_str = str(build_dir)
-            if build_dir_str not in sys.path:
-                sys.path.insert(0, build_dir_str)
-            
-            try:
-                import importlib
-                _cublaslt_ext = importlib.import_module(ext_name)
-                logger.info_once(
-                    f"cuBLASLt extension loaded from build/: {so_path.name}"
-                )
-                return _cublaslt_ext
-            except ImportError as e:
-                logger.warning_once(
-                    f"Failed to load {so_path.name}: {e}"
-                )
+    Returns:
+        加载的 extension 模块
+        
+    Raises:
+        ValueError: 不支持的 backend
+        ModuleNotFoundError: extension 未编译
+        
+    .so 命名格式: {backend}_py312_x86_64_cc120
+    构建目录: slidesparse/csrc/{backend}_gemm/build/
+    """
+    if backend not in ("cublaslt", "cusparselt"):
+        raise ValueError(f"Unsupported backend: {backend}, expected 'cublaslt' or 'cusparselt'")
     
-    # 加载失败
-    logger.warning_once(
-        f"cuBLASLt extension not available ({ext_name}). "
-        "Falling back to CUTLASS. "
-        "To build: cd slidesparse/csrc && python setup_cublaslt.py build"
-    )
-    _cublaslt_ext = None
-    return _cublaslt_ext
+    global _extensions
+    if _extensions[backend] is not None:
+        return _extensions[backend]
+    
+    # 生成扩展名
+    py_tag = f"py{sys.version_info.major}{sys.version_info.minor}"
+    arch_tag = "x86_64" if platform.machine() in ("x86_64", "AMD64") else "aarch64"
+    cc_tag = f"cc{torch.cuda.get_device_properties(0).major}{torch.cuda.get_device_properties(0).minor}"
+    ext_name = f"{backend}_{py_tag}_{arch_tag}_{cc_tag}"
+    
+    # 加载
+    build_dir = Path(__file__).parent.parent / "csrc" / f"{backend}_gemm" / "build"
+    if str(build_dir) not in sys.path:
+        sys.path.insert(0, str(build_dir))
+    
+    _extensions[backend] = importlib.import_module(ext_name)
+    logger.info_once(f"{backend} extension loaded: {ext_name}")
+    return _extensions[backend]
 
 
 # ============================================================================
@@ -271,13 +216,7 @@ def cuBLASLt_FP8_linear(
     Returns:
         输出张量 [*output_shape]，out_dtype
     """
-    # 必须成功加载 extension，否则报错
-    ext = _load_cublaslt_extension()
-    if ext is None:
-        raise RuntimeError(
-            "cuBLASLt extension failed to load. "
-            "Please build the extension: cd slidesparse/csrc && python setup_cublaslt.py build"
-        )
+    ext = _get_extension("cublaslt")
     
     # 关键转换:
     # weight 是 [K, N] stride=(1, K)，需要 .t() 回 [N, K] stride=(K, 1)
@@ -335,20 +274,21 @@ def cuSPARSELt_FP8_linear(
     """
     cuSPARSELt FP8 Linear（完整流程：稀疏 GEMM + Dequant + Bias）
     
-    TODO: 实现 cuSPARSELt 稀疏加速
-    
     调用链:
         cuSPARSELt_FP8_linear()          # Python: 完整 Linear
-          ├── ext.cusparselt_fp8_mm()     # CUDA: 稀疏 GEMM (TODO)
+          ├── ext.cusparselt_fp8_mm()     # CUDA: 稀疏 GEMM
           └── dequant_bias_kernel()       # Python/Triton: dequant
     
     计算流程:
     1. GEMM: inner_output[M,N] = qinput[M,K] @ sparse_weight[N,K]^T  (cuSPARSELt)
     2. Dequant: output[M,N] = inner_output * scale_a * scale_b + bias
     
+    注意: weight 是 vLLM 经过 .t() 后的 view，stride=(1, K)
+          物理内存实际是 [N, K] 行主序
+    
     Args:
         qinput: 量化后的输入 [M, K] FP8E4M3，行主序
-        weight: 量化后的权重 [K, N] FP8（稀疏格式）
+        weight: 量化后的权重 [K, N] FP8 (.t() 后的 view，实际是 [N, K] 行主序)
         out_dtype: 最终输出数据类型（经过 dequant 后）
         scale_a: 输入 scale [M, 1] 或 [1] FP32 (per-token)
         scale_b: 权重 scale [N, 1] 或 [1] FP32 (per-channel)
@@ -358,11 +298,48 @@ def cuSPARSELt_FP8_linear(
     Returns:
         输出张量 [*output_shape]，out_dtype
     """
-    # TODO: 实现 cuSPARSELt extension 加载和调用
-    raise NotImplementedError(
-        "cuSPARSELt FP8 Linear is not implemented yet. "
-        "Please use USE_CUBLASLT=1 or default CUTLASS fallback."
-    )
+    ext = _get_extension("cusparselt")
+    
+    # 关键转换:
+    # weight 是 [K, N] stride=(1, K)，需要 .t() 回 [N, K] stride=(K, 1)
+    # 这个 .t() 只改变 view，不移动内存
+    weight_row_major = weight.t()
+    
+    if not weight_row_major.is_contiguous():
+        logger.warning_once(
+            "weight.t() is not contiguous, making contiguous copy. "
+            "This may indicate a memory layout issue."
+        )
+        weight_row_major = weight_row_major.contiguous()
+    
+    # 获取 inner_dtype
+    inner_dtype_str = get_inner_dtype_str()
+    
+    try:
+        # 调用 cuSPARSELt kernel（稀疏 GEMM，无 scale/bias）
+        # D[M,N] = qinput[M,K] @ weight[N,K]^T
+        gemm_output = ext.cusparselt_fp8_mm(
+            weight_row_major,  # W [N, K] FP8 行主序
+            qinput,            # A [M, K] FP8 行主序
+            inner_dtype_str,   # "bf16" 或 "fp32"
+        )
+        
+        # Dequant + Bias (TODO: 替换为 Triton kernel)
+        output = dequant_bias_kernel(
+            gemm_output=gemm_output,
+            scale_a=scale_a,
+            scale_b=scale_b,
+            bias=bias,
+            out_dtype=out_dtype,
+        )
+        
+        return output.view(*output_shape)
+        
+    except Exception as e:
+        raise RuntimeError(
+            f"cuSPARSELt kernel execution failed: {e}. "
+            "If this is unexpected, check GPU compatibility or rebuild the extension."
+        ) from e
 
 
 def cutlass_FP8_linear(
@@ -613,13 +590,21 @@ class SlideSparseFp8LinearMethod:
 # ============================================================================
 
 
-def wrap_scheme_with_cublaslt(original_scheme):
+def wrap_scheme_fp8(original_scheme):
     """
-    工厂函数：将原始 scheme 包装为 cuBLASLt 版本
+    统一的 FP8 scheme 包装入口
+    
+    SlideSparse 启用后始终包装，内部由 SlideSparseFp8LinearOp 选择 kernel:
+    - USE_CUBLASLT=1: cuBLASLt kernel
+    - USE_CUSPARSELT=1: cuSPARSELt kernel
+    - 默认: SlideSparse CUTLASS fallback
+    
+    注意: 只有当 is_slidesparse_enabled() 返回 True 时，这个函数才会被调用
+          （由 compressed_tensors.py 中的 if 判断控制）
     
     使用示例（在 compressed_tensors.py 的 get_scheme() 中）:
-        if is_cublaslt_enabled():
-            scheme = wrap_scheme_with_cublaslt(scheme)
+        if is_slidesparse_enabled():
+            scheme = wrap_scheme_fp8(scheme)
         return scheme
     
     Args:
@@ -630,66 +615,23 @@ def wrap_scheme_with_cublaslt(original_scheme):
         否则返回原始 scheme
     """
     scheme_name = type(original_scheme).__name__
-    if "W8A8Fp8" in scheme_name:
-        logger.info_once(
-            f"Wrapping {scheme_name} with SlideSparseFp8LinearMethod (cuBLASLt)"
-        )
-        return SlideSparseFp8LinearMethod(original_scheme)
-    else:
+    if "W8A8Fp8" not in scheme_name:
+        # 非 W8A8Fp8 scheme，不支持
         logger.warning_once(
-            f"cuBLASLt wrapper not supported for {scheme_name}, "
+            f"SlideSparse wrapper not supported for {scheme_name}, "
             "using original scheme"
         )
         return original_scheme
-
-
-def wrap_scheme_with_cusparselt(original_scheme):
-    """
-    工厂函数：将原始 scheme 包装为 cuSPARSELt 版本
     
-    使用示例（在 compressed_tensors.py 的 get_scheme() 中）:
-        if is_cusparselt_enabled():
-            scheme = wrap_scheme_with_cusparselt(scheme)
-        return scheme
-    
-    Args:
-        original_scheme: 原始的 CompressedTensorsScheme
-        
-    Returns:
-        如果 scheme 是 W8A8Fp8，返回包装后的 scheme（内部会检测 kernel）
-        否则返回原始 scheme
-    """
-    scheme_name = type(original_scheme).__name__
-    if "W8A8Fp8" in scheme_name:
-        logger.info_once(
-            f"Wrapping {scheme_name} with SlideSparseFp8LinearMethod (cuSPARSELt)"
-        )
-        # 使用统一的 SlideSparseFp8LinearMethod，内部会根据环境变量选择 kernel
-        return SlideSparseFp8LinearMethod(original_scheme)
-    else:
-        logger.warning_once(
-            f"cuSPARSELt wrapper not supported for {scheme_name}, "
-            "using original scheme"
-        )
-        return original_scheme
-
-
-def wrap_scheme_fp8(original_scheme):
-    """
-    统一的 FP8 scheme 包装入口
-    
-    根据环境变量自动选择 cuBLASLt 或 cuSPARSELt 包装器。
-    
-    Args:
-        original_scheme: 原始的 CompressedTensorsScheme
-        
-    Returns:
-        包装后的 scheme 或原始 scheme
-    """
+    # W8A8Fp8 scheme，进行包装
     if is_cublaslt_enabled():
-        return wrap_scheme_with_cublaslt(original_scheme)
+        backend = "cuBLASLt"
     elif is_cusparselt_enabled():
-        return wrap_scheme_with_cusparselt(original_scheme)
+        backend = "cuSPARSELt"
     else:
-        # 默认 CUTLASS fallback，不做包装
-        return original_scheme
+        backend = "CUTLASS"
+    
+    logger.info_once(
+        f"Wrapping {scheme_name} with SlideSparseFp8LinearMethod ({backend})"
+    )
+    return SlideSparseFp8LinearMethod(original_scheme)

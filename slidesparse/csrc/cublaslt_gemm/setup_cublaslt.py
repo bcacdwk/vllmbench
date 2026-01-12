@@ -20,8 +20,8 @@ cuBLASLt GEMM Extension Setup Script
 使用方法：
 =========
 编译当前 GPU 架构的 .so：
-    cd /root/vllmbench/slidesparse/csrc
-    python3 setup_cublaslt.py build
+
+cd /root/vllmbench/slidesparse/csrc/cublaslt_gemm && python3 setup_cublaslt.py build
     
 强制重新编译：
     python3 setup_cublaslt.py build --force
@@ -91,13 +91,16 @@ def get_extension_name() -> str:
     """
     生成带版本和架构信息的扩展名
     
-    格式: slidesparse_cublaslt_py312_x86_64_cc90
+    格式: cublaslt_py312_x86_64_cc90
+    
+    支持同一 build 目录下存放多个不同 CC 的 .so，
+    运行时根据当前 GPU 自动选择匹配的版本。
     """
     py_tag = get_python_version_tag()
     arch_tag = get_arch_tag()
     cc_tag = get_gpu_cc()
     
-    return f"slidesparse_cublaslt_{py_tag}_{arch_tag}_{cc_tag}"
+    return f"cublaslt_{py_tag}_{arch_tag}_{cc_tag}"
 
 
 def get_nvcc_arch_flags() -> list:
