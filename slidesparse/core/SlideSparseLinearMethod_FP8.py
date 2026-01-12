@@ -75,7 +75,14 @@ def get_inner_dtype_torch() -> torch.dtype:
 # Extension 加载（cuBLASLt / cuSPARSELt 统一入口）
 # ============================================================================
 
-_extensions = {"cublaslt": None, "cusparselt": None}
+# CSRC 目录（用于模块加载）
+_CSRC_DIR = Path(__file__).parent.parent / "csrc"
+
+# 确保 utils 可导入
+if str(_CSRC_DIR) not in sys.path:
+    sys.path.insert(0, str(_CSRC_DIR))
+
+from utils import load_tuned_module
 
 
 def _get_extension(backend: str):
@@ -87,40 +94,41 @@ def _get_extension(backend: str):
         
     Returns:
         加载的 extension 模块
-        
-    Raises:
-        ValueError: 不支持的 backend
-        ModuleNotFoundError: extension 未编译
-        
-    .so 命名格式: {backend}_py312_x86_64_cc120
-    构建目录: slidesparse/csrc/{backend}_gemm/build/
     """
     if backend not in ("cublaslt", "cusparselt"):
-        raise ValueError(f"Unsupported backend: {backend}, expected 'cublaslt' or 'cusparselt'")
+        raise ValueError(f"Unsupported backend: {backend}")
     
-    global _extensions
-    if _extensions[backend] is not None:
-        return _extensions[backend]
-    
-    # 生成扩展名
-    py_tag = f"py{sys.version_info.major}{sys.version_info.minor}"
-    arch_tag = "x86_64" if platform.machine() in ("x86_64", "AMD64") else "aarch64"
-    cc_tag = f"cc{torch.cuda.get_device_properties(0).major}{torch.cuda.get_device_properties(0).minor}"
-    ext_name = f"{backend}_{py_tag}_{arch_tag}_{cc_tag}"
-    
-    # 加载
-    build_dir = Path(__file__).parent.parent / "csrc" / f"{backend}_gemm" / "build"
-    if str(build_dir) not in sys.path:
-        sys.path.insert(0, str(build_dir))
-    
-    _extensions[backend] = importlib.import_module(ext_name)
-    logger.info_once(f"{backend} extension loaded: {ext_name}")
-    return _extensions[backend]
+    build_dir = _CSRC_DIR / f"{backend}_gemm" / "build"
+    module = load_tuned_module(backend, build_dir)
+    logger.info_once(f"{backend} extension loaded")
+    return module
 
 
 # ============================================================================
-# Dequant + Bias Kernel (TODO: Triton 实现)
+# Dequant + Bias Kernel (Triton tuned 版本)
 # ============================================================================
+
+# Triton kernel 缓存
+_dequant_bias_triton_fn = None
+
+
+def _get_dequant_bias_triton():
+    """获取 Triton dequant+bias kernel（懒加载）"""
+    global _dequant_bias_triton_fn
+    if _dequant_bias_triton_fn is not None:
+        return _dequant_bias_triton_fn
+    
+    # 确定 dtype tag
+    dtype_tag = "FP32" if is_inner_dtype_fp32() else "BF16"
+    
+    # 加载模块
+    build_dir = _CSRC_DIR / "fused_dequant_bias_triton" / "build"
+    module = load_tuned_module("dequant_bias_tuned", build_dir, dtype_tag)
+    
+    _dequant_bias_triton_fn = module.dequant_bias_triton
+    logger.info_once(f"Triton dequant+bias kernel loaded: {dtype_tag}")
+    return _dequant_bias_triton_fn
+
 
 def dequant_bias_kernel(
     gemm_output: torch.Tensor,
@@ -130,12 +138,9 @@ def dequant_bias_kernel(
     out_dtype: torch.dtype,
 ) -> torch.Tensor:
     """
-    Dequant + Bias 操作
+    Dequant + Bias 操作（使用 autotuned Triton kernel）
     
     计算: output = gemm_output * scale_a[M,1] * scale_b[1,N] + bias[1,N]
-    
-    TODO: 实现 Triton kernel 以获得更好的性能
-          当前使用 PyTorch 原生操作作为 placeholder
     
     Args:
         gemm_output: GEMM 输出 [M, N]，inner_dtype（BF16 或 FP32）
@@ -147,31 +152,13 @@ def dequant_bias_kernel(
     Returns:
         dequant 后的输出 [M, N]，out_dtype
     """
-    M, N = gemm_output.shape
+    triton_fn = _get_dequant_bias_triton()
     
-    # 准备 scale 的广播形状
-    # scale_a: [M, 1] 或 [1] -> [M, 1]
-    if scale_a.numel() == 1:
-        scale_a_broadcast = scale_a.view(1, 1)
-    else:
-        scale_a_broadcast = scale_a.view(-1, 1)
+    # Triton kernel 需要 bias 非 None
+    if bias is None:
+        bias = torch.zeros(gemm_output.shape[1], dtype=torch.bfloat16, device=gemm_output.device)
     
-    # scale_b: [N, 1] 或 [1] -> [1, N]
-    if scale_b.numel() == 1:
-        scale_b_broadcast = scale_b.view(1, 1)
-    else:
-        scale_b_broadcast = scale_b.view(1, -1)
-    
-    # 计算 dequant: output = gemm_output * scale_a * scale_b
-    # 先转为 FP32 计算以保证精度
-    output = gemm_output.float() * scale_a_broadcast * scale_b_broadcast
-    
-    # 加 bias
-    if bias is not None and bias.numel() > 0:
-        output = output + bias.float().view(1, -1)
-    
-    # 转换为目标精度
-    return output.to(out_dtype)
+    return triton_fn(gemm_output, scale_a, scale_b, bias, out_dtype)
 
 
 # ============================================================================

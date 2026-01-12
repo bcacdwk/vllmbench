@@ -100,6 +100,76 @@ def print_system_info():
 
 
 # =============================================================================
+# Module Loading (通用模块加载器)
+# =============================================================================
+
+# 模块缓存：{(prefix, build_dir, dtype_tag): module}
+_module_cache = {}
+
+
+def load_tuned_module(prefix: str, build_dir: Path, dtype_tag: str = None):
+    """
+    加载 autotuned 模块（通用接口）
+    
+    根据当前环境自动构建模块名并加载：
+        {prefix}_{py_tag}_{arch_tag}_{cc_tag}[_{dtype_tag}]
+    
+    示例:
+        - load_tuned_module("dequant_bias_tuned", build_dir, "BF16")
+          -> dequant_bias_tuned_py312_x86_64_cc120_BF16
+        - load_tuned_module("cublaslt", build_dir)
+          -> cublaslt_py312_x86_64_cc120
+    
+    Args:
+        prefix: 模块前缀，如 'dequant_bias_tuned', 'cublaslt'
+        build_dir: 构建目录的 Path 或 str
+        dtype_tag: 可选的数据类型标签，如 'BF16', 'FP32'
+        
+    Returns:
+        加载的 Python 模块
+        
+    Raises:
+        FileNotFoundError: 模块文件不存在
+        RuntimeError: CUDA 不可用
+    """
+    import importlib
+    
+    build_dir = Path(build_dir)
+    cache_key = (prefix, str(build_dir), dtype_tag)
+    
+    # 检查缓存
+    if cache_key in _module_cache:
+        return _module_cache[cache_key]
+    
+    # 构建模块名
+    if dtype_tag:
+        module_name = f"{prefix}_{get_python_version_tag()}_{get_arch_tag()}_{get_gpu_cc()}_{dtype_tag}"
+    else:
+        module_name = f"{prefix}_{get_python_version_tag()}_{get_arch_tag()}_{get_gpu_cc()}"
+    
+    # 检查文件是否存在（.py 或 .so）
+    py_file = build_dir / f"{module_name}.py"
+    so_file = build_dir / f"{module_name}.so"
+    
+    if not py_file.exists() and not so_file.exists():
+        raise FileNotFoundError(
+            f"模块不存在: {module_name}\n"
+            f"搜索路径: {build_dir}\n"
+            f"期望文件: {py_file.name} 或 {so_file.name}\n"
+            f"请先构建/autotune 生成对应模块。"
+        )
+    
+    # 添加到 sys.path 并导入
+    if str(build_dir) not in sys.path:
+        sys.path.insert(0, str(build_dir))
+    
+    module = importlib.import_module(module_name)
+    _module_cache[cache_key] = module
+    
+    return module
+
+
+# =============================================================================
 # Triton Autotune Configs for Dequant+Bias Kernel
 # =============================================================================
 
@@ -193,11 +263,38 @@ def get_dequant_bias_autotune_configs():
         triton.Config({'BLOCK_M': 256, 'BLOCK_N': 32}, num_warps=8, num_stages=4),
 
         # =====================================================================
-        # Tier 5: Tiny M special cases
+        # Tier 5: Small M + Large N special cases (unbalanced shapes)
+        # Critical for M=16~128 with N=2560~13824 (BitNet hidden sizes)
         # =====================================================================
+        # 32x128 with various warps (key for M=16, N=13824)
+        triton.Config({'BLOCK_M': 32, 'BLOCK_N': 128}, num_warps=2, num_stages=2),
+        triton.Config({'BLOCK_M': 32, 'BLOCK_N': 128}, num_warps=2, num_stages=3),
+        triton.Config({'BLOCK_M': 32, 'BLOCK_N': 128}, num_warps=8, num_stages=2),
+        triton.Config({'BLOCK_M': 32, 'BLOCK_N': 128}, num_warps=8, num_stages=3),
+        # 32x64 with high warps (key for M=128, N=2560)
+        triton.Config({'BLOCK_M': 32, 'BLOCK_N': 64}, num_warps=8, num_stages=2),
+        triton.Config({'BLOCK_M': 32, 'BLOCK_N': 64}, num_warps=8, num_stages=3),
+        triton.Config({'BLOCK_M': 32, 'BLOCK_N': 64}, num_warps=8, num_stages=4),
+        # 32x64 with low warps (batch sizes)
+        triton.Config({'BLOCK_M': 32, 'BLOCK_N': 64}, num_warps=2, num_stages=2),
+        triton.Config({'BLOCK_M': 32, 'BLOCK_N': 64}, num_warps=2, num_stages=3),
+
+        # =====================================================================
+        # Tier 6: Tiny M = 16 special cases
+        # =====================================================================
+        triton.Config({'BLOCK_M': 16, 'BLOCK_N': 64}, num_warps=2, num_stages=2),
+        triton.Config({'BLOCK_M': 16, 'BLOCK_N': 64}, num_warps=2, num_stages=3),
         triton.Config({'BLOCK_M': 16, 'BLOCK_N': 64}, num_warps=4, num_stages=2),
+        triton.Config({'BLOCK_M': 16, 'BLOCK_N': 64}, num_warps=4, num_stages=3),
+        triton.Config({'BLOCK_M': 16, 'BLOCK_N': 128}, num_warps=2, num_stages=2),
+        triton.Config({'BLOCK_M': 16, 'BLOCK_N': 128}, num_warps=2, num_stages=3),
         triton.Config({'BLOCK_M': 16, 'BLOCK_N': 128}, num_warps=4, num_stages=2),
+        triton.Config({'BLOCK_M': 16, 'BLOCK_N': 128}, num_warps=4, num_stages=3),
         triton.Config({'BLOCK_M': 16, 'BLOCK_N': 32}, num_warps=2, num_stages=2),
+        triton.Config({'BLOCK_M': 16, 'BLOCK_N': 32}, num_warps=2, num_stages=3),
+        # Very wide for large N
+        triton.Config({'BLOCK_M': 16, 'BLOCK_N': 256}, num_warps=4, num_stages=2),
+        triton.Config({'BLOCK_M': 16, 'BLOCK_N': 256}, num_warps=4, num_stages=3),
     ]
 
 
@@ -209,5 +306,6 @@ __all__ = [
     'get_extension_name',
     'get_tuned_kernel_filename',
     'print_system_info',
+    'load_tuned_module',
     'get_dequant_bias_autotune_configs',
 ]

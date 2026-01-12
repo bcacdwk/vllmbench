@@ -50,18 +50,30 @@ AUTOTUNE_CONFIGS = get_dequant_bias_autotune_configs()
 
 N_VALUES = [2560, 3840, 13824]  # BitNet hidden sizes
 
+# M search strategy:
+# - Small M (1-512): Dense search - high variance in optimal config
+# - Medium M (512-4096): Medium density
+# - Large M (4096+): Sparse search - configs converge to similar values
 M_VALUES = [
-    1, 16, 32, 64, 128, 256, 512, 1024, 2048, 3072, 4096,
-    6144, 8192, 10240, 12288, 14336, 16384, 20480, 24576,
-    32768, 40960, 49152, 65536
+    # Small M: dense (high variance)
+    1, 16, 32, 64, 128, 256, 512,
+    # Medium M: medium density
+    1024, 2048, 4096,
+    # Large M: sparse (results converge)
+    8192, 16384, 32768, 65536
 ]
 
 
 # =============================================================================
-# Autotune Kernel
+# Autotune Kernel (with reduced warmup/rep for faster tuning)
 # =============================================================================
 
-@triton.autotune(configs=AUTOTUNE_CONFIGS, key=['M', 'N'])
+@triton.autotune(
+    configs=AUTOTUNE_CONFIGS,
+    key=['M', 'N'],
+    warmup=5,
+    rep=30,
+)
 @triton.jit
 def _dequant_bias_kernel_autotune(
     gemm_ptr, scale_a_ptr, scale_b_ptr, bias_ptr, out_ptr,

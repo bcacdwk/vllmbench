@@ -10,95 +10,61 @@ def _get_config(M: int, N: int) -> tuple:
     """Returns (BLOCK_M, BLOCK_N, num_warps, num_stages)"""
     if N == 2560:
         if M < 16:
-            return 64, 32, 4, 4
+            return 32, 64, 4, 3
         elif M < 32:
-            return 128, 128, 8, 3
+            return 32, 64, 4, 4
         elif M < 64:
-            return 64, 64, 8, 6
+            return 32, 32, 4, 3
         elif M < 128:
-            return 128, 64, 4, 4
-        elif M < 256:
-            return 32, 32, 4, 4
-        elif M < 512:
             return 128, 64, 8, 2
+        elif M < 256:
+            return 32, 64, 8, 3
+        elif M < 512:
+            return 32, 64, 4, 4
         elif M < 1024:
-            return 128, 128, 8, 3
+            return 32, 128, 8, 2
         elif M < 2048:
-            return 64, 256, 16, 3
+            return 128, 128, 16, 4
         elif M < 4096:
-            return 128, 128, 8, 3
-        elif M < 6144:
             return 128, 128, 8, 4
-        elif M < 8192:
-            return 32, 256, 8, 4
-        elif M < 10240:
-            return 128, 128, 8, 3
-        elif M < 16384:
-            return 32, 256, 8, 4
-        elif M < 20480:
-            return 64, 256, 16, 3
-        elif M < 32768:
-            return 32, 256, 8, 4
-        elif M < 65536:
-            return 64, 256, 16, 3
-        return 32, 256, 8, 4
+        return 64, 256, 8, 3
     elif N == 3840:
         if M < 16:
-            return 256, 32, 8, 4
-        elif M < 32:
-            return 16, 64, 2, 4
-        elif M < 64:
-            return 128, 64, 8, 5
-        elif M < 256:
             return 32, 32, 4, 4
+        elif M < 32:
+            return 32, 32, 4, 3
+        elif M < 64:
+            return 32, 32, 4, 2
+        elif M < 256:
+            return 32, 32, 4, 3
         elif M < 512:
-            return 128, 64, 4, 4
+            return 64, 64, 8, 4
         elif M < 1024:
-            return 32, 64, 4, 4
-        elif M < 3072:
-            return 128, 128, 8, 3
-        elif M < 4096:
-            return 128, 128, 8, 4
-        elif M < 6144:
-            return 128, 128, 8, 3
-        elif M < 8192:
-            return 128, 128, 8, 4
-        elif M < 12288:
-            return 32, 256, 8, 4
-        return 64, 256, 16, 3
+            return 64, 256, 16, 3
+        return 64, 256, 8, 3
     elif N == 13824:
         if M < 16:
-            return 64, 128, 8, 4
+            return 128, 64, 8, 3
         elif M < 32:
-            return 256, 64, 16, 3
+            return 16, 64, 4, 2
         elif M < 64:
-            return 64, 32, 4, 4
+            return 32, 128, 4, 3
         elif M < 128:
-            return 64, 128, 8, 4
+            return 16, 64, 4, 2
         elif M < 256:
             return 64, 256, 16, 3
         elif M < 512:
-            return 128, 128, 8, 4
+            return 128, 128, 8, 2
         elif M < 1024:
             return 128, 128, 8, 3
         elif M < 2048:
             return 64, 128, 4, 4
-        elif M < 3072:
-            return 128, 128, 8, 3
         elif M < 4096:
-            return 32, 256, 8, 4
-        elif M < 6144:
-            return 64, 256, 16, 3
-        elif M < 16384:
-            return 32, 256, 8, 4
-        elif M < 20480:
-            return 64, 256, 16, 3
-        elif M < 24576:
-            return 32, 256, 8, 4
-        elif M < 40960:
-            return 64, 256, 16, 3
-        elif M < 65536:
-            return 32, 256, 8, 4
+            return 128, 128, 8, 4
+        elif M < 8192:
+            return 64, 256, 8, 3
+        elif M < 32768:
+            return 32, 256, 8, 3
         return 64, 256, 16, 3
     if M <= 128:
         return 32, 64, 4, 4
