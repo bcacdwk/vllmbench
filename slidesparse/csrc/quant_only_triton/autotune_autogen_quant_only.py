@@ -12,7 +12,7 @@ Quant Only Kernel Autotune & Code Generation Script
 Usage:
     python3 autotune_autogen_quant_only.py --dtype fp8   # FP8E4M3 output (default)
     python3 autotune_autogen_quant_only.py --dtype int8  # INT8 output
-    python3 autotune_autogen_quant_only.py --info        # Show naming info only
+    python3 autotune_autogen_quant_only.py --quick --dtype fp8
 
 Output:
     build/quant_only_tuned_{GPU}_{CC}_{dtype}_{PyVer}_{CUDAVer}_{Arch}.py
@@ -251,10 +251,17 @@ def run_tuning(dtype: str):
                 _ = quant_func(x)
             torch.cuda.synchronize()
             
-            # Get best config from cache
-            key = (m, k)
-            if key in kernel_cache.cache:
-                best_config = kernel_cache.cache[key]
+            # Extract best config from cache by matching (M, K) prefix
+            # Cache key format varies by Triton version, so we iterate and match
+            best_config = None
+            for key, cfg in kernel_cache.cache.items():
+                if isinstance(key, tuple) and len(key) >= 2:
+                    cached_m, cached_k = key[0], key[1]
+                    if cached_m == m and cached_k == k:
+                        best_config = cfg
+                        break
+            
+            if best_config:
                 block_k = best_config.kwargs.get('BLOCK_K', 0)
                 num_warps = best_config.num_warps
                 num_stages = best_config.num_stages
@@ -450,7 +457,14 @@ def main():
                         help='Output dtype: fp8 or int8 (default: fp8)')
     parser.add_argument('--info', action='store_true', help='Show naming info only')
     parser.add_argument('--output-dir', type=str, default=None, help='Output directory')
+    parser.add_argument('--quick', action='store_true', 
+                        help='Quick mode: use fewer M values for faster testing')
     args = parser.parse_args()
+    
+    # Quick mode: reduce M_VALUES for faster testing
+    global M_VALUES
+    if args.quick:
+        M_VALUES = [16, 128, 1024, 4096, 16384]
     
     if not torch.cuda.is_available():
         print("ERROR: CUDA not available")

@@ -347,9 +347,6 @@ def quant_int8_pytorch(x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
 # =============================================================================
 
 __all__ = [
-    # Triton kernels
-    '_quant_fp8_kernel',
-    '_quant_int8_kernel',
     # Config
     '_get_config',
     # Main API

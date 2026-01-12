@@ -104,6 +104,32 @@ def _dequant_bias_kernel(
     tl.store(output_ptr + output_offs, output_val, mask=mask_2d)
 
 
+
+def _get_best_config(M: int, N: int) -> tuple:
+    """
+    根据矩阵大小选择最优配置
+    返回: (BLOCK_M, BLOCK_N, num_warps)
+    """
+    # 小 M (batch size 小)
+    if M <= 128:
+        if N <= 4096:
+            return 32, 64, 4
+        else:
+            return 32, 128, 4
+    # 中等 M
+    elif M <= 2048:
+        if N <= 4096:
+            return 64, 64, 4
+        else:
+            return 64, 128, 8
+    # 大 M
+    else:
+        if N <= 4096:
+            return 128, 64, 8
+        else:
+            return 128, 128, 8
+
+
 # =============================================================================
 # 主接口函数
 # =============================================================================
@@ -114,8 +140,6 @@ def dequant_bias_triton(
     scale_b: torch.Tensor,
     bias: torch.Tensor,
     out_dtype: torch.dtype = torch.bfloat16,
-    block_m: int = 64,
-    block_n: int = 64,
 ) -> torch.Tensor:
     """
     Triton实现的 Dequant + Bias 操作
@@ -126,14 +150,14 @@ def dequant_bias_triton(
     - 如果 gemm_output 是 FP32，直接用 FP32 计算
     - 如果 gemm_output 是 BF16，先转为 FP32 再计算
     
+    根据矩阵大小自动选择最优 (BLOCK_M, BLOCK_N) 配置
+    
     Args:
         gemm_output: GEMM 输出 [M, N]，BF16 或 FP32（行主序）
         scale_a: per-token scale [M, 1] 或 [M] FP32
         scale_b: per-channel scale [1, N] 或 [N] FP32
         bias: per-channel 偏置 [N] 或 [1, N] BF16
         out_dtype: 输出数据类型（默认BF16）
-        block_m: M方向块大小
-        block_n: N方向块大小
         
     Returns:
         dequant 后的输出 [M, N]，out_dtype
@@ -167,6 +191,9 @@ def dequant_bias_triton(
     # 分配输出
     output = torch.empty((M, N), dtype=torch.bfloat16, device=gemm_output.device)
     
+    # 根据矩阵大小选择最优配置
+    block_m, block_n, num_warps = _get_best_config(M, N)
+    
     # 计算grid大小
     grid = (triton.cdiv(M, block_m), triton.cdiv(N, block_n))
     
@@ -187,6 +214,7 @@ def dequant_bias_triton(
         BLOCK_M=block_m,
         BLOCK_N=block_n,
         INPUT_FP32=input_fp32,
+        num_warps=num_warps,
     )
     
     # 转换为目标dtype
@@ -194,52 +222,6 @@ def dequant_bias_triton(
         output = output.to(out_dtype)
     
     return output
-
-
-# =============================================================================
-# 带 Autotune 的配置选择版本
-# =============================================================================
-
-# 预定义的优化配置（根据 M, N 大小选择）
-def _get_best_config(M: int, N: int) -> tuple:
-    """
-    根据矩阵大小选择最优配置
-    返回: (BLOCK_M, BLOCK_N, num_warps)
-    """
-    # 小 M (batch size 小)
-    if M <= 128:
-        if N <= 4096:
-            return 32, 64, 4
-        else:
-            return 32, 128, 4
-    # 中等 M
-    elif M <= 2048:
-        if N <= 4096:
-            return 64, 64, 4
-        else:
-            return 64, 128, 8
-    # 大 M
-    else:
-        if N <= 4096:
-            return 128, 64, 8
-        else:
-            return 128, 128, 8
-
-
-def dequant_bias_triton_tuned(
-    gemm_output: torch.Tensor,
-    scale_a: torch.Tensor,
-    scale_b: torch.Tensor,
-    bias: torch.Tensor,
-    out_dtype: torch.dtype = torch.bfloat16,
-) -> torch.Tensor:
-    """
-    带配置选择的 Triton Dequant + Bias 操作
-    根据输入大小自动选择最优配置，无 autotune 开销
-    """
-    M, N = gemm_output.shape
-    block_m, block_n, _ = _get_best_config(M, N)
-    return dequant_bias_triton(gemm_output, scale_a, scale_b, bias, out_dtype, block_m, block_n)
 
 
 # =============================================================================
@@ -290,6 +272,5 @@ def dequant_bias_pytorch(
 
 __all__ = [
     'dequant_bias_triton',
-    'dequant_bias_triton_tuned',
     'dequant_bias_pytorch',
 ]

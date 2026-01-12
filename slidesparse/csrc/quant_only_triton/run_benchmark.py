@@ -349,10 +349,10 @@ def main():
     
     # Select appropriate functions based on dtype
     if dtype == "fp8":
-        untuned_func = basic_module.quant_fp8_triton_tuned
+        untuned_func = basic_module.quant_fp8_triton
         pytorch_ref_func = basic_module.quant_fp8_pytorch
     else:
-        untuned_func = basic_module.quant_int8_triton_tuned
+        untuned_func = basic_module.quant_int8_triton
         pytorch_ref_func = basic_module.quant_int8_pytorch
     
     # Correctness test

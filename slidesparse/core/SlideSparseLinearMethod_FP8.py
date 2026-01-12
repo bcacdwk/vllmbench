@@ -119,13 +119,12 @@ def _load_dequant_bias_kernel():
     if _dequant_bias_fn is not None:
         return _dequant_bias_fn
     
-    # dtype_tag 对应 GEMM 输出精度
-    dtype_tag = "FP32" if is_inner_dtype_fp32() else "BF16"
+    # dequant kernel 支持 BF16 和 FP32 输入，不需要 dtype 区分
     build_dir = _CSRC_DIR / "fused_dequant_bias_triton" / "build"
-    module = load_module("dequant_bias_tuned", dtype=dtype_tag, search_dir=build_dir, ext=".py")
+    module = load_module("dequant_bias_tuned", search_dir=build_dir, ext=".py")
     
     _dequant_bias_fn = module.dequant_bias_triton
-    logger.info_once(f"Dequant+bias kernel loaded (inner_dtype={dtype_tag})")
+    logger.info_once("Dequant+bias kernel loaded")
     return _dequant_bias_fn
 
 
@@ -158,6 +157,47 @@ def dequant_bias_kernel(
 
 
 # ============================================================================
+# Quant Only Kernel (FP8)
+# ============================================================================
+
+_quant_only_fp8_fn = None  # 缓存加载的 kernel 函数
+
+
+def _load_quant_only_fp8_kernel():
+    """加载 Triton FP8 quant kernel（懒加载，仅调用一次）"""
+    global _quant_only_fp8_fn
+    if _quant_only_fp8_fn is not None:
+        return _quant_only_fp8_fn
+    
+    # FP8 quant kernel，dtype 为 FP8E4M3
+    build_dir = _CSRC_DIR / "quant_only_triton" / "build"
+    module = load_module("quant_only_tuned", dtype="FP8E4M3", search_dir=build_dir, ext=".py")
+    
+    _quant_only_fp8_fn = module.quant_triton
+    logger.info_once("FP8 quant kernel loaded")
+    return _quant_only_fp8_fn
+
+
+def quant_only_fp8_kernel(
+    input: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """
+    FP8 Per-token Quantization（使用 autotuned Triton kernel）
+    
+    计算: qout[M,K], scale[M] = per_token_quant(input[M,K])
+    
+    Args:
+        input: 输入张量 [M, K]，BF16/FP16/FP32，必须 contiguous
+        
+    Returns:
+        qout: 量化输出 [M, K]，FP8E4M3
+        scale: per-token scale [M]，FP32
+    """
+    fn = _load_quant_only_fp8_kernel()
+    return fn(input)
+
+
+# ============================================================================
 # FP8 Linear 函数
 # ============================================================================
 #
@@ -182,8 +222,8 @@ def dequant_bias_kernel(
 #   2. GEMM:    inner[M,N] = qinput[M,K] @ weight[N,K]^T
 #   3. Dequant: out[M,N] = inner * scale_a * scale_b + bias
 #
-# 注意: cuBLASLt/cuSPARSELt 的 quant 步骤目前使用 vLLM 原生 QuantFP8，
-#       TODO: 替换为 Triton 实现的 quant kernel
+# 注意: cuBLASLt 使用 Triton 实现的 quant kernel，
+#       cuSPARSELt 和 CUTLASS 仍使用 vLLM 原生 QuantFP8
 # ============================================================================
 
 def cuBLASLt_FP8_linear(
@@ -199,14 +239,12 @@ def cuBLASLt_FP8_linear(
     input_scale_ub: Optional[torch.Tensor] = None,
     **kwargs,
 ) -> torch.Tensor:
-    """cuBLASLt dense FP8 GEMM + Triton dequant"""
+    """cuBLASLt dense FP8 GEMM + Triton quant/dequant"""
     ext = _get_gemm_extension("cublaslt")
     
-    # TODO: 使用 Triton 实现的 quant kernel
-    # 目前暂时使用 vLLM 原生的 QuantFP8
+    # 使用 Triton 实现的 quant kernel
     if input.dtype != current_platform.fp8_dtype():
-        assert quant_fn is not None, "quant_fn required for non-FP8 input"
-        qinput, scale_a = quant_fn(input, input_scale, input_scale_ub)
+        qinput, scale_a = quant_only_fp8_kernel(input)
     else:
         qinput, scale_a = input, input_scale
     

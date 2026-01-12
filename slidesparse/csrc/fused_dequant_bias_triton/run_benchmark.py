@@ -97,18 +97,17 @@ def make_theoretical_baseline(get_config_func):
 # Load Kernels
 # =============================================================================
 
-def load_tuned_module(inner_fp32: bool) -> ModuleType | None:
+def load_tuned_module() -> ModuleType | None:
     """Load the auto-tuned kernel module from build/"""
     build_dir = Path(__file__).parent / "build"
-    dtype_tag = "FP32" if inner_fp32 else "BF16"
     
     try:
-        module = load_module("dequant_bias_tuned", dtype=dtype_tag, search_dir=build_dir, ext=".py")
+        module = load_module("dequant_bias_tuned", search_dir=build_dir, ext=".py")
         return module
     except FileNotFoundError:
-        filename = build_filename("dequant_bias_tuned", dtype=dtype_tag, ext=".py")
+        filename = build_filename("dequant_bias_tuned", ext=".py")
         print(f"ERROR: Tuned kernel not found: {build_dir / filename}")
-        print(f"Please run: python3 autotune_autogen_dequant_bias.py" + (" --inner-fp32" if inner_fp32 else ""))
+        print(f"Please run: python3 autotune_autogen_dequant_bias.py")
         return None
 
 
@@ -266,9 +265,7 @@ def main():
         print("ERROR: CUDA not available")
         return 1
     
-    inner_fp32 = (args.dtype == 'fp32')
-    input_dtype = torch.float32 if inner_fp32 else torch.bfloat16
-    dtype_tag = "FP32" if inner_fp32 else "BF16"
+    input_dtype = torch.float32 if args.dtype == 'fp32' else torch.bfloat16
     
     print("=" * 70)
     print("Dequant + Bias Kernel Benchmark")
@@ -277,10 +274,10 @@ def main():
     print(f"PyTorch: {torch.__version__}")
     print(f"Triton:  {triton.__version__}")
     print(f"Input:   {args.dtype.upper()}")
-    print(f"Kernel:  {build_filename('dequant_bias_tuned', dtype=dtype_tag, ext='.py')}")
+    print(f"Kernel:  {build_filename('dequant_bias_tuned', ext='.py')}")
     
-    # Load tuned module
-    tuned_module = load_tuned_module(inner_fp32)
+    # Load tuned module (supports both BF16 and FP32 input)
+    tuned_module = load_tuned_module()
     if tuned_module is None:
         return 1
     
