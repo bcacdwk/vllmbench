@@ -18,7 +18,7 @@ from .utils import (
     build_cuda_extension,
     clean_build_artifacts,
     get_gemm_ldflags,
-    get_dequant_bias_autotune_configs,
+    get_quant_or_dequant_autotune_configs,
     CUBLASLT_LDFLAGS,
     CUSPARSELT_LDFLAGS,
 )
@@ -28,7 +28,7 @@ __all__ = [
     "build_cuda_extension",
     "clean_build_artifacts",
     "get_gemm_ldflags",
-    "get_dequant_bias_autotune_configs",
+    "get_quant_or_dequant_autotune_configs",
     "CUBLASLT_LDFLAGS",
     "CUSPARSELT_LDFLAGS",
 ]

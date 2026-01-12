@@ -19,9 +19,20 @@ import triton
 import triton.language as tl
 import triton.testing as testing
 
-# Add parent to path for utils import
-sys.path.insert(0, str(Path(__file__).parent.parent))
-from utils import get_gpu_cc, get_tuned_kernel_filename
+# 设置路径以导入 slidesparse 模块
+_SCRIPT_DIR = Path(__file__).parent
+_SLIDESPARSE_ROOT = _SCRIPT_DIR.parent.parent  # slidesparse/
+_PROJECT_ROOT = _SLIDESPARSE_ROOT.parent       # vllmbench/
+
+# 将项目根目录添加到 sys.path以支持 "from slidesparse.utils import ..."
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
+
+from slidesparse.utils import (
+    build_filename,
+    get_gpu_cc,
+    load_module,
+)
 
 
 # =============================================================================
@@ -86,43 +97,36 @@ def make_theoretical_baseline(get_config_func):
 # Load Kernels
 # =============================================================================
 
-def _load_module(module_path: Path, module_name: str) -> ModuleType | None:
-    """Helper to load a Python module from file path"""
-    if not module_path.exists():
-        return None
-    spec = importlib.util.spec_from_file_location(module_name, module_path)
-    if spec is None or spec.loader is None:
-        return None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
 def load_tuned_module(inner_fp32: bool) -> ModuleType | None:
     """Load the auto-tuned kernel module from build/"""
     build_dir = Path(__file__).parent / "build"
     dtype_tag = "FP32" if inner_fp32 else "BF16"
-    filename = get_tuned_kernel_filename("dequant_bias_tuned", dtype_tag)
-    module_path = build_dir / filename
     
-    module = _load_module(module_path, "tuned_kernel")
-    if module is None:
-        print(f"ERROR: Tuned kernel not found: {module_path}")
+    try:
+        module = load_module("dequant_bias_tuned", dtype=dtype_tag, search_dir=build_dir, ext=".py")
+        return module
+    except FileNotFoundError:
+        filename = build_filename("dequant_bias_tuned", dtype=dtype_tag, ext=".py")
+        print(f"ERROR: Tuned kernel not found: {build_dir / filename}")
         print(f"Please run: python3 autotune_autogen_dequant_bias.py" + (" --inner-fp32" if inner_fp32 else ""))
         return None
-    
-    return module
 
 
 def load_basic_module() -> ModuleType | None:
     """Load the basic kernel module (contains untuned kernel and pytorch reference)"""
     module_path = Path(__file__).parent / "basic_dequant_bias_triton.py"
     
-    module = _load_module(module_path, "basic_kernel")
-    if module is None:
+    if not module_path.exists():
         print(f"ERROR: Basic kernel not found: {module_path}")
         return None
     
+    # 使用 importlib 加载本地文件
+    spec = importlib.util.spec_from_file_location("basic_kernel", module_path)
+    if spec is None or spec.loader is None:
+        print(f"ERROR: Failed to load module: {module_path}")
+        return None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
     return module
 
 
@@ -273,7 +277,7 @@ def main():
     print(f"PyTorch: {torch.__version__}")
     print(f"Triton:  {triton.__version__}")
     print(f"Input:   {args.dtype.upper()}")
-    print(f"Kernel:  {get_tuned_kernel_filename('dequant_bias_tuned', dtype_tag)}")
+    print(f"Kernel:  {build_filename('dequant_bias_tuned', dtype=dtype_tag, ext='.py')}")
     
     # Load tuned module
     tuned_module = load_tuned_module(inner_fp32)

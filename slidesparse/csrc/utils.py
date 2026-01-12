@@ -313,13 +313,13 @@ def get_gemm_ldflags(backend: str) -> List[str]:
 # Triton Autotune 配置
 # =============================================================================
 
-def get_dequant_bias_autotune_configs():
+def get_quant_or_dequant_autotune_configs():
     """
     获取 dequant+bias kernel 的 Triton autotune 配置
     
     覆盖: SM80(A100), SM89(4090), SM90(H100), SM100(B200), SM120(5080)
     
-    配置按 A100 验证的性能排序。
+    因为 M 是灵活可变的batchsize 此处相当于是搜索 R[M,N] = A[M,K] * W[N,K] 中的 [M,N] 或者 [M,K]
     
     Returns:
         triton.Config 对象列表
@@ -437,6 +437,7 @@ def get_dequant_bias_autotune_configs():
     ]
 
 
+
 # =============================================================================
 # 导出
 # =============================================================================
@@ -457,5 +458,5 @@ __all__ = [
     'CUSPARSELT_LDFLAGS',
     'get_gemm_ldflags',
     # Triton 配置
-    'get_dequant_bias_autotune_configs',
+    'get_quant_or_dequant_autotune_configs',
 ]

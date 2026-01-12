@@ -9,7 +9,8 @@ Usage:
     python3 autotune_autogen_dequant_bias.py --info       # Show naming info only
 
 Output:
-    build/dequant_bias_tuned_py312_x86_64_cc90_BF16.py  (or _FP32.py)
+    build/dequant_bias_tuned_{GPU}_{CC}_{dtype}_{PyVer}_{CUDAVer}_{Arch}.py
+    例如: dequant_bias_tuned_H100_cc90_BF16_py312_cu124_x86_64.py
 """
 
 import os
@@ -22,26 +23,38 @@ import torch
 import triton
 import triton.language as tl
 
-# Add parent to path for utils import
-sys.path.insert(0, str(Path(__file__).parent.parent))
-from utils import (
+# 设置路径以导入 slidesparse 模块
+_SCRIPT_DIR = Path(__file__).parent
+_SLIDESPARSE_ROOT = _SCRIPT_DIR.parent.parent  # slidesparse/
+_PROJECT_ROOT = _SLIDESPARSE_ROOT.parent       # vllmbench/
+
+# 将项目根目录添加到 sys.path以支持 "from slidesparse.utils import ..."
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
+
+from slidesparse.utils import (
+    build_filename,
     get_python_version_tag,
     get_arch_tag,
     get_gpu_cc,
     get_gpu_name,
-    get_tuned_kernel_filename,
-    get_dequant_bias_autotune_configs,
 )
+
+# 将 csrc 目录添加到 sys.path 以导入 utils
+if str(_SCRIPT_DIR.parent) not in sys.path:
+    sys.path.insert(0, str(_SCRIPT_DIR.parent))
+
+from utils import get_quant_or_dequant_autotune_configs
 
 
 def get_output_filename(inner_fp32: bool) -> str:
-    """Generate output filename: dequant_bias_tuned_py312_x86_64_cc90_BF16.py"""
+    """Generate output filename: dequant_bias_tuned_{GPU}_{CC}_{dtype}_{PyVer}_{CUDAVer}_{Arch}.py"""
     dtype_tag = "FP32" if inner_fp32 else "BF16"
-    return get_tuned_kernel_filename("dequant_bias_tuned", dtype_tag)
+    return build_filename("dequant_bias_tuned", dtype=dtype_tag, ext=".py")
 
 
 # Get autotune configs from utils
-AUTOTUNE_CONFIGS = get_dequant_bias_autotune_configs()
+AUTOTUNE_CONFIGS = get_quant_or_dequant_autotune_configs()
 
 
 # =============================================================================
