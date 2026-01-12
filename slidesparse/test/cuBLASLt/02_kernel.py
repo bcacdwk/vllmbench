@@ -16,8 +16,9 @@
 
 使用方法:
     python3 02_kernel.py                      # 对比 原生 CUTLASS vs cuBLASLt
-    python3 02_kernel.py --ext-cutlass        # 对比 原生 CUTLASS vs 外挂 CUTLASS
     python3 02_kernel.py --inner-fp32         # cuBLASLt + FP32 中间结果
+
+    python3 02_kernel.py --ext-cutlass        # 对比 原生 CUTLASS vs 外挂 CUTLASS
 
 路径说明:
     默认: USE_CUBLASLT=1 → cuBLASLt kernel

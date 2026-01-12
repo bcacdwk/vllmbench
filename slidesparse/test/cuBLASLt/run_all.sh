@@ -4,10 +4,9 @@
 # ============================================================================
 #
 # 使用方法:
-#   ./run_all.sh                    # 运行所有测试 (默认 CUTLASS)
-#   ./run_all.sh --cublaslt         # 启用 cuBLASLt 运行所有测试
-#   ./run_all.sh --inner-fp32       # 启用 FP32 中间精度
-#   ./run_all.sh --full             # 运行完整测试 (包括性能对比)
+#   ./run_all.sh                    # 运行所有测试 (cuBLASLt 路径)
+#   ./run_all.sh --ext-cutlass      # 测试外挂 CUTLASS 路径
+#   ./run_all.sh --inner-fp32       # cuBLASLt + FP32 中间精度
 #   ./run_all.sh 01                 # 只运行 01_bridge 测试
 #   ./run_all.sh 02 03              # 运行 02_kernel 和 03_inference
 #
@@ -29,29 +28,19 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 
 # 默认配置
-USE_CUBLASLT=""
+EXT_CUTLASS=""
 INNER_FP32=""
-FULL_TEST=""
-QUIET=""
 SPECIFIC_TESTS=()
 
 # 解析参数
 while [[ $# -gt 0 ]]; do
     case $1 in
-        --cublaslt)
-            USE_CUBLASLT=1
+        --ext-cutlass)
+            EXT_CUTLASS=1
             shift
             ;;
         --inner-fp32)
             INNER_FP32=1
-            shift
-            ;;
-        --full)
-            FULL_TEST=1
-            shift
-            ;;
-        -q|--quiet)
-            QUIET="-q"
             shift
             ;;
         01|02|03|04)
@@ -62,11 +51,9 @@ while [[ $# -gt 0 ]]; do
             echo "Usage: $0 [OPTIONS] [TEST_NUMBERS...]"
             echo ""
             echo "Options:"
-            echo "  --cublaslt    启用 USE_CUBLASLT=1"
-            echo "  --inner-fp32  启用 INNER_DTYPE_FP32=1"
-            echo "  --full        运行完整测试 (包括性能对比)"
-            echo "  -q, --quiet   静默模式"
-            echo "  -h, --help    显示帮助"
+            echo "  --ext-cutlass  测试外挂 CUTLASS 路径 (USE_CUBLASLT=0)"
+            echo "  --inner-fp32   cuBLASLt 使用 FP32 中间精度 (INNER_DTYPE_FP32=1)"
+            echo "  -h, --help     显示帮助"
             echo ""
             echo "Test numbers:"
             echo "  01  桥接与集成测试"
@@ -75,10 +62,11 @@ while [[ $# -gt 0 ]]; do
             echo "  04  吞吐量测试"
             echo ""
             echo "Examples:"
-            echo "  $0                    # 运行所有测试"
-            echo "  $0 --cublaslt         # 启用 cuBLASLt"
-            echo "  $0 01 02              # 只运行 01 和 02"
-            echo "  $0 --cublaslt --full  # 完整 cuBLASLt 测试"
+            echo "  $0                         # 运行所有测试 (cuBLASLt)"
+            echo "  $0 --ext-cutlass           # 测试外挂 CUTLASS 路径"
+            echo "  $0 --inner-fp32            # cuBLASLt + FP32"
+            echo "  $0 01 02                   # 只运行 01 和 02"
+            echo "  $0 --ext-cutlass 02 03     # 外挂 CUTLASS 运行 02 和 03"
             exit 0
             ;;
         *)
@@ -89,7 +77,9 @@ while [[ $# -gt 0 ]]; do
 done
 
 # 设置环境变量
-if [ -n "$USE_CUBLASLT" ]; then
+if [ -n "$EXT_CUTLASS" ]; then
+    export USE_CUBLASLT=0
+else
     export USE_CUBLASLT=1
 fi
 
@@ -106,9 +96,13 @@ echo -e "${BOLD}SlideSparse cuBLASLt 测试套件${NC}"
 echo -e "${BOLD}========================================${NC}"
 echo ""
 echo -e "配置:"
-echo -e "  USE_CUBLASLT:     ${USE_CUBLASLT:-0}"
-echo -e "  INNER_DTYPE_FP32: ${INNER_FP32:-0}"
-echo -e "  FULL_TEST:        ${FULL_TEST:-0}"
+echo -e "  USE_CUBLASLT:     ${USE_CUBLASLT}"
+echo -e "  INNER_DTYPE_FP32: ${INNER_DTYPE_FP32:-0}"
+if [ -n "$EXT_CUTLASS" ]; then
+    echo -e "  测试路径:         外挂 CUTLASS"
+else
+    echo -e "  测试路径:         cuBLASLt"
+fi
 echo ""
 
 # 测试文件列表
@@ -133,6 +127,15 @@ else
     TESTS_TO_RUN=("${SPECIFIC_TESTS[@]}")
 fi
 
+# 构建传递给 Python 脚本的参数
+PYTHON_ARGS=""
+if [ -n "$EXT_CUTLASS" ]; then
+    PYTHON_ARGS="$PYTHON_ARGS --ext-cutlass"
+fi
+if [ -n "$INNER_FP32" ]; then
+    PYTHON_ARGS="$PYTHON_ARGS --inner-fp32"
+fi
+
 # 运行测试
 PASSED=0
 FAILED=0
@@ -148,19 +151,7 @@ for test_num in "${TESTS_TO_RUN[@]}"; do
     echo -e "${CYAN}----------------------------------------${NC}"
     
     # 构建命令
-    CMD="python3 $test_path"
-    
-    if [ -n "$QUIET" ]; then
-        CMD="$CMD $QUIET"
-    fi
-    
-    if [ -n "$FULL_TEST" ] && [[ "$test_num" == "02" || "$test_num" == "04" ]]; then
-        CMD="$CMD --full"
-    fi
-    
-    if [ -n "$FULL_TEST" ] && [[ "$test_num" == "03" ]]; then
-        CMD="$CMD --compare"
-    fi
+    CMD="python3 $test_path $PYTHON_ARGS"
     
     # 运行测试
     if $CMD; then

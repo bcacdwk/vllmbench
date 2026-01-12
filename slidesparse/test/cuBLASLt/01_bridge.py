@@ -12,8 +12,8 @@
 
 使用方法:
     python3 01_bridge.py               # 测试 cuBLASLt 路径（默认）
+
     python3 01_bridge.py --ext-cutlass # 测试外挂 CUTLASS 路径
-    python3 01_bridge.py -q            # 静默模式
 
 路径说明:
     默认: USE_CUBLASLT=1 → cuBLASLt kernel

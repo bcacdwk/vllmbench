@@ -365,7 +365,7 @@ class EnvironmentChecker:
         print("-" * 60)
         print(f"  Python: {info['python_version']}")
         print(f"  PyTorch: {info['torch_version']}")
-        print(f"  vLLM: {info['vllm_version']}")
+        print(f"  vLLM: v0.13.0-SlideSparse")
         print(f"  CUDA: {'可用' if info['has_cuda'] else '不可用'}")
         if info['has_cuda']:
             print(f"  GPU: {info['cuda_device']}")

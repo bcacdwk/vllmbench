@@ -2,80 +2,53 @@
 # -*- coding: utf-8 -*-
 # SPDX-License-Identifier: Apache-2.0
 """
-04_throughput.py - 真实模型吞吐量测试
+04_throughput.py - 吞吐量对比测试
 
-测试实际 LLM 推理的吞吐量，对比 原生 CUTLASS 和 cuBLASLt/外挂CUTLASS 后端。
+对比 vLLM 原生 CUTLASS 和 slidesparse 后端的吞吐量差异。
+
+对比路径:
+=========
+                        ┌─────────────────────────────────────┐
+    [vLLM 原生 CUTLASS] │  USE_CUBLASLT=0, 无 slidesparse hook│  ← 基准
+                        └─────────────────────────────────────┘
+                              vs
+                        ┌─────────────────────────────────────┐
+    [slidesparse 后端]  │  根据参数选择不同 kernel            │  ← 测试
+                        └─────────────────────────────────────┘
 
 测试指标:
-- Prefill 吞吐量 (tokens/s): 首次 token 生成前处理的速度
-- Decode 吞吐量 (tokens/s): 后续 token 生成速度
-- 端到端吞吐量 (requests/s, tokens/s)
-
-测试模型:
-- Qwen2.5-0.5B-FP8 (最小)
-- Llama3.2-1B-FP8
+- Prefill 吞吐量 (tokens/s): 长输入 + 短输出
+- Decode 吞吐量 (tokens/s): 短输入 + 长输出
 
 使用方法:
-    python3 04_throughput.py                   # 基本吞吐量测试 (cuBLASLt)
-    python3 04_throughput.py --ext-cutlass     # 测试外挂 CUTLASS 路径
-    python3 04_throughput.py --full            # 完整对比测试
+    python3 04_throughput.py                # 对比: 原生 CUTLASS vs cuBLASLt
+    python3 04_throughput.py --inner-fp32   # 对比: 原生 CUTLASS vs cuBLASLt(FP32累加)
 
-路径说明:
-    默认: USE_CUBLASLT=1 → cuBLASLt kernel
-    --ext-cutlass: USE_CUBLASLT=0 → 外挂 CUTLASS
+    python3 04_throughput.py --ext-cutlass  # 对比: 原生 CUTLASS vs 外挂 CUTLASS (应相同)
+
+slidesparse 后端说明:
+    默认:         USE_CUBLASLT=1 → cuBLASLt kernel
+    --ext-cutlass: USE_CUBLASLT=0 → 外挂 CUTLASS kernel
+    --inner-fp32:  INNER_DTYPE_FP32=1 → cuBLASLt + FP32 中间累加
 """
 
 import os
 import sys
 import time
 from pathlib import Path
-from typing import List, Dict, Any, Optional
-from dataclasses import dataclass
+from typing import Dict
 
 # 抑制 vLLM 日志
 os.environ["VLLM_LOGGING_LEVEL"] = "ERROR"
 
 sys.path.insert(0, str(Path(__file__).parent))
 from utils import (
-    TestRunner,
-    TestResult,
-    TestStatus,
-    test_case,
     EnvironmentChecker,
     ModelFinder,
     Colors,
     cuda_memory_manager,
-    skip_if_no_cuda,
-    skip_if_no_fp8,
     parse_common_args,
-    apply_env_args,
 )
-
-
-# ============================================================================
-# 测试配置
-# ============================================================================
-
-@dataclass
-class ThroughputConfig:
-    """吞吐量测试配置"""
-    # Prefill 测试
-    prefill_prompt_len: int = 512      # 输入 prompt 长度
-    prefill_output_len: int = 1        # 只生成 1 个 token 以隔离 prefill
-    prefill_num_prompts: int = 16      # 并发请求数
-    
-    # Decode 测试
-    decode_prompt_len: int = 16        # 短 prompt
-    decode_output_len: int = 128       # 生成多个 token
-    decode_num_prompts: int = 8        # 并发请求数
-    
-    # 端到端测试
-    e2e_prompt_len: int = 64
-    e2e_output_len: int = 64
-    e2e_num_prompts: int = 16
-
-
-DEFAULT_CONFIG = ThroughputConfig()
 
 
 # ============================================================================
@@ -159,297 +132,239 @@ def run_throughput_test(
     }
 
 
+# ============================================================================
+# 核心功能：吞吐量对比
+# ============================================================================
+
+def get_backend_name(use_cublaslt: bool, inner_fp32: bool) -> str:
+    """获取后端名称"""
+    if use_cublaslt:
+        if inner_fp32:
+            return "cuBLASLt (FP32累加)"
+        return "cuBLASLt"
+    else:
+        return "外挂 CUTLASS"
+
+
 def run_comparison_throughput(
     model_path: Path,
-    config: ThroughputConfig,
+    use_cublaslt: bool,
+    inner_fp32: bool,
     verbose: bool = True,
-) -> Dict[str, Dict]:
+) -> dict:
     """
-    运行 CUTLASS vs cuBLASLt 吞吐量对比
+    运行吞吐量对比测试
+    
+    Args:
+        model_path: 模型路径
+        use_cublaslt: slidesparse 后端是否使用 cuBLASLt
+        inner_fp32: 是否使用 FP32 中间累加
+        verbose: 是否打印详细信息
     
     Returns:
-        {
-            "prefill": {"cutlass": {...}, "cublaslt": {...}},
-            "decode": {"cutlass": {...}, "cublaslt": {...}},
-            "e2e": {"cutlass": {...}, "cublaslt": {...}},
-        }
+        对比结果字典
     """
-    results = {}
+    backend_name = get_backend_name(use_cublaslt, inner_fp32)
     
     if verbose:
-        print(f"\n{'=' * 80}")
-        print(Colors.bold(f"模型: {model_path.name}"))
-        print("=" * 80)
+        print("\n" + "=" * 90)
+        print(Colors.bold("vLLM 原生 CUTLASS vs slidesparse 吞吐量对比"))
+        print("=" * 90)
+        print(f"模型: {model_path.name}")
+        print(f"基准: vLLM 原生 CUTLASS")
+        print(f"测试: slidesparse {backend_name}")
+        print("=" * 90)
     
-    # 测试类型
-    tests = [
-        ("prefill", config.prefill_num_prompts, config.prefill_prompt_len, config.prefill_output_len),
-        ("decode", config.decode_num_prompts, config.decode_prompt_len, config.decode_output_len),
-        ("e2e", config.e2e_num_prompts, config.e2e_prompt_len, config.e2e_output_len),
-    ]
+    results = {}
     
-    for test_name, num_prompts, prompt_len, output_len in tests:
-        if verbose:
-            print(f"\n{Colors.cyan(f'[{test_name.upper()}]')} "
-                  f"num_prompts={num_prompts}, prompt_len={prompt_len}, output_len={output_len}")
-        
-        results[test_name] = {}
-        
-        # 1. CUTLASS
-        old_env = os.environ.get("USE_CUBLASLT", "")
-        os.environ["USE_CUBLASLT"] = "0"
-        
-        try:
-            cutlass_result = run_throughput_test(
-                str(model_path), num_prompts, prompt_len, output_len
-            )
-            results[test_name]["cutlass"] = cutlass_result
-            
-            if verbose:
-                print(f"  CUTLASS:  {cutlass_result['throughput_tok']:.1f} tok/s "
-                      f"({cutlass_result['throughput_req']:.2f} req/s, "
-                      f"{cutlass_result['total_time']:.2f}s)")
-        except Exception as e:
-            results[test_name]["cutlass"] = {"error": str(e)}
-            if verbose:
-                print(f"  CUTLASS:  ERROR - {e}")
-        
-        # 2. cuBLASLt
-        os.environ["USE_CUBLASLT"] = "1"
-        
-        try:
-            cublaslt_result = run_throughput_test(
-                str(model_path), num_prompts, prompt_len, output_len
-            )
-            results[test_name]["cublaslt"] = cublaslt_result
-            
-            if verbose:
-                print(f"  cuBLASLt: {cublaslt_result['throughput_tok']:.1f} tok/s "
-                      f"({cublaslt_result['throughput_req']:.2f} req/s, "
-                      f"{cublaslt_result['total_time']:.2f}s)")
-                
-                # 计算加速比
-                if "throughput_tok" in results[test_name].get("cutlass", {}):
-                    speedup = (cublaslt_result["throughput_tok"] / 
-                               results[test_name]["cutlass"]["throughput_tok"])
-                    speedup_str = f"{speedup:.2f}x"
-                    if speedup > 1.05:
-                        speedup_str = Colors.green(speedup_str)
-                    elif speedup < 0.95:
-                        speedup_str = Colors.red(speedup_str)
-                    print(f"  Speedup:  {speedup_str}")
-                    
-        except Exception as e:
-            results[test_name]["cublaslt"] = {"error": str(e)}
-            if verbose:
-                print(f"  cuBLASLt: ERROR - {e}")
-        
-        # 恢复环境变量
-        if old_env:
-            os.environ["USE_CUBLASLT"] = old_env
-        else:
-            os.environ.pop("USE_CUBLASLT", None)
+    # 保存原环境变量
+    old_cublaslt = os.environ.get("USE_CUBLASLT")
+    old_inner_fp32 = os.environ.get("INNER_DTYPE_FP32")
     
-    return results
-
-
-# ============================================================================
-# 测试用例
-# ============================================================================
-
-@test_case("查找测试模型")
-def test_find_models():
-    """查找可用模型"""
-    models = ModelFinder.get_test_models("FP8", max_count=2)
+    # ========== Prefill 测试 ==========
+    if verbose:
+        print(f"\n{Colors.cyan('━' * 40)}")
+        print(Colors.bold("Prefill 吞吐量测试"))
+        print(f"配置: 8 prompts × 256 input tokens × 1 output token")
+        print(f"{Colors.cyan('━' * 40)}")
     
-    if not models:
-        return False, "未找到 FP8 模型"
+    # 基准: vLLM 原生 CUTLASS
+    if verbose:
+        print(f"\n  {Colors.blue('[基准] vLLM 原生 CUTLASS...')}")
+    os.environ["USE_CUBLASLT"] = "0"
+    os.environ.pop("INNER_DTYPE_FP32", None)
     
-    return True, f"找到 {len(models)} 个模型"
-
-
-@test_case("快速吞吐量测试", skip_if=skip_if_no_fp8)
-def test_quick_throughput():
-    """快速吞吐量测试"""
-    model_path = ModelFinder.find_small_model("FP8")
-    if model_path is None:
-        return TestResult(
-            name="快速吞吐量测试",
-            status=TestStatus.SKIPPED,
-            message="未找到 FP8 模型"
-        )
-    
-    # 简化配置
-    result = run_throughput_test(
-        str(model_path),
-        num_prompts=4,
-        prompt_len=32,
-        output_len=32,
-        warmup=1,
-    )
-    
-    return True, f"{result['throughput_tok']:.1f} tok/s"
-
-
-@test_case("Prefill 吞吐量", skip_if=skip_if_no_fp8)
-def test_prefill_throughput():
-    """Prefill 阶段吞吐量"""
-    model_path = ModelFinder.find_small_model("FP8")
-    if model_path is None:
-        return TestResult(
-            name="Prefill 吞吐量",
-            status=TestStatus.SKIPPED,
-            message="未找到 FP8 模型"
-        )
-    
-    result = run_throughput_test(
+    baseline_prefill = run_throughput_test(
         str(model_path),
         num_prompts=8,
         prompt_len=256,
         output_len=1,
         warmup=2,
     )
+    baseline_prefill_tps = baseline_prefill["input_tokens"] / baseline_prefill["total_time"]
     
-    # Prefill 吞吐用输入 token 计算
-    prefill_tps = result["input_tokens"] / result["total_time"]
+    # 测试: slidesparse 后端
+    if verbose:
+        print(f"  {Colors.green(f'[测试] slidesparse {backend_name}...')}")
     
-    return True, f"Prefill: {prefill_tps:.1f} tok/s (input)"
-
-
-@test_case("Decode 吞吐量", skip_if=skip_if_no_fp8)
-def test_decode_throughput():
-    """Decode 阶段吞吐量"""
-    model_path = ModelFinder.find_small_model("FP8")
-    if model_path is None:
-        return TestResult(
-            name="Decode 吞吐量",
-            status=TestStatus.SKIPPED,
-            message="未找到 FP8 模型"
-        )
+    if use_cublaslt:
+        os.environ["USE_CUBLASLT"] = "1"
+        if inner_fp32:
+            os.environ["INNER_DTYPE_FP32"] = "1"
+        else:
+            os.environ.pop("INNER_DTYPE_FP32", None)
+    else:
+        os.environ["USE_CUBLASLT"] = "0"
+        os.environ.pop("INNER_DTYPE_FP32", None)
     
-    result = run_throughput_test(
+    test_prefill = run_throughput_test(
+        str(model_path),
+        num_prompts=8,
+        prompt_len=256,
+        output_len=1,
+        warmup=2,
+    )
+    test_prefill_tps = test_prefill["input_tokens"] / test_prefill["total_time"]
+    
+    prefill_speedup = test_prefill_tps / baseline_prefill_tps if baseline_prefill_tps > 0 else 0
+    results["prefill"] = {
+        "baseline": baseline_prefill_tps,
+        "test": test_prefill_tps,
+        "speedup": prefill_speedup,
+    }
+    
+    if verbose:
+        print(f"\n  结果:")
+        print(f"    原生 CUTLASS: {baseline_prefill_tps:>10.1f} tok/s")
+        print(f"    {backend_name}: {test_prefill_tps:>10.1f} tok/s")
+        speedup_str = f"{prefill_speedup:.3f}x"
+        if prefill_speedup > 1.02:
+            speedup_str = Colors.green(speedup_str + " ↑")
+        elif prefill_speedup < 0.98:
+            speedup_str = Colors.red(speedup_str + " ↓")
+        else:
+            speedup_str = Colors.yellow(speedup_str + " ≈")
+        print(f"    加速比: {speedup_str}")
+    
+    # ========== Decode 测试 ==========
+    if verbose:
+        print(f"\n{Colors.cyan('━' * 40)}")
+        print(Colors.bold("Decode 吞吐量测试"))
+        print(f"配置: 4 prompts × 16 input tokens × 128 output tokens")
+        print(f"{Colors.cyan('━' * 40)}")
+    
+    # 基准: vLLM 原生 CUTLASS
+    if verbose:
+        print(f"\n  {Colors.blue('[基准] vLLM 原生 CUTLASS...')}")
+    os.environ["USE_CUBLASLT"] = "0"
+    os.environ.pop("INNER_DTYPE_FP32", None)
+    
+    baseline_decode = run_throughput_test(
         str(model_path),
         num_prompts=4,
         prompt_len=16,
-        output_len=64,
+        output_len=128,
         warmup=2,
     )
+    baseline_decode_tps = baseline_decode["throughput_tok"]
     
-    return True, f"Decode: {result['throughput_tok']:.1f} tok/s (output)"
-
-
-# ============================================================================
-# 完整对比测试
-# ============================================================================
-
-def run_full_comparison(config: ThroughputConfig = None):
-    """运行完整的吞吐量对比测试"""
-    if config is None:
-        config = DEFAULT_CONFIG
+    # 测试: slidesparse 后端
+    if verbose:
+        print(f"  {Colors.green(f'[测试] slidesparse {backend_name}...')}")
     
-    print(Colors.bold("=" * 80))
-    print(Colors.bold("cuBLASLt vs CUTLASS 吞吐量对比测试"))
-    print(Colors.bold("=" * 80))
+    if use_cublaslt:
+        os.environ["USE_CUBLASLT"] = "1"
+        if inner_fp32:
+            os.environ["INNER_DTYPE_FP32"] = "1"
+        else:
+            os.environ.pop("INNER_DTYPE_FP32", None)
+    else:
+        os.environ["USE_CUBLASLT"] = "0"
+        os.environ.pop("INNER_DTYPE_FP32", None)
     
-    EnvironmentChecker.print_env_info()
+    test_decode = run_throughput_test(
+        str(model_path),
+        num_prompts=4,
+        prompt_len=16,
+        output_len=128,
+        warmup=2,
+    )
+    test_decode_tps = test_decode["throughput_tok"]
     
-    # 查找模型
-    models = ModelFinder.get_test_models("FP8", max_count=2)
-    if not models:
-        print(Colors.red("错误: 未找到 FP8 模型"))
-        return False
+    decode_speedup = test_decode_tps / baseline_decode_tps if baseline_decode_tps > 0 else 0
+    results["decode"] = {
+        "baseline": baseline_decode_tps,
+        "test": test_decode_tps,
+        "speedup": decode_speedup,
+    }
     
-    print(f"\n测试模型: {', '.join(m.name for m in models)}")
-    print(f"测试配置:")
-    print(f"  Prefill: {config.prefill_num_prompts} prompts × "
-          f"{config.prefill_prompt_len} input + {config.prefill_output_len} output")
-    print(f"  Decode:  {config.decode_num_prompts} prompts × "
-          f"{config.decode_prompt_len} input + {config.decode_output_len} output")
-    print(f"  E2E:     {config.e2e_num_prompts} prompts × "
-          f"{config.e2e_prompt_len} input + {config.e2e_output_len} output")
+    if verbose:
+        print(f"\n  结果:")
+        print(f"    原生 CUTLASS: {baseline_decode_tps:>10.1f} tok/s")
+        print(f"    {backend_name}: {test_decode_tps:>10.1f} tok/s")
+        speedup_str = f"{decode_speedup:.3f}x"
+        if decode_speedup > 1.02:
+            speedup_str = Colors.green(speedup_str + " ↑")
+        elif decode_speedup < 0.98:
+            speedup_str = Colors.red(speedup_str + " ↓")
+        else:
+            speedup_str = Colors.yellow(speedup_str + " ≈")
+        print(f"    加速比: {speedup_str}")
     
-    all_results = {}
+    # 恢复环境变量
+    if old_cublaslt is not None:
+        os.environ["USE_CUBLASLT"] = old_cublaslt
+    else:
+        os.environ.pop("USE_CUBLASLT", None)
+    if old_inner_fp32 is not None:
+        os.environ["INNER_DTYPE_FP32"] = old_inner_fp32
+    else:
+        os.environ.pop("INNER_DTYPE_FP32", None)
     
-    for model_path in models:
-        results = run_comparison_throughput(model_path, config, verbose=True)
-        all_results[model_path.name] = results
+    # 总结
+    if verbose:
+        print(f"\n{'=' * 90}")
+        print(Colors.bold("总结"))
+        print(f"{'=' * 90}")
+        print(f"  Prefill: {results['prefill']['speedup']:.3f}x")
+        print(f"  Decode:  {results['decode']['speedup']:.3f}x")
+        if not use_cublaslt:
+            print(f"\n  {Colors.yellow('注意')}: --ext-cutlass 模式下两边都是 CUTLASS，加速比应≈1.0")
+        print(f"{'=' * 90}")
     
-    # 打印汇总表格
-    print("\n" + "=" * 80)
-    print(Colors.bold("汇总"))
-    print("=" * 80)
-    print(f"{'Model':<20} | {'Test':<8} | {'CUTLASS':>12} | {'cuBLASLt':>12} | {'Speedup':>8}")
-    print("-" * 80)
-    
-    for model_name, model_results in all_results.items():
-        for test_name, test_results in model_results.items():
-            cutlass_tps = test_results.get("cutlass", {}).get("throughput_tok", 0)
-            cublaslt_tps = test_results.get("cublaslt", {}).get("throughput_tok", 0)
-            
-            if cutlass_tps > 0 and cublaslt_tps > 0:
-                speedup = cublaslt_tps / cutlass_tps
-                speedup_str = f"{speedup:.2f}x"
-                if speedup > 1.05:
-                    speedup_str = Colors.green(speedup_str)
-                elif speedup < 0.95:
-                    speedup_str = Colors.red(speedup_str)
-            else:
-                speedup_str = "N/A"
-            
-            print(f"{model_name:<20} | {test_name:<8} | "
-                  f"{cutlass_tps:>10.1f} | {cublaslt_tps:>10.1f} | {speedup_str:>8}")
-    
-    print("=" * 80)
-    
-    return True
+    return results
 
 
 # ============================================================================
 # 主函数
 # ============================================================================
 
-def get_all_tests():
-    """获取所有测试"""
-    return [
-        test_find_models,
-        test_quick_throughput,
-        test_prefill_throughput,
-        test_decode_throughput,
-    ]
-
-
-def run_tests(verbose: bool = True) -> bool:
-    """运行所有测试"""
-    tests = get_all_tests()
-    
-    if verbose:
-        EnvironmentChecker.print_env_info()
-    
-    runner = TestRunner("吞吐量测试", verbose=verbose)
-    result = runner.run_all(tests)
-    
-    return result.success
-
-
 if __name__ == "__main__":
-    parser = parse_common_args("吞吐量测试")
-    parser.add_argument("--full", action="store_true",
-                        help="运行完整的 CUTLASS vs cuBLASLt 对比")
-    parser.add_argument("--prefill-len", type=int, default=512,
-                        help="Prefill 测试的 prompt 长度")
-    parser.add_argument("--decode-len", type=int, default=128,
-                        help="Decode 测试的输出长度")
+    parser = parse_common_args("吞吐量对比测试")
     args = parser.parse_args()
     
-    apply_env_args(args)
+    # 注意：不调用 apply_env_args(args)
+    # 因为 run_comparison_throughput 会自己管理环境变量
     
-    if args.full:
-        config = ThroughputConfig(
-            prefill_prompt_len=args.prefill_len,
-            decode_output_len=args.decode_len,
-        )
-        success = run_full_comparison(config)
-    else:
-        success = run_tests(verbose=not args.quiet)
+    # 打印环境信息
+    EnvironmentChecker.print_env_info()
     
-    sys.exit(0 if success else 1)
+    # 查找模型
+    model_path = ModelFinder.find_small_model("FP8")
+    if model_path is None:
+        print(Colors.red("错误: 未找到 FP8 模型"))
+        sys.exit(1)
+    
+    # 根据参数决定测试的 slidesparse 后端
+    use_cublaslt = not getattr(args, 'ext_cutlass', False)
+    inner_fp32 = getattr(args, 'inner_fp32', False)
+    
+    # 运行吞吐量对比
+    run_comparison_throughput(
+        model_path=model_path,
+        use_cublaslt=use_cublaslt,
+        inner_fp32=inner_fp32,
+        verbose=True,
+    )
+    
+    sys.exit(0)

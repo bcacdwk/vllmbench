@@ -21,13 +21,13 @@ cuBLASLt GEMM Extension Setup Script
 =========
 编译当前 GPU 架构的 .so：
     cd /root/vllmbench/slidesparse/csrc
-    python setup_cublaslt.py build
+    python3 setup_cublaslt.py build
     
 强制重新编译：
-    python setup_cublaslt.py build --force
+    python3 setup_cublaslt.py build --force
 
 查看帮助：
-    python setup_cublaslt.py --help
+    python3 setup_cublaslt.py --help
 """
 
 import os
