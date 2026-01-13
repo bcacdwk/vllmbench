@@ -194,8 +194,6 @@ def extract_responses_to_txt(json_file: Path, txt_file: Path, prompts_file: Path
 
 def run_accuracy_test(
     model_key: str,
-    output_dir: Path,
-    log_file: Path,
     *,
     max_tokens: int = MAX_OUTPUT_TOKENS,
     max_model_len: int = MAX_MODEL_LEN,
@@ -211,8 +209,6 @@ def run_accuracy_test(
     
     Args:
         model_key: 模型 key
-        output_dir: 输出目录
-        log_file: 日志文件
         max_tokens: 最大输出 token 数
         max_model_len: 最大模型长度
         temperature: 采样温度
@@ -225,6 +221,8 @@ def run_accuracy_test(
     Returns:
         成功返回 True，失败返回 False
     """
+    global _OUTPUT_DIR
+    
     # 获取模型信息
     entry = model_registry.get(model_key)
     if entry is None:
@@ -243,6 +241,11 @@ def run_accuracy_test(
     if not prompt_file.exists():
         print_error(f"Prompt 输入文件不存在: {prompt_file}")
         return False
+    
+    # 根据模型的 dtype 构建输出目录
+    output_dir = build_result_dir("accuracy_quickbench", dtype=entry.quant.upper())
+    _OUTPUT_DIR = output_dir  # 更新全局状态，用于信号处理
+    log_file = output_dir / "benchmark.log"
     
     print_header(f"测试模型: {entry.local_name}")
     
@@ -401,8 +404,6 @@ def test_models(
     quant_filter: str | None,
     family_filter: str | None,
     specific_model: str | None,
-    output_dir: Path,
-    log_file: Path,
     **kwargs,
 ) -> tuple[int, int]:
     """
@@ -412,8 +413,6 @@ def test_models(
         quant_filter: 量化类型过滤 (int8, fp8)
         family_filter: 模型系列过滤 (qwen, llama)
         specific_model: 指定模型 key
-        output_dir: 输出目录
-        log_file: 日志文件
         **kwargs: 传递给 run_accuracy_test 的其他参数
         
     Returns:
@@ -434,7 +433,7 @@ def test_models(
             print_error(f"GPU 不支持原生 {entry.quant.upper()} GEMM，跳过测试")
             return 0, 1
         
-        if run_accuracy_test(specific_model, output_dir, log_file, **kwargs):
+        if run_accuracy_test(specific_model, **kwargs):
             success_count = 1
         else:
             failed_count = 1
@@ -463,7 +462,7 @@ def test_models(
                     failed_count += 1
                     continue
                 
-                if run_accuracy_test(entry.key, output_dir, log_file, **kwargs):
+                if run_accuracy_test(entry.key, **kwargs):
                     success_count += 1
                 else:
                     failed_count += 1
@@ -623,13 +622,6 @@ def main():
     # 获取硬件信息
     hw_info = HardwareInfo()
     
-    # 设置输出目录
-    # 目录结构: accuracy_quickbench_results/{完整硬件名}/
-    global _OUTPUT_DIR
-    output_dir = build_result_dir("accuracy_quickbench")
-    _OUTPUT_DIR = output_dir  # 用于信号处理
-    log_file = output_dir / "benchmark.log"
-    
     # 设置信号处理
     _setup_signal_handlers()
     
@@ -650,40 +642,14 @@ def main():
     if enforce_eager:
         print(f"  编译模式:         Eager (torch.compile 已禁用)")
     print()
-    print(f"输出目录: {output_dir}")
-    print(f"日志文件: {log_file}")
+    print("输出目录结构: accuracy_quickbench_results/{GPU}_{CC}_{dtype}_{PyVer}_{CUDAVer}_{Arch}/")
     print("=" * 46)
-    
-    # 写入日志头部
-    with open(log_file, "w", encoding="utf-8") as f:
-        f.write("\n")
-        f.write("=" * 46 + "\n")
-        f.write("SlideSparse vLLM Accuracy Quick Benchmark Log\n")
-        f.write("=" * 46 + "\n")
-        f.write(f"Start Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-        f.write("\n")
-        f.write("Hardware Information:\n")
-        f.write(f"  GPU: {hw_info.gpu_name}\n")
-        f.write(f"  CC: {hw_info.cc_tag}\n")
-        f.write(f"  CUDA: {hw_info.cuda_tag}\n")
-        f.write(f"  PyTorch: {hw_info.pytorch_version}\n")
-        f.write("\n")
-        f.write("Test Configuration:\n")
-        f.write(f"  Prompt Input File:  {prompt_file}\n")
-        f.write(f"  Max Output Tokens:  {args.max_tokens}\n")
-        f.write(f"  Max Model Length:   {args.max_model_len}\n")
-        f.write(f"  Temperature:        {args.temperature}\n")
-        f.write(f"  GPU Memory Util:    {args.gpu_mem}\n")
-        f.write(f"  vLLM Log Level:     {VLLM_LOG_LEVEL}\n")
-        f.write("=" * 46 + "\n")
     
     # 执行测试
     success_count, failed_count = test_models(
         quant_filter=quant_filter,
         family_filter=family_filter,
         specific_model=args.model,
-        output_dir=output_dir,
-        log_file=log_file,
         max_tokens=args.max_tokens,
         max_model_len=args.max_model_len,
         temperature=args.temperature,
@@ -697,10 +663,14 @@ def main():
     # 显示结果
     print()
     print_header("Benchmark 完成!")
-    print(f"结果目录: {output_dir}")
-    print("  ├── benchmark.log")
-    print("  ├── {Model}.json")
-    print("  └── {Model}_responses.txt")
+    print("结果目录结构:")
+    print("  accuracy_quickbench_results/")
+    print("    ├── {GPU}_{CC}_INT8_{PyVer}_{CUDAVer}_{Arch}/")
+    print("    │   ├── benchmark.log")
+    print("    │   ├── {Model}.json")
+    print("    │   └── {Model}_responses.txt")
+    print("    └── {GPU}_{CC}_FP8_{PyVer}_{CUDAVer}_{Arch}/")
+    print("        ├── ...")
     print()
     print(f"成功: {success_count}, 失败: {failed_count}")
     print()

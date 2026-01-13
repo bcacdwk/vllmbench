@@ -144,24 +144,27 @@ def print_error(msg: str) -> None:
 # 结果目录管理
 # =============================================================================
 
-def get_hw_folder_name() -> str:
+def get_hw_folder_name(dtype: Optional[str] = None) -> str:
     """
     获取完整的硬件信息文件夹名
     
-    格式: {GPU}_{CC}_{PyVer}_{CUDAVer}_{Arch}
-    例如: H100_cc90_py312_cu124_x86_64
+    格式: {GPU}_{CC}[_{dtype}]_{PyVer}_{CUDAVer}_{Arch}
+    
+    Args:
+        dtype: 数据类型（如 "INT8", "FP8"）
     
     Returns:
         完整的硬件标识字符串
     """
-    # 直接构建，不使用 build_stem 来避免前导下划线
-    return f"{hw_info.gpu_name}_{hw_info.cc_tag}_{hw_info.python_tag}_{hw_info.cuda_tag}_{hw_info.arch_tag}"
+    # 直接复用外层 build_stem，去掉前导下划线
+    return build_stem("", dtype=dtype).lstrip("_")
 
 
 def build_result_dir(
     base_name: str,
     *,
     test_mode: Optional[str] = None,
+    dtype: Optional[str] = None,
     create: bool = True,
 ) -> Path:
     """
@@ -172,18 +175,19 @@ def build_result_dir(
     
     例如:
         throughput_bench_results/prefill/H100_cc90_py312_cu124_x86_64/
-        accuracy_quickbench_results/H100_cc90_py312_cu124_x86_64/
+        accuracy_quickbench_results/H100_cc90_INT8_py312_cu124_x86_64/
     
     Args:
         base_name: 基础名称（如 "throughput_bench", "accuracy_quickbench"）
         test_mode: 测试模式子目录（如 "prefill", "decode"），可选
+        dtype: 数据类型（如 "INT8", "FP8"），可选
         create: 是否创建目录
         
     Returns:
         结果目录路径
     """
-    # 完整硬件信息文件夹名: {GPU}_{CC}_{PyVer}_{CUDAVer}_{Arch}
-    hw_folder = get_hw_folder_name()
+    # 完整硬件信息文件夹名: {GPU}_{CC}[_{dtype}]_{PyVer}_{CUDAVer}_{Arch}
+    hw_folder = get_hw_folder_name(dtype=dtype)
     
     # 构建路径
     result_base = _TOOLS_DIR / f"{base_name}_results"
@@ -203,6 +207,7 @@ def get_result_dir(
     base_name: str,
     *,
     test_mode: Optional[str] = None,
+    dtype: Optional[str] = None,
 ) -> Optional[Path]:
     """
     获取现有的结果目录
@@ -210,11 +215,12 @@ def get_result_dir(
     Args:
         base_name: 基础名称
         test_mode: 测试模式子目录
+        dtype: 数据类型（如 "INT8", "FP8"），可选
         
     Returns:
         结果目录，不存在返回 None
     """
-    hw_folder = get_hw_folder_name()
+    hw_folder = get_hw_folder_name(dtype=dtype)
     result_base = _TOOLS_DIR / f"{base_name}_results"
     
     if test_mode:

@@ -489,9 +489,6 @@ def run_model_benchmark(
     model_key: str,
     m_list: list[int],
     test_mode: str,
-    result_json_dir: Path,
-    output_dir: Path,
-    log_file: Path,
     **kwargs,
 ) -> int:
     """
@@ -500,6 +497,8 @@ def run_model_benchmark(
     Returns:
         0=成功, 1=普通错误, 2=精度不支持
     """
+    global _OUTPUT_DIR
+    
     entry = model_registry.get(model_key)
     if entry is None:
         print_error(f"模型不存在: {model_key}")
@@ -510,6 +509,13 @@ def run_model_benchmark(
     if not model_path.exists() or not (model_path / "config.json").exists():
         print_warning(f"模型未下载，跳过: {entry.local_name}")
         return 1
+    
+    # 根据模型的 dtype 构建输出目录
+    output_dir = build_result_dir("throughput_bench", test_mode=test_mode, dtype=entry.quant.upper())
+    _OUTPUT_DIR = output_dir  # 更新全局状态
+    result_json_dir = output_dir / "json"
+    result_json_dir.mkdir(parents=True, exist_ok=True)
+    log_file = output_dir / "benchmark.log"
     
     print_header(f"测试模型: {entry.local_name}")
     
@@ -562,9 +568,6 @@ def test_models(
     specific_model: str | None,
     m_list: list[int],
     test_mode: str,
-    output_dir: Path,
-    result_json_dir: Path,
-    log_file: Path,
     **kwargs,
 ) -> tuple[int, int]:
     """批量测试模型"""
@@ -582,8 +585,7 @@ def test_models(
             return 0, 1
         
         result = run_model_benchmark(
-            specific_model, m_list, test_mode,
-            result_json_dir, output_dir, log_file, **kwargs
+            specific_model, m_list, test_mode, **kwargs
         )
         
         if result == 0:
@@ -610,8 +612,7 @@ def test_models(
                     continue
                 
                 result = run_model_benchmark(
-                    entry.key, m_list, test_mode,
-                    result_json_dir, output_dir, log_file, **kwargs
+                    entry.key, m_list, test_mode, **kwargs
                 )
                 
                 if result == 0:
@@ -737,15 +738,6 @@ def main():
     # 获取硬件信息
     hw_info = HardwareInfo()
     
-    # 设置输出目录
-    # 目录结构: throughput_bench_results/{prefill|decode}/{完整硬件名}/
-    global _OUTPUT_DIR
-    output_dir = build_result_dir("throughput_bench", test_mode=test_mode)
-    _OUTPUT_DIR = output_dir  # 用于信号处理
-    result_json_dir = output_dir / "json"
-    result_json_dir.mkdir(parents=True, exist_ok=True)
-    log_file = output_dir / "benchmark.log"
-    
     # 设置信号处理
     _setup_signal_handlers()
     
@@ -763,21 +755,8 @@ def main():
     if enforce_eager:
         print(f"  编译模式:         Eager")
     print()
-    print(f"输出目录: {output_dir}")
-    print(f"日志文件: {log_file}")
+    print(f"输出目录结构: throughput_bench_results/{test_mode}/{{GPU}}_{{CC}}_{{dtype}}_{{PyVer}}_{{CUDAVer}}_{{Arch}}/")
     print("=" * 46)
-    
-    # 写入日志头部
-    with open(log_file, "w", encoding="utf-8") as f:
-        f.write("\n")
-        f.write("=" * 46 + "\n")
-        f.write(f"SlideSparse vLLM Throughput Benchmark Log ({test_mode.upper()})\n")
-        f.write("=" * 46 + "\n")
-        f.write(f"Start Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-        f.write(f"Test Mode: {test_mode}\n")
-        f.write(f"M List: {m_list}\n")
-        f.write(f"GPU: {hw_info.gpu_name}, CC: {hw_info.cc_tag}\n")
-        f.write("=" * 46 + "\n")
     
     # 执行测试
     success_count, failed_count = test_models(
@@ -786,9 +765,6 @@ def main():
         specific_model=args.model,
         m_list=m_list,
         test_mode=test_mode,
-        output_dir=output_dir,
-        result_json_dir=result_json_dir,
-        log_file=log_file,
         n_repeat=args.N,
         gpu_memory_util=args.gpu_mem,
         tp_size=args.tp,
@@ -800,11 +776,15 @@ def main():
     # 显示结果
     print()
     print_header("Benchmark 完成!")
-    print(f"结果目录: {output_dir}")
-    print("  ├── benchmark.log")
-    print("  ├── json/")
-    print("  │   └── {Model}_M{N}.json")
-    print(f"  └── {{Model}}_{test_mode}.csv")
+    print("结果目录结构:")
+    print(f"  throughput_bench_results/{test_mode}/")
+    print("    ├── {GPU}_{CC}_INT8_{PyVer}_{CUDAVer}_{Arch}/")
+    print("    │   ├── benchmark.log")
+    print("    │   ├── json/")
+    print("    │   │   └── {Model}_M{N}.json")
+    print(f"    │   └── {{Model}}_{test_mode}.csv")
+    print("    └── {GPU}_{CC}_FP8_{PyVer}_{CUDAVer}_{Arch}/")
+    print("        ├── ...")
     print()
     print(f"成功: {success_count}, 失败: {failed_count}")
     print("=" * 46)
