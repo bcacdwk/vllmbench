@@ -371,8 +371,8 @@ def save_outputs(out_dir: Path, model_name: str, dtype: str, outdtype: str,
     subdir.mkdir(parents=True, exist_ok=True)
     
     # 文件命名: {prefix}_{model_name}.{ext}
-    csv_path = subdir / build_result_filename("alg_search_cusparselt", model_name, "csv")
-    json_path = subdir / build_result_filename("alg_search_cusparselt", model_name, "json")
+    csv_path = subdir / build_result_filename("alg_search_bench", model_name, "csv")
+    json_path = subdir / build_result_filename("alg_search_LUT", model_name, "json")
     
     # 获取 alg_count 和 config_count
     # alg_count: 有效算法数量 (通过 CUSPARSELT_MATMUL_ALG_CONFIG_MAX_ID 获取)

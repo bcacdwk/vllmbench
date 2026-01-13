@@ -113,6 +113,9 @@ class HardwareInfo:
     sm_code: str
     arch_name: str
     arch_suffix: str
+    python_tag: str
+    cuda_tag: str
+    arch_tag: str
     cuda_runtime_version: str
     cuda_driver_version: str
 
@@ -269,10 +272,10 @@ def load_cuda_extension(
     
     命名规范示例:
     - alg_search_cublaslt_H100_cc90_py312_cu129_x86_64.so
-    - layout_bench_cusparselt_B200_cc100_py312_cu129_x86_64.so
+    - layout_search_cusparselt_B200_cc100_py312_cu129_x86_64.so
     
     Args:
-        script_type: 脚本类型 ("alg_search" 或 "layout_bench")
+        script_type: 脚本类型 ("alg_search" 或 "layout_search")
         backend: 后端类型 ("cublaslt" 或 "cusparselt")
         source_file: CUDA 源文件路径 (.cu)
         build_dir: 构建目录，默认为源文件所在目录的 build 子目录
@@ -376,21 +379,20 @@ def build_output_dir_name(
     """
     构建输出目录名称。
     
-    格式: {GPU}_{CC}_{dtype}_{outdtype}_{model_name}
-    示例: H100_cc90_INT8_BF16_BitNet-2B4T
+    格式: {GPU}_{CC}_out-{outdtype}_{model_name}_py{PyVer}_cu{CUDAVer}_{arch}
+    示例: H100_cc90_out-BF16_BitNet-2B4T-FP8E4M3_py312_cu129_x86_64
     
     Args:
-        model_name: 模型名称（如 "BitNet-2B4T"）
-        dtype: 输入数据类型（如 "int8", "fp8e4m3"）
+        model_name: 模型名称（如 "BitNet-2B4T-FP8E4M3"，已包含输入dtype后缀）
+        dtype: 输入数据类型（如 "int8", "fp8e4m3"）- 已包含在 model_name 中，此参数保留用于兼容性
         outdtype: 输出数据类型（如 "bf16", "fp32"）
     
     Returns:
         目录名称
     """
     hw = get_hw_info()
-    dtype_norm = get_normalize_dtype(dtype)
     outdtype_norm = get_normalize_dtype(outdtype)
-    return f"{hw.gpu_name}_{hw.cc_tag}_{dtype_norm}_{outdtype_norm}_{model_name}"
+    return f"{hw.gpu_name}_{hw.cc_tag}_out-{outdtype_norm}_{model_name}_{hw.python_tag}_{hw.cuda_tag}_{hw.arch_tag}"
 
 
 def build_result_filename(
@@ -402,10 +404,10 @@ def build_result_filename(
     构建结果文件名称。
     
     格式: {prefix}_{model_name}.{ext}
-    示例: alg_id_LUT_BitNet-2B4T.json
+    示例: alg_search_LUT_BitNet-2B4T.json, layout_search_INFO_BitNet-2B4T.json
     
     Args:
-        prefix: 文件前缀（如 "alg_id_LUT", "layout_bench_results"）
+        prefix: 文件前缀（如 "alg_search_LUT", "layout_search_bench"）
         model_name: 模型名称
         ext: 文件扩展名（如 ".json", ".csv"）
     
@@ -630,8 +632,10 @@ def probe_cusparselt_layout_bench(
 DTYPE_PROBERS = {
     ("cublaslt", "alg_search"): probe_cublaslt_alg_search,
     ("cublaslt", "layout_bench"): probe_cublaslt_layout_bench,
+    ("cublaslt", "layout_search"): probe_cublaslt_layout_bench,  # layout_search 使用相同探测函数
     ("cusparselt", "alg_search"): probe_cusparselt_alg_search,
     ("cusparselt", "layout_bench"): probe_cusparselt_layout_bench,
+    ("cusparselt", "layout_search"): probe_cusparselt_layout_bench,  # layout_search 使用相同探测函数
 }
 
 
@@ -653,7 +657,7 @@ def check_dtype_support(
         outdtype: 输出数据类型
         arch_name: 架构名称（用于显示）
         backend: 后端类型 ("cublaslt" 或 "cusparselt")
-        script_type: 脚本类型 ("alg_search" 或 "layout_bench")
+        script_type: 脚本类型 ("alg_search" 或 "layout_search")
         verbose: 是否显示详细信息
     
     Raises:
