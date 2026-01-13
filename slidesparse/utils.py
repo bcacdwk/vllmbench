@@ -978,6 +978,153 @@ def clear_module_cache():
 
 
 # =============================================================================
+# 算法查表（运行时使用）
+# =============================================================================
+
+import base64
+
+
+def lookup_best_cublaslt_alg(json_data: Dict, N: int, K: int, M: int) -> Optional[str]:
+    """
+    从 JSON 数据中查询 cuBLASLt 最佳算法配置。
+    
+    查询逻辑：
+    1. 用 (N, K) 在 nk_entries 中找到对应条目
+    2. 在 m_thresholds 中找到 <= query_M 的最大值
+    3. 返回该 M 对应的 alg_by_m[m][0]（最佳配置的 base64 编码）
+    
+    Args:
+        json_data: 加载的 JSON 数据（由 alg_search 生成）
+        N: 矩阵 W 的行数
+        K: 共享维度
+        M: 矩阵 A 的行数（batch size）
+    
+    Returns:
+        最佳算法的 base64 编码字符串（64B cublasLtMatmulAlgo_t 数据），
+        如果找不到返回 None
+    
+    Example:
+        >>> with open("alg_id_LUT_BitNet-2B4T.json") as f:
+        ...     lut = json.load(f)
+        >>> algo_b64 = lookup_best_cublaslt_alg(lut, 3840, 2560, 128)
+        >>> algo_bytes = decode_cublaslt_algo_data(algo_b64)
+    """
+    nk_key = f"({N},{K})"
+    nk_entries = json_data.get("nk_entries", {})
+    
+    if nk_key not in nk_entries:
+        return None
+    
+    entry = nk_entries[nk_key]
+    m_thresholds = entry.get("m_thresholds", [])
+    alg_by_m = entry.get("alg_by_m", {})
+    
+    if not m_thresholds:
+        return None
+    
+    # 找到 <= M 的最大阈值
+    selected_m = None
+    for threshold in m_thresholds:
+        if threshold <= M:
+            selected_m = threshold
+        else:
+            break
+    
+    if selected_m is None:
+        # M 比所有阈值都小，使用最小的阈值
+        selected_m = m_thresholds[0]
+    
+    m_key = str(selected_m)
+    if m_key in alg_by_m:
+        # 格式: alg_by_m[m_key] = [best_b64, 2nd_b64, 3rd_b64]
+        alg_list = alg_by_m[m_key]
+        if isinstance(alg_list, list) and len(alg_list) > 0:
+            return alg_list[0]
+    
+    return None
+
+
+def decode_cublaslt_algo_data(algo_data_b64: str) -> bytes:
+    """
+    解码 base64 编码的 cuBLASLt algo_data，返回 64 字节的原始数据。
+    
+    运行时使用：将返回的 bytes 直接 memcpy 到 cublasLtMatmulAlgo_t 结构体。
+    
+    Args:
+        algo_data_b64: base64 编码的算法数据
+        
+    Returns:
+        64 字节的原始算法数据
+    """
+    return base64.b64decode(algo_data_b64)
+
+
+def lookup_best_cusparselt_alg(json_data: Dict, N: int, K: int, M: int) -> Optional[Dict]:
+    """
+    从 JSON 数据中查询 cuSPARSELt 最佳算法配置。
+    
+    查询逻辑：
+    1. 用 (N, K) 在 nk_entries 中找到对应条目
+    2. 在 m_thresholds 中找到 <= query_M 的最大值
+    3. 返回该 M 对应的 alg_by_m[m][0]（最佳配置）
+    
+    Args:
+        json_data: 加载的 JSON 数据（由 alg_search 生成）
+        N: 稀疏矩阵 W 的行数
+        K: 共享维度
+        M: 稠密矩阵 A 的行数（batch size）
+    
+    Returns:
+        最佳配置字典 {"alg_id": int, "split_k": int, "workspace": int}，
+        如果找不到返回 None
+    
+    Example:
+        >>> with open("alg_search_cusparselt_BitNet-2B4T.json") as f:
+        ...     lut = json.load(f)
+        >>> config = lookup_best_cusparselt_alg(lut, 3840, 2560, 128)
+        >>> print(config)  # {"alg_id": 0, "split_k": 1, "workspace": 0}
+    """
+    nk_key = f"({N},{K})"
+    nk_entries = json_data.get("nk_entries", {})
+    
+    if nk_key not in nk_entries:
+        return None
+    
+    entry = nk_entries[nk_key]
+    m_thresholds = entry.get("m_thresholds", [])
+    alg_by_m = entry.get("alg_by_m", {})
+    
+    if not m_thresholds:
+        return None
+    
+    # 找到 <= M 的最大阈值
+    selected_m = None
+    for threshold in m_thresholds:
+        if threshold <= M:
+            selected_m = threshold
+        else:
+            break
+    
+    if selected_m is None:
+        # M 比所有阈值都小，使用最小的阈值
+        selected_m = m_thresholds[0]
+    
+    m_key = str(selected_m)
+    if m_key in alg_by_m:
+        alg_list = alg_by_m[m_key]
+        if isinstance(alg_list, list) and len(alg_list) > 0:
+            first_entry = alg_list[0]
+            # 支持新格式 {"alg_id": int, "split_k": int, "workspace": int} 和旧格式 int
+            if isinstance(first_entry, dict):
+                return first_entry
+            else:
+                # 兼容旧格式（仅 alg_id）
+                return {"alg_id": first_entry, "split_k": 1, "workspace": 0}
+    
+    return None
+
+
+# =============================================================================
 # 文件保存
 # =============================================================================
 
@@ -1680,6 +1827,11 @@ __all__ = [
     # 模块加载
     "load_module",
     "clear_module_cache",
+    
+    # 算法查表
+    "lookup_best_cublaslt_alg",
+    "decode_cublaslt_algo_data",
+    "lookup_best_cusparselt_alg",
     
     # 数据保存/加载
     "save_json",

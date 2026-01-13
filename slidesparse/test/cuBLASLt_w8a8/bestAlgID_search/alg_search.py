@@ -18,259 +18,45 @@ cuBLASLt 算法离线搜索
 - W[N,K]^T_col * A[K,M]_col = C[N,M]_col
 
 运行示例:
-CUDA_VISIBLE_DEVICES=0 python3 alg_search.py --dtype int8 --outdtype bf16 --verify --compile
-CUDA_VISIBLE_DEVICES=0 python3 alg_search.py --dtype fp8e4m3 --outdtype bf16 --verify
+CUDA_VISIBLE_DEVICES=0 python3 alg_search.py --dtype int8 --outdtype bf16 --model BitNet-2B4T --verify --compile
+CUDA_VISIBLE_DEVICES=0 python3 alg_search.py --dtype fp8e4m3 --outdtype bf16 --model BitNet-2B4T --verify
 
-CUDA_VISIBLE_DEVICES=0 python3 alg_search.py --dtype int8 --outdtype fp32 --verify
-CUDA_VISIBLE_DEVICES=0 python3 alg_search.py --dtype fp8e4m3 --outdtype fp32 --verify
+CUDA_VISIBLE_DEVICES=0 python3 alg_search.py --dtype int8 --outdtype fp32 --model BitNet-2B4T --verify
+CUDA_VISIBLE_DEVICES=0 python3 alg_search.py --dtype fp8e4m3 --outdtype fp32 --model BitNet-2B4T --verify
 
 """
 
 import argparse
 import base64
-import ctypes
-import ctypes.util
 import datetime
 import json
-import os
-import subprocess
+import sys
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional
 
 import torch
-from torch.utils.cpp_extension import load
+
+# 添加 test 目录到路径
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+from utils import (
+    get_hw_info,
+    get_normalize_dtype,
+    load_cuda_extension,
+    build_output_dir_name,
+    build_result_filename,
+    check_dtype_support,
+    build_search_meta,
+    build_csv_header,
+    SUPPORTED_DTYPES,
+    SUPPORTED_OUTDTYPES,
+)
+
+# 从 slidesparse.utils 导入查表函数（供运行时使用）
+from slidesparse.utils import lookup_best_cublaslt_alg, decode_cublaslt_algo_data
 
 
-# === CUDA 版本信息获取 ===
+# 注意: SUPPORTED_DTYPES 和 SUPPORTED_OUTDTYPES 从 utils 导入
 
-def get_nvidia_smi_cuda_version() -> str:
-    """获取 nvidia-smi 显示的 CUDA Version（驱动支持的最高 CUDA 版本）"""
-    try:
-        result = subprocess.run(
-            ["nvidia-smi"],
-            capture_output=True,
-            text=True,
-            timeout=5
-        )
-        if result.returncode == 0:
-            # 解析 "CUDA Version: 13.0" 这样的格式
-            for line in result.stdout.split('\n'):
-                if "CUDA Version" in line:
-                    # 格式通常是 "... CUDA Version: 13.0 ..."
-                    import re
-                    match = re.search(r'CUDA Version:\s*(\d+\.\d+)', line)
-                    if match:
-                        return match.group(1)
-    except (subprocess.TimeoutExpired, FileNotFoundError, Exception):
-        pass
-    
-    # 备选方案：通过 cudaDriverGetVersion API
-    try:
-        driver_version = torch.cuda.driver_version()
-        if driver_version:
-            major = driver_version // 1000
-            minor = (driver_version % 1000) // 10
-            return f"{major}.{minor}"
-    except Exception:
-        pass
-    
-    return "unknown"
-
-
-def get_cuda_runtime_version() -> str:
-    """获取 CUDA runtime 版本（PyTorch 编译时使用的版本）"""
-    try:
-        # torch.version.cuda 是 PyTorch 编译时使用的 CUDA toolkit 版本
-        return torch.version.cuda or "unknown"
-    except Exception:
-        return "unknown"
-
-
-def get_gpu_short_name() -> str:
-    """
-    获取 GPU 名称（简化版，如 A100, H100, B200）。
-    
-    常见格式处理:
-    - "NVIDIA A100-SXM4-40GB" -> "A100"
-    - "NVIDIA H100 PCIe" -> "H100"
-    - "NVIDIA B200" -> "B200"
-    """
-    prop = torch.cuda.get_device_properties(0)
-    full_name = prop.name
-    short_name = full_name
-    
-    # 移除 "NVIDIA " 前缀
-    nvidia_pos = full_name.find("NVIDIA ")
-    if nvidia_pos != -1:
-        short_name = full_name[nvidia_pos + 7:]
-    
-    # 提取第一个空格或连字符之前的部分作为 GPU 型号
-    for sep in [" ", "-"]:
-        end_pos = short_name.find(sep)
-        if end_pos != -1:
-            short_name = short_name[:end_pos]
-            break
-    
-    # 如果提取失败，使用清理后的完整名称（替换空格和特殊字符）
-    if not short_name:
-        short_name = full_name
-        for c in [" ", "-", "/"]:
-            short_name = short_name.replace(c, "_")
-    
-    return short_name
-
-
-# === cuBLASLt 动态库加载（必须在加载自定义 .so 之前完成）===
-_CUBLASLT_LOADED = False
-
-def ensure_cublaslt_loaded() -> None:
-    """优先加载系统或环境变量指定的 cuBLASLt，避免符号冲突。"""
-    global _CUBLASLT_LOADED
-    if _CUBLASLT_LOADED:
-        return
-
-    preferred_paths = []
-    env_path = os.environ.get("CUBLASLT_PATH")
-    if env_path:
-        preferred_paths.append(env_path)
-
-    preferred_paths.extend([
-        "/usr/lib/aarch64-linux-gnu/libcublasLt.so",
-        "/usr/lib/x86_64-linux-gnu/libcublasLt.so",
-        "/usr/local/cuda/lib64/libcublasLt.so",
-    ])
-    found = ctypes.util.find_library("cublasLt")
-    if found:
-        preferred_paths.append(found)
-
-    for path in dict.fromkeys(preferred_paths):  # 去重但保持优先级
-        if not path:
-            continue
-        try:
-            lib = ctypes.CDLL(path, mode=ctypes.RTLD_GLOBAL)
-            getattr(lib, "cublasLtCreate")
-            _CUBLASLT_LOADED = True
-            return
-        except (OSError, AttributeError):
-            continue
-
-    raise OSError(
-        "无法找到兼容的 libcublasLt，请设置 CUBLASLT_PATH 或确保 CUDA 已正确安装。"
-    )
-
-# === 扩展编译/加载（跨架构支持）===
-
-
-def load_extension(verbose: bool = True, force_compile: bool = False) -> object:
-    """
-    加载 CUDA 扩展（支持不同 GPU 设备）。
-    
-    根据当前 GPU 设备加载或编译对应的 .so 文件。
-    不同设备的 .so 文件可以在同一目录共存：
-    - alg_search_cublaslt_A100_cc80.so
-    - alg_search_cublaslt_H100_cc90.so
-    - alg_search_cublaslt_B200_cc100.so
-    
-    Args:
-        verbose: 是否显示进度信息
-        force_compile: 是否强制重新编译当前设备
-    
-    Returns:
-        编译好的扩展模块
-    """
-    if verbose:
-        print("[1/4] 加载 cuBLASLt 库...", end=" ", flush=True)
-    ensure_cublaslt_loaded()
-    if verbose:
-        print("✓", flush=True)
-    
-    # 获取 GPU 设备简称和架构信息
-    gpu_short_name = get_gpu_short_name()
-    _, _, sm_code = detect_arch()
-    prop = torch.cuda.get_device_properties(0)
-    ext_name = f"alg_search_cublaslt_{gpu_short_name}_cc{prop.major}{prop.minor}"
-    so_pattern = f"{ext_name}*.so"
-    
-    src_path = Path(__file__).parent / "alg_search_cublaslt.cu"
-    build_dir = Path(__file__).parent / "build_so_files"
-    build_dir.mkdir(parents=True, exist_ok=True)
-    
-    # 检查当前设备的 .so 是否存在且比源文件新
-    existing_so = list(build_dir.glob(so_pattern))
-    need_compile = force_compile
-    if not need_compile:
-        if not existing_so:
-            need_compile = True
-        else:
-            # 源文件比 .so 新则需要重编译
-            need_compile = src_path.stat().st_mtime > existing_so[0].stat().st_mtime
-    
-    if not need_compile and existing_so:
-        # 直接加载已有的 .so
-        if verbose:
-            print(f"[2/4] 加载 {gpu_short_name} 扩展...", end=" ", flush=True)
-        import importlib.util
-        spec = importlib.util.spec_from_file_location(ext_name, str(existing_so[0]))
-        ext = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(ext)
-        if verbose:
-            print(f"✓ ({existing_so[0].name})", flush=True)
-        return ext
-    else:
-        # 编译（torch.utils.cpp_extension.load 会自动覆盖旧文件）
-        if verbose:
-            reason = "强制" if force_compile else ("首次" if not existing_so else "源文件已更新")
-            print(f"[2/4] 编译 {gpu_short_name} 扩展（{reason}）...", end=" ", flush=True)
-        
-        ext = load(
-            name=ext_name,
-            sources=[str(src_path)],
-            extra_cuda_cflags=["-O3", f"-arch={sm_code}"],
-            extra_ldflags=["-lcublasLt", "-lcublas"],
-            verbose=False,
-            build_directory=str(build_dir),
-            with_cuda=True,
-        )
-        
-        # 清理编译中间文件，只保留 .so
-        for pattern in [".ninja_deps", ".ninja_log", "build.ninja", "*.o"]:
-            for f in build_dir.glob(pattern):
-                f.unlink(missing_ok=True)
-        
-        if verbose:
-            print("✓", flush=True)
-        return ext
-
-# === 架构检测 ===
-
-# 架构名称映射：compute capability major -> (arch_name, arch_suffix)
-ARCH_INFO = {
-    8: ("Ampere", "ampere"),       # A100, A10, A30 等
-    9: ("Hopper", "hopper"),       # H100, H200 等
-    10: ("Blackwell", "blackwell"), # B100, B200 等
-    12: ("Blackwell", "blackwell"), # GB10 等 (CC 12.x 也是 Blackwell 家族)
-}
-
-def detect_arch() -> Tuple[str, str, str]:
-    """
-    检测 GPU 架构。
-    
-    返回:
-        (arch_name, arch_suffix, sm_code) 其中:
-        - arch_name: "Ampere", "Hopper", "Blackwell" 等（用于显示）
-        - arch_suffix: "ampere", "hopper", "blackwell" 等（用于文件命名）
-        - sm_code: "sm_80", "sm_90" 等（用于 nvcc 编译）
-    """
-    prop = torch.cuda.get_device_properties(0)
-    major = prop.major
-    sm_code = f"sm_{major}{prop.minor}"
-    
-    if major in ARCH_INFO:
-        name, suffix = ARCH_INFO[major]
-        return name, suffix, sm_code
-    
-    # 未知架构
-    return f"SM{major}{prop.minor}", f"sm{major}{prop.minor}", sm_code
 
 # === 默认 NK/M 列表 ===
 
@@ -288,71 +74,7 @@ def default_m_list() -> List[int]:
     return [16, 64, 128, 512, 2048, 8192, 16384]
 
 
-# === JSON 查询辅助函数 ===
-
-def lookup_best_alg(json_data: Dict, N: int, K: int, M: int) -> Optional[str]:
-    """
-    从 JSON 数据中查询最佳算法配置。
-    
-    查询逻辑：
-    1. 用 (N, K) 在 nk_entries 中找到对应条目
-    2. 在 m_thresholds 中找到 <= query_M 的最大值
-    3. 返回该 M 对应的 alg_by_m[m][0]（最佳配置）
-    
-    Args:
-        json_data: 加载的 JSON 数据
-        N: 稠密矩阵 W 的行数
-        K: 共享维度
-        M: 稠密矩阵 A 的行数（查询的 batch size）
-    
-    Returns:
-        最佳算法的 base64 编码字符串（64B cublasLtMatmulAlgo_t 数据），
-        如果找不到返回 None
-    """
-    nk_key = f"({N},{K})"
-    nk_entries = json_data.get("nk_entries", {})
-    
-    if nk_key not in nk_entries:
-        return None
-    
-    entry = nk_entries[nk_key]
-    m_thresholds = entry.get("m_thresholds", [])
-    alg_by_m = entry.get("alg_by_m", {})
-    
-    if not m_thresholds:
-        return None
-    
-    # 找到 <= M 的最大阈值
-    selected_m = None
-    for threshold in m_thresholds:
-        if threshold <= M:
-            selected_m = threshold
-        else:
-            break
-    
-    if selected_m is None:
-        # M 比所有阈值都小，使用最小的阈值
-        selected_m = m_thresholds[0]
-    
-    m_key = str(selected_m)
-    if m_key in alg_by_m:
-        # 简化格式: alg_by_m[m_key] = [best_b64, 2nd_b64, 3rd_b64]
-        alg_list = alg_by_m[m_key]
-        if isinstance(alg_list, list) and len(alg_list) > 0:
-            return alg_list[0]
-    
-    return None
-
-
-def decode_algo_data(algo_data_b64: str) -> bytes:
-    """
-    解码 base64 编码的 algo_data，返回 64 字节的原始数据。
-    
-    运行时使用：
-        algo_bytes = decode_algo_data(best_b64)
-        # 然后将 algo_bytes 直接 memcpy 到 cublasLtMatmulAlgo_t 结构体
-    """
-    return base64.b64decode(algo_data_b64)
+# 注意: lookup_best_cublaslt_alg 和 decode_cublaslt_algo_data 从 slidesparse.utils 导入
 
 
 # === 运行一次 layout 的搜索 ===
@@ -427,13 +149,13 @@ def run_search(ext, dtype: str, outdtype: str, nk_list: List[Tuple[int, int]], m
 
 # === 落盘工具 ===
 
-def save_outputs(out_dir: Path, gpu_short_name: str, arch_name: str, dtype: str, outdtype: str,
+def save_outputs(out_dir: Path, model_name: str, dtype: str, outdtype: str,
                  search_ret: Dict, warmup: int, repeat: int, verify: bool) -> Path:
     """
     保存搜索结果到 CSV 和 JSON 文件。
     
-    文件夹命名: {GPU}_{cc}_{dtype}_{outdtype}，如 A100_cc80_INT8_BF16
-    文件命名: alg_id_benchmark_results.csv, alg_id_LUT.json
+    文件夹命名: {GPU}_{CC}_{dtype}_{outdtype}_{model_name}
+    文件命名: alg_id_benchmark_results_{model_name}.csv, alg_id_LUT_{model_name}.json
     
     CSV 排序规则：先按 M 升序，M 相同时按 nk_list 传入顺序排序。
     
@@ -445,20 +167,16 @@ def save_outputs(out_dir: Path, gpu_short_name: str, arch_name: str, dtype: str,
         保存结果的子目录路径
     """
     layout = "TNCCcol"  # 固定布局，仅用于元数据记录
-    prop = torch.cuda.get_device_properties(0)
+    hw = get_hw_info()
     
-    # 子目录命名: {GPU}_{cc}_{dtype}_{outdtype}
-    subdir_name = f"{gpu_short_name}_cc{prop.major}{prop.minor}_{dtype.upper()}_{outdtype.upper()}"
+    # 子目录命名: {GPU}_{CC}_{dtype}_{outdtype}_{model_name}
+    subdir_name = build_output_dir_name(model_name, dtype, outdtype)
     subdir = out_dir / subdir_name
     subdir.mkdir(parents=True, exist_ok=True)
     
-    # 固定文件名
-    csv_path = subdir / "alg_id_benchmark_results.csv"
-    json_path = subdir / "alg_id_LUT.json"
-    
-    # 获取 CUDA 版本信息
-    cuda_driver_ver = get_nvidia_smi_cuda_version()  # nvidia-smi 显示的 CUDA 版本
-    cuda_runtime_ver = get_cuda_runtime_version()    # PyTorch 编译时的 CUDA 版本
+    # 文件命名: {prefix}_{model_name}.{ext}
+    csv_path = subdir / build_result_filename("alg_id_bench_results", model_name, ".csv")
+    json_path = subdir / build_result_filename("alg_id_LUT", model_name, ".json")
     
     # 获取 alg_count 和 config_count（cuBLASLt 启发式搜索返回的数量）
     first_raw = search_ret["results"][0]["raw"] if search_ret["results"] else {}
@@ -466,9 +184,11 @@ def save_outputs(out_dir: Path, gpu_short_name: str, arch_name: str, dtype: str,
     config_count = first_raw.get("config_count", 0)
     
     meta = {
-        "gpu_name": prop.name,
-        "compute_capability": f"{prop.major}.{prop.minor}",
-        "arch_name": arch_name,
+        "gpu_name": hw.gpu_full_name,
+        "gpu_short_name": hw.gpu_name,
+        "compute_capability": hw.cc_tag,
+        "arch_name": hw.arch_name,
+        "model_name": model_name,
         "layout": layout,
         "dtype": dtype,
         "outdtype": outdtype,
@@ -478,8 +198,8 @@ def save_outputs(out_dir: Path, gpu_short_name: str, arch_name: str, dtype: str,
         "repeat": repeat,
         "verify": verify,
         "torch_version": torch.__version__,
-        "cuda_version_driver": cuda_driver_ver,
-        "cuda_version_runtime": cuda_runtime_ver,
+        "cuda_version_driver": hw.cuda_driver_version,
+        "cuda_version_runtime": hw.cuda_runtime_version,
         "time": datetime.datetime.now().isoformat(),
         "M_list": search_ret["M_list"],
         "NK_list": search_ret["NK_list"],
@@ -488,11 +208,12 @@ def save_outputs(out_dir: Path, gpu_short_name: str, arch_name: str, dtype: str,
     # === CSV 生成（按 M 升序，M 相同时按 nk_list 顺序）===
     lines = []
     header_info = [
-        f"# GPU: {prop.name}",
-        f"# CC: {prop.major}.{prop.minor}",
+        f"# GPU: {hw.gpu_full_name}",
+        f"# CC: {hw.cc_tag}",
+        f"# Model: {model_name}",
         f"# alg_count: {alg_count}, config_count: {config_count}",
         f"# torch: {torch.__version__}",
-        f"# CUDA driver: {cuda_driver_ver}, runtime: {cuda_runtime_ver}",
+        f"# CUDA driver: {hw.cuda_driver_version}, runtime: {hw.cuda_runtime_version}",
         f"# layout: {layout}, dtype: {dtype}, outdtype: {outdtype}, warmup={warmup}, repeat={repeat}, verify={verify}",
         f"# M_list: {search_ret['M_list']}",
         f"# NK_list: {search_ret['NK_list']}",
@@ -547,27 +268,6 @@ def save_outputs(out_dir: Path, gpu_short_name: str, arch_name: str, dtype: str,
     csv_path.write_text("\n".join(lines))
 
     # === JSON 生成（简化版：只保留 top3 的 64B algo_data）===
-    # 格式设计：
-    # {
-    #   "meta": {...},
-    #   "nk_entries": {
-    #     "(N,K)": {
-    #       "m_thresholds": [m1, m2, ...],  # 升序排列的 M 值
-    #       "alg_by_m": {
-    #         "m1": [best_b64, 2nd_b64, 3rd_b64],  # base64 编码的 64B 数据
-    #         "m2": [...],
-    #         ...
-    #       }
-    #     }
-    #   }
-    # }
-    # 
-    # 查询逻辑：
-    # 1. 用 (N, K) 找到 nk_entry
-    # 2. 在 m_thresholds 中找到 <= query_M 的最大值 m_key
-    # 3. 返回 alg_by_m[m_key][0] 作为最佳算法的 base64 数据
-    # 4. 运行时直接 base64.decode() 得到 cublasLtMatmulAlgo_t
-    
     nk_entries = {}
     
     for nk_idx, res in enumerate(search_ret["results"]):
@@ -613,129 +313,19 @@ def save_outputs(out_dir: Path, gpu_short_name: str, arch_name: str, dtype: str,
     
     return subdir
 
-# === dtype 兼容性预测试 ===
-
-# 支持的 dtype 列表
-SUPPORTED_DTYPES = ["int8", "fp8e4m3"]
-
-# 支持的输出 dtype 列表
-SUPPORTED_OUTDTYPES = ["bf16", "fp32"]
-
-
-def probe_dtype_support(ext, dtype: str, outdtype: str = "bf16", layout: str = "TNCCcol") -> Tuple[bool, str]:
-    """
-    通过实际调用 cuBLASLt 来探测 dtype 是否被当前 GPU 支持。
-    
-    使用最小尺寸的矩阵进行快速测试，避免硬编码的架构判断。
-    
-    Args:
-        ext: 编译好的 CUDA 扩展模块
-        dtype: 要测试的数据类型
-        outdtype: 输出数据类型
-        layout: 布局类型
-    
-    Returns:
-        (supported, message) 其中:
-        - supported: 是否支持
-        - message: 成功或失败的详细信息
-    """
-    # 最小测试尺寸（满足对齐要求：INT8 需 4 对齐，FP8 需 16 对齐）
-    N, K, M = 32, 32, 16
-    
-    try:
-        # 创建小型测试矩阵
-        W = torch.randn(N, K, device="cuda", dtype=torch.bfloat16)
-        A = torch.randn(M, K, device="cuda", dtype=torch.bfloat16)
-        
-        # 尝试搜索（只做 1 次 warmup，1 次 repeat，不验证）
-        out = ext.search_topk(
-            W, A,
-            [M],           # M_list
-            layout,
-            dtype,
-            outdtype,
-            1,             # warmup
-            1,             # repeat
-            False,         # verify
-            [],            # blacklist
-            1,             # topk
-        )
-        
-        # 检查是否有有效结果
-        valid_mask = out["valid_mask"].cpu()
-        if valid_mask.sum().item() > 0:
-            return True, f"dtype={dtype} 测试通过 ✓"
-        else:
-            return False, f"dtype={dtype} 无有效算法（可能不支持）"
-            
-    except Exception as e:
-        error_msg = str(e)
-        # 提取关键错误信息
-        if "CUBLAS" in error_msg:
-            return False, f"cuBLASLt 不支持 dtype={dtype}: {error_msg}"
-        elif "不支持的数据类型" in error_msg:
-            return False, f"dtype={dtype} 不被支持"
-        else:
-            return False, f"dtype={dtype} 测试失败: {error_msg}"
-    finally:
-        # 清理
-        torch.cuda.empty_cache()
-
-
-def check_dtype_support(ext, dtype: str, outdtype: str, arch_name: str, verbose: bool = True) -> None:
-    """
-    检查 dtype 是否被当前 GPU 支持（通过实际测试）。
-    
-    Args:
-        ext: 编译好的 CUDA 扩展模块
-        dtype: 要测试的数据类型
-        outdtype: 输出数据类型
-        arch_name: 架构名称（用于显示）
-        verbose: 是否显示详细信息
-    
-    Raises:
-        ValueError: 如果 dtype 不被支持
-    """
-    if dtype not in SUPPORTED_DTYPES:
-        raise ValueError(
-            f"不支持的数据类型: {dtype}\n"
-            f"支持的类型: {', '.join(SUPPORTED_DTYPES)}"
-        )
-    
-    if outdtype not in SUPPORTED_OUTDTYPES:
-        raise ValueError(
-            f"不支持的输出数据类型: {outdtype}\n"
-            f"支持的类型: {', '.join(SUPPORTED_OUTDTYPES)}"
-        )
-    
-    if verbose:
-        print(f"[预测试] 检测 dtype={dtype}, outdtype={outdtype} 在 {arch_name} 上的支持情况...", end=" ", flush=True)
-    
-    supported, message = probe_dtype_support(ext, dtype, outdtype)
-    
-    if supported:
-        if verbose:
-            print(f"✓", flush=True)
-    else:
-        if verbose:
-            print(f"✗", flush=True)
-        raise ValueError(
-            f"数据类型 {dtype.upper()} 在当前 GPU ({arch_name}) 上不可用。\n"
-            f"原因: {message}\n"
-        )
-
 
 # === 主流程 ===
 
 def parse_args():
-    p = argparse.ArgumentParser(description="cuBLASLt 算法离线搜索 v1.0")
+    p = argparse.ArgumentParser(description="cuBLASLt 算法离线搜索 v2.0")
     p.add_argument("--dtype", default="int8", choices=SUPPORTED_DTYPES, help="输入数据类型")
     p.add_argument("--outdtype", default="bf16", choices=SUPPORTED_OUTDTYPES, help="输出数据类型")
+    p.add_argument("--model", default="BitNet-2B4T", help="模型名称（用于文件命名）")
     p.add_argument("--warmup", type=int, default=25)
     p.add_argument("--repeat", type=int, default=100)
     p.add_argument("--verify", action="store_true", help="开启正确性校验")
     p.add_argument("--compile", action="store_true", help="强制重新编译当前架构的 CUDA 扩展")
-    p.add_argument("--out_dir", default=None, help="输出目录，默认 ./alg_search_results/<timestamp>")
+    p.add_argument("--out_dir", default=None, help="输出目录，默认 ./alg_search_results")
     return p.parse_args()
 
 
@@ -745,32 +335,37 @@ def main():
     if not torch.cuda.is_available():
         raise RuntimeError("需要 CUDA 环境")
 
+    # 获取硬件信息
+    hw = get_hw_info()
+    
+    # 根据 dtype 调整模型名称后缀
+    dtype_suffix = get_normalize_dtype(args.dtype)
+    model_name = f"{args.model}-{dtype_suffix}"
+
     # === 显示配置信息 ===
     print("="*60)
-    print("cuBLASLt 算法离线搜索 v1.0")
+    print("cuBLASLt 算法离线搜索 v2.0")
     print("="*60)
     
-    arch_name, arch_suffix, sm_code = detect_arch()
-    prop = torch.cuda.get_device_properties(0)
-    print(f"GPU: {prop.name} (CC {prop.major}.{prop.minor}, {arch_name})")
+    print(f"GPU: {hw.gpu_full_name} ({hw.cc_tag}, {hw.arch_name})")
+    print(f"模型: {model_name}")
     print(f"参数: dtype={args.dtype}, outdtype={args.outdtype}, warmup={args.warmup}, repeat={args.repeat}")
     if args.verify:
         print("注意: 已开启 verify 模式，会降低搜索速度")
     print()
 
-    # 输出根目录（默认为 ./alg_search_results）
+    # 输出根目录
     out_dir = Path(args.out_dir) if args.out_dir else Path("./alg_search_results")
-    
-    # 获取简化的 GPU 名称
-    gpu_short_name = get_gpu_short_name()
-    print(f"GPU 简称: {gpu_short_name}")
-    print()
 
-    ext = load_extension(verbose=True, force_compile=args.compile)
+    # 加载 CUDA 扩展
+    src_path = Path(__file__).parent / "alg_search_cublaslt.cu"
+    build_dir = Path(__file__).parent / "build"
+    ext = load_cuda_extension("alg_search", "cublaslt", src_path, build_dir, verbose=True, force_compile=args.compile)
 
     # === 预测试 dtype 兼容性（通过实际调用 cuBLASLt）===
     try:
-        check_dtype_support(ext, args.dtype, args.outdtype, arch_name, verbose=True)
+        check_dtype_support(ext, args.dtype, args.outdtype, hw.arch_name,
+                           backend="cublaslt", script_type="alg_search", verbose=True)
     except ValueError as e:
         print(f"\n❌ 错误: {e}")
         print("")
@@ -798,8 +393,7 @@ def main():
     )
     saved_dir = save_outputs(
         out_dir,
-        gpu_short_name,
-        arch_name,
+        model_name,
         args.dtype,
         args.outdtype,
         ret,
@@ -811,5 +405,7 @@ def main():
     print(f"[4/4] 完成! 结果已保存到:")
     print(f"      - {saved_dir}")
     print("="*60)
+
+
 if __name__ == "__main__":
     main()

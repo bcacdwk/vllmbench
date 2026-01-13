@@ -39,11 +39,14 @@ SlideSparse 测试工具库
 import os
 import sys
 import time
+import ctypes
+import ctypes.util
 import functools
 import traceback
 import argparse
 import statistics
-from typing import Optional, List, Dict, Any, Callable, Tuple
+import importlib.util
+from typing import Optional, List, Dict, Any, Callable, Tuple, Union
 from dataclasses import dataclass, field
 from enum import Enum
 from contextlib import contextmanager
@@ -60,6 +63,757 @@ TEST_DIR = Path(__file__).parent.absolute()  # slidesparse/test
 SLIDESPARSE_DIR = TEST_DIR.parent            # slidesparse
 PROJECT_ROOT = SLIDESPARSE_DIR.parent        # vllmbench (项目根目录)
 sys.path.insert(0, str(PROJECT_ROOT))
+
+
+# ============================================================================
+# 硬件信息工具（从外层 utils 导入）
+# ============================================================================
+
+# 延迟导入，避免循环依赖
+_hw_info = None
+_build_filename = None
+_build_stem = None
+_build_dir_name = None
+_normalize_dtype = None
+
+
+def _import_slidesparse_utils():
+    """延迟导入 slidesparse.utils"""
+    global _hw_info, _build_filename, _build_stem, _build_dir_name, _normalize_dtype
+    if _hw_info is None:
+        from slidesparse.utils import (
+            hw_info, build_filename, build_stem, build_dir_name, normalize_dtype
+        )
+        _hw_info = hw_info
+        _build_filename = build_filename
+        _build_stem = build_stem
+        _build_dir_name = build_dir_name
+        _normalize_dtype = normalize_dtype
+
+
+def get_hw_info() -> "HardwareInfo":
+    """
+    获取硬件信息单例。
+    
+    Returns:
+        HardwareInfo 实例（延迟初始化）
+    """
+    _import_slidesparse_utils()
+    return _hw_info  # type: ignore[return-value]
+
+
+# HardwareInfo 类型存根（仅用于类型检查）
+class HardwareInfo:
+    """HardwareInfo 类型存根，实际实现在 slidesparse.utils 中"""
+    gpu_name: str
+    gpu_full_name: str
+    cc_tag: str
+    cc_major: int
+    cc_minor: int
+    sm_code: str
+    arch_name: str
+    arch_suffix: str
+    cuda_runtime_version: str
+    cuda_driver_version: str
+
+
+def get_build_filename(*args, **kwargs) -> str:
+    """构建标准化文件名（代理函数）"""
+    _import_slidesparse_utils()
+    return _build_filename(*args, **kwargs)
+
+
+def get_build_stem(*args, **kwargs) -> str:
+    """构建文件名主干（代理函数）"""
+    _import_slidesparse_utils()
+    return _build_stem(*args, **kwargs)
+
+
+def get_build_dir_name(*args, **kwargs) -> str:
+    """构建目录名（代理函数）"""
+    _import_slidesparse_utils()
+    return _build_dir_name(*args, **kwargs)
+
+
+def get_normalize_dtype(dtype: str) -> str:
+    """标准化数据类型名称（代理函数）"""
+    _import_slidesparse_utils()
+    return _normalize_dtype(dtype)
+
+
+# ============================================================================
+# CUDA 库加载工具
+# ============================================================================
+
+# cuBLASLt 加载状态
+_CUBLASLT_LOADED = False
+
+def ensure_cublaslt_loaded() -> None:
+    """
+    优先加载系统或环境变量指定的 cuBLASLt，避免符号冲突。
+    
+    必须在加载自定义 .so 之前完成。
+    """
+    global _CUBLASLT_LOADED
+    if _CUBLASLT_LOADED:
+        return
+
+    preferred_paths = []
+    env_path = os.environ.get("CUBLASLT_PATH")
+    if env_path:
+        preferred_paths.append(env_path)
+
+    preferred_paths.extend([
+        "/usr/lib/aarch64-linux-gnu/libcublasLt.so",
+        "/usr/lib/x86_64-linux-gnu/libcublasLt.so",
+        "/usr/local/cuda/lib64/libcublasLt.so",
+    ])
+    found = ctypes.util.find_library("cublasLt")
+    if found:
+        preferred_paths.append(found)
+
+    for path in dict.fromkeys(preferred_paths):  # 去重但保持优先级
+        if not path:
+            continue
+        try:
+            lib = ctypes.CDLL(path, mode=ctypes.RTLD_GLOBAL)
+            getattr(lib, "cublasLtCreate")
+            _CUBLASLT_LOADED = True
+            return
+        except (OSError, AttributeError):
+            continue
+
+    raise OSError(
+        "无法找到兼容的 libcublasLt，请设置 CUBLASLT_PATH 或确保 CUDA 已正确安装。"
+    )
+
+
+# cuSPARSELt 加载状态
+_CUSPARSELT_LOADED = False
+
+def ensure_cusparselt_loaded() -> None:
+    """
+    优先加载系统或环境变量指定的 cuSPARSELt，避免符号冲突。
+    
+    必须在加载自定义 .so 之前完成。
+    """
+    global _CUSPARSELT_LOADED
+    if _CUSPARSELT_LOADED:
+        return
+
+    preferred_paths = []
+    env_path = os.environ.get("CUSPARSELT_PATH")
+    if env_path:
+        preferred_paths.append(env_path)
+
+    preferred_paths.extend([
+        "/usr/lib/aarch64-linux-gnu/libcusparseLt.so.0",
+        "/usr/lib/aarch64-linux-gnu/libcusparseLt/13/libcusparseLt.so.0",
+        "/usr/lib/x86_64-linux-gnu/libcusparseLt.so.0",
+        "/usr/lib/x86_64-linux-gnu/libcusparseLt/13/libcusparseLt.so.0",
+        "/usr/local/cuda/lib64/libcusparseLt.so.0",
+    ])
+    found = ctypes.util.find_library("cusparseLt")
+    if found:
+        preferred_paths.append(found)
+
+    for path in dict.fromkeys(preferred_paths):  # 去重但保持优先级
+        if not path:
+            continue
+        try:
+            lib = ctypes.CDLL(path, mode=ctypes.RTLD_GLOBAL)
+            getattr(lib, "cusparseLtMatmulAlgSelectionDestroy")
+            _CUSPARSELT_LOADED = True
+            return
+        except (OSError, AttributeError):
+            continue
+
+    raise OSError(
+        "无法找到兼容的 libcusparseLt，请设置 CUSPARSELT_PATH 或安装 CUDA 12.9+。"
+    )
+
+
+# ============================================================================
+# CUDA 扩展编译/加载工具
+# ============================================================================
+
+# 支持的后端类型
+SUPPORTED_BACKENDS = ["cublaslt", "cusparselt"]
+
+# 后端对应的链接库
+BACKEND_LDFLAGS = {
+    "cublaslt": ["-lcublasLt", "-lcublas"],
+    "cusparselt": ["-lcusparseLt", "-lnvrtc", "-ldl"],
+}
+
+# 后端对应的库加载函数
+BACKEND_LOADERS = {
+    "cublaslt": ensure_cublaslt_loaded,
+    "cusparselt": ensure_cusparselt_loaded,
+}
+
+
+def load_cuda_extension(
+    script_type: str,
+    backend: str,
+    source_file: Path,
+    build_dir: Optional[Path] = None,
+    *,
+    verbose: bool = True,
+    force_compile: bool = False,
+) -> object:
+    """
+    加载或编译 CUDA 扩展。
+    
+    根据当前 GPU 设备加载或编译对应的 .so 文件，使用统一的命名规范。
+    
+    命名规范示例:
+    - alg_search_cublaslt_H100_cc90_py312_cu129_x86_64.so
+    - layout_bench_cusparselt_B200_cc100_py312_cu129_x86_64.so
+    
+    Args:
+        script_type: 脚本类型 ("alg_search" 或 "layout_bench")
+        backend: 后端类型 ("cublaslt" 或 "cusparselt")
+        source_file: CUDA 源文件路径 (.cu)
+        build_dir: 构建目录，默认为源文件所在目录的 build 子目录
+        verbose: 是否显示进度信息
+        force_compile: 是否强制重新编译
+    
+    Returns:
+        编译好的扩展模块
+        
+    Raises:
+        ValueError: 无效的后端类型
+        FileNotFoundError: 源文件不存在
+        RuntimeError: 编译失败
+    """
+    import torch
+    from torch.utils.cpp_extension import load
+    
+    if backend not in SUPPORTED_BACKENDS:
+        raise ValueError(f"无效的后端类型: {backend}，支持的类型: {SUPPORTED_BACKENDS}")
+    
+    if not source_file.exists():
+        raise FileNotFoundError(f"源文件不存在: {source_file}")
+    
+    # 加载对应的 CUDA 库
+    if verbose:
+        lib_name = "cuBLASLt" if backend == "cublaslt" else "cuSPARSELt"
+        print(f"[1/4] 加载 {lib_name} 库...", end=" ", flush=True)
+    
+    BACKEND_LOADERS[backend]()
+    
+    if verbose:
+        print("✓", flush=True)
+    
+    # 获取硬件信息
+    hw = get_hw_info()
+    
+    # 构建扩展名称（不含 dtype，因为 so 同时支持 INT8 和 FP8）
+    # 格式: {script_type}_{backend}_{GPU}_{CC}_{PyVer}_{CUDAVer}_{Arch}
+    ext_name = get_build_stem(f"{script_type}_{backend}")
+    so_pattern = f"{ext_name}*.so"
+    
+    # 确定构建目录
+    if build_dir is None:
+        build_dir = source_file.parent / "build"
+    build_dir.mkdir(parents=True, exist_ok=True)
+    
+    # 检查已有的 .so 文件
+    existing_so = list(build_dir.glob(so_pattern))
+    need_compile = force_compile
+    
+    if not need_compile:
+        if not existing_so:
+            need_compile = True
+        else:
+            # 源文件比 .so 新则需要重编译
+            need_compile = source_file.stat().st_mtime > existing_so[0].stat().st_mtime
+    
+    if not need_compile and existing_so:
+        # 直接加载已有的 .so
+        if verbose:
+            print(f"[2/4] 加载 {hw.gpu_name} 扩展...", end=" ", flush=True)
+        
+        spec = importlib.util.spec_from_file_location(ext_name, str(existing_so[0]))
+        ext = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(ext)
+        
+        if verbose:
+            print(f"✓ ({existing_so[0].name})", flush=True)
+        return ext
+    else:
+        # 编译新的 .so
+        if verbose:
+            reason = "强制" if force_compile else ("首次" if not existing_so else "源文件已更新")
+            print(f"[2/4] 编译 {hw.gpu_name} 扩展（{reason}）...", end=" ", flush=True)
+        
+        ext = load(
+            name=ext_name,
+            sources=[str(source_file)],
+            extra_cuda_cflags=["-O3", f"-arch={hw.sm_code}"],
+            extra_ldflags=BACKEND_LDFLAGS[backend],
+            verbose=False,
+            build_directory=str(build_dir),
+            with_cuda=True,
+        )
+        
+        # 清理编译中间文件，只保留 .so
+        for pattern in [".ninja_deps", ".ninja_log", "build.ninja", "*.o"]:
+            for f in build_dir.glob(pattern):
+                f.unlink(missing_ok=True)
+        
+        if verbose:
+            print("✓", flush=True)
+        return ext
+
+
+def build_output_dir_name(
+    model_name: str,
+    dtype: str,
+    outdtype: str,
+) -> str:
+    """
+    构建输出目录名称。
+    
+    格式: {GPU}_{CC}_{dtype}_{outdtype}_{model_name}
+    示例: H100_cc90_INT8_BF16_BitNet-2B4T
+    
+    Args:
+        model_name: 模型名称（如 "BitNet-2B4T"）
+        dtype: 输入数据类型（如 "int8", "fp8e4m3"）
+        outdtype: 输出数据类型（如 "bf16", "fp32"）
+    
+    Returns:
+        目录名称
+    """
+    hw = get_hw_info()
+    dtype_norm = get_normalize_dtype(dtype)
+    outdtype_norm = get_normalize_dtype(outdtype)
+    return f"{hw.gpu_name}_{hw.cc_tag}_{dtype_norm}_{outdtype_norm}_{model_name}"
+
+
+def build_result_filename(
+    prefix: str,
+    model_name: str,
+    ext: str = "",
+) -> str:
+    """
+    构建结果文件名称。
+    
+    格式: {prefix}_{model_name}.{ext}
+    示例: alg_id_LUT_BitNet-2B4T.json
+    
+    Args:
+        prefix: 文件前缀（如 "alg_id_LUT", "layout_bench_results"）
+        model_name: 模型名称
+        ext: 文件扩展名（如 ".json", ".csv"）
+    
+    Returns:
+        文件名称
+    """
+    name = f"{prefix}_{model_name}"
+    if ext:
+        if not ext.startswith("."):
+            ext = "." + ext
+        name += ext
+    return name
+
+
+# ============================================================================
+# Segment-K 支持检测
+# ============================================================================
+
+def supports_segment_k() -> Tuple[bool, str]:
+    """
+    检测当前 GPU 是否支持 Segment-K (split_k=-1)。
+    
+    Segment-K 仅在 SM 9.0 (Hopper) 和 SM 10.x (Blackwell) 上支持。
+    在 cuSPARSELt 0.8.1 及更早版本中，对不支持的架构调用 Segment-K
+    会导致 planInit 阻塞挂起。
+    
+    Returns:
+        (supported, reason_if_not) 其中:
+        - supported: 是否支持 Segment-K
+        - reason_if_not: 如果不支持，说明原因
+    """
+    hw = get_hw_info()
+    major = hw.cc_major
+    
+    if major in (9, 10):
+        return True, ""
+    else:
+        return False, (
+            f"Segment-K (split_k=-1) 仅在 SM 9.0/10.x (Hopper/Blackwell) 上支持，"
+            f"当前架构 SM {hw.cc_major}.{hw.cc_minor} 不支持。"
+            f"在 cuSPARSELt 0.8.1 版本中，对不支持的架构调用会导致 planInit 阻塞挂起。"
+        )
+
+
+# ============================================================================
+# dtype 兼容性检测（通用版本）
+# ============================================================================
+
+# 支持的 dtype 和 outdtype
+SUPPORTED_DTYPES = ["int8", "fp8e4m3"]
+SUPPORTED_OUTDTYPES = ["bf16", "fp32"]
+
+
+def probe_cublaslt_alg_search(
+    ext,
+    dtype: str,
+    outdtype: str = "bf16",
+    layout: str = "TNCCcol",
+) -> Tuple[bool, str]:
+    """
+    探测 cuBLASLt alg_search 扩展对 dtype 的支持情况。
+    
+    Args:
+        ext: 编译好的 CUDA 扩展模块
+        dtype: 要测试的数据类型
+        outdtype: 输出数据类型
+        layout: 布局类型
+    
+    Returns:
+        (supported, message)
+    """
+    import torch
+    N, K, M = 32, 32, 16
+    
+    try:
+        W = torch.randn(N, K, device="cuda", dtype=torch.bfloat16)
+        A = torch.randn(M, K, device="cuda", dtype=torch.bfloat16)
+        
+        out = ext.search_topk(
+            W, A,
+            [M],           # M_list
+            layout,
+            dtype,
+            outdtype,
+            1, 1,          # warmup, repeat
+            False,         # verify
+            [],            # blacklist
+            1,             # topk
+        )
+        
+        valid_mask = out["valid_mask"].cpu()
+        if valid_mask.sum().item() > 0:
+            return True, f"dtype={dtype} 测试通过 ✓"
+        else:
+            return False, f"dtype={dtype} 无有效算法（可能不支持）"
+            
+    except Exception as e:
+        error_msg = str(e)
+        if "CUBLAS" in error_msg:
+            return False, f"cuBLASLt 不支持 dtype={dtype}: {error_msg}"
+        elif "不支持的数据类型" in error_msg:
+            return False, f"dtype={dtype} 不被支持"
+        else:
+            return False, f"dtype={dtype} 测试失败: {error_msg}"
+    finally:
+        torch.cuda.empty_cache()
+
+
+def probe_cublaslt_layout_bench(
+    ext,
+    dtype: str,
+    outdtype: str = "bf16",
+) -> Tuple[bool, str]:
+    """
+    探测 cuBLASLt layout_bench 扩展对 dtype 的支持情况。
+    """
+    import torch
+    N, K, M = 32, 32, 16
+    
+    try:
+        out = ext.test_layout(
+            N, K, M,
+            "T", "N", "Col", "Col", "Col",  # TN+CC+Col
+            dtype,
+            outdtype,
+            1, 1,  # warmup, repeat
+        )
+        
+        if out.get("supported", False):
+            return True, f"dtype={dtype} 测试通过 ✓"
+        else:
+            return False, f"dtype={dtype} 不支持此 layout"
+            
+    except Exception as e:
+        return False, f"dtype={dtype} 测试失败: {str(e)}"
+    finally:
+        torch.cuda.empty_cache()
+
+
+def probe_cusparselt_alg_search(
+    ext,
+    dtype: str,
+    outdtype: str = "bf16",
+    layout: str = "TNCCcol",
+) -> Tuple[bool, str]:
+    """
+    探测 cuSPARSELt alg_search 扩展对 dtype 的支持情况。
+    """
+    import torch
+    N, K, M = 32, 32, 16
+    
+    try:
+        W = torch.randn(N, K, device="cuda", dtype=torch.bfloat16)
+        A = torch.randn(M, K, device="cuda", dtype=torch.bfloat16)
+        
+        # cuSPARSELt 需要先剪枝
+        W_pruned = ext.prune_24(W, layout)
+        
+        out = ext.search_topk(
+            W_pruned, A,
+            [M],
+            layout,
+            dtype,
+            outdtype,
+            1, 1,
+            False,
+            [],
+            1,
+        )
+        
+        valid_mask = out["valid_mask"].cpu()
+        if valid_mask.sum().item() > 0:
+            return True, f"dtype={dtype} 测试通过 ✓"
+        else:
+            return False, f"dtype={dtype} 无有效算法（可能不支持）"
+            
+    except Exception as e:
+        error_msg = str(e)
+        if "CUSPARSE_STATUS" in error_msg:
+            return False, f"cuSPARSELt 不支持 dtype={dtype}: {error_msg}"
+        elif "不支持的数据类型" in error_msg:
+            return False, f"dtype={dtype} 不被支持"
+        else:
+            return False, f"dtype={dtype} 测试失败: {error_msg}"
+    finally:
+        torch.cuda.empty_cache()
+
+
+def probe_cusparselt_layout_bench(
+    ext,
+    dtype: str,
+    outdtype: str = "bf16",
+) -> Tuple[bool, str]:
+    """
+    探测 cuSPARSELt layout_bench 扩展对 dtype 的支持情况。
+    """
+    import torch
+    N, K, M = 32, 32, 16
+    
+    try:
+        out = ext.test_layout(
+            N, K, M,
+            "T", "N", "Col", "Col", "Col",  # TN+CC+Col
+            dtype,
+            outdtype,
+            1, 1,  # warmup, repeat
+            False, # test_segment_k (探测时不测试 Segment-K)
+        )
+        
+        if out.get("supported", False):
+            return True, f"dtype={dtype} 测试通过 ✓"
+        else:
+            return False, f"dtype={dtype} 不支持此 layout"
+            
+    except Exception as e:
+        return False, f"dtype={dtype} 测试失败: {str(e)}"
+    finally:
+        torch.cuda.empty_cache()
+
+
+# dtype 探测函数注册表
+DTYPE_PROBERS = {
+    ("cublaslt", "alg_search"): probe_cublaslt_alg_search,
+    ("cublaslt", "layout_bench"): probe_cublaslt_layout_bench,
+    ("cusparselt", "alg_search"): probe_cusparselt_alg_search,
+    ("cusparselt", "layout_bench"): probe_cusparselt_layout_bench,
+}
+
+
+def check_dtype_support(
+    ext,
+    dtype: str,
+    outdtype: str,
+    arch_name: str,
+    backend: str,
+    script_type: str,
+    verbose: bool = True,
+) -> None:
+    """
+    检查 dtype 是否被当前 GPU 支持（通过实际测试）。
+    
+    Args:
+        ext: 编译好的 CUDA 扩展模块
+        dtype: 要测试的数据类型
+        outdtype: 输出数据类型
+        arch_name: 架构名称（用于显示）
+        backend: 后端类型 ("cublaslt" 或 "cusparselt")
+        script_type: 脚本类型 ("alg_search" 或 "layout_bench")
+        verbose: 是否显示详细信息
+    
+    Raises:
+        ValueError: 如果 dtype 不被支持
+    """
+    if dtype not in SUPPORTED_DTYPES:
+        raise ValueError(
+            f"不支持的数据类型: {dtype}\n"
+            f"支持的类型: {', '.join(SUPPORTED_DTYPES)}"
+        )
+    
+    if outdtype not in SUPPORTED_OUTDTYPES:
+        raise ValueError(
+            f"不支持的输出数据类型: {outdtype}\n"
+            f"支持的类型: {', '.join(SUPPORTED_OUTDTYPES)}"
+        )
+    
+    # 获取对应的探测函数
+    prober_key = (backend.lower(), script_type.lower())
+    if prober_key not in DTYPE_PROBERS:
+        raise ValueError(f"未知的 backend/script_type 组合: {prober_key}")
+    
+    prober = DTYPE_PROBERS[prober_key]
+    
+    if verbose:
+        print(f"[预测试] 检测 dtype={dtype}, outdtype={outdtype} 在 {arch_name} 上的支持情况...", end=" ", flush=True)
+    
+    supported, message = prober(ext, dtype, outdtype)
+    
+    if supported:
+        if verbose:
+            print("✓", flush=True)
+    else:
+        if verbose:
+            print("✗", flush=True)
+        raise ValueError(
+            f"数据类型 {dtype.upper()} 在当前 GPU ({arch_name}) 上不可用。\n"
+            f"原因: {message}\n"
+        )
+
+
+# ============================================================================
+# 搜索结果元数据构建（公共部分）
+# ============================================================================
+
+def build_search_meta(
+    hw: "HardwareInfo",
+    dtype: str,
+    outdtype: str,
+    warmup: int,
+    repeat: int,
+    verify: bool,
+    m_list: List[int],
+    nk_list: List,
+    *,
+    layout: str = "TNCCcol",
+    alg_count: int = 0,
+    config_count: int = 0,
+    model_name: Optional[str] = None,
+    extra: Optional[Dict] = None,
+) -> Dict:
+    """
+    构建搜索结果的元数据（公共部分）。
+    
+    Args:
+        hw: 硬件信息
+        dtype: 输入数据类型
+        outdtype: 输出数据类型
+        warmup: 预热次数
+        repeat: 重复次数
+        verify: 是否验证
+        m_list: M 列表
+        nk_list: NK 列表
+        layout: 布局类型
+        alg_count: 算法数量
+        config_count: 配置数量
+        model_name: 模型名称
+        extra: 额外的元数据字段
+    
+    Returns:
+        元数据字典
+    """
+    import datetime
+    import torch
+    
+    meta = {
+        "gpu_name": hw.gpu_full_name,
+        "gpu_short_name": hw.gpu_name,
+        "compute_capability": hw.cc_tag,
+        "arch_name": hw.arch_name,
+        "layout": layout,
+        "dtype": dtype,
+        "outdtype": outdtype,
+        "alg_count": alg_count,
+        "config_count": config_count,
+        "warmup": warmup,
+        "repeat": repeat,
+        "verify": verify,
+        "torch_version": torch.__version__,
+        "cuda_version_driver": hw.cuda_driver_version,
+        "cuda_version_runtime": hw.cuda_runtime_version,
+        "time": datetime.datetime.now().isoformat(),
+        "M_list": m_list,
+        "NK_list": list(nk_list),
+    }
+    
+    if model_name:
+        meta["model_name"] = model_name
+    
+    if extra:
+        meta.update(extra)
+    
+    return meta
+
+
+def build_csv_header(
+    hw: "HardwareInfo",
+    dtype: str,
+    outdtype: str,
+    warmup: int,
+    repeat: int,
+    verify: bool,
+    m_list: List[int],
+    nk_list: List,
+    *,
+    layout: str = "TNCCcol",
+    alg_count: int = 0,
+    config_count: int = 0,
+    model_name: Optional[str] = None,
+    extra_lines: Optional[List[str]] = None,
+) -> List[str]:
+    """
+    构建 CSV 文件的注释头部。
+    
+    Returns:
+        注释行列表
+    """
+    import torch
+    
+    lines = [
+        f"# GPU: {hw.gpu_full_name}",
+        f"# CC: {hw.cc_tag}",
+    ]
+    
+    if model_name:
+        lines.append(f"# Model: {model_name}")
+    
+    lines.extend([
+        f"# alg_count: {alg_count}, config_count: {config_count}",
+        f"# torch: {torch.__version__}",
+        f"# CUDA driver: {hw.cuda_driver_version}, runtime: {hw.cuda_runtime_version}",
+        f"# layout: {layout}, dtype: {dtype}, outdtype: {outdtype}, warmup={warmup}, repeat={repeat}, verify={verify}",
+        f"# M_list: {m_list}",
+        f"# NK_list: {list(nk_list)}",
+    ])
+    
+    if extra_lines:
+        lines.extend(extra_lines)
+    
+    return lines
 
 
 # ============================================================================

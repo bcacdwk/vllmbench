@@ -176,7 +176,7 @@ def _quant_int8_kernel_autotune(
         offs_k = k_start + tl.arange(0, BLOCK_K)
         mask_k = offs_k < K
         x_val = tl.load(x_row_ptr + offs_k, mask=mask_k, other=0.0).to(tl.float32)
-        y_val = tl.clamp(tl.math.round(x_val * inv_scale), -128.0, 127.0)
+        y_val = tl.clamp(tl.extra.cuda.libdevice.rint(x_val * inv_scale), -128.0, 127.0)
         tl.store(out_row_ptr + offs_k, y_val.to(tl.int8), mask=mask_k)
 
 
