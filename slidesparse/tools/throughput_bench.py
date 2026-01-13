@@ -15,8 +15,8 @@ SlideSparse vLLM Throughput Benchmark 脚本
     python3 throughput_bench.py [选项]
 
 示例:
-    python3 throughput_bench.py --model qwen2.5-0.5b-int8 --prefill --M 16,32,64,128,256
-    python3 throughput_bench.py --model llama3.2-1b-int8 --decode --M 1,2,4,8,16
+    python3 throughput_bench.py --model qwen2.5-0.5b-fp8 --prefill --M 16,32,64,128,256
+    python3 throughput_bench.py --model llama3.2-1b-fp8 --decode --M 1,2,4,8,16
     python3 throughput_bench.py --all --prefill --M 16,256
     python3 throughput_bench.py --all --decode --M 1,16
 """
@@ -27,6 +27,7 @@ import json
 import argparse
 import subprocess
 import shutil
+import signal
 from pathlib import Path
 from datetime import datetime
 from dataclasses import dataclass
@@ -55,11 +56,13 @@ from slidesparse.tools.utils import (
     print_success,
     print_warning,
     print_error,
+    strip_ansi,
     CHECKPOINT_DIR,
     build_result_dir,
     get_vllm_env_vars,
     check_triton_support_and_warn,
     print_hardware_info,
+    get_gpu_devices_for_tp,
 )
 
 
@@ -90,6 +93,30 @@ GPU_ID = "0,1"
 GPU_MEMORY_UTILIZATION = 0.8
 TENSOR_PARALLEL_SIZE = 1
 
+# 全局状态 (用于信号处理)
+_OUTPUT_DIR: Path | None = None
+
+
+# ============================================================================
+# 信号处理
+# ============================================================================
+
+def _signal_handler(signum, frame):
+    """处理中断信号 (SIGINT/SIGTERM)"""
+    print()
+    print("=" * 46)
+    print("测试被中断!")
+    if _OUTPUT_DIR is not None:
+        print(f"结果目录: {_OUTPUT_DIR}")
+    print("=" * 46)
+    sys.exit(130)
+
+
+def _setup_signal_handlers():
+    """设置信号处理器"""
+    signal.signal(signal.SIGINT, _signal_handler)
+    signal.signal(signal.SIGTERM, _signal_handler)
+
 
 # ============================================================================
 # 数据类
@@ -118,27 +145,7 @@ def parse_m_list(m_str: str) -> list[int]:
     return [int(x.strip()) for x in m_str.split(",")]
 
 
-def get_gpu_devices_for_tp(tp_size: int, gpu_id: str) -> tuple[str, int]:
-    """根据 TP 大小和 GPU_ID 计算实际使用的 GPU 列表"""
-    if tp_size <= 1:
-        first_gpu = gpu_id.split(",")[0]
-        return first_gpu, 1
-    
-    gpu_list = [g.strip() for g in gpu_id.split(",")]
-    available_count = len(gpu_list)
-    
-    if available_count < tp_size:
-        print_warning(f"GPU_ID 指定 {available_count} 个 GPU，但 TP={tp_size}，使用所有可用 GPU")
-        return gpu_id, available_count
-    elif available_count > tp_size:
-        selected = ",".join(gpu_list[:tp_size])
-        print_warning(f"GPU_ID 指定 {available_count} 个 GPU，但 TP={tp_size}，使用前 {tp_size} 个: {selected}")
-        return selected, tp_size
-    else:
-        return gpu_id, tp_size
-
-
-def calculate_test_params(m_value: int, test_mode: str, n_repeat: int = None) -> TestParams:
+def calculate_test_params(m_value: int, test_mode: str, n_repeat: Optional[int] = None) -> TestParams:
     """
     根据测试模式和 M 值计算所有测试参数
     
@@ -212,7 +219,7 @@ def run_single_m_test(
     result_json_dir: Path,
     log_file: Path,
     *,
-    n_repeat: int = None,
+    n_repeat: Optional[int] = None,
     gpu_memory_util: float = GPU_MEMORY_UTILIZATION,
     tp_size: int = TENSOR_PARALLEL_SIZE,
     gpu_id: str = GPU_ID,
@@ -244,7 +251,7 @@ def run_single_m_test(
     # 计算实际使用的 GPU
     gpu_devices, actual_tp = get_gpu_devices_for_tp(tp_size, gpu_id)
     
-    # 结果文件
+    # 结果文件名: {model_local_name}_M{m_value}.json (硬件信息已在文件夹名中)
     result_file = result_json_dir / f"{entry.local_name}_M{m_value}.json"
     
     # max-num-batched-tokens (禁用 chunking)
@@ -284,8 +291,7 @@ def run_single_m_test(
     # 构建环境变量
     env = os.environ.copy()
     env["CUDA_VISIBLE_DEVICES"] = gpu_devices
-    env["VLLM_LOGGING_LEVEL"] = VLLM_LOG_LEVEL
-    env.update(get_vllm_env_vars())
+    env.update(get_vllm_env_vars(log_level=VLLM_LOG_LEVEL))
     
     # 构建命令
     cmd = [
@@ -349,15 +355,15 @@ def run_single_m_test(
         end_time = datetime.now()
         duration = (end_time - start_time).total_seconds()
         
-        # 记录输出到日志
+        # 记录输出到日志 (去除 ANSI 转义码)
         with open(log_file, "a", encoding="utf-8") as f:
             if result.stdout:
                 f.write("STDOUT:\n")
-                f.write(result.stdout)
+                f.write(strip_ansi(result.stdout))
                 f.write("\n")
             if result.stderr:
                 f.write("STDERR:\n")
-                f.write(result.stderr)
+                f.write(strip_ansi(result.stderr))
                 f.write("\n")
         
         if result.returncode == 0 and result_file.exists():
@@ -373,7 +379,7 @@ def run_single_m_test(
             num_req = data.get("num_requests", 0)
             
             print()
-            print(f"{Colors.GREEN}测试结果:{Colors.RESET}")
+            print(f"{Colors.GREEN}测试结果:{Colors.NC}")
             print(f"  Requests/s:   {req_per_s:.2f}")
             print(f"  Tokens/s:     {tok_per_s:.2f}")
             print(f"  Total Reqs:   {num_req}")
@@ -407,10 +413,10 @@ def run_single_m_test(
             # 打印错误摘要
             if result.stderr:
                 print()
-                print(f"{Colors.RED}─── 错误输出 (最后 10 行) ───{Colors.RESET}")
+                print(f"{Colors.RED}─── 错误输出 (最后 10 行) ───{Colors.NC}")
                 for line in result.stderr.splitlines()[-10:]:
                     print(line)
-                print(f"{Colors.RED}─────────────────────────────────{Colors.RESET}")
+                print(f"{Colors.RED}─────────────────────────────────{Colors.NC}")
             
             return False
             
@@ -425,9 +431,10 @@ def generate_model_csv(
     test_mode: str,
     result_json_dir: Path,
     output_dir: Path,
-    n_repeat: int = None,
+    n_repeat: Optional[int] = None,
 ):
     """生成单个模型的 CSV 结果"""
+    # CSV 文件名: {model_name}_{test_mode}.csv (硬件信息已在文件夹名中)
     csv_file = output_dir / f"{model_name}_{test_mode}.csv"
     
     print()
@@ -443,6 +450,7 @@ def generate_model_csv(
         f.write(header + "\n")
         
         for m_value in m_list:
+            # 结果文件名: {model_name}_M{m_value}.json
             result_file = result_json_dir / f"{model_name}_M{m_value}.json"
             
             if result_file.exists():
@@ -730,11 +738,16 @@ def main():
     hw_info = HardwareInfo()
     
     # 设置输出目录
-    output_dir = build_result_dir(f"throughput_bench_{test_mode}")
-    output_dir.mkdir(parents=True, exist_ok=True)
+    # 目录结构: throughput_bench_results/{prefill|decode}/{完整硬件名}/
+    global _OUTPUT_DIR
+    output_dir = build_result_dir("throughput_bench", test_mode=test_mode)
+    _OUTPUT_DIR = output_dir  # 用于信号处理
     result_json_dir = output_dir / "json"
     result_json_dir.mkdir(parents=True, exist_ok=True)
     log_file = output_dir / "benchmark.log"
+    
+    # 设置信号处理
+    _setup_signal_handlers()
     
     # 显示配置信息
     print_header(f"SlideSparse vLLM Throughput Benchmark ({test_mode.upper()})")
@@ -790,8 +803,8 @@ def main():
     print(f"结果目录: {output_dir}")
     print("  ├── benchmark.log")
     print("  ├── json/")
-    print("  │   └── {{Model}}_M{{N}}.json")
-    print("  └── {{Model}}_{test_mode}.csv")
+    print("  │   └── {Model}_M{N}.json")
+    print(f"  └── {{Model}}_{test_mode}.csv")
     print()
     print(f"成功: {success_count}, 失败: {failed_count}")
     print("=" * 46)

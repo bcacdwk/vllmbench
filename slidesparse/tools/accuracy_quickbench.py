@@ -28,6 +28,7 @@ import json
 import argparse
 import subprocess
 import shutil
+import signal
 from pathlib import Path
 from datetime import datetime
 
@@ -54,11 +55,13 @@ from slidesparse.tools.utils import (
     print_success,
     print_warning,
     print_error,
+    strip_ansi,
     CHECKPOINT_DIR,
     build_result_dir,
     get_vllm_env_vars,
     check_triton_support_and_warn,
     print_hardware_info,
+    get_gpu_devices_for_tp,
 )
 
 
@@ -87,6 +90,30 @@ TENSOR_PARALLEL_SIZE = 2
 # Temperature 配置
 TEMPERATURE = 0.0
 
+# 全局状态 (用于信号处理)
+_OUTPUT_DIR: Path | None = None
+
+
+# ============================================================================
+# 信号处理
+# ============================================================================
+
+def _signal_handler(signum, frame):
+    """处理中断信号 (SIGINT/SIGTERM)"""
+    print()
+    print("=" * 46)
+    print("测试被中断!")
+    if _OUTPUT_DIR is not None:
+        print(f"结果目录: {_OUTPUT_DIR}")
+    print("=" * 46)
+    sys.exit(130)
+
+
+def _setup_signal_handlers():
+    """设置信号处理器"""
+    signal.signal(signal.SIGINT, _signal_handler)
+    signal.signal(signal.SIGTERM, _signal_handler)
+
 
 # ============================================================================
 # 辅助函数
@@ -95,35 +122,6 @@ TEMPERATURE = 0.0
 def get_prompt_input_file() -> Path:
     """获取 prompt 输入文件路径"""
     return _SCRIPT_DIR / "accuracy_quickbench_prompts.jsonl"
-
-
-def get_gpu_devices_for_tp(tp_size: int, gpu_id: str) -> tuple[str, int]:
-    """
-    根据 TP 大小和 GPU_ID 计算实际使用的 GPU 列表
-    
-    Args:
-        tp_size: 目标 tensor parallelism 大小
-        gpu_id: GPU ID 列表字符串 (逗号分隔)
-        
-    Returns:
-        (gpu_devices, actual_tp_size) 元组
-    """
-    if tp_size <= 1:
-        first_gpu = gpu_id.split(",")[0]
-        return first_gpu, 1
-    
-    gpu_list = [g.strip() for g in gpu_id.split(",")]
-    available_count = len(gpu_list)
-    
-    if available_count < tp_size:
-        print_warning(f"GPU_ID 指定 {available_count} 个 GPU，但 TP={tp_size}，使用所有可用 GPU")
-        return gpu_id, available_count
-    elif available_count > tp_size:
-        selected = ",".join(gpu_list[:tp_size])
-        print_warning(f"GPU_ID 指定 {available_count} 个 GPU，但 TP={tp_size}，使用前 {tp_size} 个: {selected}")
-        return selected, tp_size
-    else:
-        return gpu_id, tp_size
 
 
 def extract_responses_to_txt(json_file: Path, txt_file: Path, prompts_file: Path):
@@ -248,7 +246,7 @@ def run_accuracy_test(
     
     print_header(f"测试模型: {entry.local_name}")
     
-    # 输出文件
+    # 输出文件名: {model_local_name}.json (硬件信息已在文件夹名中)
     output_file = output_dir / f"{entry.local_name}.json"
     response_txt = output_dir / f"{entry.local_name}_responses.txt"
     
@@ -282,8 +280,7 @@ def run_accuracy_test(
     # 构建环境变量
     env = os.environ.copy()
     env["CUDA_VISIBLE_DEVICES"] = gpu_devices
-    env["VLLM_LOGGING_LEVEL"] = VLLM_LOG_LEVEL
-    env.update(get_vllm_env_vars())
+    env.update(get_vllm_env_vars(log_level=VLLM_LOG_LEVEL))
     
     # 构建命令
     generation_config = json.dumps({
@@ -344,15 +341,15 @@ def run_accuracy_test(
         end_time = datetime.now()
         duration = (end_time - start_time).total_seconds()
         
-        # 记录输出到日志
+        # 记录输出到日志 (去除 ANSI 转义码)
         with open(log_file, "a", encoding="utf-8") as f:
             if result.stdout:
                 f.write("STDOUT:\n")
-                f.write(result.stdout)
+                f.write(strip_ansi(result.stdout))
                 f.write("\n")
             if result.stderr:
                 f.write("STDERR:\n")
-                f.write(result.stderr)
+                f.write(strip_ansi(result.stderr))
                 f.write("\n")
         
         if result.returncode == 0 and output_file.exists():
@@ -361,7 +358,7 @@ def run_accuracy_test(
             
             # 显示输出预览
             print()
-            print(f"{Colors.GREEN}输出预览 (前 5 条):{Colors.RESET}")
+            print(f"{Colors.GREEN}输出预览 (前 5 条):{Colors.NC}")
             print("-" * 46)
             with open(output_file, "r") as f:
                 for i, line in enumerate(f):
@@ -388,10 +385,10 @@ def run_accuracy_test(
             # 打印错误摘要
             if result.stderr:
                 print()
-                print(f"{Colors.RED}─── 错误输出 (最后 10 行) ───{Colors.RESET}")
+                print(f"{Colors.RED}─── 错误输出 (最后 10 行) ───{Colors.NC}")
                 for line in result.stderr.splitlines()[-10:]:
                     print(line)
-                print(f"{Colors.RED}─────────────────────────────────{Colors.RESET}")
+                print(f"{Colors.RED}─────────────────────────────────{Colors.NC}")
             
             return False
             
@@ -540,6 +537,10 @@ def main():
         help=f"最大输出 token 数 (默认: {MAX_OUTPUT_TOKENS})"
     )
     output_group.add_argument(
+        "--max-model-len", type=int, default=MAX_MODEL_LEN,
+        help=f"最大模型长度 (默认: {MAX_MODEL_LEN})"
+    )
+    output_group.add_argument(
         "--temperature", type=float, default=TEMPERATURE,
         help=f"采样温度 (默认: {TEMPERATURE})"
     )
@@ -623,9 +624,14 @@ def main():
     hw_info = HardwareInfo()
     
     # 设置输出目录
+    # 目录结构: accuracy_quickbench_results/{完整硬件名}/
+    global _OUTPUT_DIR
     output_dir = build_result_dir("accuracy_quickbench")
-    output_dir.mkdir(parents=True, exist_ok=True)
+    _OUTPUT_DIR = output_dir  # 用于信号处理
     log_file = output_dir / "benchmark.log"
+    
+    # 设置信号处理
+    _setup_signal_handlers()
     
     # 显示配置信息
     print_header("SlideSparse vLLM Accuracy Quick Benchmark")
@@ -637,7 +643,7 @@ def main():
     print("测试配置:")
     print(f"  Prompt 输入文件:  {prompt_file}")
     print(f"  最大输出 Token:   {args.max_tokens}")
-    print(f"  最大模型长度:     {MAX_MODEL_LEN}")
+    print(f"  最大模型长度:     {args.max_model_len}")
     print(f"  Temperature:      {args.temperature}")
     print(f"  GPU 内存利用率:   {args.gpu_mem}")
     print(f"  vLLM 日志级别:    {VLLM_LOG_LEVEL}")
@@ -665,7 +671,7 @@ def main():
         f.write("Test Configuration:\n")
         f.write(f"  Prompt Input File:  {prompt_file}\n")
         f.write(f"  Max Output Tokens:  {args.max_tokens}\n")
-        f.write(f"  Max Model Length:   {MAX_MODEL_LEN}\n")
+        f.write(f"  Max Model Length:   {args.max_model_len}\n")
         f.write(f"  Temperature:        {args.temperature}\n")
         f.write(f"  GPU Memory Util:    {args.gpu_mem}\n")
         f.write(f"  vLLM Log Level:     {VLLM_LOG_LEVEL}\n")
@@ -679,6 +685,7 @@ def main():
         output_dir=output_dir,
         log_file=log_file,
         max_tokens=args.max_tokens,
+        max_model_len=args.max_model_len,
         temperature=args.temperature,
         gpu_memory_util=args.gpu_mem,
         tp_size=args.tp,
@@ -692,8 +699,8 @@ def main():
     print_header("Benchmark 完成!")
     print(f"结果目录: {output_dir}")
     print("  ├── benchmark.log")
-    print("  ├── {{Model}}.json")
-    print("  └── {{Model}}_responses.txt")
+    print("  ├── {Model}.json")
+    print("  └── {Model}_responses.txt")
     print()
     print(f"成功: {success_count}, 失败: {failed_count}")
     print()

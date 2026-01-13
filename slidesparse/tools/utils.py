@@ -25,6 +25,7 @@ SlideSparse Tools 工具库
 """
 
 import os
+import re
 import sys
 import subprocess
 import shutil
@@ -46,6 +47,7 @@ from slidesparse.utils import (
     check_quant_support,
     get_model_local_path,
     check_model_downloaded,
+    build_stem,
 )
 
 
@@ -82,6 +84,23 @@ class Colors:
         """禁用颜色输出"""
         cls.RED = cls.GREEN = cls.YELLOW = cls.BLUE = ""
         cls.CYAN = cls.MAGENTA = cls.NC = ""
+
+
+# ANSI 转义码正则表达式
+_ANSI_ESCAPE_RE = re.compile(r'\x1b\[[0-9;]*m')
+
+
+def strip_ansi(text: str) -> str:
+    """
+    去除字符串中的 ANSI 转义码
+    
+    Args:
+        text: 可能包含 ANSI 转义码的字符串
+        
+    Returns:
+        去除转义码后的纯文本
+    """
+    return _ANSI_ESCAPE_RE.sub('', text)
 
 
 def print_header(msg: str) -> None:
@@ -125,37 +144,54 @@ def print_error(msg: str) -> None:
 # 结果目录管理
 # =============================================================================
 
+def get_hw_folder_name() -> str:
+    """
+    获取完整的硬件信息文件夹名
+    
+    格式: {GPU}_{CC}_{PyVer}_{CUDAVer}_{Arch}
+    例如: H100_cc90_py312_cu124_x86_64
+    
+    Returns:
+        完整的硬件标识字符串
+    """
+    # 直接构建，不使用 build_stem 来避免前导下划线
+    return f"{hw_info.gpu_name}_{hw_info.cc_tag}_{hw_info.python_tag}_{hw_info.cuda_tag}_{hw_info.arch_tag}"
+
+
 def build_result_dir(
     base_name: str,
     *,
-    with_timestamp: bool = True,
+    test_mode: Optional[str] = None,
     create: bool = True,
 ) -> Path:
     """
     构建结果目录路径
     
-    格式: {base_name}_results/{GPU_CC}/{timestamp}/
-    例如: throughput_bench_results/RTX5080_cc120/20260112_143052/
+    格式 (有 test_mode): {base_name}_results/{test_mode}/{完整硬件名}/
+    格式 (无 test_mode): {base_name}_results/{完整硬件名}/
+    
+    例如:
+        throughput_bench_results/prefill/H100_cc90_py312_cu124_x86_64/
+        accuracy_quickbench_results/H100_cc90_py312_cu124_x86_64/
     
     Args:
         base_name: 基础名称（如 "throughput_bench", "accuracy_quickbench"）
-        with_timestamp: 是否包含时间戳子目录
+        test_mode: 测试模式子目录（如 "prefill", "decode"），可选
         create: 是否创建目录
         
     Returns:
         结果目录路径
     """
-    # GPU 文件夹名: {GPU}_{CC}
-    gpu_folder = f"{hw_info.gpu_name}_{hw_info.cc_tag}"
+    # 完整硬件信息文件夹名: {GPU}_{CC}_{PyVer}_{CUDAVer}_{Arch}
+    hw_folder = get_hw_folder_name()
     
-    # 基础结果目录
-    result_base = _TOOLS_DIR / f"{base_name}_results" / gpu_folder
+    # 构建路径
+    result_base = _TOOLS_DIR / f"{base_name}_results"
     
-    if with_timestamp:
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        result_dir = result_base / timestamp
+    if test_mode:
+        result_dir = result_base / test_mode / hw_folder
     else:
-        result_dir = result_base
+        result_dir = result_base / hw_folder
     
     if create:
         result_dir.mkdir(parents=True, exist_ok=True)
@@ -163,30 +199,63 @@ def build_result_dir(
     return result_dir
 
 
-def get_latest_result_dir(base_name: str) -> Optional[Path]:
+def get_result_dir(
+    base_name: str,
+    *,
+    test_mode: Optional[str] = None,
+) -> Optional[Path]:
     """
-    获取最新的结果目录
+    获取现有的结果目录
     
     Args:
         base_name: 基础名称
+        test_mode: 测试模式子目录
         
     Returns:
-        最新结果目录，不存在返回 None
+        结果目录，不存在返回 None
     """
-    gpu_folder = f"{hw_info.gpu_name}_{hw_info.cc_tag}"
-    result_base = _TOOLS_DIR / f"{base_name}_results" / gpu_folder
+    hw_folder = get_hw_folder_name()
+    result_base = _TOOLS_DIR / f"{base_name}_results"
     
-    if not result_base.exists():
-        return None
+    if test_mode:
+        result_dir = result_base / test_mode / hw_folder
+    else:
+        result_dir = result_base / hw_folder
     
-    # 找到最新的时间戳目录
-    timestamp_dirs = sorted(
-        [d for d in result_base.iterdir() if d.is_dir()],
-        key=lambda d: d.name,
-        reverse=True
-    )
+    return result_dir if result_dir.exists() else None
+
+
+# =============================================================================
+# GPU 工具函数
+# =============================================================================
+
+def get_gpu_devices_for_tp(tp_size: int, gpu_id: str) -> Tuple[str, int]:
+    """
+    根据 TP 大小和 GPU_ID 计算实际使用的 GPU 列表
     
-    return timestamp_dirs[0] if timestamp_dirs else None
+    Args:
+        tp_size: 目标 tensor parallelism 大小
+        gpu_id: GPU ID 列表字符串 (逗号分隔)
+        
+    Returns:
+        (gpu_devices, actual_tp_size) 元组
+    """
+    if tp_size <= 1:
+        first_gpu = gpu_id.split(",")[0]
+        return first_gpu, 1
+    
+    gpu_list = [g.strip() for g in gpu_id.split(",")]
+    available_count = len(gpu_list)
+    
+    if available_count < tp_size:
+        print_warning(f"GPU_ID 指定 {available_count} 个 GPU，但 TP={tp_size}，使用所有可用 GPU")
+        return gpu_id, available_count
+    elif available_count > tp_size:
+        selected = ",".join(gpu_list[:tp_size])
+        print_warning(f"GPU_ID 指定 {available_count} 个 GPU，但 TP={tp_size}，使用前 {tp_size} 个: {selected}")
+        return selected, tp_size
+    else:
+        return gpu_id, tp_size
 
 
 # =============================================================================
@@ -196,26 +265,23 @@ def get_latest_result_dir(base_name: str) -> Optional[Path]:
 def get_vllm_env_vars(
     *,
     log_level: str = "WARNING",
-    gpu_ids: str = "0",
     disable_compile: bool = False,
     extra_vars: Optional[Dict[str, str]] = None,
 ) -> Dict[str, str]:
     """
     获取 vLLM 运行所需的环境变量
     
+    注意: 此函数不设置 CUDA_VISIBLE_DEVICES，调用方应自行设置
+    
     Args:
         log_level: 日志级别（DEBUG, INFO, WARNING, ERROR）
-        gpu_ids: GPU ID 列表（逗号分隔）
         disable_compile: 是否禁用 torch.compile
         extra_vars: 额外的环境变量
         
     Returns:
         环境变量字典
     """
-    env = os.environ.copy()
-    
-    # CUDA 设备
-    env["CUDA_VISIBLE_DEVICES"] = gpu_ids
+    env = {}
     
     # vLLM 日志级别
     env["VLLM_LOGGING_LEVEL"] = log_level
@@ -275,10 +341,10 @@ def check_hf_cli() -> bool:
     Returns:
         True 如果可用
     """
-    # 尝试新版 hf 命令
+    # 尝试 hf version 命令 (新版和 0.36.0 都支持)
     try:
         result = subprocess.run(
-            ["hf", "--version"],
+            ["hf", "version"],
             capture_output=True,
             text=True,
             timeout=5
@@ -288,10 +354,10 @@ def check_hf_cli() -> bool:
     except (FileNotFoundError, subprocess.TimeoutExpired):
         pass
     
-    # 尝试旧版 huggingface-cli 命令
+    # 尝试 huggingface-cli version 命令
     try:
         result = subprocess.run(
-            ["huggingface-cli", "--version"],
+            ["huggingface-cli", "version"],
             capture_output=True,
             text=True,
             timeout=5
@@ -311,9 +377,10 @@ def get_hf_download_cmd() -> str:
     Returns:
         "hf download" 或 "huggingface-cli download"
     """
+    # 优先使用 hf 命令
     try:
         result = subprocess.run(
-            ["hf", "--version"],
+            ["hf", "version"],
             capture_output=True,
             text=True,
             timeout=5
@@ -504,8 +571,11 @@ __all__ = [
     "print_warning",
     "print_error",
     # 目录
+    "get_hw_folder_name",
     "build_result_dir",
-    "get_latest_result_dir",
+    "get_result_dir",
+    # GPU
+    "get_gpu_devices_for_tp",
     # vLLM
     "get_vllm_env_vars",
     "check_triton_support_and_warn",
