@@ -20,7 +20,7 @@
  *
  * 主要接口:
  * ---------
- * - cublaslt_layout_search_single()  : 测试单个 (N,K,M) 的 16 种布局
+ * - cublaslt_layout_search_single()  : 测试单个 (N,K,M) 的 8 种布局
  */
 
 #include <cstdint>
@@ -44,10 +44,9 @@
 // 最大 workspace 大小: 512 MB
 static constexpr size_t MAX_WORKSPACE_SIZE = 512ULL * 1024 * 1024;
 
-// 8 种布局组合 (4 种有效转置+order配对 × 2 种输出顺序)
-// 根据 cuBLASLt 的约束，只有特定的转置和 order 组合是有效的：
-//   TN + ColCol, NT + RowRow, NN + RowCol, TT + ColRow
-static constexpr int NUM_LAYOUTS = 8;
+// 16 种布局组合 (4 种转置 × 2 种 orderW × 2 种 orderA × 2 种输出顺序，但部分组合可能无效)
+// 前8种为标准有效组合，后8种为非标准组合（可能在某些配置下有效）
+static constexpr int NUM_LAYOUTS = 16;
 
 // 布局组合枚举
 struct LayoutConfig {
@@ -59,10 +58,11 @@ struct LayoutConfig {
     const char* name;
 };
 
-// 所有 8 种有效布局配置 (与旧代码对齐)
+// 所有 16 种布局配置
 // 命名格式: {transW}{transA}_{orderW}{orderA}_{orderR}
 static const LayoutConfig LAYOUT_CONFIGS[NUM_LAYOUTS] = {
     // transW,       transA,       orderW,             orderA,             orderR,             name
+    // === 标准有效组合 (前8种) ===
     // R 输出为 ColMajor (前4种)
     {CUBLAS_OP_T, CUBLAS_OP_N, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_COL, "TN_CC_Col"},  // 推荐
     {CUBLAS_OP_N, CUBLAS_OP_T, CUBLASLT_ORDER_ROW, CUBLASLT_ORDER_ROW, CUBLASLT_ORDER_COL, "NT_RR_Col"},
@@ -73,6 +73,17 @@ static const LayoutConfig LAYOUT_CONFIGS[NUM_LAYOUTS] = {
     {CUBLAS_OP_N, CUBLAS_OP_T, CUBLASLT_ORDER_ROW, CUBLASLT_ORDER_ROW, CUBLASLT_ORDER_ROW, "NT_RR_Row"},
     {CUBLAS_OP_N, CUBLAS_OP_N, CUBLASLT_ORDER_ROW, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_ROW, "NN_RC_Row"},
     {CUBLAS_OP_T, CUBLAS_OP_T, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_ROW, CUBLASLT_ORDER_ROW, "TT_CR_Row"},
+    // === 非标准组合 (后8种，测试用) ===
+    // R 输出为 ColMajor
+    {CUBLAS_OP_T, CUBLAS_OP_N, CUBLASLT_ORDER_ROW, CUBLASLT_ORDER_ROW, CUBLASLT_ORDER_COL, "TN_RR_Col"},
+    {CUBLAS_OP_N, CUBLAS_OP_T, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_COL, "NT_CC_Col"},
+    {CUBLAS_OP_N, CUBLAS_OP_N, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_ROW, CUBLASLT_ORDER_COL, "NN_CR_Col"},
+    {CUBLAS_OP_T, CUBLAS_OP_T, CUBLASLT_ORDER_ROW, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_COL, "TT_RC_Col"},
+    // R 输出为 RowMajor
+    {CUBLAS_OP_T, CUBLAS_OP_N, CUBLASLT_ORDER_ROW, CUBLASLT_ORDER_ROW, CUBLASLT_ORDER_ROW, "TN_RR_Row"},
+    {CUBLAS_OP_N, CUBLAS_OP_T, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_ROW, "NT_CC_Row"},
+    {CUBLAS_OP_N, CUBLAS_OP_N, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_ROW, CUBLASLT_ORDER_ROW, "NN_CR_Row"},
+    {CUBLAS_OP_T, CUBLAS_OP_T, CUBLASLT_ORDER_ROW, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_ROW, "TT_RC_Row"},
 };
 
 // =============================================================================
@@ -212,7 +223,7 @@ static int test_single_layout(
     result->valid = 0;
     
     // =========================================================================
-    // 维度计算 (与旧代码一致)
+    // 维度计算
     // cuBLASLt GEMM: R = alpha * op(W) * op(A) + beta * C
     // 我们的约定: R = W * A (W 在左边)
     // 其中 W[N,K], A[K,M], R[N,M]
@@ -315,7 +326,7 @@ static int test_single_layout(
     
     float alpha = 1.0f, beta = 0.0f;
     
-    // 遍历所有算法找到最优的 (与旧代码对齐)
+    // 遍历所有算法找到最优的
     float best_lat_us = 1e12f;
     int best_algo_idx = -1;
     float best_waves_count = 0.0f;

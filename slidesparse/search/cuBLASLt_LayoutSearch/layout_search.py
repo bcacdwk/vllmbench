@@ -9,7 +9,7 @@ cuBLASLt 布局离线搜索
 测试 16 种布局组合:
   - 转置: TT, TN, NT, NN (4种)
   - A/B 排列: RowCol, ColCol (2种)
-  - D 输出: Col, Row (2种)
+  - R 输出: Col, Row (2种)
 
 运行示例:
     python3 layout_search.py --dtype int8 --outdtype bf16 --model BitNet-2B4T
@@ -52,22 +52,33 @@ from utils import (
 # 布局常量
 # =============================================================================
 
-NUM_LAYOUTS = 8
+NUM_LAYOUTS = 16
 
-# 8 种有效布局 (与旧代码对齐)
-# 根据 cuBLASLt 的约束，只有特定的转置和 order 组合是有效的：
-#   TN + ColCol, NT + RowRow, NN + RowCol, TT + ColRow
+# 16 种布局配置
+# 前8种为标准有效组合，后8种为非标准组合（测试用）
 LAYOUT_NAMES = [
+    # === 标准有效组合 (前8种) ===
     # R 输出为 ColMajor (前4种)
     "TN_CC_Col",   # transW=T, transA=N, orderW=Col, orderA=Col, orderR=Col (推荐)
     "NT_RR_Col",   # transW=N, transA=T, orderW=Row, orderA=Row, orderR=Col
     "NN_RC_Col",   # transW=N, transA=N, orderW=Row, orderA=Col, orderR=Col
     "TT_CR_Col",   # transW=T, transA=T, orderW=Col, orderA=Row, orderR=Col
-    # R 输出为 RowMajor (后4种)
+    # R 输出为 RowMajor
     "TN_CC_Row",
     "NT_RR_Row",
     "NN_RC_Row",
     "TT_CR_Row",
+    # === 非标准组合 (后8种，测试用) ===
+    # R 输出为 ColMajor
+    "TN_RR_Col",   # transW=T, transA=N, orderW=Row, orderA=Row, orderR=Col
+    "NT_CC_Col",   # transW=N, transA=T, orderW=Col, orderA=Col, orderR=Col
+    "NN_CR_Col",   # transW=N, transA=N, orderW=Col, orderA=Row, orderR=Col
+    "TT_RC_Col",   # transW=T, transA=T, orderW=Row, orderA=Col, orderR=Col
+    # R 输出为 RowMajor
+    "TN_RR_Row",
+    "NT_CC_Row",
+    "NN_CR_Row",
+    "TT_RC_Row",
 ]
 
 
@@ -248,10 +259,12 @@ def run_search(
             first_result = nk_results["m_results"][first_m]
             valid_layouts = [r for r in first_result["results"] if r["valid"]]
             if valid_layouts:
-                best = max(valid_layouts, key=lambda x: x["tops"])
-                print(f"      → 最优布局: {best['layout_name']}, {best['tops']:.2f} TOPS, alg={best['best_alg_id']}")
+                print(f"      有效布局 ({len(valid_layouts)}/{NUM_LAYOUTS}):", flush=True)
+                for r in first_result["results"]:
+                    if r["valid"]:
+                        print(f"        {r['layout_name']:15} | {r['lat_us']:8.2f} us | {r['tops']:6.2f} TOPS | alg={r['best_alg_id']}", flush=True)
             else:
-                print(f"      → 无有效布局")
+                print(f"      → 无有效布局", flush=True)
         
         results.append(nk_results)
         
@@ -294,17 +307,17 @@ def main():
     
     model_name = build_model_name_with_dtype(args.model.split('/')[-1], args.dtype)
     
-    print("=" * 60)
-    print("cuBLASLt 布局离线搜索")
-    print("=" * 60)
-    print(f"GPU: {hw_info.gpu_full_name} ({hw_info.cc_tag}, {hw_info.arch_name})")
-    print(f"模型: {model_name}")
-    print(f"参数: dtype={args.dtype}, outdtype={args.outdtype}")
-    print()
+    print("=" * 60, flush=True)
+    print("cuBLASLt 布局离线搜索", flush=True)
+    print("=" * 60, flush=True)
+    print(f"GPU: {hw_info.gpu_full_name} ({hw_info.cc_tag}, {hw_info.arch_name})", flush=True)
+    print(f"模型: {model_name}", flush=True)
+    print(f"参数: dtype={args.dtype}, outdtype={args.outdtype}", flush=True)
+    print(flush=True)
     
     out_dir = Path(args.out_dir) if args.out_dir else Path("./layout_search_results")
     
-    print("[1/4] 编译 CUDA 扩展...")
+    print("[1/4] 编译 CUDA 扩展...", flush=True)
     src_path = SCRIPT_DIR / "layout_search_cublaslt.cu"
     build_dir = SCRIPT_DIR / "build"
     so_path = build_search_extension(
@@ -315,12 +328,12 @@ def main():
         force=args.compile,
     )
     
-    print("[2/4] 加载 CUDA 扩展...")
+    print("[2/4] 加载 CUDA 扩展...", flush=True)
     lib = load_search_extension(so_path, backend="cublaslt", setup_func=setup_lib_signatures)
     
     if not lib.cublaslt_layout_search_is_available():
         raise RuntimeError("cuBLASLt 不可用")
-    print("✓ cuBLASLt 可用")
+    print("✓ cuBLASLt 可用", flush=True)
     
     nk_list = get_nk_list_auto(args.model, with_names=False)
     
@@ -329,11 +342,11 @@ def main():
     else:
         m_list = default_m_list()
     
-    print()
-    print(f"[3/4] 开始布局搜索...")
-    print(f"      NK 组合: {len(nk_list)} 个, M 列表: {m_list}")
-    print(f"      布局数量: {NUM_LAYOUTS}")
-    print()
+    print(flush=True)
+    print(f"[3/4] 开始布局搜索...", flush=True)
+    print(f"      NK 组合: {len(nk_list)} 个, M 列表: {m_list}", flush=True)
+    print(f"      布局数量: {NUM_LAYOUTS}", flush=True)
+    print(flush=True)
     
     ret = run_search(
         lib,
@@ -359,10 +372,10 @@ def main():
         is_sparse=False,
     )
     
-    print()
-    print(f"[4/4] 完成! 结果已保存到:")
-    print(f"      - {saved_dir}")
-    print("=" * 60)
+    print(flush=True)
+    print(f"[4/4] 完成! 结果已保存到:", flush=True)
+    print(f"      - {saved_dir}", flush=True)
+    print("=" * 60, flush=True)
 
 
 if __name__ == "__main__":

@@ -9,7 +9,7 @@
  * 测试 16 种布局组合 (转置 + 存储顺序 + D输出):
  *   - 转置 : TT, TN, NT, NN (4种)
  *   - A/B 排列 : RowCol, ColCol (2种)
- *   - D 输出 : Col, Row (2种)
+ *   - R 输出 : Col, Row (2种)
  *
  * 数据准备策略 (与 AlgSearch 对齐):
  *   - Python 端：生成数据 → 量化 → 调用 prune
@@ -55,10 +55,9 @@
 
 static constexpr size_t MAX_WORKSPACE_SIZE = 512ULL * 1024 * 1024;
 
-// 8 种布局组合 (4 种有效转置+order配对 × 2 种输出顺序)
-// 根据 cuSPARSELt 的约束，只有特定的转置和 order 组合是有效的：
-//   TN + ColCol, NT + RowRow, NN + RowCol, TT + ColRow
-static constexpr int NUM_LAYOUTS = 8;
+// 16 种布局组合 (4 种转置 × 2 种 orderW × 2 种 orderA × 2 种输出顺序，但部分组合可能无效)
+// 前8种为标准有效组合，后8种为非标准组合（可能在某些配置下有效）
+static constexpr int NUM_LAYOUTS = 16;
 
 // 布局配置
 struct LayoutConfig {
@@ -70,10 +69,11 @@ struct LayoutConfig {
     const char* name;
 };
 
-// 所有 8 种有效布局配置 (与旧代码对齐)
+// 所有 16 种布局配置
 // 命名格式: {transW}{transA}_{orderW}{orderA}_{orderR}
 static const LayoutConfig LAYOUT_CONFIGS[NUM_LAYOUTS] = {
-    // transW,                           transA,                            orderW,          orderA,          orderR,          name
+    // transW,                           transA,                            orderW,             orderA,             orderR,             name
+    // === 标准有效组合 (前8种) ===
     // R 输出为 ColMajor (前4种)
     {CUSPARSE_OPERATION_TRANSPOSE,     CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_ORDER_COL, CUSPARSE_ORDER_COL, CUSPARSE_ORDER_COL, "TN_CC_Col"},  // 推荐
     {CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_OPERATION_TRANSPOSE,     CUSPARSE_ORDER_ROW, CUSPARSE_ORDER_ROW, CUSPARSE_ORDER_COL, "NT_RR_Col"},
@@ -84,6 +84,17 @@ static const LayoutConfig LAYOUT_CONFIGS[NUM_LAYOUTS] = {
     {CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_OPERATION_TRANSPOSE,     CUSPARSE_ORDER_ROW, CUSPARSE_ORDER_ROW, CUSPARSE_ORDER_ROW, "NT_RR_Row"},
     {CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_ORDER_ROW, CUSPARSE_ORDER_COL, CUSPARSE_ORDER_ROW, "NN_RC_Row"},
     {CUSPARSE_OPERATION_TRANSPOSE,     CUSPARSE_OPERATION_TRANSPOSE,     CUSPARSE_ORDER_COL, CUSPARSE_ORDER_ROW, CUSPARSE_ORDER_ROW, "TT_CR_Row"},
+    // === 非标准组合 (后8种，测试用) ===
+    // R 输出为 ColMajor
+    {CUSPARSE_OPERATION_TRANSPOSE,     CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_ORDER_ROW, CUSPARSE_ORDER_ROW, CUSPARSE_ORDER_COL, "TN_RR_Col"},
+    {CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_OPERATION_TRANSPOSE,     CUSPARSE_ORDER_COL, CUSPARSE_ORDER_COL, CUSPARSE_ORDER_COL, "NT_CC_Col"},
+    {CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_ORDER_COL, CUSPARSE_ORDER_ROW, CUSPARSE_ORDER_COL, "NN_CR_Col"},
+    {CUSPARSE_OPERATION_TRANSPOSE,     CUSPARSE_OPERATION_TRANSPOSE,     CUSPARSE_ORDER_ROW, CUSPARSE_ORDER_COL, CUSPARSE_ORDER_COL, "TT_RC_Col"},
+    // R 输出为 RowMajor
+    {CUSPARSE_OPERATION_TRANSPOSE,     CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_ORDER_ROW, CUSPARSE_ORDER_ROW, CUSPARSE_ORDER_ROW, "TN_RR_Row"},
+    {CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_OPERATION_TRANSPOSE,     CUSPARSE_ORDER_COL, CUSPARSE_ORDER_COL, CUSPARSE_ORDER_ROW, "NT_CC_Row"},
+    {CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_ORDER_COL, CUSPARSE_ORDER_ROW, CUSPARSE_ORDER_ROW, "NN_CR_Row"},
+    {CUSPARSE_OPERATION_TRANSPOSE,     CUSPARSE_OPERATION_TRANSPOSE,     CUSPARSE_ORDER_ROW, CUSPARSE_ORDER_COL, CUSPARSE_ORDER_ROW, "TT_RC_Row"},
 };
 
 // =============================================================================
@@ -335,7 +346,7 @@ static int test_single_layout(
     // 稀疏矩阵 W 描述符
     cusparseStatus_t status = cusparseLtStructuredDescriptorInit(
         &g_handle, &matW, num_W_rows, num_W_cols, ldw, 16,
-        info.cuda_type, layout.orderA, CUSPARSELT_SPARSITY_50_PERCENT);
+        info.cuda_type, layout.orderW, CUSPARSELT_SPARSITY_50_PERCENT);
     if (status != CUSPARSE_STATUS_SUCCESS) {
         cudaFree(dW); cudaFree(dA); cudaFree(dR); cudaFree(d_valid);
         return 0;
@@ -522,6 +533,7 @@ static int test_single_layout(
                 if (dW_compressedBuffer) cudaFree(dW_compressedBuffer);
                 cusparseLtMatmulPlanDestroy(&plan);
                 cusparseLtMatmulAlgSelectionDestroy(&alg_sel);
+                if (split_k_val > 1) stop_doubling = true;
                 continue;
             }
             
@@ -544,6 +556,7 @@ static int test_single_layout(
                 if (dW_compressedBuffer) cudaFree(dW_compressedBuffer);
                 cusparseLtMatmulPlanDestroy(&plan);
                 cusparseLtMatmulAlgSelectionDestroy(&alg_sel);
+                if (split_k_val > 1) stop_doubling = true;
                 continue;
             }
             
@@ -560,7 +573,7 @@ static int test_single_layout(
             cudaEventElapsedTime(&total_ms, start_event, stop_event);
             float avg_us = (total_ms * 1000.0f) / repeat;
             
-            // TOPS 计算 (与旧代码一致，不乘 0.5)
+            // TOPS 计算
             double flops = 2.0 * (double)M * (double)N * (double)K;
             double tops = (flops / (avg_us * 1e-6)) / 1e12;
             

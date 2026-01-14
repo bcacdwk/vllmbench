@@ -548,7 +548,7 @@ int64_t cusparselt_compress(
 /**
  * @brief 搜索单个 (N,K,M) 组合的最优算法
  *
- * 采用与旧代码一致的双层网格搜索策略:
+ * 采用双层网格搜索策略:
  * - 外层遍历 alg_id
  * - 内层自适应调整 split_k_val (1, 2, 4, 8, ... 及 -1 表示 Segment-K)
  * - 每个 alg_id 单独压缩权重
@@ -974,6 +974,14 @@ int cusparselt_search_single_m(
             }
             cudaStreamSynchronize(cu_stream);
             
+            // 如果预热失败，停止倍增
+            if (!success) {
+                cusparseLtMatmulPlanDestroy(&plan);
+                cusparseLtMatmulAlgSelectionDestroy(&alg_sel);
+                if (split_k_val > 1) stop_doubling = true;
+                continue;
+            }
+            
             // 计时
             cudaEvent_t start = nullptr, stop = nullptr;
             float total_ms = 0.0f;
@@ -1002,7 +1010,6 @@ int cusparselt_search_single_m(
                 rec.alg_id = alg_id;
                 rec.split_k = split_k_val;
                 rec.lat_us = (total_ms * 1000.0f) / (float)repeat;
-                // TOPS 计算: 与旧代码一致，使用 2*M*N*K
                 double ops = 2.0 * (double)M * (double)N * (double)K;
                 rec.tops = (float)(ops / (rec.lat_us / 1e6) / 1e12);
                 rec.workspace = (int64_t)workspace_size;

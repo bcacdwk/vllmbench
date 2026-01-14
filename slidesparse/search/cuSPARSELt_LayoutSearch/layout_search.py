@@ -9,7 +9,7 @@ cuSPARSELt 布局离线搜索
 测试 16 种布局组合 (2:4 稀疏矩阵乘法):
   - 转置: TT, TN, NT, NN (4种)
   - A/B 排列: RowCol, ColCol (2种)
-  - D 输出: Col, Row (2种)
+  - R 输出: Col, Row (2种)
 
 数据准备策略 (与 AlgSearch 对齐):
   - Python 端：生成数据 → 量化 → 调用 CUDA prune
@@ -63,19 +63,31 @@ from utils import (
 # 布局常量
 # =============================================================================
 
-NUM_LAYOUTS = 8
+NUM_LAYOUTS = 16
 
 LAYOUT_NAMES = [
-    # D 输出为 ColMajor (前4种) - 有效的 trans+order 组合
-    "TN_CC_Col",   # TN + ColCol
+    # === 标准有效组合 (前8种) ===
+    # D 输出为 ColMajor (前4种)
+    "TN_CC_Col",   # TN + ColCol (推荐)
     "NT_RR_Col",   # NT + RowRow
     "NN_RC_Col",   # NN + RowCol
     "TT_CR_Col",   # TT + ColRow
-    # D 输出为 RowMajor (后4种)
+    # D 输出为 RowMajor
     "TN_CC_Row",   # TN + ColCol
     "NT_RR_Row",   # NT + RowRow
     "NN_RC_Row",   # NN + RowCol
     "TT_CR_Row",   # TT + ColRow
+    # === 非标准组合 (后8种，测试用) ===
+    # D 输出为 ColMajor
+    "TN_RR_Col",   # TN + RowRow
+    "NT_CC_Col",   # NT + ColCol
+    "NN_CR_Col",   # NN + ColRow
+    "TT_RC_Col",   # TT + RowCol
+    # D 输出为 RowMajor
+    "TN_RR_Row",   # TN + RowRow
+    "NT_CC_Row",   # NT + ColCol
+    "NN_CR_Row",   # NN + ColRow
+    "TT_RC_Row",   # TT + RowCol
 ]
 
 
@@ -375,10 +387,12 @@ def run_search(
             first_result = nk_results["m_results"][first_m]
             valid_layouts = [r for r in first_result["results"] if r["valid"]]
             if valid_layouts:
-                best = max(valid_layouts, key=lambda x: x["tops"])
-                print(f"      → 最优布局: {best['layout_name']}, {best['tops']:.2f} TOPS, alg={best['best_alg_id']}, split_k={best['best_split_k']}")
+                print(f"      有效布局 ({len(valid_layouts)}/{NUM_LAYOUTS}):", flush=True)
+                for r in first_result["results"]:
+                    if r["valid"]:
+                        print(f"        {r['layout_name']:15} | {r['lat_us']:8.2f} us | {r['tops']:6.2f} TOPS | alg={r['best_alg_id']}, split_k={r['best_split_k']}", flush=True)
             else:
-                print(f"      → 无有效布局")
+                print(f"      → 无有效布局", flush=True)
         
         results.append(nk_results)
         
@@ -426,18 +440,18 @@ def main():
     
     test_segment_k = not args.no_segment_k
     
-    print("=" * 60)
-    print("cuSPARSELt 布局离线搜索 (2:4 稀疏)")
-    print("=" * 60)
-    print(f"GPU: {hw_info.gpu_full_name} ({hw_info.cc_tag}, {hw_info.arch_name})")
-    print(f"模型: {model_name}")
-    print(f"参数: dtype={args.dtype}, outdtype={args.outdtype}")
-    print(f"Segment-K 测试: {'开启' if test_segment_k else '关闭'}")
-    print()
+    print("=" * 60, flush=True)
+    print("cuSPARSELt 布局离线搜索 (2:4 稀疏)", flush=True)
+    print("=" * 60, flush=True)
+    print(f"GPU: {hw_info.gpu_full_name} ({hw_info.cc_tag}, {hw_info.arch_name})", flush=True)
+    print(f"模型: {model_name}", flush=True)
+    print(f"参数: dtype={args.dtype}, outdtype={args.outdtype}", flush=True)
+    print(f"Segment-K 测试: {'开启' if test_segment_k else '关闭'}", flush=True)
+    print(flush=True)
     
     out_dir = Path(args.out_dir) if args.out_dir else Path("./layout_search_results")
     
-    print("[1/4] 编译 CUDA 扩展...")
+    print("[1/4] 编译 CUDA 扩展...", flush=True)
     src_path = SCRIPT_DIR / "layout_search_cusparselt.cu"
     build_dir = SCRIPT_DIR / "build"
     so_path = build_search_extension(
@@ -448,12 +462,12 @@ def main():
         force=args.compile,
     )
     
-    print("[2/4] 加载 CUDA 扩展...")
+    print("[2/4] 加载 CUDA 扩展...", flush=True)
     lib = load_search_extension(so_path, backend="cusparselt", setup_func=setup_lib_signatures)
     
     if not lib.cusparselt_layout_search_is_available():
         raise RuntimeError("cuSPARSELt 不可用")
-    print("✓ cuSPARSELt 可用")
+    print("✓ cuSPARSELt 可用", flush=True)
     
     nk_list = get_nk_list_auto(args.model, with_names=False)
     
@@ -462,11 +476,11 @@ def main():
     else:
         m_list = default_m_list()
     
-    print()
-    print(f"[3/4] 开始布局搜索...")
-    print(f"      NK 组合: {len(nk_list)} 个, M 列表: {m_list}")
-    print(f"      布局数量: {NUM_LAYOUTS}")
-    print()
+    print(flush=True)
+    print(f"[3/4] 开始布局搜索...", flush=True)
+    print(f"      NK 组合: {len(nk_list)} 个, M 列表: {m_list}", flush=True)
+    print(f"      布局数量: {NUM_LAYOUTS}", flush=True)
+    print(flush=True)
     
     ret = run_search(
         lib,
@@ -493,10 +507,10 @@ def main():
         is_sparse=True,
     )
     
-    print()
-    print(f"[4/4] 完成! 结果已保存到:")
-    print(f"      - {saved_dir}")
-    print("=" * 60)
+    print(flush=True)
+    print(f"[4/4] 完成! 结果已保存到:", flush=True)
+    print(f"      - {saved_dir}", flush=True)
+    print("=" * 60, flush=True)
 
 
 if __name__ == "__main__":
