@@ -42,6 +42,7 @@ from .config import is_slidesparse_enabled, is_cublaslt_enabled, is_cusparselt_e
 from pathlib import Path
 from typing import Optional
 
+import ctypes
 import torch
 from torch.nn import Module
 
@@ -52,7 +53,7 @@ from vllm.model_executor.layers.quantization.utils.quant_utils import GroupShape
 from vllm.platforms import current_platform
 
 # 使用统一的 slidesparse 工具库
-from slidesparse.utils import load_module, normalize_dtype
+from slidesparse.utils import load_module, normalize_dtype, find_file
 
 logger = init_logger(__name__)
 
@@ -78,6 +79,48 @@ def get_inner_dtype_torch() -> torch.dtype:
 # CSRC 目录（用于模块加载）
 _CSRC_DIR = Path(__file__).parent.parent / "csrc"
 
+# 缓存加载的 GEMM 扩展
+_gemm_extensions = {}
+
+
+class cuBLASLtGemmWrapper:
+    """cuBLASLt GEMM ctypes 包装器（简化版）"""
+    
+    def __init__(self, lib_path: Path):
+        self._lib = ctypes.CDLL(str(lib_path))
+        
+        # 错误处理函数
+        self._lib.cublaslt_gemm_get_last_error.argtypes = []
+        self._lib.cublaslt_gemm_get_last_error.restype = ctypes.c_char_p
+        
+        # GEMM 签名: int fn(W, A, D, M, N, K, inner_dtype, stream)
+        # fp8_mm 和 int8_mm 签名完全相同
+        gemm_sig = [ctypes.c_void_p] * 3 + [ctypes.c_int64] * 3 + [ctypes.c_char_p, ctypes.c_void_p]
+        for name in ["cublaslt_fp8_mm", "cublaslt_int8_mm"]:
+            getattr(self._lib, name).argtypes = gemm_sig
+            getattr(self._lib, name).restype = ctypes.c_int
+    
+    def _call_gemm(self, fn_name: str, W: torch.Tensor, A: torch.Tensor, inner_dtype: str) -> torch.Tensor:
+        """通用 GEMM 调用: D[M,N] = W[N,K] @ A[M,K]"""
+        M, K = A.shape
+        N = W.shape[0]
+        D = torch.empty((M, N), dtype=torch.float32 if inner_dtype == "fp32" else torch.bfloat16, device=A.device)
+        
+        ret = getattr(self._lib, fn_name)(
+            W.data_ptr(), A.data_ptr(), D.data_ptr(), M, N, K,
+            inner_dtype.encode(), torch.cuda.current_stream().cuda_stream
+        )
+        if ret != 0:
+            err = self._lib.cublaslt_gemm_get_last_error()
+            raise RuntimeError(f"{fn_name} failed: {err.decode() if err else 'Unknown'}")
+        return D
+    
+    def cublaslt_fp8_mm(self, W: torch.Tensor, A: torch.Tensor, inner_dtype: str = "bf16") -> torch.Tensor:
+        return self._call_gemm("cublaslt_fp8_mm", W, A, inner_dtype)
+    
+    def cublaslt_int8_mm(self, W: torch.Tensor, A: torch.Tensor, inner_dtype: str = "bf16") -> torch.Tensor:
+        return self._call_gemm("cublaslt_int8_mm", W, A, inner_dtype)
+
 
 def _get_gemm_extension(backend: str):
     """
@@ -87,12 +130,17 @@ def _get_gemm_extension(backend: str):
         backend: "cublaslt" 或 "cusparselt"
         
     Returns:
-        加载的 extension 模块
+        加载的 extension 模块（包装器对象）
         
     Note:
         GEMM extension 运行时支持多种数据类型（FP8E4M3, INT8），
         文件名不包含 dtype，格式为: {backend}_gemm_{GPU}_{CC}_{PyVer}_{CUDAVer}_{Arch}.so
     """
+    global _gemm_extensions
+    
+    if backend in _gemm_extensions:
+        return _gemm_extensions[backend]
+    
     if backend not in ("cublaslt", "cusparselt"):
         raise ValueError(f"Unsupported backend: {backend}")
     
@@ -100,10 +148,24 @@ def _get_gemm_extension(backend: str):
     prefix = f"{backend}_gemm"
     build_dir = _CSRC_DIR / prefix / "build"
     
-    # 使用统一 load_module，不带 dtype（因为运行时支持多种类型）
-    module = load_module(prefix, search_dir=build_dir, ext=".so")
-    logger.info_once(f"{backend} GEMM extension loaded")
-    return module
+    # 查找 .so 文件
+    so_path = find_file(prefix, search_dir=build_dir, ext=".so")
+    if so_path is None:
+        raise FileNotFoundError(
+            f"GEMM extension not found: {prefix}\n"
+            f"Please run: python3 {build_dir.parent}/build_{backend}.py build"
+        )
+    
+    # 根据后端创建包装器
+    if backend == "cublaslt":
+        wrapper = cuBLASLtGemmWrapper(so_path)
+    elif backend == "cusparselt":
+        # TODO: 为 cusparselt 创建类似的包装器
+        wrapper = load_module(prefix, search_dir=build_dir, ext=".so")
+    
+    _gemm_extensions[backend] = wrapper
+    logger.info_once(f"{backend} GEMM extension loaded: {so_path.name}")
+    return wrapper
 
 
 # ============================================================================

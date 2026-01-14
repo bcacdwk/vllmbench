@@ -149,7 +149,11 @@ def get_compress_module():
     lib = ctypes.CDLL(str(so_path))
     
     # 设置函数签名
-    # void cusparselt_get_compress_sizes(int N, int K, const char* dtype, size_t* compressed_size, size_t* temp_buffer_size)
+    # const char* cusparselt_compress_get_last_error()
+    lib.cusparselt_compress_get_last_error.argtypes = []
+    lib.cusparselt_compress_get_last_error.restype = ctypes.c_char_p
+    
+    # int cusparselt_get_compress_sizes(int N, int K, const char* dtype, size_t* compressed_size, size_t* temp_buffer_size)
     lib.cusparselt_get_compress_sizes.argtypes = [
         ctypes.c_int,                      # N
         ctypes.c_int,                      # K
@@ -157,9 +161,9 @@ def get_compress_module():
         ctypes.POINTER(ctypes.c_size_t),   # compressed_size
         ctypes.POINTER(ctypes.c_size_t),   # temp_buffer_size
     ]
-    lib.cusparselt_get_compress_sizes.restype = None
+    lib.cusparselt_get_compress_sizes.restype = ctypes.c_int
     
-    # void cusparselt_compress_weight(const void* input, void* compressed, void* temp, int N, int K, const char* dtype, cudaStream_t stream)
+    # int cusparselt_compress_weight(const void* input, void* compressed, void* temp, int N, int K, const char* dtype, cudaStream_t stream)
     lib.cusparselt_compress_weight.argtypes = [
         ctypes.c_void_p,  # input_weight
         ctypes.c_void_p,  # compressed_weight
@@ -169,7 +173,7 @@ def get_compress_module():
         ctypes.c_char_p,  # dtype
         ctypes.c_void_p,  # stream (可以是 None)
     ]
-    lib.cusparselt_compress_weight.restype = None
+    lib.cusparselt_compress_weight.restype = ctypes.c_int
     
     # int cusparselt_is_available()
     lib.cusparselt_is_available.argtypes = []
@@ -181,6 +185,17 @@ def get_compress_module():
     
     _compress_module = lib
     return lib
+
+
+def _check_error(lib, ret: int, func_name: str):
+    """检查返回值并抛出异常"""
+    if ret != 0:
+        err_msg = lib.cusparselt_compress_get_last_error()
+        if err_msg:
+            err_msg = err_msg.decode("utf-8")
+        else:
+            err_msg = "Unknown error"
+        raise RuntimeError(f"{func_name} failed: {err_msg}")
 
 
 def check_compress_available() -> bool:
@@ -230,12 +245,13 @@ def get_compress_sizes(N: int, K: int, dtype: Union[torch.dtype, str] = "int8") 
     compressed_size = ctypes.c_size_t()
     temp_buffer_size = ctypes.c_size_t()
     
-    lib.cusparselt_get_compress_sizes(
+    ret = lib.cusparselt_get_compress_sizes(
         N, K,
         dtype_str.encode("utf-8"),
         ctypes.byref(compressed_size),
         ctypes.byref(temp_buffer_size),
     )
+    _check_error(lib, ret, "cusparselt_get_compress_sizes")
     
     return compressed_size.value, temp_buffer_size.value
 
@@ -309,7 +325,7 @@ def compress_tensor(
     # 执行压缩
     lib = get_compress_module()
     
-    lib.cusparselt_compress_weight(
+    ret = lib.cusparselt_compress_weight(
         ctypes.c_void_p(weight_gpu.data_ptr()),
         ctypes.c_void_p(compressed_gpu.data_ptr()),
         ctypes.c_void_p(temp_ptr) if temp_ptr else None,
@@ -317,6 +333,7 @@ def compress_tensor(
         dtype.encode("utf-8"),
         None,  # stream
     )
+    _check_error(lib, ret, "cusparselt_compress_weight")
     
     # 同步
     torch.cuda.synchronize()

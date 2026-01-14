@@ -41,7 +41,7 @@ from slidesparse.utils import (
     build_filename,
     find_file,
     print_system_info,
-    build_cuda_extension,
+    build_cuda_extension_direct,
     clean_build_artifacts,
     CUBLASLT_LDFLAGS,
 )
@@ -83,15 +83,14 @@ def build_extension(force: bool = False, verbose: bool = True) -> Path:
         print(f"Arch: {hw_info.arch_tag}")
         print("=" * 60)
     
-    # 直接调用顶层编译函数
-    return build_cuda_extension(
+    # 直接使用 nvcc 编译（不依赖 PyTorch，编译速度快）
+    return build_cuda_extension_direct(
         name=ext_name,
         source_file=SOURCE_FILE,
         build_dir=BUILD_DIR,
         extra_ldflags=CUBLASLT_LDFLAGS,
         force=force,
         verbose=verbose,
-        clean_after_build=True,
     )
 
 

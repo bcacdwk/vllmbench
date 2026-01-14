@@ -390,10 +390,35 @@ static PlanContext& get_or_create_plan(cusparseLtHandle_t handle,
 }  // namespace
 
 // =============================================================================
+// C 导出接口 - 错误处理基础设施
+// =============================================================================
+
+// 线程安全的错误信息存储
+static thread_local char g_last_error[1024] = "";
+
+static void set_error(const char* msg) {
+    std::strncpy(g_last_error, msg, sizeof(g_last_error) - 1);
+    g_last_error[sizeof(g_last_error) - 1] = '\0';
+}
+
+static void clear_error() {
+    g_last_error[0] = '\0';
+}
+
+// =============================================================================
 // C 导出接口
 // =============================================================================
 
 extern "C" {
+
+/**
+ * 获取最后一次错误信息
+ * 
+ * @return 错误信息字符串（线程安全）
+ */
+const char* cusparselt_compress_get_last_error() {
+    return g_last_error;
+}
 
 /**
  * 查询压缩所需的缓冲区大小（支持多数据类型）
@@ -403,37 +428,50 @@ extern "C" {
  * @param dtype              数据类型字符串: "int8" 或 "fp8e4m3"
  * @param compressed_size    [out] 压缩后数据大小（字节）
  * @param temp_buffer_size   [out] 临时缓冲区大小（字节）
+ * @return                   0 成功，-1 失败（调用 cusparselt_compress_get_last_error 获取错误信息）
  * 
  * 注意：M 固定为 1024，用于构建压缩计划
  */
-void cusparselt_get_compress_sizes(
+int cusparselt_get_compress_sizes(
     int N, int K,
     const char* dtype,
     size_t* compressed_size,
     size_t* temp_buffer_size
 ) {
-    if (!compressed_size || !temp_buffer_size) {
-        throw std::runtime_error("Output pointers cannot be null");
+    clear_error();
+    try {
+        if (!compressed_size || !temp_buffer_size) {
+            set_error("Output pointers cannot be null");
+            return -1;
+        }
+        
+        if (!dtype) {
+            set_error("dtype cannot be null");
+            return -1;
+        }
+        
+        std::string dtype_str(dtype);
+        const int M = 1024;  // 固定 M 用于构建计划
+        
+        cusparseLtHandle_t handle = get_handle();
+        PlanContext& ctx = get_or_create_plan(handle, M, N, K, dtype_str);
+        
+        CHECK_CUSPARSE(cusparseLtSpMMACompressedSize(
+            &handle, &ctx.plan,
+            compressed_size,
+            temp_buffer_size));
+        
+        DEBUG_LOG("Query sizes: N=" << N << " K=" << K << " dtype=" << dtype_str
+                  << " compressed=" << *compressed_size 
+                  << " temp=" << *temp_buffer_size);
+        return 0;
+    } catch (const std::exception& e) {
+        set_error(e.what());
+        return -1;
+    } catch (...) {
+        set_error("Unknown error in cusparselt_get_compress_sizes");
+        return -1;
     }
-    
-    if (!dtype) {
-        throw std::runtime_error("dtype cannot be null");
-    }
-    
-    std::string dtype_str(dtype);
-    const int M = 1024;  // 固定 M 用于构建计划
-    
-    cusparseLtHandle_t handle = get_handle();
-    PlanContext& ctx = get_or_create_plan(handle, M, N, K, dtype_str);
-    
-    CHECK_CUSPARSE(cusparseLtSpMMACompressedSize(
-        &handle, &ctx.plan,
-        compressed_size,
-        temp_buffer_size));
-    
-    DEBUG_LOG("Query sizes: N=" << N << " K=" << K << " dtype=" << dtype_str
-              << " compressed=" << *compressed_size 
-              << " temp=" << *temp_buffer_size);
 }
 
 /**
@@ -446,12 +484,13 @@ void cusparselt_get_compress_sizes(
  * @param K                  权重列数 (in_features)
  * @param dtype              数据类型字符串: "int8" 或 "fp8e4m3"
  * @param stream             CUDA 流（可为 NULL 使用默认流）
+ * @return                   0 成功，-1 失败（调用 cusparselt_compress_get_last_error 获取错误信息）
  * 
  * 注意：
  *   - 输入权重必须满足 2:4 结构化稀疏约束
  *   - 权重布局为行主序 [N, K]（cuSPARSELt 视为列主序 [K, N]）
  */
-void cusparselt_compress_weight(
+int cusparselt_compress_weight(
     const void* input_weight,
     void* compressed_weight,
     void* temp_buffer,
@@ -459,91 +498,103 @@ void cusparselt_compress_weight(
     const char* dtype,
     cudaStream_t stream
 ) {
-    if (!input_weight || !compressed_weight) {
-        throw std::runtime_error("Input/output pointers cannot be null");
-    }
-    
-    if (!dtype) {
-        throw std::runtime_error("dtype cannot be null");
-    }
-    
-    std::string dtype_str(dtype);
-    const int M = 1024;  // 固定 M 用于构建计划
-    
-    DEBUG_LOG("Compress: N=" << N << " K=" << K << " dtype=" << dtype_str);
-    
-    cusparseLtHandle_t handle = get_handle();
-    PlanContext& ctx = get_or_create_plan(handle, M, N, K, dtype_str);
-    
-    // 查询所需大小
-    size_t compressed_size = 0;
-    size_t temp_buffer_size = 0;
-    CHECK_CUSPARSE(cusparseLtSpMMACompressedSize(
-        &handle, &ctx.plan,
-        &compressed_size,
-        &temp_buffer_size));
-    
-    // 处理临时缓冲区
-    void* temp_ptr = temp_buffer;
-    bool temp_allocated = false;
-    if (temp_buffer_size > 0 && temp_ptr == nullptr) {
-        CHECK_CUDA(cudaMalloc(&temp_ptr, temp_buffer_size));
-        temp_allocated = true;
-        DEBUG_LOG("  Allocated temp buffer: " << temp_buffer_size << " bytes");
-    }
-    
-    // 分配稀疏性验证标志
-    int* d_valid = nullptr;
-    CHECK_CUDA(cudaMalloc(&d_valid, sizeof(int)));
-    
+    clear_error();
     try {
-        // Step 1: 验证 2:4 稀疏性
-        CHECK_CUSPARSE(cusparseLtSpMMAPruneCheck(
-            &handle, &ctx.matmul,
-            input_weight, d_valid, stream));
-        
-        int h_valid = 0;
-        CHECK_CUDA(cudaMemcpyAsync(&h_valid, d_valid, sizeof(int),
-                                    cudaMemcpyDeviceToHost, stream));
-        
-        if (stream) {
-            CHECK_CUDA(cudaStreamSynchronize(stream));
-        } else {
-            CHECK_CUDA(cudaDeviceSynchronize());
+        if (!input_weight || !compressed_weight) {
+            set_error("Input/output pointers cannot be null");
+            return -1;
         }
         
-        CHECK_CUDA(cudaFree(d_valid));
-        d_valid = nullptr;
-        
-        if (h_valid != 0) {
-            throw std::runtime_error("Input weight does not satisfy 2:4 sparsity constraint");
+        if (!dtype) {
+            set_error("dtype cannot be null");
+            return -1;
         }
-        DEBUG_LOG("  2:4 sparsity verified");
         
-        // Step 2: 执行压缩
-        CHECK_CUSPARSE(cusparseLtSpMMACompress(
+        std::string dtype_str(dtype);
+        const int M = 1024;  // 固定 M 用于构建计划
+        
+        DEBUG_LOG("Compress: N=" << N << " K=" << K << " dtype=" << dtype_str);
+        
+        cusparseLtHandle_t handle = get_handle();
+        PlanContext& ctx = get_or_create_plan(handle, M, N, K, dtype_str);
+        
+        // 查询所需大小
+        size_t compressed_size = 0;
+        size_t temp_buffer_size = 0;
+        CHECK_CUSPARSE(cusparseLtSpMMACompressedSize(
             &handle, &ctx.plan,
-            input_weight,
-            compressed_weight,
-            temp_ptr,
-            stream));
+            &compressed_size,
+            &temp_buffer_size));
         
-        if (stream) {
-            CHECK_CUDA(cudaStreamSynchronize(stream));
-        } else {
-            CHECK_CUDA(cudaDeviceSynchronize());
+        // 处理临时缓冲区
+        void* temp_ptr = temp_buffer;
+        bool temp_allocated = false;
+        if (temp_buffer_size > 0 && temp_ptr == nullptr) {
+            CHECK_CUDA(cudaMalloc(&temp_ptr, temp_buffer_size));
+            temp_allocated = true;
+            DEBUG_LOG("  Allocated temp buffer: " << temp_buffer_size << " bytes");
         }
-        DEBUG_LOG("  Compression completed");
         
+        // 分配稀疏性验证标志
+        int* d_valid = nullptr;
+        CHECK_CUDA(cudaMalloc(&d_valid, sizeof(int)));
+        
+        try {
+            // Step 1: 验证 2:4 稀疏性
+            CHECK_CUSPARSE(cusparseLtSpMMAPruneCheck(
+                &handle, &ctx.matmul,
+                input_weight, d_valid, stream));
+            
+            int h_valid = 0;
+            CHECK_CUDA(cudaMemcpyAsync(&h_valid, d_valid, sizeof(int),
+                                        cudaMemcpyDeviceToHost, stream));
+            
+            if (stream) {
+                CHECK_CUDA(cudaStreamSynchronize(stream));
+            } else {
+                CHECK_CUDA(cudaDeviceSynchronize());
+            }
+            
+            CHECK_CUDA(cudaFree(d_valid));
+            d_valid = nullptr;
+            
+            if (h_valid != 0) {
+                throw std::runtime_error("Input weight does not satisfy 2:4 sparsity constraint");
+            }
+            DEBUG_LOG("  2:4 sparsity verified");
+            
+            // Step 2: 执行压缩
+            CHECK_CUSPARSE(cusparseLtSpMMACompress(
+                &handle, &ctx.plan,
+                input_weight,
+                compressed_weight,
+                temp_ptr,
+                stream));
+            
+            if (stream) {
+                CHECK_CUDA(cudaStreamSynchronize(stream));
+            } else {
+                CHECK_CUDA(cudaDeviceSynchronize());
+            }
+            DEBUG_LOG("  Compression completed");
+            
+        } catch (...) {
+            if (d_valid) cudaFree(d_valid);
+            if (temp_allocated && temp_ptr) cudaFree(temp_ptr);
+            throw;  // 重新抛出，让外层 catch 处理
+        }
+        
+        // 清理
+        if (temp_allocated && temp_ptr) {
+            CHECK_CUDA(cudaFree(temp_ptr));
+        }
+        return 0;
+    } catch (const std::exception& e) {
+        set_error(e.what());
+        return -1;
     } catch (...) {
-        if (d_valid) cudaFree(d_valid);
-        if (temp_allocated && temp_ptr) cudaFree(temp_ptr);
-        throw;
-    }
-    
-    // 清理
-    if (temp_allocated && temp_ptr) {
-        CHECK_CUDA(cudaFree(temp_ptr));
+        set_error("Unknown error in cusparselt_compress_weight");
+        return -1;
     }
 }
 

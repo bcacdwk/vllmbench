@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 /**
- * cuBLASLt GEMM Implementation for SlideSparse
+ * cuBLASLt GEMM Implementation for SlideSparse (extern "C" 版本)
  * 
  * 设计目标：
  * =========
@@ -11,7 +11,7 @@
  * 
  * 计算流程：
  * =========
- * D[M,N] = W[N,K]^T @ A[M,K]
+ * D[M,N] = A[M,K] @ W[N,K]^T
  * 
  * cuBLASLt 配置：
  * ==============
@@ -24,16 +24,21 @@
  * ===================
  * - input_dtype: "fp8e4m3" (FP8E4M3) 或 "int8" (INT8)
  * - inner_dtype: "bf16" (BFloat16) 或 "fp32" (Float32)
+ * 
+ * 接口设计（extern "C"）：
+ * =======================
+ * - 所有函数返回 int（0=成功，-1=失败）
+ * - 错误信息通过 cublaslt_gemm_get_last_error() 获取
+ * - 调用方预分配输出 tensor，传入 data_ptr
  */
 
-#include <torch/extension.h>
-#include <ATen/cuda/CUDAContext.h>
 #include <cuda.h>
 #include <cuda_runtime.h>
 #include <cuda_bf16.h>
 #include <cuda_fp8.h>
 #include <cublasLt.h>
 
+#include <cstring>
 #include <mutex>
 #include <cstdlib>
 #include <sstream>
@@ -183,21 +188,6 @@ static cudaDataType_t get_cuda_inner_dtype(const std::string& inner_dtype) {
 }
 
 /**
- * 将字符串 inner_dtype 转换为 PyTorch 数据类型
- */
-static at::ScalarType get_torch_inner_dtype(const std::string& inner_dtype) {
-  if (inner_dtype == "bf16") {
-    return at::kBFloat16;
-  } else if (inner_dtype == "fp32") {
-    return at::kFloat;
-  } else {
-    throw std::invalid_argument(
-        "Unsupported inner_dtype: " + inner_dtype +
-        ". Supported: bf16, fp32");
-  }
-}
-
-/**
  * 根据 input_dtype 获取计算类型
  */
 static cublasComputeType_t get_compute_type(const std::string& input_dtype) {
@@ -211,38 +201,24 @@ static cublasComputeType_t get_compute_type(const std::string& input_dtype) {
   }
 }
 
-/**
- * 验证 PyTorch tensor 的数据类型是否与 input_dtype 匹配
- */
-static void validate_tensor_dtype(
-    const torch::Tensor& tensor,
-    const std::string& input_dtype,
-    const std::string& tensor_name) {
-  
-  if (input_dtype == "fp8e4m3" || input_dtype == "fp8") {
-    TORCH_CHECK(tensor.scalar_type() == at::kFloat8_e4m3fn,
-                tensor_name, " must be FP8E4M3, got ", tensor.scalar_type());
-  } else if (input_dtype == "int8") {
-    TORCH_CHECK(tensor.scalar_type() == at::kChar,
-                tensor_name, " must be INT8, got ", tensor.scalar_type());
-  }
-}
-
 // ============================================================================
-// cuBLASLt GEMM 实现（无 scale/bias）
+// cuBLASLt GEMM 核心实现（内部函数）
 // ============================================================================
 
 /**
- * cuBLASLt Matrix Multiplication（纯 GEMM，不带 dequant）
+ * cuBLASLt Matrix Multiplication 内部实现
  * 
  * 计算：D[M,N] = A[M,K] @ W[N,K]^T
  * 
- * 参数说明：
- * @param W           权重矩阵 [N, K]，FP8/INT8，行主序存储
- * @param A           输入矩阵 [M, K]，FP8/INT8，行主序存储
+ * @param W_ptr       权重矩阵指针 [N, K]，FP8/INT8，行主序（GPU 内存）
+ * @param A_ptr       输入矩阵指针 [M, K]，FP8/INT8，行主序（GPU 内存）
+ * @param D_ptr       输出矩阵指针 [M, N]，BF16/FP32，行主序（GPU 内存，调用方预分配）
+ * @param M           A 的行数
+ * @param N           W 的行数（输出列数）
+ * @param K           内维度
  * @param input_dtype 输入数据类型字符串："fp8e4m3" 或 "int8"
  * @param inner_dtype 输出数据类型字符串："bf16" 或 "fp32"
- * @return            输出矩阵 [M, N]，BF16/FP32（inner_dtype）
+ * @param stream      CUDA 流（可为 nullptr 使用默认流）
  * 
  * 实现细节：
  * - W 放在 cuBLASLt 的 A 位置（左矩阵），使用 opA=CUBLAS_OP_T
@@ -250,65 +226,25 @@ static void validate_tensor_dtype(
  * - 所有矩阵声明为列主序（实际是行主序内存，利用转置等价）
  * - alpha = 1.0, beta = 0.0（纯矩阵乘法）
  */
-torch::Tensor cublaslt_mm(
-    torch::Tensor W,               // [N, K] FP8/INT8 行主序
-    torch::Tensor A,               // [M, K] FP8/INT8 行主序
-    const std::string& input_dtype,  // "fp8e4m3" 或 "int8"
-    const std::string& inner_dtype)  // "bf16" 或 "fp32"
+static void cublaslt_mm_impl(
+    const void* W_ptr,
+    const void* A_ptr,
+    void* D_ptr,
+    int64_t M, int64_t N, int64_t K,
+    const std::string& input_dtype,
+    const std::string& inner_dtype,
+    cudaStream_t stream)
 {
-  // ========== 参数提取 ==========
-  const int64_t N = W.size(0);
-  const int64_t K_w = W.size(1);
-  const int64_t M = A.size(0);
-  const int64_t K_a = A.size(1);
-  
-  // ========== 输入验证 ==========
-  // 1. 维度检查
-  TORCH_CHECK(W.dim() == 2, "W must be 2D, got ", W.dim(), "D");
-  TORCH_CHECK(A.dim() == 2, "A must be 2D, got ", A.dim(), "D");
-  TORCH_CHECK(K_w == K_a, "K dimension mismatch: W.K=", K_w, " vs A.K=", K_a);
-  
-  // 2. 数据类型检查
-  validate_tensor_dtype(W, input_dtype, "W");
-  validate_tensor_dtype(A, input_dtype, "A");
-  
-  // 3. 设备检查
-  TORCH_CHECK(W.is_cuda(), "W must be on CUDA");
-  TORCH_CHECK(A.is_cuda(), "A must be on CUDA");
-  
-  // 4. Contiguous 检查
-  TORCH_CHECK(W.is_contiguous(), "W must be contiguous (row-major)");
-  TORCH_CHECK(A.is_contiguous(), "A must be contiguous (row-major)");
-  
-  // 5. 对齐检查（cuBLASLt FP8 要求 16 字节对齐，INT8 要求 4 字节对齐）
-  int64_t align_req = (input_dtype == "fp8e4m3" || input_dtype == "fp8") ? 16 : 4;
-  if (M % align_req != 0 || N % align_req != 0 || K_w % align_req != 0) {
-    // 暂时允许，但打印警告
-    TORCH_WARN_ONCE(
-        "cuBLASLt: dimensions (M=", M, ", N=", N, ", K=", K_w,
-        ") may not be aligned to ", align_req, ". "
-        "This may cause performance degradation or errors on some GPUs.");
-  }
-  
   // ========== 获取数据类型配置 ==========
   cudaDataType_t cuda_input_dtype = get_cuda_input_dtype(input_dtype);
   cudaDataType_t cuda_inner_dtype = get_cuda_inner_dtype(inner_dtype);
-  at::ScalarType torch_inner_dtype = get_torch_inner_dtype(inner_dtype);
   cublasComputeType_t compute_type = get_compute_type(input_dtype);
   
   // Scale 类型始终为 FP32
   cudaDataType_t scale_type = CUDA_R_32F;
   
-  // ========== 分配输出 ==========
-  // 输出 D[M, N]，与输入在同一设备
-  auto options = torch::TensorOptions()
-                     .dtype(torch_inner_dtype)
-                     .device(A.device());
-  torch::Tensor D = torch::empty({M, N}, options);
-  
-  // ========== 获取 cuBLASLt handle 和 stream ==========
+  // ========== 获取 cuBLASLt handle ==========
   cublasLtHandle_t handle = get_cublaslt_handle();
-  cudaStream_t stream = at::cuda::getCurrentCUDAStream();
   
   // ========== 创建 MatmulDesc ==========
   cublasLtMatmulDesc_t matmulDesc = nullptr;
@@ -355,11 +291,11 @@ torch::Tensor cublaslt_mm(
   
   // W 布局：声明为列主序 [K, N]，ld = K
   CHECK_CUBLASLT(cublasLtMatrixLayoutCreate(
-      &layoutW, cuda_input_dtype, K_w, N, K_w));
+      &layoutW, cuda_input_dtype, K, N, K));
   
   // A 布局：声明为列主序 [K, M]，ld = K
   CHECK_CUBLASLT(cublasLtMatrixLayoutCreate(
-      &layoutA, cuda_input_dtype, K_a, M, K_a));
+      &layoutA, cuda_input_dtype, K, M, K));
   
   // D 布局：声明为列主序 [N, M]，ld = N
   CHECK_CUBLASLT(cublasLtMatrixLayoutCreate(
@@ -423,14 +359,14 @@ torch::Tensor cublaslt_mm(
       handle,
       matmulDesc,
       &alpha,
-      W.data_ptr(),  // A（左矩阵）= W
+      W_ptr,    // A（左矩阵）= W
       layoutW,
-      A.data_ptr(),  // B（右矩阵）= A
+      A_ptr,    // B（右矩阵）= A
       layoutA,
       &beta,
-      D.data_ptr(),  // C（用于累加，这里 beta=0 所以不使用）
+      D_ptr,    // C（用于累加，这里 beta=0 所以不使用）
       layoutD,
-      D.data_ptr(),  // D（输出）
+      D_ptr,    // D（输出）
       layoutD,
       algo,
       workspace,
@@ -443,101 +379,152 @@ torch::Tensor cublaslt_mm(
   cublasLtMatrixLayoutDestroy(layoutA);
   cublasLtMatrixLayoutDestroy(layoutD);
   cublasLtMatmulDescDestroy(matmulDesc);
-  
-  return D;
 }
 
-// ============================================================================
-// FP8 专用入口（保持向后兼容）
-// ============================================================================
+// =============================================================================
+// C 导出接口 - 错误处理基础设施
+// =============================================================================
+
+// 线程安全的错误信息存储
+static thread_local char g_last_error[1024] = "";
+
+static void set_error(const char* msg) {
+    std::strncpy(g_last_error, msg, sizeof(g_last_error) - 1);
+    g_last_error[sizeof(g_last_error) - 1] = '\0';
+}
+
+static void clear_error() {
+    g_last_error[0] = '\0';
+}
+
+// =============================================================================
+// C 导出接口
+// =============================================================================
+
+extern "C" {
 
 /**
- * cuBLASLt FP8 Matrix Multiplication（纯 GEMM，不带 dequant）
+ * 获取最后一次错误信息
  * 
- * 这是 FP8 专用的简化接口，inner_dtype 默认为 bf16。
+ * @return 错误信息字符串（线程安全）
+ */
+const char* cublaslt_gemm_get_last_error() {
+    return g_last_error;
+}
+
+/**
+ * cuBLASLt FP8 Matrix Multiplication
  * 
  * 计算：D[M,N] = A[M,K] @ W[N,K]^T
  * 
- * @param W           权重矩阵 [N, K]，FP8E4M3，行主序存储
- * @param A           输入矩阵 [M, K]，FP8E4M3，行主序存储
- * @param inner_dtype 输出数据类型字符串："bf16"（默认）或 "fp32"
- * @return            输出矩阵 [M, N]，BF16/FP32
+ * @param W_ptr       权重矩阵指针 [N, K]，FP8E4M3，行主序（GPU 内存）
+ * @param A_ptr       输入矩阵指针 [M, K]，FP8E4M3，行主序（GPU 内存）
+ * @param D_ptr       输出矩阵指针 [M, N]，BF16/FP32，行主序（GPU 内存，调用方预分配）
+ * @param M           A 的行数
+ * @param N           W 的行数（输出列数）
+ * @param K           内维度
+ * @param inner_dtype 输出数据类型字符串："bf16" 或 "fp32"
+ * @param stream      CUDA 流（可为 NULL 使用默认流）
+ * @return            0 成功，-1 失败
  */
-torch::Tensor cublaslt_fp8_mm(
-    torch::Tensor W,                       // [N, K] FP8 行主序
-    torch::Tensor A,                       // [M, K] FP8 行主序
-    const std::string& inner_dtype = "bf16")  // "bf16" 或 "fp32"
-{
-  return cublaslt_mm(W, A, "fp8e4m3", inner_dtype);
+int cublaslt_fp8_mm(
+    const void* W_ptr,
+    const void* A_ptr,
+    void* D_ptr,
+    int64_t M, int64_t N, int64_t K,
+    const char* inner_dtype,
+    cudaStream_t stream
+) {
+    clear_error();
+    try {
+        if (!W_ptr || !A_ptr || !D_ptr) {
+            set_error("Input/output pointers cannot be null");
+            return -1;
+        }
+        if (!inner_dtype) {
+            set_error("inner_dtype cannot be null");
+            return -1;
+        }
+        
+        cublaslt_mm_impl(W_ptr, A_ptr, D_ptr, M, N, K, 
+                         "fp8e4m3", std::string(inner_dtype), stream);
+        return 0;
+    } catch (const std::exception& e) {
+        set_error(e.what());
+        return -1;
+    } catch (...) {
+        set_error("Unknown error in cublaslt_fp8_mm");
+        return -1;
+    }
 }
 
-// ============================================================================
-// INT8 专用入口
-// ============================================================================
-
 /**
- * cuBLASLt INT8 Matrix Multiplication（纯 GEMM，不带 dequant）
+ * cuBLASLt INT8 Matrix Multiplication
  * 
  * 计算：D[M,N] = A[M,K] @ W[N,K]^T
  * 
- * @param W           权重矩阵 [N, K]，INT8，行主序存储
- * @param A           输入矩阵 [M, K]，INT8，行主序存储
- * @param inner_dtype 输出数据类型字符串："bf16"（默认）或 "fp32"
- * @return            输出矩阵 [M, N]，BF16/FP32
+ * @param W_ptr       权重矩阵指针 [N, K]，INT8，行主序（GPU 内存）
+ * @param A_ptr       输入矩阵指针 [M, K]，INT8，行主序（GPU 内存）
+ * @param D_ptr       输出矩阵指针 [M, N]，BF16/FP32，行主序（GPU 内存，调用方预分配）
+ * @param M           A 的行数
+ * @param N           W 的行数（输出列数）
+ * @param K           内维度
+ * @param inner_dtype 输出数据类型字符串："bf16" 或 "fp32"
+ * @param stream      CUDA 流（可为 NULL 使用默认流）
+ * @return            0 成功，-1 失败
  */
-torch::Tensor cublaslt_int8_mm(
-    torch::Tensor W,                       // [N, K] INT8 行主序
-    torch::Tensor A,                       // [M, K] INT8 行主序
-    const std::string& inner_dtype = "bf16")  // "bf16" 或 "fp32"
-{
-  return cublaslt_mm(W, A, "int8", inner_dtype);
+int cublaslt_int8_mm(
+    const void* W_ptr,
+    const void* A_ptr,
+    void* D_ptr,
+    int64_t M, int64_t N, int64_t K,
+    const char* inner_dtype,
+    cudaStream_t stream
+) {
+    clear_error();
+    try {
+        if (!W_ptr || !A_ptr || !D_ptr) {
+            set_error("Input/output pointers cannot be null");
+            return -1;
+        }
+        if (!inner_dtype) {
+            set_error("inner_dtype cannot be null");
+            return -1;
+        }
+        
+        cublaslt_mm_impl(W_ptr, A_ptr, D_ptr, M, N, K,
+                         "int8", std::string(inner_dtype), stream);
+        return 0;
+    } catch (const std::exception& e) {
+        set_error(e.what());
+        return -1;
+    } catch (...) {
+        set_error("Unknown error in cublaslt_int8_mm");
+        return -1;
+    }
 }
 
-// ============================================================================
-// PyTorch 绑定
-// ============================================================================
-
-PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
-  m.doc() = "cuBLASLt GEMM for SlideSparse (without scale/bias fusion)";
-  
-  // 注意: cublaslt_mm 是内部实现，不对外导出
-  // Python 层应直接调用 cublaslt_fp8_mm 或 cublaslt_int8_mm
-  
-  // FP8 专用入口
-  m.def(
-      "cublaslt_fp8_mm",
-      &cublaslt_fp8_mm,
-      "cuBLASLt FP8 Matrix Multiplication (pure GEMM, no dequant)\n"
-      "\n"
-      "Computes: D[M,N] = A[M,K] @ W[N,K]^T\n"
-      "\n"
-      "Args:\n"
-      "    W: Weight matrix [N, K], FP8E4M3, row-major\n"
-      "    A: Input matrix [M, K], FP8E4M3, row-major\n"
-      "    inner_dtype: Output data type ('bf16' or 'fp32', default 'bf16')\n"
-      "\n"
-      "Returns:\n"
-      "    Output matrix [M, N], BF16/FP32\n",
-      py::arg("W"),
-      py::arg("A"),
-      py::arg("inner_dtype") = "bf16");
-  
-  // INT8 专用入口
-  m.def(
-      "cublaslt_int8_mm",
-      &cublaslt_int8_mm,
-      "cuBLASLt INT8 Matrix Multiplication (pure GEMM, no dequant)\n"
-      "\n"
-      "Computes: D[M,N] = A[M,K] @ W[N,K]^T\n"
-      "\n"
-      "Args:\n"
-      "    W: Weight matrix [N, K], INT8, row-major\n"
-      "    A: Input matrix [M, K], INT8, row-major\n"
-      "    inner_dtype: Output data type ('bf16' or 'fp32', default 'bf16')\n"
-      "\n"
-      "Returns:\n"
-      "    Output matrix [M, N], BF16/FP32\n",
-      py::arg("W"),
-      py::arg("A"),
-      py::arg("inner_dtype") = "bf16");
+/**
+ * 检查 cuBLASLt 是否可用
+ * 
+ * @return 1 可用，0 不可用
+ */
+int cublaslt_is_available() {
+    try {
+        get_cublaslt_handle();
+        return 1;
+    } catch (...) {
+        return 0;
+    }
 }
+
+/**
+ * 获取支持的数据类型
+ * 
+ * @return 逗号分隔的类型字符串
+ */
+const char* cublaslt_get_supported_dtypes() {
+    return "fp8e4m3,int8";
+}
+
+}  // extern "C"
