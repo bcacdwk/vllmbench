@@ -63,10 +63,16 @@ dtype 部分是可选的，支持三种情况：
 >>> module = load_module("cublaslt_gemm", search_dir=build_dir)
 """
 
+import base64
+import ctypes
+import ctypes.util
 import importlib
 import importlib.util
+import json
+import os
 import platform
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -156,25 +162,166 @@ def normalize_dtype(dtype: str) -> str:
     raise ValueError(f"未知的数据类型: {dtype}. 支持的类型: {set(DTYPE_ALIASES.values())}")
 
 
+# #############################################################################
+#
+#  PART 1: CUDA 编译、链接、库加载工具
+#
+#  本部分提供统一的 CUDA 扩展编译和运行时库加载功能。
+#
+#  规范流程：
+#  =========
+#  【编译时】
+#   1. 优先指定系统库路径 (-L/usr/lib/x86_64-linux-gnu)
+#   2. 然后链接库名 (-lcusparseLt 等)
+#   3. 确保链接到系统安装的新版本库，而非 pip 包的旧版本
+#
+#  【运行时】
+#   1. 设置环境变量 (CUSPARSELT_PATH 等) 指向系统库
+#   2. 预加载系统库 (RTLD_GLOBAL 模式，确保符号全局可见)
+#   3. 加载自定义 .so 文件
+#
+#  支持的编译方式：
+#  ===============
+#  - build_cuda_extension():       使用 torch.utils.cpp_extension.load (PyTorch 扩展)
+#  - build_cuda_extension_direct(): 直接使用 nvcc 编译 (纯 C 库，用 ctypes 加载)
+#
+# #############################################################################
+
+
 # =============================================================================
-# CUDA 库加载工具
+# 系统库路径配置
 # =============================================================================
 
-import ctypes
-import ctypes.util
-import os
+# 系统库搜索路径（优先级从高到低）
+SYSTEM_LIB_PATHS = {
+    "x86_64": "/usr/lib/x86_64-linux-gnu",
+    "aarch64": "/usr/lib/aarch64-linux-gnu",
+    "default": "/usr/local/cuda/lib64",
+}
 
-# cuBLASLt 加载状态
+def get_system_lib_path() -> str:
+    """获取当前架构的系统库路径"""
+    import platform
+    arch = platform.machine()
+    return SYSTEM_LIB_PATHS.get(arch, SYSTEM_LIB_PATHS["default"])
+
+
+# =============================================================================
+# NVCC 架构标志
+# =============================================================================
+
+# 支持的 GPU 架构列表
+SUPPORTED_ARCHITECTURES = [
+    ("80", "sm_80"),   # Ampere (A100, A10, A30)
+    ("86", "sm_86"),   # Ampere (RTX 30xx)
+    ("89", "sm_89"),   # Ada Lovelace (RTX 40xx)
+    ("90", "sm_90"),   # Hopper (H100, H200)
+    ("100", "sm_100"), # Blackwell (B100, B200)
+    ("120", "sm_120"), # Blackwell (RTX 50xx)
+    ("121", "sm_121"), # Blackwell (GB10)
+]
+
+
+def get_nvcc_arch_flags(
+    min_compute: int = 80,
+    max_compute: int = 121,
+) -> List[str]:
+    """
+    生成 nvcc 架构编译选项
+    
+    支持从 SM 80 (Ampere) 到 SM 121 (Blackwell)
+    
+    Args:
+        min_compute: 最小支持的 compute capability
+        max_compute: 最大支持的 compute capability
+        
+    Returns:
+        nvcc -gencode 标志列表
+    """
+    flags = []
+    for compute, sm in SUPPORTED_ARCHITECTURES:
+        cc = int(compute)
+        if min_compute <= cc <= max_compute:
+            flags.append(f"-gencode=arch=compute_{compute},code={sm}")
+    return flags
+
+
+def get_current_arch_flag() -> str:
+    """
+    获取当前 GPU 架构的 nvcc 编译标志
+    
+    Returns:
+        单个 -gencode 标志，针对当前 GPU
+    """
+    torch = _get_torch()
+    if not torch.cuda.is_available():
+        raise RuntimeError("CUDA not available")
+    prop = torch.cuda.get_device_properties(0)
+    compute = f"{prop.major}{prop.minor}"
+    return f"-gencode=arch=compute_{compute},code=sm_{compute}"
+
+
+# =============================================================================
+# 链接库配置
+# =============================================================================
+
+# 支持的后端类型
+SUPPORTED_BACKENDS = ["cublaslt", "cusparselt"]
+
+
+def get_backend_ldflags(backend: str, with_lib_path: bool = True) -> List[str]:
+    """
+    获取后端所需的链接标志
+    
+    Args:
+        backend: 后端名称 ("cublaslt" 或 "cusparselt")
+        with_lib_path: 是否包含 -L 库路径（编译时需要，推荐 True）
+        
+    Returns:
+        链接标志列表
+    """
+    lib_path = get_system_lib_path()
+    
+    if backend.lower() == "cublaslt":
+        flags = ["-lcublasLt", "-lcublas", "-lcuda"]
+    elif backend.lower() == "cusparselt":
+        flags = ["-lcusparseLt", "-lcusparse", "-lcuda"]
+    else:
+        raise ValueError(f"未知的后端: {backend}，支持: {SUPPORTED_BACKENDS}")
+    
+    if with_lib_path:
+        return [f"-L{lib_path}"] + flags
+    return flags
+
+
+# 兼容性别名（后端链接库配置）
+BACKEND_LDFLAGS = {
+    "cublaslt": get_backend_ldflags("cublaslt", with_lib_path=True),
+    "cusparselt": get_backend_ldflags("cusparselt", with_lib_path=True),
+}
+
+# 简化版链接库（不含 -L 路径，用于 torch.utils.cpp_extension）
+CUBLASLT_LDFLAGS = get_backend_ldflags("cublaslt", with_lib_path=True)
+CUSPARSELT_LDFLAGS = get_backend_ldflags("cusparselt", with_lib_path=True)
+
+
+# =============================================================================
+# 运行时库加载
+# =============================================================================
+
+# 库加载状态
 _CUBLASLT_LOADED = False
+_CUSPARSELT_LOADED = False
+
 
 def ensure_cublaslt_loaded() -> None:
     """
-    优先加载系统或环境变量指定的 cuBLASLt，避免符号冲突。
+    预加载系统 cuBLASLt 库，避免符号冲突。
     
-    必须在加载自定义 .so 之前完成。
+    必须在加载自定义 .so 之前完成。使用 RTLD_GLOBAL 确保符号全局可见。
     
     环境变量:
-        CUBLASLT_PATH: 指定 libcublasLt.so 的完整路径
+        CUBLASLT_PATH: 指定 libcublasLt.so 的完整路径（优先级最高）
         
     Raises:
         OSError: 无法找到兼容的 libcublasLt
@@ -183,76 +330,94 @@ def ensure_cublaslt_loaded() -> None:
     if _CUBLASLT_LOADED:
         return
 
+    # 构建搜索路径（优先级从高到低）
     preferred_paths = []
+    
+    # 1. 环境变量优先
     env_path = os.environ.get("CUBLASLT_PATH")
     if env_path:
         preferred_paths.append(env_path)
 
+    # 2. 系统库路径
     preferred_paths.extend([
-        "/usr/lib/aarch64-linux-gnu/libcublasLt.so",
         "/usr/lib/x86_64-linux-gnu/libcublasLt.so",
+        "/usr/lib/aarch64-linux-gnu/libcublasLt.so",
         "/usr/local/cuda/lib64/libcublasLt.so",
     ])
+    
+    # 3. ctypes 默认搜索
     found = ctypes.util.find_library("cublasLt")
     if found:
         preferred_paths.append(found)
 
+    # 尝试加载
     for path in dict.fromkeys(preferred_paths):  # 去重但保持优先级
         if not path:
             continue
         try:
             lib = ctypes.CDLL(path, mode=ctypes.RTLD_GLOBAL)
-            getattr(lib, "cublasLtCreate")
+            getattr(lib, "cublasLtCreate")  # 验证库可用
             _CUBLASLT_LOADED = True
             return
         except (OSError, AttributeError):
             continue
 
     raise OSError(
-        "无法找到兼容的 libcublasLt，请设置 CUBLASLT_PATH 或确保 CUDA 已正确安装。"
+        "无法找到兼容的 libcublasLt。\n"
+        "请设置 CUBLASLT_PATH 环境变量，或确保 CUDA 已正确安装。"
     )
 
 
-# cuSPARSELt 加载状态
-_CUSPARSELT_LOADED = False
-
 def ensure_cusparselt_loaded() -> None:
     """
-    优先加载系统或环境变量指定的 cuSPARSELt，避免符号冲突。
+    预加载系统 cuSPARSELt 库 (0.8.1+)，避免与 PyTorch pip 包 (0.7.x) 冲突。
     
-    必须在加载自定义 .so 之前完成。
+    必须在加载自定义 .so 之前完成。使用 RTLD_GLOBAL 确保符号全局可见。
     
     环境变量:
-        CUSPARSELT_PATH: 指定 libcusparseLt.so.0 的完整路径
+        CUSPARSELT_PATH: 指定 libcusparseLt.so.0 的完整路径（优先级最高）
         
     Raises:
-        OSError: 无法找到兼容的 libcusparseLt
+        OSError: 无法找到兼容的 libcusparseLt (需要 0.8+)
     """
     global _CUSPARSELT_LOADED
     if _CUSPARSELT_LOADED:
         return
 
+    # 构建搜索路径（优先级从高到低）
     preferred_paths = []
+    
+    # 1. 环境变量优先
     env_path = os.environ.get("CUSPARSELT_PATH")
     if env_path:
         preferred_paths.append(env_path)
 
+    # 2. 系统库路径（优先新版本目录）
     preferred_paths.extend([
-        "/usr/lib/aarch64-linux-gnu/libcusparseLt.so.0",
-        "/usr/lib/aarch64-linux-gnu/libcusparseLt/13/libcusparseLt.so.0",
+        # x86_64 系统库
         "/usr/lib/x86_64-linux-gnu/libcusparseLt.so.0",
+        "/usr/lib/x86_64-linux-gnu/libcusparseLt/12/libcusparseLt.so.0",
         "/usr/lib/x86_64-linux-gnu/libcusparseLt/13/libcusparseLt.so.0",
+        # aarch64 系统库
+        "/usr/lib/aarch64-linux-gnu/libcusparseLt.so.0",
+        "/usr/lib/aarch64-linux-gnu/libcusparseLt/12/libcusparseLt.so.0",
+        "/usr/lib/aarch64-linux-gnu/libcusparseLt/13/libcusparseLt.so.0",
+        # CUDA 默认路径
         "/usr/local/cuda/lib64/libcusparseLt.so.0",
     ])
+    
+    # 3. ctypes 默认搜索（可能找到 pip 包的旧版本，优先级最低）
     found = ctypes.util.find_library("cusparseLt")
     if found:
         preferred_paths.append(found)
 
+    # 尝试加载
     for path in dict.fromkeys(preferred_paths):  # 去重但保持优先级
         if not path:
             continue
         try:
             lib = ctypes.CDLL(path, mode=ctypes.RTLD_GLOBAL)
+            # 验证是 0.8+ 版本（此 API 在 0.7 中不存在）
             getattr(lib, "cusparseLtMatmulAlgSelectionDestroy")
             _CUSPARSELT_LOADED = True
             return
@@ -260,22 +425,12 @@ def ensure_cusparselt_loaded() -> None:
             continue
 
     raise OSError(
-        "无法找到兼容的 libcusparseLt，请设置 CUSPARSELT_PATH 或安装 CUDA 12.9+。"
+        "无法找到兼容的 libcusparseLt (需要 0.8+)。\n"
+        "系统安装: apt install libcusparselt0 libcusparselt-dev\n"
+        "或设置 CUSPARSELT_PATH 环境变量指向系统库路径。\n"
+        "注意: PyTorch pip 包自带的 0.7.x 版本不兼容。"
     )
 
-
-# =============================================================================
-# CUDA 扩展编译/加载工具
-# =============================================================================
-
-# 支持的后端类型
-SUPPORTED_BACKENDS = ["cublaslt", "cusparselt"]
-
-# 后端对应的链接库
-BACKEND_LDFLAGS = {
-    "cublaslt": ["-lcublasLt", "-lcublas"],
-    "cusparselt": ["-lcusparseLt", "-lnvrtc", "-ldl"],
-}
 
 # 后端对应的库加载函数
 BACKEND_LOADERS = {
@@ -283,6 +438,282 @@ BACKEND_LOADERS = {
     "cusparselt": ensure_cusparselt_loaded,
 }
 
+
+# =============================================================================
+# 编译辅助函数
+# =============================================================================
+
+# 默认编译选项
+DEFAULT_CFLAGS = ['-O3', '-std=c++17']
+
+DEFAULT_CUDA_CFLAGS = [
+    '-O3',
+    '-std=c++17',
+    '--expt-relaxed-constexpr',
+    '--expt-extended-lambda',
+    '-U__CUDA_NO_HALF_OPERATORS__',
+    '-U__CUDA_NO_HALF_CONVERSIONS__',
+    '-U__CUDA_NO_BFLOAT16_CONVERSIONS__',
+]
+
+
+def should_rebuild(so_path: Path, source_paths: List[Path]) -> bool:
+    """
+    判断是否需要重新编译
+    
+    Args:
+        so_path: .so 文件路径
+        source_paths: 源文件路径列表
+        
+    Returns:
+        如果 .so 不存在或比任一源文件旧，返回 True
+    """
+    if not so_path.exists():
+        return True
+    
+    so_mtime = so_path.stat().st_mtime
+    for src in source_paths:
+        if src.exists() and src.stat().st_mtime > so_mtime:
+            return True
+    return False
+
+
+def clean_build_artifacts(build_dir: Path, keep_extensions: Optional[List[str]] = None):
+    """
+    清理编译中间文件
+    
+    Args:
+        build_dir: 构建目录
+        keep_extensions: 要保留的文件扩展名列表（默认 ['.so', '.py']）
+    """
+    if keep_extensions is None:
+        keep_extensions = ['.so', '.py']
+    
+    if not build_dir.exists():
+        return
+    
+    for item in build_dir.iterdir():
+        if item.suffix in keep_extensions:
+            continue
+        if item.is_dir():
+            shutil.rmtree(item)
+        else:
+            item.unlink()
+
+
+# =============================================================================
+# PyTorch 扩展编译 (torch.utils.cpp_extension)
+# =============================================================================
+
+def build_cuda_extension(
+    name: str,
+    source_file: Path,
+    build_dir: Path,
+    *,
+    extra_cflags: Optional[List[str]] = None,
+    extra_cuda_cflags: Optional[List[str]] = None,
+    extra_ldflags: Optional[List[str]] = None,
+    extra_include_paths: Optional[List[str]] = None,
+    force: bool = False,
+    verbose: bool = True,
+    clean_after_build: bool = True,
+) -> Path:
+    """
+    使用 torch.utils.cpp_extension.load 编译 CUDA 扩展
+    
+    生成的 .so 文件可以作为 Python 模块导入，支持 pybind11 绑定。
+    适用于需要与 PyTorch Tensor 交互的 CUDA 代码。
+    
+    Args:
+        name: 扩展名称（不含 .so 后缀）
+        source_file: 源文件路径 (.cu)
+        build_dir: 构建目录
+        extra_cflags: 额外的 C++ 编译标志
+        extra_cuda_cflags: 额外的 CUDA 编译标志
+        extra_ldflags: 额外的链接标志（如 ["-lcublasLt"]）
+        extra_include_paths: 额外的头文件搜索路径
+        force: 是否强制重新编译
+        verbose: 是否显示详细输出
+        clean_after_build: 编译后是否清理中间文件
+        
+    Returns:
+        编译生成的 .so 文件路径
+    """
+    from torch.utils.cpp_extension import load
+    
+    source_file = Path(source_file)
+    build_dir = Path(build_dir)
+    
+    if not source_file.exists():
+        raise FileNotFoundError(f"源文件不存在: {source_file}")
+    
+    build_dir.mkdir(parents=True, exist_ok=True)
+    
+    # 查找已存在的 .so
+    so_pattern = f"{name}*.so"
+    existing_sos = list(build_dir.glob(so_pattern))
+    
+    if existing_sos and not force:
+        so_path = existing_sos[0]
+        if not should_rebuild(so_path, [source_file]):
+            if verbose:
+                print(f"✓ Using existing: {so_path.name}")
+            return so_path
+        elif verbose:
+            print(f"⚠ Source changed, rebuilding...")
+    
+    if verbose:
+        print(f"🔨 Building {name}...")
+    
+    # CUDA 路径
+    cuda_home = os.environ.get('CUDA_HOME', '/usr/local/cuda')
+    
+    # 合并编译选项
+    cflags = DEFAULT_CFLAGS + (extra_cflags or [])
+    cuda_cflags = DEFAULT_CUDA_CFLAGS + get_nvcc_arch_flags() + (extra_cuda_cflags or [])
+    ldflags = extra_ldflags or []
+    include_paths = [os.path.join(cuda_home, 'include')] + (extra_include_paths or [])
+    
+    # 编译
+    try:
+        load(
+            name=name,
+            sources=[str(source_file)],
+            extra_cflags=cflags,
+            extra_cuda_cflags=cuda_cflags,
+            extra_ldflags=ldflags,
+            extra_include_paths=include_paths,
+            build_directory=str(build_dir),
+            verbose=verbose,
+        )
+    except Exception as e:
+        raise RuntimeError(f"编译失败: {e}") from e
+    
+    # 查找生成的 .so
+    new_sos = list(build_dir.glob(so_pattern))
+    if not new_sos:
+        raise RuntimeError(f"编译完成但未找到 .so 文件: {so_pattern}")
+    
+    so_path = new_sos[0]
+    
+    if verbose:
+        print(f"✓ Built: {so_path.name}")
+    
+    if clean_after_build:
+        if verbose:
+            print(f"🧹 Cleaning build artifacts...")
+        clean_build_artifacts(build_dir)
+    
+    return so_path
+
+
+# =============================================================================
+# 直接 NVCC 编译 (纯 C 库，用 ctypes 加载)
+# =============================================================================
+
+def build_cuda_extension_direct(
+    name: str,
+    source_file: Path,
+    build_dir: Path,
+    *,
+    extra_cuda_cflags: Optional[List[str]] = None,
+    extra_ldflags: Optional[List[str]] = None,
+    extra_include_paths: Optional[List[str]] = None,
+    force: bool = False,
+    verbose: bool = True,
+) -> Path:
+    """
+    直接使用 nvcc 编译 CUDA 扩展（不依赖 PyTorch）
+    
+    生成的 .so 是纯 C 库，通过 ctypes.CDLL 加载。
+    适用于不依赖 PyTorch 的纯 CUDA 代码，编译速度快。
+    
+    Args:
+        name: 扩展名称（不含 .so 后缀）
+        source_file: 源文件路径 (.cu)
+        build_dir: 构建目录
+        extra_cuda_cflags: 额外的 CUDA 编译标志
+        extra_ldflags: 额外的链接标志（如 ["-L/usr/lib", "-lcusparseLt"]）
+        extra_include_paths: 额外的头文件搜索路径
+        force: 是否强制重新编译
+        verbose: 是否显示详细输出
+        
+    Returns:
+        编译生成的 .so 文件路径
+    """
+    source_file = Path(source_file)
+    build_dir = Path(build_dir)
+    
+    if not source_file.exists():
+        raise FileNotFoundError(f"源文件不存在: {source_file}")
+    
+    build_dir.mkdir(parents=True, exist_ok=True)
+    
+    # 输出文件
+    so_path = build_dir / f"{name}.so"
+    
+    # 检查是否需要重新编译
+    if so_path.exists() and not force:
+        if not should_rebuild(so_path, [source_file]):
+            if verbose:
+                print(f"✓ Using existing: {so_path.name}")
+            return so_path
+        elif verbose:
+            print(f"⚠ Source changed, rebuilding...")
+    
+    if verbose:
+        print(f"🔨 Building {name}...")
+    
+    # CUDA 路径
+    cuda_home = os.environ.get('CUDA_HOME', '/usr/local/cuda')
+    nvcc = os.path.join(cuda_home, 'bin', 'nvcc')
+    
+    # 构建编译命令
+    cmd = [nvcc]
+    cmd.extend(['-std=c++17', '-O3', '-Xcompiler', '-fPIC', '--shared'])
+    cmd.extend(get_nvcc_arch_flags())
+    
+    if extra_cuda_cflags:
+        cmd.extend(extra_cuda_cflags)
+    
+    # 头文件路径
+    cmd.extend(['-I', os.path.join(cuda_home, 'include')])
+    if extra_include_paths:
+        for inc in extra_include_paths:
+            cmd.extend(['-I', inc])
+    
+    # 源文件
+    cmd.append(str(source_file))
+    
+    # 链接标志
+    if extra_ldflags:
+        cmd.extend(extra_ldflags)
+    
+    # 输出
+    cmd.extend(['-o', str(so_path)])
+    
+    if verbose:
+        print(f"Command: {' '.join(cmd)}")
+    
+    # 执行编译
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    
+    if result.returncode != 0:
+        error_msg = result.stderr or result.stdout
+        raise RuntimeError(f"编译失败:\n{error_msg}")
+    
+    if not so_path.exists():
+        raise RuntimeError(f"编译完成但未找到 .so 文件: {so_path}")
+    
+    if verbose:
+        print(f"✓ Built: {so_path.name}")
+    
+    return so_path
+
+
+# =============================================================================
+# 高级加载接口 (自动编译 + 加载)
+# =============================================================================
 
 def load_cuda_extension(
     script_type: str,
@@ -294,41 +725,40 @@ def load_cuda_extension(
     force_compile: bool = False,
 ) -> object:
     """
-    加载或编译 CUDA 扩展。
+    加载或编译 PyTorch CUDA 扩展（高级接口）
     
-    根据当前 GPU 设备加载或编译对应的 .so 文件，使用统一的命名规范。
+    自动处理：
+    1. 预加载系统 CUDA 库（避免版本冲突）
+    2. 检查已有 .so 是否可用
+    3. 必要时编译新的 .so
+    4. 加载并返回模块
     
-    命名规范示例:
-    - alg_search_cublaslt_H100_cc90_py312_cu129_x86_64.so
-    - layout_search_cusparselt_B200_cc100_py312_cu129_x86_64.so
+    命名规范:
+        {script_type}_{backend}_{GPU}_{CC}_{PyVer}_{CUDAVer}_{Arch}.so
+        例如: alg_search_cublaslt_H100_cc90_py312_cu129_x86_64.so
     
     Args:
-        script_type: 脚本类型 ("alg_search" 或 "layout_search")
-        backend: 后端类型 ("cublaslt" 或 "cusparselt")
+        script_type: 脚本类型（如 "alg_search", "layout_search"）
+        backend: 后端类型（"cublaslt" 或 "cusparselt"）
         source_file: CUDA 源文件路径 (.cu)
-        build_dir: 构建目录，默认为源文件所在目录的 build 子目录
+        build_dir: 构建目录，默认为 source_file 同级的 build/
         verbose: 是否显示进度信息
         force_compile: 是否强制重新编译
     
     Returns:
-        编译好的扩展模块
-        
-    Raises:
-        ValueError: 无效的后端类型
-        FileNotFoundError: 源文件不存在
-        RuntimeError: 编译失败
+        编译好的扩展模块（可调用其导出的函数）
     """
     torch = _get_torch()
     from torch.utils.cpp_extension import load
     
     if backend not in SUPPORTED_BACKENDS:
-        raise ValueError(f"无效的后端类型: {backend}，支持的类型: {SUPPORTED_BACKENDS}")
+        raise ValueError(f"无效的后端类型: {backend}，支持: {SUPPORTED_BACKENDS}")
     
     source_file = Path(source_file)
     if not source_file.exists():
         raise FileNotFoundError(f"源文件不存在: {source_file}")
     
-    # 加载对应的 CUDA 库
+    # Step 1: 预加载系统库
     if verbose:
         lib_name = "cuBLASLt" if backend == "cublaslt" else "cuSPARSELt"
         print(f"[1/4] 加载 {lib_name} 库...", end=" ", flush=True)
@@ -341,8 +771,7 @@ def load_cuda_extension(
     # 获取硬件信息
     hw = hw_info
     
-    # 构建扩展名称（不含 dtype，因为 so 同时支持 INT8 和 FP8）
-    # 格式: {script_type}_{backend}_{GPU}_{CC}_{PyVer}_{CUDAVer}_{Arch}
+    # 构建扩展名称
     ext_name = build_stem(f"{script_type}_{backend}")
     so_pattern = f"{ext_name}*.so"
     
@@ -353,7 +782,7 @@ def load_cuda_extension(
         build_dir = Path(build_dir)
     build_dir.mkdir(parents=True, exist_ok=True)
     
-    # 检查已有的 .so 文件
+    # Step 2: 检查已有的 .so
     existing_so = list(build_dir.glob(so_pattern))
     need_compile = force_compile
     
@@ -361,11 +790,9 @@ def load_cuda_extension(
         if not existing_so:
             need_compile = True
         else:
-            # 源文件比 .so 新则需要重编译
             need_compile = source_file.stat().st_mtime > existing_so[0].stat().st_mtime
     
     if not need_compile and existing_so:
-        # 直接加载已有的 .so
         if verbose:
             print(f"[2/4] 加载 {hw.gpu_name} 扩展...", end=" ", flush=True)
         
@@ -377,7 +804,6 @@ def load_cuda_extension(
             print(f"✓ ({existing_so[0].name})", flush=True)
         return ext
     else:
-        # 编译新的 .so
         if verbose:
             reason = "强制" if force_compile else ("首次" if not existing_so else "源文件已更新")
             print(f"[2/4] 编译 {hw.gpu_name} 扩展（{reason}）...", end=" ", flush=True)
@@ -392,7 +818,7 @@ def load_cuda_extension(
             with_cuda=True,
         )
         
-        # 清理编译中间文件，只保留 .so
+        # 清理中间文件
         for pattern in [".ninja_deps", ".ninja_log", "build.ninja", "*.o"]:
             for f in build_dir.glob(pattern):
                 f.unlink(missing_ok=True)
@@ -400,6 +826,28 @@ def load_cuda_extension(
         if verbose:
             print("✓", flush=True)
         return ext
+
+
+# #############################################################################
+#
+#  PART 2: 硬件信息
+#
+#  本部分提供统一的硬件信息获取功能。
+#
+#  主要内容：
+#  =========
+#  - HardwareInfo: 硬件信息单例类，缓存所有硬件相关信息
+#  - hw_info: 全局单例实例
+#  - 便捷函数: get_gpu_name, get_gpu_cc, get_sm_code 等
+#
+#  使用示例：
+#  =========
+#  >>> from slidesparse.utils import hw_info
+#  >>> print(hw_info.gpu_name)     # "H100"
+#  >>> print(hw_info.cc_tag)       # "cc90"
+#  >>> print(hw_info.supports_fp8) # True
+#
+# #############################################################################
 
 
 # =============================================================================
@@ -792,6 +1240,64 @@ class HardwareInfo:
 
 # 全局单例
 hw_info = HardwareInfo()
+
+
+# 便捷函数（hw_info 属性的快捷访问）
+def get_gpu_name() -> str:
+    """获取 GPU 简称"""
+    return hw_info.gpu_name
+
+
+def get_gpu_cc() -> str:
+    """获取 CC 标签"""
+    return hw_info.cc_tag
+
+
+def get_python_version_tag() -> str:
+    """获取 Python 版本标签"""
+    return hw_info.python_tag
+
+
+def get_cuda_ver() -> str:
+    """获取 CUDA 版本标签"""
+    return hw_info.cuda_tag
+
+
+def get_arch_tag() -> str:
+    """获取系统架构标签"""
+    return hw_info.arch_tag
+
+
+def get_sm_code() -> str:
+    """获取 SM 代码"""
+    return hw_info.sm_code
+
+
+def print_system_info():
+    """打印系统信息"""
+    hw_info.print_info()
+
+
+# #############################################################################
+#
+#  PART 3: 文件名与 IO
+#
+#  本部分提供统一的文件命名、查找、保存和模块加载功能。
+#
+#  命名规范：
+#  =========
+#  所有生成的文件名遵循统一格式：
+#      {prefix}_{GPU}_{CC}[_{dtype}]_{PyVer}_{CUDAVer}_{Arch}.{ext}
+#
+#  主要功能：
+#  =========
+#  - build_filename:  构建标准化文件名
+#  - find_file:       查找匹配的文件
+#  - load_module:     加载 Python 模块 (.py/.so)
+#  - save_json/csv:   保存数据文件
+#  - ensure_result_dir: 创建结果目录
+#
+# #############################################################################
 
 
 # =============================================================================
@@ -1227,9 +1733,6 @@ def clear_module_cache():
 # 算法查表（运行时使用）
 # =============================================================================
 
-import base64
-
-
 def lookup_best_cublaslt_alg(json_data: Dict, N: int, K: int, M: int) -> Optional[str]:
     """
     从 JSON 数据中查询 cuBLASLt 最佳算法配置。
@@ -1524,47 +2027,30 @@ def ensure_result_dir(
     return result_dir
 
 
-# =============================================================================
-# 便捷函数
-# =============================================================================
-
-def get_gpu_name() -> str:
-    """获取 GPU 简称"""
-    return hw_info.gpu_name
-
-
-def get_gpu_cc() -> str:
-    """获取 CC 标签"""
-    return hw_info.cc_tag
-
-
-def get_python_version_tag() -> str:
-    """获取 Python 版本标签"""
-    return hw_info.python_tag
-
-
-def get_cuda_ver() -> str:
-    """获取 CUDA 版本标签"""
-    return hw_info.cuda_tag
-
-
-def get_arch_tag() -> str:
-    """获取系统架构标签"""
-    return hw_info.arch_tag
-
-
-def get_sm_code() -> str:
-    """获取 SM 代码"""
-    return hw_info.sm_code
-
-
-def print_system_info():
-    """打印系统信息"""
-    hw_info.print_info()
+# #############################################################################
+#
+#  PART 4: 模型信息管理
+#
+#  本部分提供模型注册表和模型信息查询功能。
+#
+#  主要内容：
+#  =========
+#  - MODEL_SIZE_GB: 模型大小参考表
+#  - ModelEntry: 模型条目数据类
+#  - ModelRegistry: 模型注册表（单例）
+#  - 便捷函数: get_model_info, list_models, check_model_downloaded 等
+#
+#  使用示例：
+#  =========
+#  >>> from slidesparse.utils import model_registry, get_model_info
+#  >>> info = get_model_info("Qwen2.5-0.5B-FP8")
+#  >>> models = model_registry.list(family="Qwen2.5")
+#
+# #############################################################################
 
 
 # =============================================================================
-# 模型信息管理
+# 模型大小参考
 # =============================================================================
 
 # 模型大小参考（用于估算显存需求）
@@ -2058,8 +2544,29 @@ def check_model_downloaded(
     return False, f"Model not found: {local_path}"
 
 
+# #############################################################################
+#
+#  PART 5: SlideSparse 配置与维度计算
+#
+#  本部分提供 SlideSparse 稀疏格式的配置和维度计算功能。
+#
+#  稀疏格式说明：
+#  =============
+#  Z:L 表示每 L 个连续元素中至少有 Z 个零
+#  例如 2:8 表示每 8 个元素至少 2 个零（稀疏度 ≥ 25%）
+#
+#  主要功能：
+#  =========
+#  - SlideSparseConfig: 配置数据类
+#  - compute_output_k: 计算 slided 后的 K 维度
+#  - compute_compressed_k: 计算 2:4 压缩后的 K 维度
+#  - get_model_nk_sizes: 提取模型的 NK 尺寸
+#
+# #############################################################################
+
+
 # =============================================================================
-# SlideSparse 配置和维度计算
+# SlideSparse 配置
 # =============================================================================
 
 @dataclass
@@ -2408,45 +2915,47 @@ __all__ = [
     "normalize_dtype",
     "DTYPE_ALIASES",
     
-    # CUDA 库加载
+    # =========================================================================
+    # PART 1: CUDA 编译、链接、库加载工具
+    # =========================================================================
+    
+    # 系统库路径
+    "SYSTEM_LIB_PATHS",
+    "get_system_lib_path",
+    
+    # NVCC 架构标志
+    "SUPPORTED_ARCHITECTURES",
+    "get_nvcc_arch_flags",
+    "get_current_arch_flag",
+    
+    # 链接库配置
+    "SUPPORTED_BACKENDS",
+    "get_backend_ldflags",
+    "BACKEND_LDFLAGS",
+    "CUBLASLT_LDFLAGS",
+    "CUSPARSELT_LDFLAGS",
+    
+    # 运行时库加载
     "ensure_cublaslt_loaded",
     "ensure_cusparselt_loaded",
-    "load_cuda_extension",
-    "SUPPORTED_BACKENDS",
-    "BACKEND_LDFLAGS",
     "BACKEND_LOADERS",
     
-    # 硬件信息
+    # 编译辅助
+    "DEFAULT_CFLAGS",
+    "DEFAULT_CUDA_CFLAGS",
+    "should_rebuild",
+    "clean_build_artifacts",
+    
+    # 编译函数
+    "build_cuda_extension",       # PyTorch 扩展编译
+    "build_cuda_extension_direct", # 直接 nvcc 编译
+    "load_cuda_extension",        # 高级加载接口
+    
+    # =========================================================================
+    # PART 2: 硬件信息
+    # =========================================================================
     "HardwareInfo",
     "hw_info",
-    
-    # 文件名构建
-    "build_filename",
-    "build_stem",
-    "build_dir_name",
-    
-    # 文件查找
-    "find_file",
-    "find_files",
-    "find_dir",
-    
-    # 模块加载
-    "load_module",
-    "clear_module_cache",
-    
-    # 算法查表
-    "lookup_best_cublaslt_alg",
-    "decode_cublaslt_algo_data",
-    "lookup_best_cusparselt_alg",
-    
-    # 数据保存/加载
-    "save_json",
-    "load_json",
-    "save_csv",
-    
-    # 目录管理
-    "ensure_result_dir",
-    
     # 便捷函数
     "get_gpu_name",
     "get_gpu_cc",
@@ -2456,7 +2965,34 @@ __all__ = [
     "get_sm_code",
     "print_system_info",
     
-    # 模型管理
+    # =========================================================================
+    # PART 3: 文件名与 IO
+    # =========================================================================
+    # 文件名构建
+    "build_filename",
+    "build_stem",
+    "build_dir_name",
+    # 文件查找
+    "find_file",
+    "find_files",
+    "find_dir",
+    # 模块加载
+    "load_module",
+    "clear_module_cache",
+    # 算法查表
+    "lookup_best_cublaslt_alg",
+    "decode_cublaslt_algo_data",
+    "lookup_best_cusparselt_alg",
+    # 数据保存/加载
+    "save_json",
+    "load_json",
+    "save_csv",
+    # 目录管理
+    "ensure_result_dir",
+    
+    # =========================================================================
+    # PART 4: 模型信息管理
+    # =========================================================================
     "MODEL_SIZE_GB",
     "ModelEntry",
     "ModelRegistry",
@@ -2470,11 +3006,12 @@ __all__ = [
     "get_model_local_path",
     "check_model_downloaded",
     
-    # SlideSparse 配置和维度计算
+    # =========================================================================
+    # PART 5: SlideSparse 配置与维度计算
+    # =========================================================================
     "SlideSparseConfig",
     "compute_output_k",
     "compute_compressed_k",
-    
     # 模型 NK Size 工具
     "LINEAR_LAYER_TYPES",
     "get_model_nk_sizes",
