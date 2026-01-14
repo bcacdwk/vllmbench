@@ -1,6 +1,6 @@
-# SlideSparse Phase 3: FP8 GEMM 集成技术分析
+# SlideSparse Phase 3-6: FP8 GEMM 集成技术分析
 
-> 本文档详细分析 vLLM 中 FP8 GEMM 的实现架构，包括 compressed-tensors 格式、CUTLASS 内核实现以及 cuBLASLt 替换方案。
+> 本文档详细分析 vLLM 中 FP8 GEMM 的实现架构，包括 compressed-tensors 格式、CUTLASS/cuBLASLt/cuSPARSELt 内核实现以及 SlideSparse 集成方案。
 
 ---
 
@@ -10,6 +10,14 @@
 2. [当前 CUTLASS FP8 GEMM 实现详解](#2-当前-cutlass-fp8-gemm-实现详解)
 3. [cuBLASLt 替换方案与注意事项](#3-cublaslt-替换方案与注意事项)
 4. [实现计划与代码示例](#4-实现计划与代码示例)
+5. [测试与验证计划](#5-测试与验证计划)
+6. [总结](#6-总结)
+7. [当前外挂方法的委托详细分析](#7-当前外挂方法的委托详细分析)
+8. [测试框架设计](#8-测试框架设计)
+9. [vLLM GEMM 后端分发机制深度分析](#9-vllm-gemm-后端分发机制深度分析)
+10. [总结与下一步](#10-总结与下一步)
+11. [cuBLASLt 集成关键问题分析](#11-cublaslt-集成关键问题分析)
+12. [cuSPARSELt FP8 Linear 方法开发规划](#12-cusparselt-fp8-linear-方法开发规划)
 
 ---
 
@@ -2072,6 +2080,461 @@ def cublaslt_w8a8_scaled_mm(
 
 ---
 
-*文档版本：v1.5*  
-*更新日期：2025-01*  
+## 12. cuSPARSELt FP8 Linear 方法开发规划
+
+本章详细分析 Phase 4-6 的 cuSPARSELt FP8 Linear 方法开发，包括离线工具链、模型加载和在线 Kernel 替换。
+
+### 12.1 整体架构概览
+
+cuSPARSELt FP8 Linear 的实现涉及三个关键阶段：
+
+```
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                    cuSPARSELt FP8 Linear 端到端流程                              │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+Phase 4: 离线工具链 (Offline)
+├── Prune:    Dense [N,K] → Sparse [N,K] (满足 Z:L 稀疏约束)
+├── Slide:    Sparse [N,K] → Slided [N,K'] (K' = K × expand_ratio)
+├── Compress: Slided [N,K'] → Compressed [N,K'/2] + Meta [N,K'/8]
+└── Search:   离线搜索最优 cuSPARSELt algo_id
+
+Phase 5: 模型加载 (Online Loader)
+├── 环境变量检测 (USE_CUSPARSELT=1)
+├── 根据配置选择 checkpoints_slidesparse 目录
+└── DefaultModelLoader 宽容加载（shape 匹配即可）
+
+Phase 6: 在线推理 (Online Inference)
+├── Quant+Slide:  BF16 [M,K] → FP8 [M,K'] (Triton fused kernel)
+├── Sparse GEMM:  FP8 [M,K'] × Compressed [N,K'/2] → BF16 [M,N]
+└── Dequant+Bias: 融合在 cuSPARSELt epilogue 或 Triton kernel
+```
+
+### 12.2 Phase 4：离线工具链完整流程
+
+#### 12.2.1 当前已有脚本分析
+
+当前 `slidesparse/weight_convert/` 目录下已有多个独立脚本：
+
+| 脚本 | 功能 | 状态 |
+|------|------|------|
+| `convert_checkpoint_quant_prune_to_Z_L.py` | 量化 + Z:L 剪枝（magnitude/random） | ✅ 已完成 |
+| `convert_weights_slidesparse.py` | Slide 滑动拓展 + 贪婪残差分配 | ✅ 已完成 |
+| `convert_checkpoint_compress.py` | cuSPARSELt 2:4 压缩 | ✅ 已完成 |
+| `convert_safetensors.py` | 格式转换工具 | ✅ 已完成 |
+
+**关键脚本功能说明**：
+
+1. **`convert_checkpoint_quant_prune_to_Z_L.py`**（第 118-178 行）：
+   - 输入：BF16 Dense 权重
+   - 输出：指定 dtype（FP8 E4M3/E5M2、INT8 等）的 Z:L 稀疏权重
+   - 核心函数：`quant_and_prune_tensor()` 实现量化 + 剪枝融合
+   - 剪枝策略：`magnitude`（按绝对值大小）或 `random`（随机）
+
+2. **`convert_weights_slidesparse.py`**（第 310-424 行）：
+   - 输入：Z:L 稀疏权重 `[N, K]`
+   - 输出：Slided 权重 `[N, K']`，满足 2:4 稀疏约束
+   - 核心函数：`slide_weight_tensor()` 实现贪婪残差分配
+   - 验证函数：`verify_2to4_sparsity()` 验证输出满足 2:4 约束
+
+3. **`convert_checkpoint_compress.py`**：
+   - 输入：Slided 权重 `[N, K']`
+   - 输出：Compressed 权重 `[N, K'/2]` + Meta `[N, K'/8]`
+   - 调用 cuSPARSELt 的 `cusparseLtSpMMACompress()` API
+
+#### 12.2.2 TODO：完整流程脚本
+
+**当前缺失**：缺少一个端到端的完整流程脚本，能够从 HuggingFace 的 safetensor 格式（compressed-tensor 量化格式）出发，完成 prune → slide → compress → 保存为新的 safetensor 格式。
+
+**推荐实现方案**：创建 `preprocess_safetensor_slidesparse.py`
+
+```
+输入:
+  - HuggingFace 模型路径 (如 Qwen2.5-7B-Instruct-FP8-dynamic)
+  - 稀疏配置 (Z=2, L=8)
+  - 剪枝模式 (magnitude/random)
+
+处理流程:
+  1. 加载原始 .safetensors 文件
+  2. 对目标层 (wqkv, w13, w2, wo) 执行:
+     a. Prune (如需要)
+     b. Slide (滑动拓展)
+     c. Compress (cuSPARSELt 压缩)
+  3. 保存处理后的权重到新目录
+
+输出目录结构:
+  ./checkpoints_slidesparse/model-name/
+  ├── model.safetensors          # 压缩后的权重
+  ├── config.json                # 原始配置（复制）
+  ├── tokenizer.json             # 原始分词器（复制）
+  └── slidesparse_config.json    # SlideSparse 元数据
+      ├── sparsity: "2:8"
+      ├── expand_ratio: 1.5
+      └── layer_info: {...}
+```
+
+**实现要点**：
+
+1. **复用现有脚本的核心函数**：
+   - 从 `convert_checkpoint_quant_prune_to_Z_L.py` 导入 `quant_and_prune_tensor()`
+   - 从 `convert_weights_slidesparse.py` 导入 `slide_weight_tensor()`、`verify_2to4_sparsity()`
+
+2. **适配 compressed-tensor 格式**：
+   - compressed-tensor 格式的 FP8 权重已经是量化好的
+   - 只需要对权重执行 slide + compress，不需要再量化
+
+3. **保持 key 名称不变**：
+   - `model.layers.0.self_attn.q_proj.weight` 保持不变
+   - 只改变 shape：`[N, K]` → `[N, K'/2]`
+
+#### 12.2.3 关键维度变化分析
+
+以 2:8 稀疏为例（`Z=2, L=8, expand_ratio=1.5`）：
+
+| 阶段 | 权重 Shape | 说明 |
+|------|-----------|------|
+| 原始 Dense | `[N, K]` | FP8 E4M3 |
+| Prune 后 | `[N, K]` | 满足 2:8 稀疏（每 8 个至少 2 个零） |
+| Slide 后 | `[N, K×1.5]` | 满足 2:4 稀疏（每 4 个至少 2 个零） |
+| Compress 后 | `[N, K×0.75]` | 2:4 压缩减半（K×1.5/2 = K×0.75） |
+| Meta | `[N, K×1.5/8]` | 稀疏元数据 |
+
+**示例**（Qwen2.5-7B, hidden_dim=4096）：
+- 原始：`[4096, 4096]`
+- Slide 后：`[4096, 6144]`
+- Compress 后：`[4096, 3072]`
+- Meta：`[4096, 768]`
+
+---
+
+### 12.3 Phase 5：模型加载方案分析
+
+#### 12.3.1 需求分析
+
+当启用 SlideSparse cuSPARSELt 路径时（`USE_CUSPARSELT=1`），需要加载经过离线处理的权重。核心需求：
+
+1. **路径选择**：根据环境变量选择不同的 checkpoints 目录
+2. **Shape 匹配**：`create_weights()` 定义的参数 shape 需要与 safetensor 中的 shape 一致
+3. **最小侵入**：不修改 vLLM 的 Loader 核心逻辑
+
+#### 12.3.2 推荐方案
+
+**方案一：环境变量控制 model_path 前缀（推荐）**
+
+最简单的方案是在启动时通过环境变量或配置文件指定 checkpoint 路径：
+
+```bash
+# 使用 cuBLASLt/CUTLASS（dense 权重）
+DISABLE_SLIDESPARSE=0 USE_CUBLASLT=1 vllm serve ./checkpoints/Qwen2.5-7B-FP8
+
+# 使用 cuSPARSELt（slidesparse 权重）
+DISABLE_SLIDESPARSE=0 USE_CUSPARSELT=1 vllm serve ./checkpoints_slidesparse/Qwen2.5-7B-FP8-slidesparse
+```
+
+**优点**：零代码修改，完全由用户控制
+**缺点**：用户需要手动指定正确的路径
+
+**方案二：自动路径映射（中等复杂度）**
+
+在 `SlideSparseConfig` 或模型加载入口处添加路径映射逻辑：
+
+```python
+# slidesparse/core/config.py 添加
+
+def get_model_path(original_path: str) -> str:
+    """
+    根据环境变量自动映射模型路径
+    
+    Args:
+        original_path: 原始模型路径
+        
+    Returns:
+        如果 USE_CUSPARSELT=1，返回 slidesparse 处理后的路径
+        否则返回原始路径
+    """
+    if not is_cusparselt_enabled():
+        return original_path
+    
+    # 方案 A：目录映射
+    # ./checkpoints/model -> ./checkpoints_slidesparse/model-slidesparse
+    base_dir = os.path.dirname(original_path)
+    model_name = os.path.basename(original_path)
+    slidesparse_dir = base_dir.replace("checkpoints", "checkpoints_slidesparse")
+    return os.path.join(slidesparse_dir, f"{model_name}-slidesparse")
+```
+
+**优点**：对用户透明，自动切换
+**缺点**：需要约定目录命名规范
+
+**方案三：配置文件驱动（高灵活性）**
+
+使用配置文件显式指定路径映射：
+
+```json
+// slidesparse_paths.json
+{
+    "path_mappings": {
+        "Qwen2.5-7B-Instruct-FP8-dynamic": {
+            "dense": "./checkpoints/Qwen2.5-7B-Instruct-FP8-dynamic",
+            "slidesparse": "./checkpoints_slidesparse/Qwen2.5-7B-Instruct-FP8-slidesparse"
+        }
+    }
+}
+```
+
+**优点**：高度灵活，支持任意映射
+**缺点**：需要维护配置文件
+
+#### 12.3.3 create_weights() 适配
+
+无论采用哪种路径方案，`SlideSparseLinearMethod.create_weights()` 都需要正确定义参数 shape：
+
+**当前实现分析**（`SlideSparseLinearMethod_FP8.py` 第 485-506 行）：
+
+```python
+def create_weights(self, layer, ...):
+    # 当前：完全委托给原始 scheme
+    return self.original_scheme.create_weights(...)
+```
+
+**cuSPARSELt 适配需求**：
+
+```python
+def create_weights(self, layer, input_size_per_partition, output_partition_sizes, ...):
+    """
+    为 cuSPARSELt 创建压缩后的权重参数
+    
+    关键：shape 必须与离线处理后的 safetensor 一致
+    """
+    if not is_cusparselt_enabled():
+        # Dense 路径：委托给原始 scheme
+        return self.original_scheme.create_weights(...)
+    
+    # Sparse 路径：定义压缩后的 shape
+    K_original = input_size_per_partition
+    N = sum(output_partition_sizes)
+    
+    # 计算 slide 后的 K'
+    expand_ratio = get_expand_ratio()  # 如 1.5 for 2:8
+    K_expanded = int(K_original * expand_ratio)
+    
+    # Compress 后减半
+    K_compressed = K_expanded // 2
+    
+    # 创建压缩后的权重参数
+    weight = Parameter(
+        torch.empty(N, K_compressed, dtype=torch.float8_e4m3fn),
+        requires_grad=False,
+    )
+    layer.register_parameter("weight", weight)
+    
+    # 创建稀疏元数据参数
+    weight_meta = Parameter(
+        torch.empty(N, K_expanded // 8, dtype=torch.uint8),
+        requires_grad=False,
+    )
+    layer.register_parameter("weight_meta", weight_meta)
+    
+    # Scale 等其他参数
+    ...
+```
+
+---
+
+### 12.4 Phase 6：cuSPARSELt Linear 方法替换
+
+#### 12.4.1 在线 Kernel 替换策略
+
+cuSPARSELt 的核心替换在于 **Quant+Slide** 融合 kernel：
+
+| 步骤 | cuBLASLt 路径 | cuSPARSELt 路径 |
+|------|--------------|-----------------|
+| Quant | `quant_only_fp8_kernel()` | `fused_quant_slide_fp8()` |
+| GEMM | cuBLASLt dense GEMM | cuSPARSELt sparse GEMM |
+| Dequant | `dequant_bias_kernel()` | `dequant_bias_kernel()` |
+
+**关键区别**：cuSPARSELt 需要将 Quant 和 Slide 融合成一个 kernel，输出 slided 后的 FP8 激活。
+
+#### 12.4.2 fused_quant_slide_triton 现有实现分析
+
+当前 `slidesparse/csrc/fused_quant_slide_trition/` 目录已有完整的 Triton 实现：
+
+> **注意**：目录名 `fused_quant_slide_trition` 是原始命名（拼写与 triton 略有不同），引用时需保持一致。
+
+| 文件 | 功能 | 状态 |
+|------|------|------|
+| `slide_L6_fp8.py` | L=6 FP8 Quant+Slide | ✅ 已完成 |
+| `slide_L8_fp8.py` | L=8 FP8 Quant+Slide | ✅ 已完成 |
+| `slide_L6_int8.py` | L=6 INT8 Quant+Slide | ✅ 已完成 |
+| `slide_L8_int8.py` | L=8 INT8 Quant+Slide | ✅ 已完成 |
+| `*_autotuned.py` | 对应的固定配置版本 | ✅ 已完成 |
+
+**核心函数签名**（`slide_L8_fp8.py` 第 143-174 行）：
+
+```python
+def fused_quant_slide(x: torch.Tensor):
+    """
+    Fused FP8 E4M3 Quantization + SlideSparse Slide
+    
+    Args:
+        x: Input tensor [M, K_in], bf16/fp16/fp32
+    
+    Returns:
+        y: Output tensor [M, K_out_padded] (fp8_e4m3fn)
+        scale: Scale tensor [M], fp32
+    """
+```
+
+**输出维度计算**（以 L=8 为例）：
+- `num_groups = ceil(K_in / L)`
+- `K_out = num_groups × NUM_WINDOWS × 4 = num_groups × 3 × 4 = num_groups × 12`
+- 输出是 padded 到 16 字节对齐的
+
+#### 12.4.3 cuSPARSELt_FP8_linear 实现方案
+
+**修改 `cuSPARSELt_FP8_linear()` 函数**（`SlideSparseLinearMethod_FP8.py` 第 265-299 行）：
+
+当前实现使用 vLLM 原生的 `QuantFP8` 进行量化，需要替换为 `fused_quant_slide_fp8()`:
+
+```python
+def cuSPARSELt_FP8_linear(
+    *,
+    input: torch.Tensor,          # [M, K] BF16
+    weight: torch.Tensor,         # [K_compressed, N] FP8 (压缩后)
+    weight_meta: torch.Tensor,    # [K'/8, N] uint8 (稀疏元数据)
+    out_dtype: torch.dtype,
+    scale_b: torch.Tensor,
+    bias: Optional[torch.Tensor],
+    output_shape: list,
+    L: int = 8,                   # 稀疏配置
+    **kwargs,
+) -> torch.Tensor:
+    """cuSPARSELt 2:4 sparse FP8 GEMM + fused_quant_slide"""
+    
+    # 1. Fused Quant + Slide (使用 Triton kernel)
+    #    输入: [M, K] BF16
+    #    输出: [M, K'] FP8, [M] scale
+    from slidesparse.csrc.fused_quant_slide_trition.slide_L8_fp8_autotuned import fused_quant_slide
+    qinput_slided, scale_a = fused_quant_slide(input)
+    
+    # 2. cuSPARSELt Sparse GEMM
+    #    输入: [M, K'] FP8 (slided activation)
+    #          [N, K'/2] FP8 (compressed weight)
+    #          [N, K'/8] uint8 (metadata)
+    #    输出: [M, N] BF16 或 FP32 (inner_dtype)
+    ext = _get_gemm_extension("cusparselt")
+    gemm_output = ext.cusparselt_fp8_sparse_mm(
+        qinput_slided,    # [M, K']
+        weight,           # [N, K'/2] compressed
+        weight_meta,      # [N, K'/8] metadata
+        get_inner_dtype_str(),
+    )
+    
+    # 3. Dequant + Bias (使用 Triton kernel)
+    output = dequant_bias_kernel(gemm_output, scale_a, scale_b, bias, out_dtype)
+    
+    return output.view(*output_shape)
+```
+
+#### 12.4.4 cuSPARSELt GEMM 接口设计
+
+需要在 `slidesparse/csrc/cusparselt_gemm/` 下实现 cuSPARSELt 的 Python/C++ 绑定：
+
+**Python 接口**：
+
+```python
+def cusparselt_fp8_sparse_mm(
+    A: torch.Tensor,       # [M, K'] FP8 (slided dense activation)
+    B_nzs: torch.Tensor,   # [N, K'/2] FP8 (compressed weight nonzeros)
+    B_meta: torch.Tensor,  # [N, K'/8] uint8 (sparsity metadata)
+    out_dtype: str,        # "bf16" or "fp32"
+    algo_id: int = -1,     # -1 = auto select
+) -> torch.Tensor:
+    """
+    cuSPARSELt 2:4 Sparse FP8 GEMM
+    
+    Computes: C[M, N] = A[M, K'] × B_sparse[K', N]
+    
+    Where B_sparse is the sparse matrix reconstructed from B_nzs and B_meta.
+    
+    Returns:
+        Output tensor [M, N] with dtype specified by out_dtype
+    """
+```
+
+**C++ 实现要点**：
+
+```cpp
+// cusparselt_fp8_gemm.cu
+
+torch::Tensor cusparselt_fp8_sparse_mm(
+    torch::Tensor A,        // [M, K'] FP8
+    torch::Tensor B_nzs,    // [N, K'/2] FP8
+    torch::Tensor B_meta,   // [N, K'/8] uint8
+    const std::string& out_dtype,
+    int algo_id
+) {
+    // 1. 创建 cuSPARSELt 句柄和描述符
+    cusparseLtHandle_t handle;
+    cusparseLtInit(&handle);
+    
+    // 2. 创建稀疏矩阵描述符
+    cusparseLtStructuredDescriptor_t matB;
+    cusparseLtStructuredDescriptorInit(
+        &handle, &matB,
+        N, K_expanded,
+        N,  // leading dimension
+        16, // alignment
+        CUDA_R_8F_E4M3,  // data type
+        CUSPARSE_ORDER_ROW,
+        CUSPARSELT_SPARSITY_50_PERCENT  // 2:4 sparsity
+    );
+    
+    // 3. 设置压缩后的数据
+    // B_nzs 和 B_meta 已经是离线压缩好的
+    
+    // 4. 执行 Sparse GEMM
+    // ...
+    
+    return output;
+}
+```
+
+---
+
+### 12.5 当前工作进展总结
+
+| 阶段 | 组件 | 状态 | 说明 |
+|------|------|------|------|
+| **Phase 3** | cuBLASLt FP8 GEMM | ✅ 完成 | `cuBLASLt_FP8_linear()` 已实现 |
+| **Phase 3** | Triton quant kernel | ✅ 完成 | `quant_only_fp8_kernel()` 已实现 |
+| **Phase 3** | Triton dequant kernel | ✅ 完成 | `dequant_bias_kernel()` 已实现 |
+| **Phase 4** | Prune 脚本 | ✅ 完成 | `convert_checkpoint_quant_prune_to_Z_L.py` |
+| **Phase 4** | Slide 脚本 | ✅ 完成 | `convert_weights_slidesparse.py` |
+| **Phase 4** | Compress 脚本 | ✅ 完成 | `convert_checkpoint_compress.py` |
+| **Phase 4** | 完整流程脚本 | ❌ TODO | 需要创建端到端 safetensor 转换脚本 |
+| **Phase 5** | 路径映射机制 | ❌ TODO | 需要实现环境变量驱动的路径选择 |
+| **Phase 5** | create_weights 适配 | ❌ TODO | 需要支持压缩后的 shape |
+| **Phase 6** | fused_quant_slide kernel | ✅ 完成 | `slide_L{6,8}_{fp8,int8}.py` |
+| **Phase 6** | cuSPARSELt GEMM | ❌ TODO | 需要实现 C++/Python 绑定 |
+| **Phase 6** | cuSPARSELt_FP8_linear | ❌ TODO | 需要替换为 fused_quant_slide |
+
+### 12.6 下一步工作优先级
+
+1. **高优先级**：
+   - 实现完整的离线流程脚本（safetensor 端到端）
+   - 实现 cuSPARSELt GEMM C++ 绑定
+
+2. **中优先级**：
+   - 实现模型路径自动映射机制
+   - 修改 `cuSPARSELt_FP8_linear()` 使用 `fused_quant_slide`
+
+3. **低优先级**：
+   - 性能优化和 AutoTune
+   - INT8 版本支持
+
+---
+
+*文档版本：v1.6*  
+*更新日期：2026-01*  
 *作者：SlideSparse Team*
