@@ -20,17 +20,12 @@ cuSPARSELt 算法离线搜索
 """
 
 import argparse
-import base64
 import ctypes
-import datetime
-import json
-import subprocess
 import sys
 from pathlib import Path
-from typing import Dict, List, Tuple, Optional, Any
+from typing import Dict, List, Tuple, Any
 
 import torch
-import numpy as np
 
 # 添加 search 目录到路径
 SCRIPT_DIR = Path(__file__).parent.absolute()
@@ -39,14 +34,19 @@ sys.path.insert(0, str(SEARCH_DIR))
 
 from utils import (
     hw_info,
-    normalize_dtype,
-    ensure_cusparselt_loaded,
+    # 编译与加载
+    build_search_extension,
+    load_search_extension,
+    # 模型工具
     get_nk_list_auto,
     build_model_name_with_dtype,
-    build_output_dir_name,
-    build_result_filename,
-    build_search_meta,
-    build_csv_header_lines,
+    # 数据准备
+    quantize_int8,
+    to_fp8_e4m3,
+    get_output_torch_dtype,
+    # 结果保存
+    save_alg_search_results,
+    # 常量
     SUPPORTED_DTYPES,
     SUPPORTED_OUTDTYPES,
     default_m_list,
@@ -54,68 +54,11 @@ from utils import (
 
 
 # =============================================================================
-# CUDA 扩展编译与加载
+# CUDA 扩展加载
 # =============================================================================
 
-def build_cuda_extension(
-    source_file: Path,
-    build_dir: Path,
-    force: bool = False,
-    verbose: bool = True,
-) -> Path:
-    """使用 nvcc 直接编译 CUDA 扩展"""
-    build_dir.mkdir(parents=True, exist_ok=True)
-    
-    so_name = f"alg_search_cusparselt_{hw_info.gpu_name}_{hw_info.cc_tag}.so"
-    so_path = build_dir / so_name
-    
-    if so_path.exists() and not force:
-        if source_file.stat().st_mtime <= so_path.stat().st_mtime:
-            if verbose:
-                print(f"✓ Using existing: {so_path.name}")
-            return so_path
-    
-    if verbose:
-        print(f"🔨 Building {so_name}...")
-    
-    import os
-    cuda_home = os.environ.get('CUDA_HOME', '/usr/local/cuda')
-    nvcc = Path(cuda_home) / 'bin' / 'nvcc'
-    
-    cmd = [
-        str(nvcc),
-        '-std=c++17', '-O3', '-Xcompiler', '-fPIC', '--shared',
-        f'-gencode=arch=compute_{hw_info.cc_major}{hw_info.cc_minor},'
-        f'code=sm_{hw_info.cc_major}{hw_info.cc_minor}',
-        f'-I{cuda_home}/include',
-        str(source_file),
-        '-L/usr/lib/x86_64-linux-gnu',
-        '-lcusparseLt', '-lcusparse', '-lcublas', '-lcuda',
-        '-o', str(so_path),
-    ]
-    
-    if verbose:
-        print(f"Command: {' '.join(cmd)}")
-    
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    
-    if result.returncode != 0:
-        error_msg = result.stderr or result.stdout
-        raise RuntimeError(f"编译失败:\n{error_msg}")
-    
-    if verbose:
-        print(f"✓ Built: {so_path.name}")
-    
-    return so_path
-
-
-def load_extension(so_path: Path) -> ctypes.CDLL:
-    """加载编译好的 CUDA 扩展"""
-    ensure_cusparselt_loaded()
-    
-    lib = ctypes.CDLL(str(so_path), mode=ctypes.RTLD_GLOBAL)
-    
-    # 设置函数签名
+def setup_lib_signatures(lib: ctypes.CDLL) -> None:
+    """设置 CUDA 扩展的函数签名"""
     lib.cusparselt_search_single_m.argtypes = [
         ctypes.c_void_p,   # W_ptr
         ctypes.c_void_p,   # A_ptr
@@ -176,26 +119,11 @@ def load_extension(so_path: Path) -> ctypes.CDLL:
     
     lib.cusparselt_alg_search_get_last_error.argtypes = []
     lib.cusparselt_alg_search_get_last_error.restype = ctypes.c_char_p
-    
-    return lib
 
 
 # =============================================================================
-# 数据准备
+# 数据准备 (cuSPARSELt 特定的压缩流程)
 # =============================================================================
-
-def quantize_int8(x: torch.Tensor) -> Tuple[torch.Tensor, float]:
-    """将 BF16/FP16 张量量化到 INT8"""
-    abs_max = x.abs().max().item()
-    scale = 127.0 / abs_max if abs_max > 0 else 1.0
-    q = (x * scale).round().clamp(-128, 127).to(torch.int8)
-    return q, scale
-
-
-def to_fp8_e4m3(x: torch.Tensor) -> torch.Tensor:
-    """转换为 FP8E4M3"""
-    return x.to(torch.float8_e4m3fn)
-
 
 def prepare_and_prune_weight(
     lib: ctypes.CDLL,
@@ -279,6 +207,114 @@ def prepare_activation(
 # 搜索核心
 # =============================================================================
 
+def smart_score(lat_us: float, workspace: int, split_k: int) -> float:
+    """
+    计算算法的综合评分 (Score)，越低越好。
+    引入了三段式显存惩罚和查表式 Split-K 惩罚。
+    
+    Score = Latency * (1 + WS_Penalty + SK_Penalty)
+    
+    设计理念：
+    - Workspace: 小显存无感，中显存敏感，大显存拒绝
+    - Split-K: 离散风险定价，SK=2/4 低风险，SK>=16 高风险
+    """
+    # Segment-K (-1) 视为 Split-K=1 (无额外调度风险)
+    effective_sk = 1 if split_k == -1 else split_k
+    ws_mb = workspace / (1024 * 1024)
+
+    # === Workspace 惩罚模型 (三段式) ===
+    ws_penalty = 0.0
+    SAFE_LIMIT = 16.0    # 16MB 以内：安全区 (L2 Cache 级别)
+    HARD_LIMIT = 256.0   # 256MB 以上：高危区 (严重挤占 KV Cache)
+    
+    if ws_mb <= SAFE_LIMIT:
+        # [安全区]：完全无惩罚
+        ws_penalty = 0.0
+    elif ws_mb <= HARD_LIMIT:
+        # [敏感区]：线性增长，每增加 10MB 性能要求提升 0.5%
+        ws_penalty = (ws_mb - SAFE_LIMIT) * 0.0005  # 0.05% per MB
+    else:
+        # [高危区]：指数爆炸，几乎只有性能翻倍才能抵消
+        base_penalty = (HARD_LIMIT - SAFE_LIMIT) * 0.0005
+        excess = ws_mb - HARD_LIMIT
+        ws_penalty = base_penalty + (excess * 0.005) + (excess ** 2) * 0.00001
+
+    # === Split-K 惩罚模型 (风险定价表) ===
+    # 手动定义每个档位的风险溢价
+    SK_RISK_TABLE = {
+        1:  0.00,   # 基准
+        2:  0.01,   # 1%：几乎无风险
+        4:  0.03,   # 3%：需要有可见提升
+        8:  0.08,   # 8%：调度风险开始显著
+        16: 0.20,   # 20%：高风险，除非性能提升巨大 (1.2x)
+        32: 0.50,   # 50%：极高风险
+        64: 1.00    # 100%：除非性能翻倍
+    }
+    sk_penalty = SK_RISK_TABLE.get(effective_sk, 0.5)
+
+    # === 综合打分 ===
+    return lat_us * (1.0 + ws_penalty + sk_penalty)
+
+
+def rerank_candidates(
+    m_results: Dict[int, Dict[str, Any]],
+    m_list: List[int],
+    final_topk: int = 3,
+    max_latency_tolerance: float = 0.025,
+) -> Dict[int, Dict[str, Any]]:
+    """
+    对搜索结果进行重排序，综合考虑 latency、workspace、split_k。
+    
+    采用 "Filter then Sort" 策略：
+    1. 对每个 M，找到最优延时，过滤掉超过容忍度的候选（性能护栏）
+    2. 在通过护栏的候选中，用 smart_score 排序选最稳的
+    3. 只保留 final_topk 个结果
+    
+    Args:
+        m_results: 每个 M 的搜索结果 {M: {"results": [...], ...}}
+        m_list: M 列表
+        final_topk: 最终保留的候选数，默认 3
+        max_latency_tolerance: 最大延时容忍度，默认 2.5%
+            即不接受比最优解慢 2.5% 以上的配置
+    
+    Returns:
+        重排序后的结果字典，格式与输入相同
+    """
+    new_m_results = {}
+    
+    for M in m_list:
+        if M not in m_results:
+            continue
+        
+        m_res = m_results[M]
+        candidates = m_res.get("results", [])
+        
+        if not candidates:
+            new_m_results[M] = m_res
+            continue
+        
+        # 1. 找到最优延时
+        best_raw_lat = min(c["lat_us"] for c in candidates)
+        
+        # 2. 【性能护栏】过滤掉延时超过容忍度的候选
+        limit_lat = best_raw_lat * (1.0 + max_latency_tolerance)
+        filtered = [c for c in candidates if c["lat_us"] <= limit_lat]
+        
+        # 3. 用 smart_score 排序
+        filtered.sort(key=lambda c: smart_score(c["lat_us"], c["workspace"], c["split_k"]))
+        
+        # 只保留 final_topk 个
+        top_candidates = filtered[:final_topk]
+        
+        new_m_results[M] = {
+            "results": top_candidates,
+            "num_valid": len(top_candidates),
+            "alg_count": m_res.get("alg_count", 0),
+        }
+    
+    return new_m_results
+
+
 def search_single_nk(
     lib: ctypes.CDLL,
     N: int, K: int, M: int,
@@ -293,7 +329,7 @@ def search_single_nk(
 ) -> Dict[str, Any]:
     """搜索单个 (N, K, M) 组合的最佳算法"""
     # 分配输出缓冲
-    C_torch_dtype = torch.float32 if outdtype == "fp32" else torch.bfloat16
+    C_torch_dtype = get_output_torch_dtype(outdtype)
     C_out = torch.zeros(N, M, dtype=C_torch_dtype, device=A_q.device)
     
     # 分配输出数组
@@ -356,7 +392,7 @@ def run_search(
     lib: ctypes.CDLL,
     dtype: str,
     outdtype: str,
-    nk_list: List[Tuple[int, int]],
+    nk_list: List,
     m_list: List[int],
     warmup: int,
     repeat: int,
@@ -364,7 +400,14 @@ def run_search(
     search_split_k: bool = False,
     verbose: bool = True,
 ) -> Dict:
-    """运行完整的算法搜索"""
+    """
+    运行完整的算法搜索。
+    
+    搜索策略：
+    1. 收集更多候选 (search_topk=16) 用于重排序
+    2. 使用 smart_score 综合考虑 latency/workspace/split_k
+    3. 应用 rerank_candidates 进行重排序，保留 final_topk=3
+    """
     results = []
     max_M = max(m_list)
     total_nk = len(nk_list)
@@ -372,7 +415,11 @@ def run_search(
     max_alg_count = 0
     supports_segment_k = bool(lib.cusparselt_supports_segment_k())
     
-    for nk_id, (N, K) in enumerate(nk_list):
+    # 收集更多候选用于 rerank
+    search_topk = 16
+    
+    for nk_id, nk in enumerate(nk_list):
+        N, K = nk[0], nk[1]
         if verbose:
             print(f"    NK {nk_id+1}/{total_nk}: ({N}, {K})", flush=True)
         
@@ -386,34 +433,42 @@ def run_search(
         # 准备激活
         A_q = prepare_activation(A, dtype)
         
-        nk_results = {
-            "nk_id": nk_id,
-            "N": N,
-            "K": K,
-            "m_results": {},
-        }
+        nk_m_results = {}
         
         for M in m_list:
             # 切片 (A_q 是 K x M)
             A_slice = A_q[:, :M].contiguous()
             
+            # 搜索更多候选用于 rerank
             out = search_single_nk(
                 lib, N, K, M,
                 W_compressed, A_slice,
                 dtype, outdtype,
-                warmup, repeat, topk,
+                warmup, repeat, search_topk,
                 search_split_k,
             )
             
-            nk_results["m_results"][M] = out
+            nk_m_results[M] = out
             
             if out["alg_count"] > max_alg_count:
                 max_alg_count = out["alg_count"]
         
+        # 重排序：综合考虑 latency/workspace/split_k，保留 top3
+        reranked_results = rerank_candidates(nk_m_results, m_list, final_topk=topk)
+        
+        nk_results = {
+            "nk_id": nk_id,
+            "N": N,
+            "K": K,
+            "m_results": reranked_results,
+        }
+        
         if verbose:
             first_m = m_list[0]
-            first_result = nk_results["m_results"][first_m]
-            print(f"      → 算法数: {first_result['alg_count']}, 有效: {first_result['num_valid']}")
+            first_result = reranked_results.get(first_m, {})
+            alg_count = first_result.get("alg_count", 0)
+            num_valid = first_result.get("num_valid", 0)
+            print(f"      → 算法数: {alg_count}, 有效: {num_valid} (rerank 后)")
         
         results.append(nk_results)
         
@@ -431,139 +486,6 @@ def run_search(
         "supports_segment_k": supports_segment_k,
         "search_split_k": search_split_k,
     }
-
-
-# =============================================================================
-# 结果保存
-# =============================================================================
-
-def save_outputs(
-    out_dir: Path,
-    model_name: str,
-    dtype: str,
-    outdtype: str,
-    search_ret: Dict,
-    warmup: int,
-    repeat: int,
-    verify: bool,
-) -> Path:
-    """保存搜索结果"""
-    layout = "TNCCcol_sparse24"
-    
-    subdir_name = build_output_dir_name(model_name, dtype, outdtype)
-    subdir = out_dir / subdir_name
-    subdir.mkdir(parents=True, exist_ok=True)
-    
-    csv_path = subdir / build_result_filename("alg_search_bench", model_name, "csv")
-    json_path = subdir / build_result_filename("alg_search_LUT", model_name, "json")
-    
-    alg_count = search_ret.get("max_alg_count", 0)
-    config_count = alg_count * (6 if search_ret.get("search_split_k") else 1)
-    
-    # === CSV 生成 ===
-    header_lines = build_csv_header_lines(
-        model_name=model_name,
-        dtype=dtype,
-        outdtype=outdtype,
-        warmup=warmup,
-        repeat=repeat,
-        verify=verify,
-        m_list=search_ret["M_list"],
-        nk_list=search_ret["NK_list"],
-        layout=layout,
-        alg_count=alg_count,
-        config_count=config_count,
-    )
-    
-    csv_lines = list(header_lines)
-    csv_lines.append("M,N,K,alg_count,config_count,tops1,lat_us1,id1,sk1,ws1,tops2,lat_us2,id2,sk2,ws2,tops3,lat_us3,id3,sk3,ws3")
-    
-    csv_rows = []
-    
-    for nk_idx, nk_res in enumerate(search_ret["results"]):
-        N, K = nk_res["N"], nk_res["K"]
-        
-        for M in search_ret["M_list"]:
-            m_res = nk_res["m_results"].get(M, {})
-            results = m_res.get("results", [])
-            
-            values = [str(M), str(N), str(K), str(m_res.get("alg_count", 0)), str(config_count)]
-            
-            for k in range(3):
-                if k < len(results):
-                    r = results[k]
-                    values.extend([
-                        f"{r['tops']:.6f}",
-                        f"{r['lat_us']:.3f}",
-                        str(r['alg_id']),
-                        str(r['split_k']),
-                        str(r['workspace']),
-                    ])
-                else:
-                    values.extend(["", "", "", "", ""])
-            
-            csv_rows.append((M, nk_idx, ",".join(values)))
-    
-    csv_rows.sort(key=lambda x: (x[0], x[1]))
-    for _, _, line in csv_rows:
-        csv_lines.append(line)
-    
-    csv_path.write_text("\n".join(csv_lines))
-    
-    # === JSON 生成 ===
-    meta = build_search_meta(
-        dtype=dtype,
-        outdtype=outdtype,
-        warmup=warmup,
-        repeat=repeat,
-        verify=verify,
-        m_list=search_ret["M_list"],
-        nk_list=search_ret["NK_list"],
-        model_name=model_name,
-        layout=layout,
-        alg_count=alg_count,
-        config_count=config_count,
-    )
-    meta["supports_segment_k"] = search_ret.get("supports_segment_k", False)
-    meta["search_split_k"] = search_ret.get("search_split_k", False)
-    
-    nk_entries = {}
-    for nk_res in search_ret["results"]:
-        N, K = nk_res["N"], nk_res["K"]
-        nk_key = f"({N},{K})"
-        
-        m_thresholds = []
-        alg_by_m = {}
-        
-        for M in search_ret["M_list"]:
-            m_res = nk_res["m_results"].get(M, {})
-            results = m_res.get("results", [])
-            
-            if results:
-                m_thresholds.append(M)
-                top3_info = []
-                for r in results[:3]:
-                    top3_info.append({
-                        "alg_id": r["alg_id"],
-                        "split_k": r["split_k"],
-                    })
-                alg_by_m[str(M)] = top3_info
-        
-        nk_entries[nk_key] = {
-            "m_thresholds": m_thresholds,
-            "alg_by_m": alg_by_m,
-        }
-    
-    json_payload = {
-        "meta": meta,
-        "nk_entries": nk_entries,
-    }
-    json_path.write_text(json.dumps(json_payload, indent=2, ensure_ascii=False))
-    
-    print(f"已生成: {csv_path}")
-    print(f"已生成: {json_path}")
-    
-    return subdir
 
 
 # =============================================================================
@@ -607,10 +529,16 @@ def main():
     print("[1/4] 编译 CUDA 扩展...")
     src_path = SCRIPT_DIR / "alg_search_cusparselt.cu"
     build_dir = SCRIPT_DIR / "build"
-    so_path = build_cuda_extension(src_path, build_dir, force=args.compile)
+    so_path = build_search_extension(
+        name="alg_search_cusparselt",
+        source_file=src_path,
+        build_dir=build_dir,
+        backend="cusparselt",
+        force=args.compile,
+    )
     
     print("[2/4] 加载 CUDA 扩展...")
-    lib = load_extension(so_path)
+    lib = load_search_extension(so_path, backend="cusparselt", setup_func=setup_lib_signatures)
     
     if not lib.cusparselt_alg_search_is_available():
         raise RuntimeError("cuSPARSELt 不可用")
@@ -644,7 +572,7 @@ def main():
         verbose=True,
     )
     
-    saved_dir = save_outputs(
+    saved_dir = save_alg_search_results(
         out_dir,
         model_name,
         args.dtype,
@@ -653,6 +581,9 @@ def main():
         args.warmup,
         args.repeat,
         args.verify,
+        layout="TNCCcol_sparse24",
+        is_sparse=True,
+        has_split_k=True,
     )
     
     print()

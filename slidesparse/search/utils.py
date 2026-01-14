@@ -33,6 +33,7 @@ from slidesparse.utils import (
     normalize_dtype,
     # 编译与加载
     load_cuda_extension,
+    build_cuda_extension_direct,
     ensure_cublaslt_loaded,
     ensure_cusparselt_loaded,
     BACKEND_LDFLAGS,
@@ -45,6 +46,150 @@ from slidesparse.utils import (
     get_model_nk_sizes_slided,
     get_model_nk_sizes_compressed,
 )
+
+import ctypes
+import torch
+from typing import Callable
+
+
+# =============================================================================
+# CUDA 扩展编译与加载（包装顶层工具）
+# =============================================================================
+
+def build_search_extension(
+    name: str,
+    source_file: Path,
+    build_dir: Path,
+    backend: str,
+    *,
+    force: bool = False,
+    verbose: bool = True,
+) -> Path:
+    """
+    编译搜索扩展 (extern "C" 接口)。
+    
+    基于顶层 build_cuda_extension_direct，自动添加后端依赖库。
+    
+    Args:
+        name: 扩展名称（如 "alg_search_cublaslt"）
+        source_file: 源文件路径 (.cu)
+        build_dir: 构建目录
+        backend: 后端类型 ("cublaslt" 或 "cusparselt")
+        force: 是否强制重新编译
+        verbose: 是否显示详细输出
+    
+    Returns:
+        编译生成的 .so 文件路径
+    """
+    # 构建带硬件信息的名称
+    full_name = f"{name}_{hw_info.gpu_name}_{hw_info.cc_tag}"
+    
+    # 获取后端链接库
+    backend_lower = backend.lower()
+    if backend_lower == "cublaslt":
+        extra_ldflags = ["-L/usr/lib/x86_64-linux-gnu", "-lcublasLt", "-lcublas", "-lcuda"]
+    elif backend_lower == "cusparselt":
+        extra_ldflags = ["-L/usr/lib/x86_64-linux-gnu", "-lcusparseLt", "-lcusparse", "-lcublas", "-lcuda"]
+    else:
+        raise ValueError(f"未知后端: {backend}")
+    
+    return build_cuda_extension_direct(
+        name=full_name,
+        source_file=source_file,
+        build_dir=build_dir,
+        extra_ldflags=extra_ldflags,
+        force=force,
+        verbose=verbose,
+    )
+
+
+def load_search_extension(
+    so_path: Path,
+    backend: str,
+    setup_func: Callable[[ctypes.CDLL], None],
+) -> ctypes.CDLL:
+    """
+    加载搜索扩展 (extern "C" 接口)。
+    
+    Args:
+        so_path: .so 文件路径
+        backend: 后端类型 ("cublaslt" 或 "cusparselt")
+        setup_func: 设置函数签名的回调函数
+    
+    Returns:
+        加载的 ctypes.CDLL 对象
+    """
+    # 预加载后端库
+    backend_lower = backend.lower()
+    if backend_lower == "cublaslt":
+        ensure_cublaslt_loaded()
+    elif backend_lower == "cusparselt":
+        ensure_cusparselt_loaded()
+    else:
+        raise ValueError(f"未知后端: {backend}")
+    
+    # 加载扩展
+    lib = ctypes.CDLL(str(so_path), mode=ctypes.RTLD_GLOBAL)
+    
+    # 调用设置函数配置签名
+    setup_func(lib)
+    
+    return lib
+
+
+# =============================================================================
+# 数据准备工具
+# =============================================================================
+
+def quantize_int8(x: torch.Tensor) -> tuple:
+    """
+    将 BF16/FP16 张量量化到 INT8。
+    
+    Args:
+        x: 输入张量
+    
+    Returns:
+        (quantized_tensor, scale)
+    """
+    abs_max = x.abs().max().item()
+    scale = 127.0 / abs_max if abs_max > 0 else 1.0
+    q = (x * scale).round().clamp(-128, 127).to(torch.int8)
+    return q, scale
+
+
+def to_fp8_e4m3(x: torch.Tensor) -> torch.Tensor:
+    """转换为 FP8E4M3 格式"""
+    return x.to(torch.float8_e4m3fn)
+
+
+def quantize_tensor(x: torch.Tensor, dtype: str) -> torch.Tensor:
+    """
+    根据 dtype 量化张量。
+    
+    Args:
+        x: 输入张量 (BF16/FP16)
+        dtype: 目标类型 ("int8" 或 "fp8e4m3")
+    
+    Returns:
+        量化后的张量
+    """
+    if dtype == "int8":
+        q, _ = quantize_int8(x)
+        return q
+    elif dtype == "fp8e4m3":
+        return to_fp8_e4m3(x)
+    else:
+        raise ValueError(f"不支持的数据类型: {dtype}")
+
+
+def get_output_torch_dtype(outdtype: str) -> torch.dtype:
+    """获取输出对应的 PyTorch dtype"""
+    if outdtype == "fp32":
+        return torch.float32
+    elif outdtype == "bf16":
+        return torch.bfloat16
+    else:
+        raise ValueError(f"不支持的输出类型: {outdtype}")
 
 
 # =============================================================================
@@ -285,6 +430,13 @@ def build_search_meta(
     """
     import torch
     
+    # 处理 NK 列表，确保只保留 (N, K) 对
+    nk_pairs = []
+    if nk_list:
+        for t in nk_list:
+            if len(t) >= 2:
+                nk_pairs.append((t[0], t[1]))
+    
     meta = {
         "gpu_name": hw_info.gpu_full_name,
         "gpu_short_name": hw_info.gpu_name,
@@ -304,7 +456,7 @@ def build_search_meta(
         "cuda_version_runtime": hw_info.cuda_runtime_version,
         "time": datetime.datetime.now().isoformat(),
         "M_list": m_list,
-        "NK_list": [(n, k) if len(t) == 2 else t for t in (nk_list if nk_list else [])],
+        "NK_list": nk_pairs,
     }
     
     if extra:
@@ -632,11 +784,345 @@ __all__ = [
     "probe_cublaslt_layout",
     "probe_cusparselt_search",
     "probe_cusparselt_layout",
+    # 编译与加载
+    "build_search_extension",
+    "load_search_extension",
+    # 数据准备
+    "quantize_int8",
+    "to_fp8_e4m3",
+    "quantize_tensor",
+    "get_output_torch_dtype",
+    # 结果保存
+    "save_alg_search_results",
+    "save_layout_search_results",
     # 重导出顶层 utils
     "hw_info",
     "normalize_dtype",
     "load_cuda_extension",
+    "build_cuda_extension_direct",
     "ensure_cublaslt_loaded",
     "ensure_cusparselt_loaded",
     "get_model_nk_sizes",
 ]
+
+
+# =============================================================================
+# 结果保存工具
+# =============================================================================
+
+def save_alg_search_results(
+    out_dir: Path,
+    model_name: str,
+    dtype: str,
+    outdtype: str,
+    search_ret: dict,
+    warmup: int,
+    repeat: int,
+    verify: bool,
+    *,
+    layout: str = "TNCCcol",
+    is_sparse: bool = False,
+    has_split_k: bool = False,
+) -> Path:
+    """
+    保存算法搜索结果到 CSV 和 JSON 文件。
+    
+    Args:
+        out_dir: 输出基础目录
+        model_name: 模型名称
+        dtype: 输入数据类型
+        outdtype: 输出数据类型
+        search_ret: 搜索结果字典，包含 results, M_list, NK_list 等
+        warmup: 预热次数
+        repeat: 重复次数
+        verify: 是否验证
+        layout: 布局类型
+        is_sparse: 是否为稀疏搜索 (cuSPARSELt)
+        has_split_k: 是否包含 split_k 信息
+    
+    Returns:
+        保存结果的子目录路径
+    """
+    import base64
+    
+    subdir_name = build_output_dir_name(model_name, dtype, outdtype)
+    subdir = out_dir / subdir_name
+    subdir.mkdir(parents=True, exist_ok=True)
+    
+    csv_path = subdir / build_result_filename("alg_search_bench", model_name, "csv")
+    json_path = subdir / build_result_filename("alg_search_LUT", model_name, "json")
+    
+    alg_count = search_ret.get("max_alg_count", 0)
+    config_count = alg_count * (6 if search_ret.get("search_split_k") else 1)
+    
+    # === CSV 生成 ===
+    header_lines = build_csv_header_lines(
+        model_name=model_name,
+        dtype=dtype,
+        outdtype=outdtype,
+        warmup=warmup,
+        repeat=repeat,
+        verify=verify,
+        m_list=search_ret["M_list"],
+        nk_list=search_ret["NK_list"],
+        layout=layout,
+        alg_count=alg_count,
+        config_count=config_count,
+    )
+    
+    csv_lines = list(header_lines)
+    
+    # 根据是否有 split_k 决定列格式
+    if has_split_k:
+        csv_lines.append("M,N,K,alg_count,config_count,tops1,lat_us1,id1,sk1,ws1,tops2,lat_us2,id2,sk2,ws2,tops3,lat_us3,id3,sk3,ws3")
+    else:
+        csv_lines.append("M,N,K,alg_count,config_count,tops1,lat_us1,id1,ws1,waves1,tops2,lat_us2,id2,ws2,waves2,tops3,lat_us3,id3,ws3,waves3")
+    
+    csv_rows = []
+    
+    for nk_idx, nk_res in enumerate(search_ret["results"]):
+        N, K = nk_res["N"], nk_res["K"]
+        
+        for M in search_ret["M_list"]:
+            m_res = nk_res["m_results"].get(M, {})
+            results = m_res.get("results", [])
+            
+            values = [str(M), str(N), str(K), str(m_res.get("alg_count", 0)), str(config_count)]
+            
+            for k in range(3):
+                if k < len(results):
+                    r = results[k]
+                    if has_split_k:
+                        values.extend([
+                            f"{r['tops']:.6f}",
+                            f"{r['lat_us']:.3f}",
+                            str(r['alg_id']),
+                            str(r.get('split_k', 1)),
+                            str(r['workspace']),
+                        ])
+                    else:
+                        values.extend([
+                            f"{r['tops']:.6f}",
+                            f"{r['lat_us']:.3f}",
+                            str(r['alg_id']),
+                            str(r['workspace']),
+                            f"{r.get('waves_count', 0):.4f}",
+                        ])
+                else:
+                    values.extend(["", "", "", "", ""])
+            
+            csv_rows.append((M, nk_idx, ",".join(values)))
+    
+    csv_rows.sort(key=lambda x: (x[0], x[1]))
+    for _, _, line in csv_rows:
+        csv_lines.append(line)
+    
+    csv_path.write_text("\n".join(csv_lines))
+    
+    # === JSON 生成 ===
+    meta = build_search_meta(
+        dtype=dtype,
+        outdtype=outdtype,
+        warmup=warmup,
+        repeat=repeat,
+        verify=verify,
+        m_list=search_ret["M_list"],
+        nk_list=search_ret["NK_list"],
+        model_name=model_name,
+        layout=layout,
+        alg_count=alg_count,
+        config_count=config_count,
+    )
+    
+    if is_sparse:
+        meta["supports_segment_k"] = search_ret.get("supports_segment_k", False)
+        meta["search_split_k"] = search_ret.get("search_split_k", False)
+    
+    nk_entries = {}
+    for nk_res in search_ret["results"]:
+        N, K = nk_res["N"], nk_res["K"]
+        nk_key = f"({N},{K})"
+        
+        m_thresholds = []
+        alg_by_m = {}
+        
+        for M in search_ret["M_list"]:
+            m_res = nk_res["m_results"].get(M, {})
+            results = m_res.get("results", [])
+            
+            if results:
+                m_thresholds.append(M)
+                if has_split_k:
+                    top3_info = [{"alg_id": r["alg_id"], "split_k": r.get("split_k", 1)} for r in results[:3]]
+                    alg_by_m[str(M)] = top3_info
+                else:
+                    top3_b64 = []
+                    for r in results[:3]:
+                        if "algo_data" in r:
+                            algo_b64 = base64.b64encode(r["algo_data"]).decode('ascii')
+                            top3_b64.append(algo_b64)
+                    alg_by_m[str(M)] = top3_b64
+        
+        nk_entries[nk_key] = {
+            "m_thresholds": m_thresholds,
+            "alg_by_m": alg_by_m,
+        }
+    
+    json_payload = {
+        "meta": meta,
+        "nk_entries": nk_entries,
+    }
+    
+    import json as json_mod
+    json_path.write_text(json_mod.dumps(json_payload, indent=2, ensure_ascii=False))
+    
+    print(f"已生成: {csv_path}")
+    print(f"已生成: {json_path}")
+    
+    return subdir
+
+
+def save_layout_search_results(
+    out_dir: Path,
+    model_name: str,
+    dtype: str,
+    outdtype: str,
+    search_ret: dict,
+    warmup: int,
+    repeat: int,
+    verify: bool,
+    *,
+    layout_names: list,
+    is_sparse: bool = False,
+) -> Path:
+    """
+    保存布局搜索结果到 CSV 和 JSON 文件。
+    
+    Args:
+        out_dir: 输出基础目录
+        model_name: 模型名称
+        dtype: 输入数据类型
+        outdtype: 输出数据类型
+        search_ret: 搜索结果字典
+        warmup: 预热次数
+        repeat: 重复次数
+        verify: 是否验证
+        layout_names: 布局名称列表
+        is_sparse: 是否为稀疏搜索
+    
+    Returns:
+        保存结果的子目录路径
+    """
+    subdir_name = build_output_dir_name(model_name, dtype, outdtype)
+    subdir = out_dir / subdir_name
+    subdir.mkdir(parents=True, exist_ok=True)
+    
+    csv_path = subdir / build_result_filename("layout_search_bench", model_name, "csv")
+    json_path = subdir / build_result_filename("layout_search_summary", model_name, "json")
+    
+    num_layouts = len(layout_names)
+    layout_tag = "SEARCH_SPARSE24" if is_sparse else "SEARCH"
+    
+    # === CSV 生成 ===
+    header_lines = build_csv_header_lines(
+        model_name=model_name,
+        dtype=dtype,
+        outdtype=outdtype,
+        warmup=warmup,
+        repeat=repeat,
+        verify=verify,
+        m_list=search_ret["M_list"],
+        nk_list=search_ret["NK_list"],
+        layout=layout_tag,
+        alg_count=num_layouts,
+        config_count=num_layouts,
+    )
+    
+    csv_lines = list(header_lines)
+    csv_lines.append("M,N,K,layout,tops,lat_us,workspace,valid")
+    
+    csv_rows = []
+    
+    for nk_res in search_ret["results"]:
+        N, K = nk_res["N"], nk_res["K"]
+        
+        for M in search_ret["M_list"]:
+            m_res = nk_res["m_results"].get(M, {})
+            results = m_res.get("results", [])
+            
+            for r in results:
+                # 跳过无效的布局，避免 CSV 有大片空白
+                if not r["valid"]:
+                    continue
+                values = [
+                    str(M), str(N), str(K),
+                    r["layout_name"],
+                    f"{r['tops']:.6f}",
+                    f"{r['lat_us']:.3f}",
+                    str(r["workspace"]),
+                    "1",  # 只写有效的
+                ]
+                csv_rows.append((M, ",".join(values)))
+    
+    csv_rows.sort(key=lambda x: x[0])
+    for _, line in csv_rows:
+        csv_lines.append(line)
+    
+    csv_path.write_text("\n".join(csv_lines))
+    
+    # === JSON 汇总 ===
+    layout_stats = {name: {"wins": 0, "total_tops": 0.0, "count": 0} for name in layout_names}
+    
+    for nk_res in search_ret["results"]:
+        for M in search_ret["M_list"]:
+            m_res = nk_res["m_results"].get(M, {})
+            results = m_res.get("results", [])
+            
+            valid_results = [r for r in results if r["valid"]]
+            if valid_results:
+                best = max(valid_results, key=lambda x: x["tops"])
+                layout_stats[best["layout_name"]]["wins"] += 1
+            
+            for r in results:
+                if r["valid"]:
+                    layout_stats[r["layout_name"]]["total_tops"] += r["tops"]
+                    layout_stats[r["layout_name"]]["count"] += 1
+    
+    # 计算平均
+    for name in layout_names:
+        s = layout_stats[name]
+        s["avg_tops"] = s["total_tops"] / s["count"] if s["count"] > 0 else 0.0
+    
+    # 排序（只保留有成功执行记录的布局）
+    ranked = sorted(
+        [(name, stats) for name, stats in layout_stats.items() if stats["count"] > 0],
+        key=lambda x: x[1]["wins"],
+        reverse=True
+    )
+    
+    summary = {
+        "model": model_name,
+        "dtype": dtype,
+        "outdtype": outdtype,
+        "gpu": hw_info.gpu_full_name,
+        "layout_ranking": [
+            {
+                "layout": name,
+                "wins": stats["wins"],
+                "avg_tops": stats["avg_tops"],
+            }
+            for name, stats in ranked
+        ],
+        "recommendation": ranked[0][0] if ranked else "TN_ColCol",
+    }
+    
+    if is_sparse:
+        summary["sparsity"] = "2:4"
+    
+    import json as json_mod
+    json_path.write_text(json_mod.dumps(summary, indent=2, ensure_ascii=False))
+    
+    print(f"已生成: {csv_path}")
+    print(f"已生成: {json_path}")
+    
+    return subdir

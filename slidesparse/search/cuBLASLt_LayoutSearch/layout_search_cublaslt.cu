@@ -5,10 +5,10 @@
  *
  * 架构说明:
  * =========
- * 本文件提供 cuBLASLt 布局配置搜索功能，测试 8 种布局组合：
- *   - 转置 : TT, TN, NT, NN
- *   - A/B 排列 : RowCol, ColCol
- *   (D 输出固定为 ColMajor)
+ * 本文件提供 cuBLASLt 布局配置搜索功能，测试 16 种布局组合：
+ *   - 转置 : TT, TN, NT, NN (4种)
+ *   - A/B 排列 : RowCol, ColCol (2种)
+ *   - D 输出 : Col, Row (2种)
  *
  * 固定最优布局: T/N + Col/Col + Col (权重 W 在左)
  *
@@ -20,7 +20,7 @@
  *
  * 主要接口:
  * ---------
- * - cublaslt_layout_search_single()  : 测试单个 (N,K,M) 的 8 种布局
+ * - cublaslt_layout_search_single()  : 测试单个 (N,K,M) 的 16 种布局
  */
 
 #include <cstdint>
@@ -44,8 +44,8 @@
 // 最大 workspace 大小: 512 MB
 static constexpr size_t MAX_WORKSPACE_SIZE = 512ULL * 1024 * 1024;
 
-// 8 种布局组合
-static constexpr int NUM_LAYOUTS = 8;
+// 16 种布局组合 (4 转置 x 2 AB排列 x 2 D输出)
+static constexpr int NUM_LAYOUTS = 16;
 
 // 布局组合枚举
 struct LayoutConfig {
@@ -53,20 +53,31 @@ struct LayoutConfig {
     cublasOperation_t transB;
     cublasLtOrder_t orderA;
     cublasLtOrder_t orderB;
+    cublasLtOrder_t orderC;  // D 输出格式
     const char* name;
 };
 
-// 所有8种布局配置
+// 所有16种布局配置
 static const LayoutConfig LAYOUT_CONFIGS[NUM_LAYOUTS] = {
-    // transA,               transB,               orderA,                  orderB,                  name
-    {CUBLAS_OP_T, CUBLAS_OP_T, CUBLASLT_ORDER_ROW, CUBLASLT_ORDER_COL, "TT_RowCol"},
-    {CUBLAS_OP_T, CUBLAS_OP_N, CUBLASLT_ORDER_ROW, CUBLASLT_ORDER_COL, "TN_RowCol"},
-    {CUBLAS_OP_N, CUBLAS_OP_T, CUBLASLT_ORDER_ROW, CUBLASLT_ORDER_COL, "NT_RowCol"},
-    {CUBLAS_OP_N, CUBLAS_OP_N, CUBLASLT_ORDER_ROW, CUBLASLT_ORDER_COL, "NN_RowCol"},
-    {CUBLAS_OP_T, CUBLAS_OP_T, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_COL, "TT_ColCol"},
-    {CUBLAS_OP_T, CUBLAS_OP_N, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_COL, "TN_ColCol"},  // 推荐
-    {CUBLAS_OP_N, CUBLAS_OP_T, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_COL, "NT_ColCol"},
-    {CUBLAS_OP_N, CUBLAS_OP_N, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_COL, "NN_ColCol"},
+    // transA,       transB,       orderA,             orderB,             orderC,             name
+    // D 输出为 ColMajor (前8种)
+    {CUBLAS_OP_T, CUBLAS_OP_T, CUBLASLT_ORDER_ROW, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_COL, "TT_RowCol_DCol"},
+    {CUBLAS_OP_T, CUBLAS_OP_N, CUBLASLT_ORDER_ROW, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_COL, "TN_RowCol_DCol"},
+    {CUBLAS_OP_N, CUBLAS_OP_T, CUBLASLT_ORDER_ROW, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_COL, "NT_RowCol_DCol"},
+    {CUBLAS_OP_N, CUBLAS_OP_N, CUBLASLT_ORDER_ROW, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_COL, "NN_RowCol_DCol"},
+    {CUBLAS_OP_T, CUBLAS_OP_T, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_COL, "TT_ColCol_DCol"},
+    {CUBLAS_OP_T, CUBLAS_OP_N, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_COL, "TN_ColCol_DCol"},  // 推荐
+    {CUBLAS_OP_N, CUBLAS_OP_T, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_COL, "NT_ColCol_DCol"},
+    {CUBLAS_OP_N, CUBLAS_OP_N, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_COL, "NN_ColCol_DCol"},
+    // D 输出为 RowMajor (后8种)
+    {CUBLAS_OP_T, CUBLAS_OP_T, CUBLASLT_ORDER_ROW, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_ROW, "TT_RowCol_DRow"},
+    {CUBLAS_OP_T, CUBLAS_OP_N, CUBLASLT_ORDER_ROW, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_ROW, "TN_RowCol_DRow"},
+    {CUBLAS_OP_N, CUBLAS_OP_T, CUBLASLT_ORDER_ROW, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_ROW, "NT_RowCol_DRow"},
+    {CUBLAS_OP_N, CUBLAS_OP_N, CUBLASLT_ORDER_ROW, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_ROW, "NN_RowCol_DRow"},
+    {CUBLAS_OP_T, CUBLAS_OP_T, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_ROW, "TT_ColCol_DRow"},
+    {CUBLAS_OP_T, CUBLAS_OP_N, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_ROW, "TN_ColCol_DRow"},
+    {CUBLAS_OP_N, CUBLAS_OP_T, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_ROW, "NT_ColCol_DRow"},
+    {CUBLAS_OP_N, CUBLAS_OP_N, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_ROW, "NN_ColCol_DRow"},
 };
 
 // =============================================================================
@@ -241,7 +252,12 @@ static int test_single_layout(
         ldB = colsB;
     }
     
-    ldC = M;  // C 固定列主序
+    // C 的 leading dimension 取决于 orderC
+    if (layout.orderC == CUBLASLT_ORDER_COL) {
+        ldC = M;
+    } else {
+        ldC = N;
+    }
     
     // 创建描述符
     cublasStatus_t status;
@@ -278,8 +294,7 @@ static int test_single_layout(
     // 设置 order
     cublasLtMatrixLayoutSetAttribute(layoutA, CUBLASLT_MATRIX_LAYOUT_ORDER, &layout.orderA, sizeof(layout.orderA));
     cublasLtMatrixLayoutSetAttribute(layoutB, CUBLASLT_MATRIX_LAYOUT_ORDER, &layout.orderB, sizeof(layout.orderB));
-    cublasLtOrder_t orderC = CUBLASLT_ORDER_COL;
-    cublasLtMatrixLayoutSetAttribute(layoutC, CUBLASLT_MATRIX_LAYOUT_ORDER, &orderC, sizeof(orderC));
+    cublasLtMatrixLayoutSetAttribute(layoutC, CUBLASLT_MATRIX_LAYOUT_ORDER, &layout.orderC, sizeof(layout.orderC));
     
     // 创建偏好
     status = cublasLtMatmulPreferenceCreate(&pref);

@@ -6,9 +6,10 @@ cuSPARSELt 布局离线搜索
 
 架构说明：
 =========
-测试 8 种布局组合 (2:4 稀疏矩阵乘法):
-  - 转置: TT, TN, NT, NN
-  - A/B 排列: RowCol, ColCol
+测试 16 种布局组合 (2:4 稀疏矩阵乘法):
+  - 转置: TT, TN, NT, NN (4种)
+  - A/B 排列: RowCol, ColCol (2种)
+  - D 输出: Col, Row (2种)
 
 固定最优布局: T/N + Col/Col + Col
 
@@ -18,14 +19,11 @@ cuSPARSELt 布局离线搜索
 
 import argparse
 import ctypes
-import json
-import subprocess
 import sys
 from pathlib import Path
-from typing import Dict, List, Tuple, Optional, Any
+from typing import Dict, List, Tuple, Any
 
 import torch
-import numpy as np
 
 # 添加 search 目录到路径
 SCRIPT_DIR = Path(__file__).parent.absolute()
@@ -34,14 +32,19 @@ sys.path.insert(0, str(SEARCH_DIR))
 
 from utils import (
     hw_info,
-    normalize_dtype,
-    ensure_cusparselt_loaded,
+    # 编译与加载
+    build_search_extension,
+    load_search_extension,
+    # 模型工具
     get_nk_list_auto,
     build_model_name_with_dtype,
-    build_output_dir_name,
-    build_result_filename,
-    build_search_meta,
-    build_csv_header_lines,
+    # 数据准备
+    quantize_int8,
+    to_fp8_e4m3,
+    get_output_torch_dtype,
+    # 结果保存
+    save_layout_search_results,
+    # 常量
     SUPPORTED_DTYPES,
     SUPPORTED_OUTDTYPES,
     default_m_list,
@@ -52,77 +55,24 @@ from utils import (
 # 布局常量
 # =============================================================================
 
-NUM_LAYOUTS = 8
+NUM_LAYOUTS = 16
 
 LAYOUT_NAMES = [
-    "TT_RowCol", "TN_RowCol", "NT_RowCol", "NN_RowCol",
-    "TT_ColCol", "TN_ColCol", "NT_ColCol", "NN_ColCol",
+    # D 输出为 ColMajor (前8种)
+    "TT_RowCol_DCol", "TN_RowCol_DCol", "NT_RowCol_DCol", "NN_RowCol_DCol",
+    "TT_ColCol_DCol", "TN_ColCol_DCol", "NT_ColCol_DCol", "NN_ColCol_DCol",
+    # D 输出为 RowMajor (后8种)
+    "TT_RowCol_DRow", "TN_RowCol_DRow", "NT_RowCol_DRow", "NN_RowCol_DRow",
+    "TT_ColCol_DRow", "TN_ColCol_DRow", "NT_ColCol_DRow", "NN_ColCol_DRow",
 ]
 
 
 # =============================================================================
-# CUDA 扩展编译与加载
+# CUDA 扩展加载
 # =============================================================================
 
-def build_cuda_extension(
-    source_file: Path,
-    build_dir: Path,
-    force: bool = False,
-    verbose: bool = True,
-) -> Path:
-    """使用 nvcc 直接编译 CUDA 扩展"""
-    build_dir.mkdir(parents=True, exist_ok=True)
-    
-    so_name = f"layout_search_cusparselt_{hw_info.gpu_name}_{hw_info.cc_tag}.so"
-    so_path = build_dir / so_name
-    
-    if so_path.exists() and not force:
-        if source_file.stat().st_mtime <= so_path.stat().st_mtime:
-            if verbose:
-                print(f"✓ Using existing: {so_path.name}")
-            return so_path
-    
-    if verbose:
-        print(f"🔨 Building {so_name}...")
-    
-    import os
-    cuda_home = os.environ.get('CUDA_HOME', '/usr/local/cuda')
-    nvcc = Path(cuda_home) / 'bin' / 'nvcc'
-    
-    cmd = [
-        str(nvcc),
-        '-std=c++17', '-O3', '-Xcompiler', '-fPIC', '--shared',
-        f'-gencode=arch=compute_{hw_info.cc_major}{hw_info.cc_minor},'
-        f'code=sm_{hw_info.cc_major}{hw_info.cc_minor}',
-        f'-I{cuda_home}/include',
-        str(source_file),
-        '-L/usr/lib/x86_64-linux-gnu',
-        '-lcusparseLt', '-lcusparse', '-lcublas', '-lcuda',
-        '-o', str(so_path),
-    ]
-    
-    if verbose:
-        print(f"Command: {' '.join(cmd)}")
-    
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    
-    if result.returncode != 0:
-        error_msg = result.stderr or result.stdout
-        raise RuntimeError(f"编译失败:\n{error_msg}")
-    
-    if verbose:
-        print(f"✓ Built: {so_path.name}")
-    
-    return so_path
-
-
-def load_extension(so_path: Path) -> ctypes.CDLL:
-    """加载编译好的 CUDA 扩展"""
-    ensure_cusparselt_loaded()
-    
-    lib = ctypes.CDLL(str(so_path), mode=ctypes.RTLD_GLOBAL)
-    
-    # 设置函数签名
+def setup_lib_signatures(lib: ctypes.CDLL) -> None:
+    """设置 CUDA 扩展的函数签名"""
     lib.cusparselt_layout_search_single.argtypes = [
         ctypes.c_void_p,   # A_compressed_ptr
         ctypes.c_void_p,   # B_ptr
@@ -186,26 +136,11 @@ def load_extension(so_path: Path) -> ctypes.CDLL:
     
     lib.cusparselt_layout_get_count.argtypes = []
     lib.cusparselt_layout_get_count.restype = ctypes.c_int
-    
-    return lib
 
 
 # =============================================================================
-# 数据准备
+# 数据准备 (cuSPARSELt 特定的压缩流程)
 # =============================================================================
-
-def quantize_int8(x: torch.Tensor) -> Tuple[torch.Tensor, float]:
-    """将 BF16/FP16 张量量化到 INT8"""
-    abs_max = x.abs().max().item()
-    scale = 127.0 / abs_max if abs_max > 0 else 1.0
-    q = (x * scale).round().clamp(-128, 127).to(torch.int8)
-    return q, scale
-
-
-def to_fp8_e4m3(x: torch.Tensor) -> torch.Tensor:
-    """转换为 FP8E4M3"""
-    return x.to(torch.float8_e4m3fn)
-
 
 def prepare_and_prune_weight(
     lib: ctypes.CDLL,
@@ -302,7 +237,7 @@ def search_single_nk(
 ) -> Dict[str, Any]:
     """搜索单个 (N, K, M) 组合的所有布局"""
     # 分配输出缓冲
-    C_torch_dtype = torch.float32 if outdtype == "fp32" else torch.bfloat16
+    C_torch_dtype = get_output_torch_dtype(outdtype)
     C_out = torch.zeros(N, M, dtype=C_torch_dtype, device=B_q.device)
     
     # 分配输出数组
@@ -363,7 +298,7 @@ def run_search(
     lib: ctypes.CDLL,
     dtype: str,
     outdtype: str,
-    nk_list: List[Tuple[int, int]],
+    nk_list: List,
     m_list: List[int],
     warmup: int,
     repeat: int,
@@ -374,7 +309,8 @@ def run_search(
     max_M = max(m_list)
     total_nk = len(nk_list)
     
-    for nk_id, (N, K) in enumerate(nk_list):
+    for nk_id, nk in enumerate(nk_list):
+        N, K = nk[0], nk[1]
         if verbose:
             print(f"    NK {nk_id+1}/{total_nk}: ({N}, {K})", flush=True)
         
@@ -436,123 +372,6 @@ def run_search(
 
 
 # =============================================================================
-# 结果保存
-# =============================================================================
-
-def save_outputs(
-    out_dir: Path,
-    model_name: str,
-    dtype: str,
-    outdtype: str,
-    search_ret: Dict,
-    warmup: int,
-    repeat: int,
-    verify: bool,
-) -> Path:
-    """保存搜索结果"""
-    subdir_name = build_output_dir_name(model_name, dtype, outdtype)
-    subdir = out_dir / subdir_name
-    subdir.mkdir(parents=True, exist_ok=True)
-    
-    csv_path = subdir / build_result_filename("layout_search_bench", model_name, "csv")
-    json_path = subdir / build_result_filename("layout_search_summary", model_name, "json")
-    
-    # === CSV 生成 ===
-    header_lines = build_csv_header_lines(
-        model_name=model_name,
-        dtype=dtype,
-        outdtype=outdtype,
-        warmup=warmup,
-        repeat=repeat,
-        verify=verify,
-        m_list=search_ret["M_list"],
-        nk_list=search_ret["NK_list"],
-        layout="SEARCH_SPARSE24",
-        alg_count=NUM_LAYOUTS,
-        config_count=NUM_LAYOUTS,
-    )
-    
-    csv_lines = list(header_lines)
-    csv_lines.append("M,N,K,layout,tops,lat_us,workspace,valid")
-    
-    csv_rows = []
-    
-    for nk_res in search_ret["results"]:
-        N, K = nk_res["N"], nk_res["K"]
-        
-        for M in search_ret["M_list"]:
-            m_res = nk_res["m_results"].get(M, {})
-            results = m_res.get("results", [])
-            
-            for r in results:
-                values = [
-                    str(M), str(N), str(K),
-                    r["layout_name"],
-                    f"{r['tops']:.6f}",
-                    f"{r['lat_us']:.3f}",
-                    str(r["workspace"]),
-                    "1" if r["valid"] else "0",
-                ]
-                csv_rows.append((M, ",".join(values)))
-    
-    csv_rows.sort(key=lambda x: x[0])
-    for _, line in csv_rows:
-        csv_lines.append(line)
-    
-    csv_path.write_text("\n".join(csv_lines))
-    
-    # === JSON 汇总 ===
-    layout_stats = {name: {"wins": 0, "total_tops": 0.0, "count": 0} for name in LAYOUT_NAMES}
-    
-    for nk_res in search_ret["results"]:
-        for M in search_ret["M_list"]:
-            m_res = nk_res["m_results"].get(M, {})
-            results = m_res.get("results", [])
-            
-            valid_results = [r for r in results if r["valid"]]
-            if valid_results:
-                best = max(valid_results, key=lambda x: x["tops"])
-                layout_stats[best["layout_name"]]["wins"] += 1
-            
-            for r in results:
-                if r["valid"]:
-                    layout_stats[r["layout_name"]]["total_tops"] += r["tops"]
-                    layout_stats[r["layout_name"]]["count"] += 1
-    
-    # 计算平均
-    for name in LAYOUT_NAMES:
-        s = layout_stats[name]
-        s["avg_tops"] = s["total_tops"] / s["count"] if s["count"] > 0 else 0.0
-    
-    # 排序
-    ranked = sorted(layout_stats.items(), key=lambda x: x[1]["wins"], reverse=True)
-    
-    summary = {
-        "model": model_name,
-        "dtype": dtype,
-        "outdtype": outdtype,
-        "gpu": hw_info.gpu_full_name,
-        "sparsity": "2:4",
-        "layout_ranking": [
-            {
-                "layout": name,
-                "wins": stats["wins"],
-                "avg_tops": stats["avg_tops"],
-            }
-            for name, stats in ranked
-        ],
-        "recommendation": ranked[0][0] if ranked else "TN_ColCol",
-    }
-    
-    json_path.write_text(json.dumps(summary, indent=2, ensure_ascii=False))
-    
-    print(f"已生成: {csv_path}")
-    print(f"已生成: {json_path}")
-    
-    return subdir
-
-
-# =============================================================================
 # 主流程
 # =============================================================================
 
@@ -591,10 +410,16 @@ def main():
     print("[1/4] 编译 CUDA 扩展...")
     src_path = SCRIPT_DIR / "layout_search_cusparselt.cu"
     build_dir = SCRIPT_DIR / "build"
-    so_path = build_cuda_extension(src_path, build_dir, force=args.compile)
+    so_path = build_search_extension(
+        name="layout_search_cusparselt",
+        source_file=src_path,
+        build_dir=build_dir,
+        backend="cusparselt",
+        force=args.compile,
+    )
     
     print("[2/4] 加载 CUDA 扩展...")
-    lib = load_extension(so_path)
+    lib = load_search_extension(so_path, backend="cusparselt", setup_func=setup_lib_signatures)
     
     if not lib.cusparselt_layout_search_is_available():
         raise RuntimeError("cuSPARSELt 不可用")
@@ -624,7 +449,7 @@ def main():
         verbose=True,
     )
     
-    saved_dir = save_outputs(
+    saved_dir = save_layout_search_results(
         out_dir,
         model_name,
         args.dtype,
@@ -633,6 +458,8 @@ def main():
         args.warmup,
         args.repeat,
         args.verify,
+        layout_names=LAYOUT_NAMES,
+        is_sparse=True,
     )
     
     print()

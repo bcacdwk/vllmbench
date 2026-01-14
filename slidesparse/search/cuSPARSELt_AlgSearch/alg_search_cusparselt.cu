@@ -7,8 +7,9 @@
  * =========
  * 本文件提供 cuSPARSELt 稀疏矩阵乘法的算法搜索功能，包含:
  *   - 2:4 稀疏模式 (prune_24)
- *   - Split-K 支持
+ *   - Split-K 自适应倍增搜索
  *   - Segment-K 检测 (SM90+)
+ *   - 官方 API 搜索对比
  *
  * 固定 Layout:
  * - T/N + Col/Col + Col (权重 W 在左, 2:4 稀疏)
@@ -34,6 +35,7 @@
 #include <mutex>
 #include <string>
 #include <vector>
+#include <cmath>
 
 #include <cuda_fp8.h>
 #include <cuda_runtime.h>
@@ -45,11 +47,6 @@
 
 // 最大 workspace 大小: 512 MB
 static constexpr size_t MAX_WORKSPACE_SIZE = 512ULL * 1024 * 1024;
-
-// Split-K 搜索范围
-static constexpr int MAX_SPLIT_K = 32;
-static constexpr int SPLIT_K_VALUES[] = {1, 2, 4, 8, 16, 32};
-static constexpr int NUM_SPLIT_K = 6;
 
 // =============================================================================
 // 错误处理
@@ -180,7 +177,7 @@ static int prune_24_internal(
     cusparseLtMatDescriptor_t matA;
     CHECK_CUSPARSELT(cusparseLtStructuredDescriptorInit(
         &g_handle, &matA,
-        rows, cols, cols,  // ld = rows for col-major
+        rows, cols, rows,  // ld = rows for col-major
         16,  // alignment
         info.cuda_type, order,
         CUSPARSELT_SPARSITY_50_PERCENT));
@@ -188,7 +185,7 @@ static int prune_24_internal(
     CHECK_CUSPARSELT(cusparseLtSpMMAPrune(
         &g_handle, &matA,
         input, output,
-        CUSPARSELT_PRUNE_SPMMA_STRIP,
+        CUSPARSELT_PRUNE_SPMMA_TILE,  // 与旧代码一致
         stream));
     
     CHECK_CUSPARSELT(cusparseLtMatDescriptorDestroy(&matA));
@@ -200,126 +197,19 @@ static int prune_24_internal(
 // 算法搜索结构
 // =============================================================================
 
-struct AlgResult {
+struct AlgRecord {
     int alg_id;
     int split_k;
     float lat_us;
     float tops;
     int64_t workspace;
-    float waves_count;
-    uint8_t valid;
+    bool valid;
+    bool from_api_search;  // 是否来自官方 API 搜索
+    float max_abs_err;     // 验证误差（如果启用验证）
+    
+    AlgRecord() : alg_id(-1), split_k(1), lat_us(0), tops(0), workspace(0), 
+                  valid(false), from_api_search(false), max_abs_err(0) {}
 };
-
-// =============================================================================
-// 单个配置测试
-// =============================================================================
-
-static int test_single_config(
-    cusparseLtHandle_t* handle,
-    cusparseLtMatmulDescriptor_t* matmul,
-    cusparseLtMatmulAlgSelection_t* alg_sel,
-    cusparseLtMatmulPlan_t* plan,
-    void* A_ptr, void* B_ptr, void* C_ptr,
-    void* workspace, size_t workspace_size,
-    int64_t M, int64_t N, int64_t K,
-    int alg_id, int split_k,
-    int warmup, int repeat,
-    cudaStream_t stream,
-    AlgResult* result)
-{
-    result->alg_id = alg_id;
-    result->split_k = split_k;
-    result->valid = 0;
-    
-    // 设置算法
-    CHECK_CUSPARSELT(cusparseLtMatmulAlgSetAttribute(
-        handle, alg_sel,
-        CUSPARSELT_MATMUL_ALG_CONFIG_ID,
-        &alg_id, sizeof(alg_id)));
-    
-    // 设置 split-k
-    CHECK_CUSPARSELT(cusparseLtMatmulAlgSetAttribute(
-        handle, alg_sel,
-        CUSPARSELT_MATMUL_SPLIT_K,
-        &split_k, sizeof(split_k)));
-    
-    // 获取 workspace 大小
-    size_t ws_size = 0;
-    cusparseStatus_t status = cusparseLtMatmulPlanInit(
-        handle, plan, matmul, alg_sel, workspace_size);
-    
-    if (status != CUSPARSE_STATUS_SUCCESS) {
-        return 0;  // 配置不支持
-    }
-    
-    status = cusparseLtMatmulGetWorkspace(handle, plan, &ws_size);
-    if (status != CUSPARSE_STATUS_SUCCESS || ws_size > workspace_size) {
-        cusparseLtMatmulPlanDestroy(plan);
-        return 0;
-    }
-    
-    float alpha = 1.0f, beta = 0.0f;
-    
-    // 验证可执行
-    status = cusparseLtMatmul(
-        handle, plan,
-        &alpha, A_ptr, B_ptr,
-        &beta, C_ptr, C_ptr,
-        workspace, &stream, 1);
-    
-    if (status != CUSPARSE_STATUS_SUCCESS) {
-        cusparseLtMatmulPlanDestroy(plan);
-        return 0;
-    }
-    
-    cudaStreamSynchronize(stream);
-    
-    // Warmup
-    for (int i = 0; i < warmup; ++i) {
-        cusparseLtMatmul(
-            handle, plan,
-            &alpha, A_ptr, B_ptr,
-            &beta, C_ptr, C_ptr,
-            workspace, &stream, 1);
-    }
-    cudaStreamSynchronize(stream);
-    
-    // Benchmark
-    cudaEvent_t start, stop;
-    cudaEventCreate(&start);
-    cudaEventCreate(&stop);
-    
-    cudaEventRecord(start, stream);
-    for (int i = 0; i < repeat; ++i) {
-        cusparseLtMatmul(
-            handle, plan,
-            &alpha, A_ptr, B_ptr,
-            &beta, C_ptr, C_ptr,
-            workspace, &stream, 1);
-    }
-    cudaEventRecord(stop, stream);
-    cudaEventSynchronize(stop);
-    
-    float ms_total = 0;
-    cudaEventElapsedTime(&ms_total, start, stop);
-    
-    cudaEventDestroy(start);
-    cudaEventDestroy(stop);
-    
-    float lat_us = (ms_total * 1000.0f) / repeat;
-    // 2:4 稀疏: 实际计算量是 dense 的一半
-    float tops = (2.0 * M * N * K * 0.5 / 1e12) / (lat_us / 1e6);
-    
-    result->lat_us = lat_us;
-    result->tops = tops;
-    result->workspace = (int64_t)ws_size;
-    result->waves_count = 0;  // cuSPARSELt 不提供 waves count
-    result->valid = 1;
-    
-    cusparseLtMatmulPlanDestroy(plan);
-    
-    return 1;
-}
 
 // =============================================================================
 // 导出函数
@@ -330,18 +220,25 @@ extern "C" {
 /**
  * @brief 搜索单个 (N,K,M) 组合的最优算法
  *
- * @param W_ptr        W 矩阵设备指针 (已压缩的稀疏矩阵)
- * @param A_ptr        A 矩阵设备指针
- * @param C_ptr        C 矩阵设备指针
- * @param N            N 维度
- * @param K            K 维度
- * @param M            M 维度
- * @param dtype        输入数据类型 ("int8" / "fp8e4m3")
- * @param outdtype     输出数据类型 ("bf16" / "fp32")
- * @param warmup       预热次数
- * @param repeat       计时重复次数
- * @param topk         返回前 k 个结果
- * @param search_split_k  是否搜索 split-k
+ * 采用与旧代码一致的双层网格搜索策略:
+ * - 外层遍历 alg_id
+ * - 内层自适应调整 split_k_val (1, 2, 4, 8, ... 及 -1 表示 Segment-K)
+ * - 每个 alg_id 单独压缩权重
+ * - 可选的官方 API 搜索对比
+ *
+ * @param W_pruned_ptr  W 矩阵设备指针 (已剪枝但未压缩)
+ * @param A_ptr         A 矩阵设备指针
+ * @param C_ptr         C 矩阵设备指针
+ * @param N             N 维度
+ * @param K             K 维度
+ * @param M             M 维度
+ * @param dtype         输入数据类型 ("int8" / "fp8e4m3")
+ * @param outdtype      输出数据类型 ("bf16" / "fp32")
+ * @param warmup        预热次数
+ * @param repeat        计时重复次数
+ * @param topk          返回前 k 个结果
+ * @param test_segment_k  是否测试 segment-k (-1)
+ * @param do_api_search   是否执行官方 API 搜索对比
  *
  * 输出参数:
  * @param out_alg_ids      算法 ID 数组 (大小 = topk)
@@ -351,18 +248,24 @@ extern "C" {
  * @param out_workspace    workspace 数组 (大小 = topk)
  * @param out_valid        有效标记数组 (大小 = topk)
  * @param out_num_valid    有效结果数量
- * @param out_alg_count    算法总数
+ * @param out_alg_count    算法总数 (max_alg_id)
+ * @param out_config_count 实测配置数
+ * @param out_api_alg_id   API 搜索结果算法 ID (-1 表示无效)
+ * @param out_api_split_k  API 搜索结果 split_k
+ * @param out_api_lat_us   API 搜索结果延迟
+ * @param out_api_rank     API 搜索结果在总排名中的位置 (1-based, -1 表示无效)
  * @param stream           CUDA 流 (可为 nullptr)
  *
  * @return 0 成功, -1 失败
  */
 int cusparselt_search_single_m(
-    void* W_ptr, void* A_ptr, void* C_ptr,
+    void* W_pruned_ptr, void* A_ptr, void* C_ptr,
     int64_t N, int64_t K, int64_t M,
     const char* dtype, const char* outdtype,
     int warmup, int repeat,
     int topk,
-    int search_split_k,
+    int test_segment_k,
+    int do_api_search,
     // 输出
     int* out_alg_ids,
     int* out_split_k,
@@ -372,6 +275,11 @@ int cusparselt_search_single_m(
     uint8_t* out_valid,
     int* out_num_valid,
     int* out_alg_count,
+    int* out_config_count,
+    int* out_api_alg_id,
+    int* out_api_split_k,
+    float* out_api_lat_us,
+    int* out_api_rank,
     void* stream)
 {
     if (ensure_handle() < 0) return -1;
@@ -386,28 +294,48 @@ int cusparselt_search_single_m(
     cudaDataType_t out_type = get_out_dtype(outdtype);
     cusparseComputeType compute_type = get_compute_type(dtype);
     
-    // 创建矩阵描述符
-    // C = W^T * A  (W: N x K sparse, A: K x M dense, C: N x M)
+    // 初始化输出
+    *out_num_valid = 0;
+    *out_alg_count = 0;
+    *out_config_count = 0;
+    *out_api_alg_id = -1;
+    *out_api_split_k = 1;
+    *out_api_lat_us = 0.0f;
+    *out_api_rank = -1;
+    
+    for (int i = 0; i < topk; ++i) {
+        out_alg_ids[i] = -1;
+        out_split_k[i] = 0;
+        out_lat_us[i] = 0;
+        out_tops[i] = 0;
+        out_workspace[i] = 0;
+        out_valid[i] = 0;
+    }
+    
+    float alpha = 1.0f, beta = 0.0f;
+    
+    // 创建基础矩阵描述符
+    // C = W^T * A  (W: K x N 存储, sparse, A: K x M dense, C: N x M)
     cusparseLtMatDescriptor_t matA, matB, matC;
     cusparseOrder_t order = CUSPARSE_ORDER_COL;
     
-    // W (稀疏, structured)
+    // W (稀疏, structured) - 存储为 [K, N], 转置后为 [N, K]
     CHECK_CUSPARSELT(cusparseLtStructuredDescriptorInit(
         &g_handle, &matA,
-        K, N, K,  // rows=K, cols=N, ld=K (转置后为 N x K)
+        K, N, K,  // rows=K, cols=N, ld=K
         16, info.cuda_type, order,
         CUSPARSELT_SPARSITY_50_PERCENT));
     
-    // A (dense)
+    // A (dense) - [K, M]
     CHECK_CUSPARSELT(cusparseLtDenseDescriptorInit(
         &g_handle, &matB,
-        K, M, K,  // rows=K, cols=M, ld=K
+        K, M, K,
         16, info.cuda_type, order));
     
-    // C (dense)
+    // C (dense) - [N, M]
     CHECK_CUSPARSELT(cusparseLtDenseDescriptorInit(
         &g_handle, &matC,
-        N, M, N,  // rows=N, cols=M, ld=N
+        N, M, N,
         16, out_type, order));
     
     // 创建 matmul 描述符
@@ -418,83 +346,361 @@ int cusparselt_search_single_m(
         &matA, &matB, &matC, &matC,
         compute_type));
     
-    // 算法选择
-    cusparseLtMatmulAlgSelection_t alg_sel;
+    // 获取最大算法 ID (使用与旧代码一致的 API)
+    cusparseLtMatmulAlgSelection_t alg_sel_tmp;
     CHECK_CUSPARSELT(cusparseLtMatmulAlgSelectionInit(
-        &g_handle, &alg_sel, &matmul,
+        &g_handle, &alg_sel_tmp, &matmul,
         CUSPARSELT_MATMUL_ALG_DEFAULT));
     
-    // 获取算法数量
-    int num_algs = 0;
-    CHECK_CUSPARSELT(cusparseLtMatmulAlgGetAttribute(
-        &g_handle, &alg_sel,
-        CUSPARSELT_MATMUL_NUM_ALG_IDS,
-        &num_algs, sizeof(num_algs)));
+    int max_alg_id = 0;
+    cusparseStatus_t attr_status = cusparseLtMatmulAlgGetAttribute(
+        &g_handle, &alg_sel_tmp,
+        CUSPARSELT_MATMUL_ALG_CONFIG_MAX_ID,
+        &max_alg_id, sizeof(max_alg_id));
     
-    *out_alg_count = num_algs;
+    cusparseLtMatmulAlgSelectionDestroy(&alg_sel_tmp);
     
-    // 分配 workspace
-    void* workspace = nullptr;
-    size_t workspace_size = MAX_WORKSPACE_SIZE;
-    CHECK_CUDA(cudaMalloc(&workspace, workspace_size));
+    if (attr_status != CUSPARSE_STATUS_SUCCESS || max_alg_id <= 0) {
+        cusparseLtMatDescriptorDestroy(&matA);
+        cusparseLtMatDescriptorDestroy(&matB);
+        cusparseLtMatDescriptorDestroy(&matC);
+        set_error("Failed to get max algorithm ID");
+        return -1;
+    }
+    
+    *out_alg_count = max_alg_id;
+    
+    // 共享 workspace
+    void* shared_workspace = nullptr;
+    size_t current_workspace_size = MAX_WORKSPACE_SIZE;
+    CHECK_CUDA(cudaMalloc(&shared_workspace, current_workspace_size));
     
     // 收集所有有效结果
-    std::vector<AlgResult> all_results;
-    all_results.reserve(num_algs * (search_split_k ? NUM_SPLIT_K : 1));
+    std::vector<AlgRecord> records;
+    int config_count = 0;
     
-    cusparseLtMatmulPlan_t plan;
+    // API 搜索结果
+    AlgRecord api_search_record;
+    api_search_record.valid = false;
     
-    for (int alg_id = 0; alg_id < num_algs; ++alg_id) {
-        if (search_split_k) {
-            for (int sk_idx = 0; sk_idx < NUM_SPLIT_K; ++sk_idx) {
-                int split_k = SPLIT_K_VALUES[sk_idx];
-                AlgResult res;
+    // === 官方 API 搜索 (可选) ===
+    if (do_api_search) {
+        cusparseLtMatmulAlgSelection_t alg_sel_api;
+        cusparseStatus_t sel_st = cusparseLtMatmulAlgSelectionInit(
+            &g_handle, &alg_sel_api, &matmul, CUSPARSELT_MATMUL_ALG_DEFAULT);
+        
+        if (sel_st == CUSPARSE_STATUS_SUCCESS) {
+            cusparseLtMatmulPlan_t plan_api;
+            cusparseStatus_t plan_st = cusparseLtMatmulPlanInit(
+                &g_handle, &plan_api, &matmul, &alg_sel_api, current_workspace_size);
+            
+            if (plan_st == CUSPARSE_STATUS_SUCCESS) {
+                // 获取压缩大小
+                size_t comp_size_api = 0;
+                cusparseLtSpMMACompressedSize(&g_handle, &plan_api, &comp_size_api, nullptr);
                 
-                int ok = test_single_config(
-                    &g_handle, &matmul, &alg_sel, &plan,
-                    W_ptr, A_ptr, C_ptr,
-                    workspace, workspace_size,
-                    M, N, K,
-                    alg_id, split_k,
-                    warmup, repeat,
-                    cu_stream,
-                    &res);
+                // 分配压缩缓冲区
+                void* W_comp_api = nullptr;
+                cudaMalloc(&W_comp_api, comp_size_api);
                 
-                if (ok > 0 && res.valid) {
-                    all_results.push_back(res);
+                // 压缩
+                cusparseStatus_t comp_st = cusparseLtSpMMACompress(
+                    &g_handle, &plan_api, W_pruned_ptr, W_comp_api, nullptr, cu_stream);
+                
+                if (comp_st == CUSPARSE_STATUS_SUCCESS) {
+                    // 调用官方搜索 API
+                    cusparseStatus_t search_st = cusparseLtMatmulSearch(
+                        &g_handle, &plan_api, &alpha, W_comp_api, A_ptr,
+                        &beta, C_ptr, C_ptr, shared_workspace, &cu_stream, 1);
+                    
+                    if (search_st == CUSPARSE_STATUS_SUCCESS) {
+                        // 提取选中的算法参数
+                        int api_alg_id = 0;
+                        int api_split_k = 1;
+                        
+                        cusparseLtMatmulAlgGetAttribute(
+                            &g_handle, &alg_sel_api, CUSPARSELT_MATMUL_ALG_CONFIG_ID,
+                            &api_alg_id, sizeof(api_alg_id));
+                        cusparseLtMatmulAlgGetAttribute(
+                            &g_handle, &alg_sel_api, CUSPARSELT_MATMUL_SPLIT_K,
+                            &api_split_k, sizeof(api_split_k));
+                        
+                        // 用相同方法测量性能
+                        size_t ws_api = 0;
+                        cusparseLtMatmulGetWorkspace(&g_handle, &plan_api, &ws_api);
+                        
+                        bool success = true;
+                        
+                        // 预热
+                        for (int i = 0; i < warmup && success; ++i) {
+                            cusparseStatus_t st = cusparseLtMatmul(
+                                &g_handle, &plan_api, &alpha, W_comp_api, A_ptr,
+                                &beta, C_ptr, C_ptr, shared_workspace, &cu_stream, 1);
+                            if (st != CUSPARSE_STATUS_SUCCESS) success = false;
+                        }
+                        cudaStreamSynchronize(cu_stream);
+                        
+                        if (success) {
+                            cudaEvent_t start, stop;
+                            cudaEventCreate(&start);
+                            cudaEventCreate(&stop);
+                            cudaEventRecord(start, cu_stream);
+                            
+                            for (int r = 0; r < repeat && success; ++r) {
+                                cusparseStatus_t st = cusparseLtMatmul(
+                                    &g_handle, &plan_api, &alpha, W_comp_api, A_ptr,
+                                    &beta, C_ptr, C_ptr, shared_workspace, &cu_stream, 1);
+                                if (st != CUSPARSE_STATUS_SUCCESS) success = false;
+                            }
+                            
+                            cudaEventRecord(stop, cu_stream);
+                            cudaEventSynchronize(stop);
+                            float total_ms = 0;
+                            cudaEventElapsedTime(&total_ms, start, stop);
+                            cudaEventDestroy(start);
+                            cudaEventDestroy(stop);
+                            
+                            if (success) {
+                                api_search_record.alg_id = api_alg_id;
+                                api_search_record.split_k = api_split_k;
+                                api_search_record.lat_us = (total_ms * 1000.0f) / (float)repeat;
+                                double ops = 2.0 * (double)M * (double)N * (double)K;
+                                api_search_record.tops = (float)(ops / (api_search_record.lat_us / 1e6) / 1e12);
+                                api_search_record.workspace = (int64_t)ws_api;
+                                api_search_record.valid = true;
+                                api_search_record.from_api_search = true;
+                            }
+                        }
+                    }
+                }
+                
+                if (W_comp_api) cudaFree(W_comp_api);
+                cusparseLtMatmulPlanDestroy(&plan_api);
+            }
+            cusparseLtMatmulAlgSelectionDestroy(&alg_sel_api);
+        }
+    }
+    
+    // 如果官方搜索成功，先加入 records
+    if (api_search_record.valid) {
+        records.push_back(api_search_record);
+    }
+    
+    // === 双层网格搜索：外层遍历 alg_id，内层自适应调整 split_k_val ===
+    for (int alg_id = 0; alg_id < max_alg_id; ++alg_id) {
+        
+        // === 为当前 alg_id 创建 plan 并压缩权重 ===
+        cusparseLtMatmulAlgSelection_t alg_sel_compress;
+        cusparseStatus_t sel_st = cusparseLtMatmulAlgSelectionInit(
+            &g_handle, &alg_sel_compress, &matmul, CUSPARSELT_MATMUL_ALG_DEFAULT);
+        if (sel_st != CUSPARSE_STATUS_SUCCESS) continue;
+        
+        cusparseStatus_t set_st = cusparseLtMatmulAlgSetAttribute(
+            &g_handle, &alg_sel_compress, CUSPARSELT_MATMUL_ALG_CONFIG_ID,
+            &alg_id, sizeof(alg_id));
+        if (set_st != CUSPARSE_STATUS_SUCCESS) {
+            cusparseLtMatmulAlgSelectionDestroy(&alg_sel_compress);
+            continue;
+        }
+        
+        cusparseLtMatmulPlan_t plan_compress;
+        cusparseStatus_t plan_st = cusparseLtMatmulPlanInit(
+            &g_handle, &plan_compress, &matmul, &alg_sel_compress, current_workspace_size);
+        if (plan_st != CUSPARSE_STATUS_SUCCESS) {
+            cusparseLtMatmulAlgSelectionDestroy(&alg_sel_compress);
+            continue;
+        }
+        
+        // 获取压缩所需大小
+        size_t compressed_size = 0;
+        cusparseLtSpMMACompressedSize(&g_handle, &plan_compress, &compressed_size, nullptr);
+        
+        // 分配压缩权重存储
+        void* W_compressed = nullptr;
+        cudaError_t alloc_st = cudaMalloc(&W_compressed, compressed_size);
+        if (alloc_st != cudaSuccess) {
+            cusparseLtMatmulPlanDestroy(&plan_compress);
+            cusparseLtMatmulAlgSelectionDestroy(&alg_sel_compress);
+            continue;
+        }
+        
+        // 执行压缩
+        cusparseStatus_t compress_st = cusparseLtSpMMACompress(
+            &g_handle, &plan_compress, W_pruned_ptr, W_compressed, nullptr, cu_stream);
+        
+        cusparseLtMatmulPlanDestroy(&plan_compress);
+        cusparseLtMatmulAlgSelectionDestroy(&alg_sel_compress);
+        
+        if (compress_st != CUSPARSE_STATUS_SUCCESS) {
+            cudaFree(W_compressed);
+            continue;
+        }
+        
+        // 用于跟踪当前 alg_id 下的最优延时（自适应倍增策略）
+        float best_lat_us_for_doubling = -1.0f;
+        
+        // 构建 split_k 候选列表
+        std::vector<int> split_k_candidates;
+        split_k_candidates.push_back(1);  // 总是先测试不切分
+        for (int sk = 2; sk <= K; sk *= 2) {
+            split_k_candidates.push_back(sk);
+        }
+        if (test_segment_k) {
+            split_k_candidates.push_back(-1);  // Segment-K
+        }
+        
+        bool stop_doubling = false;
+        
+        for (int split_k_val : split_k_candidates) {
+            // 去重检查：跳过与官方 API 搜索结果相同的配置
+            if (api_search_record.valid &&
+                alg_id == api_search_record.alg_id &&
+                split_k_val == api_search_record.split_k) {
+                continue;
+            }
+            
+            // 自适应倍增策略
+            if (stop_doubling && split_k_val > 1) {
+                continue;
+            }
+            
+            cusparseLtMatmulAlgSelection_t alg_sel;
+            cusparseStatus_t sel_status = cusparseLtMatmulAlgSelectionInit(
+                &g_handle, &alg_sel, &matmul, CUSPARSELT_MATMUL_ALG_DEFAULT);
+            if (sel_status != CUSPARSE_STATUS_SUCCESS) break;
+            
+            // 设置算法 ID
+            cusparseStatus_t set_status = cusparseLtMatmulAlgSetAttribute(
+                &g_handle, &alg_sel, CUSPARSELT_MATMUL_ALG_CONFIG_ID,
+                &alg_id, sizeof(alg_id));
+            if (set_status != CUSPARSE_STATUS_SUCCESS) {
+                cusparseLtMatmulAlgSelectionDestroy(&alg_sel);
+                continue;
+            }
+            
+            // 设置 Split-K
+            cusparseStatus_t split_k_status = cusparseLtMatmulAlgSetAttribute(
+                &g_handle, &alg_sel, CUSPARSELT_MATMUL_SPLIT_K,
+                &split_k_val, sizeof(split_k_val));
+            if (split_k_status != CUSPARSE_STATUS_SUCCESS) {
+                cusparseLtMatmulAlgSelectionDestroy(&alg_sel);
+                if (split_k_val > 1) stop_doubling = true;
+                continue;
+            }
+            
+            cusparseLtMatmulPlan_t plan;
+            cusparseStatus_t plan_status = cusparseLtMatmulPlanInit(
+                &g_handle, &plan, &matmul, &alg_sel, current_workspace_size);
+            if (plan_status != CUSPARSE_STATUS_SUCCESS) {
+                cusparseLtMatmulAlgSelectionDestroy(&alg_sel);
+                if (split_k_val > 1) stop_doubling = true;
+                continue;
+            }
+            
+            size_t workspace_size = 0;
+            cusparseLtMatmulGetWorkspace(&g_handle, &plan, &workspace_size);
+            
+            if (workspace_size > current_workspace_size) {
+                cusparseLtMatmulPlanDestroy(&plan);
+                cusparseLtMatmulAlgSelectionDestroy(&alg_sel);
+                continue;
+            }
+            
+            void* workspace = (workspace_size > 0) ? shared_workspace : nullptr;
+            bool success = true;
+            
+            // 预热
+            for (int i = 0; i < warmup && success; ++i) {
+                cusparseStatus_t st = cusparseLtMatmul(
+                    &g_handle, &plan, &alpha, W_compressed, A_ptr,
+                    &beta, C_ptr, C_ptr, workspace, &cu_stream, 1);
+                if (st != CUSPARSE_STATUS_SUCCESS) success = false;
+            }
+            cudaStreamSynchronize(cu_stream);
+            
+            // 计时
+            cudaEvent_t start = nullptr, stop = nullptr;
+            float total_ms = 0.0f;
+            
+            if (success) {
+                cudaEventCreate(&start);
+                cudaEventCreate(&stop);
+                cudaEventRecord(start, cu_stream);
+                
+                for (int r = 0; r < repeat && success; ++r) {
+                    cusparseStatus_t st = cusparseLtMatmul(
+                        &g_handle, &plan, &alpha, W_compressed, A_ptr,
+                        &beta, C_ptr, C_ptr, workspace, &cu_stream, 1);
+                    if (st != CUSPARSE_STATUS_SUCCESS) success = false;
+                }
+                
+                cudaEventRecord(stop, cu_stream);
+                cudaEventSynchronize(stop);
+                cudaEventElapsedTime(&total_ms, start, stop);
+                cudaEventDestroy(start);
+                cudaEventDestroy(stop);
+            }
+            
+            if (success) {
+                AlgRecord rec;
+                rec.alg_id = alg_id;
+                rec.split_k = split_k_val;
+                rec.lat_us = (total_ms * 1000.0f) / (float)repeat;
+                // TOPS 计算: 与旧代码一致，使用 2*M*N*K (不乘 0.5)
+                double ops = 2.0 * (double)M * (double)N * (double)K;
+                rec.tops = (float)(ops / (rec.lat_us / 1e6) / 1e12);
+                rec.workspace = (int64_t)workspace_size;
+                rec.valid = true;
+                rec.from_api_search = false;
+                
+                records.push_back(rec);
+                ++config_count;
+                
+                // 自适应倍增策略
+                if (split_k_val >= 1) {
+                    if (best_lat_us_for_doubling < 0 || rec.lat_us < best_lat_us_for_doubling) {
+                        best_lat_us_for_doubling = rec.lat_us;
+                    } else if (rec.lat_us * 1.10f > best_lat_us_for_doubling && split_k_val > 1) {
+                        stop_doubling = true;
+                    }
                 }
             }
-        } else {
-            AlgResult res;
-            int ok = test_single_config(
-                &g_handle, &matmul, &alg_sel, &plan,
-                W_ptr, A_ptr, C_ptr,
-                workspace, workspace_size,
-                M, N, K,
-                alg_id, 1,
-                warmup, repeat,
-                cu_stream,
-                &res);
             
-            if (ok > 0 && res.valid) {
-                all_results.push_back(res);
+            cusparseLtMatmulPlanDestroy(&plan);
+            cusparseLtMatmulAlgSelectionDestroy(&alg_sel);
+        }  // end split_k loop
+        
+        cudaFree(W_compressed);
+    }  // end alg_id loop
+    
+    *out_config_count = config_count;
+    
+    // 按延迟排序
+    std::sort(records.begin(), records.end(),
+              [](const AlgRecord& a, const AlgRecord& b) {
+                  return a.lat_us < b.lat_us;
+              });
+    
+    // 记录 API 搜索结果的排名
+    if (api_search_record.valid) {
+        for (size_t i = 0; i < records.size(); ++i) {
+            if (records[i].from_api_search) {
+                *out_api_rank = (int)(i + 1);  // 1-based
+                *out_api_alg_id = records[i].alg_id;
+                *out_api_split_k = records[i].split_k;
+                *out_api_lat_us = records[i].lat_us;
+                break;
             }
         }
     }
     
-    // 按 TOPS 排序
-    std::sort(all_results.begin(), all_results.end(),
-              [](const AlgResult& a, const AlgResult& b) {
-                  return a.tops > b.tops;
-              });
-    
-    // 输出 top-k
-    int num_valid = std::min((int)all_results.size(), topk);
-    *out_num_valid = num_valid;
+    // 填充输出
+    int num_valid = (int)std::min((size_t)topk, records.size());
+    *out_num_valid = (int)records.size();
     
     for (int i = 0; i < topk; ++i) {
-        if (i < num_valid) {
-            const auto& r = all_results[i];
+        if (i < (int)records.size()) {
+            const auto& r = records[i];
             out_alg_ids[i] = r.alg_id;
             out_split_k[i] = r.split_k;
             out_lat_us[i] = r.lat_us;
@@ -512,27 +718,16 @@ int cusparselt_search_single_m(
     }
     
     // 清理
-    cudaFree(workspace);
+    cudaFree(shared_workspace);
     cusparseLtMatDescriptorDestroy(&matA);
     cusparseLtMatDescriptorDestroy(&matB);
     cusparseLtMatDescriptorDestroy(&matC);
-    cusparseLtMatmulDescriptorDestroy(&matmul);
-    cusparseLtMatmulAlgSelectionDestroy(&alg_sel);
     
     return 0;
 }
 
 /**
  * @brief 对矩阵进行 2:4 剪枝
- *
- * @param input   输入矩阵设备指针
- * @param output  输出矩阵设备指针 (可以与 input 相同)
- * @param rows    行数
- * @param cols    列数
- * @param dtype   数据类型
- * @param stream  CUDA 流
- *
- * @return 0 成功, -1 失败
  */
 int cusparselt_prune_24(
     void* input, void* output,
@@ -548,15 +743,6 @@ int cusparselt_prune_24(
 
 /**
  * @brief 压缩稀疏矩阵
- *
- * @param input   输入矩阵设备指针 (已剪枝)
- * @param output  输出压缩矩阵设备指针
- * @param rows    行数
- * @param cols    列数
- * @param dtype   数据类型
- * @param stream  CUDA 流
- *
- * @return 压缩后大小 (字节), -1 表示失败
  */
 int64_t cusparselt_compress(
     void* input, void* output,
@@ -576,24 +762,33 @@ int64_t cusparselt_compress(
     cusparseOrder_t order = CUSPARSE_ORDER_COL;
     
     cusparseLtMatDescriptor_t matA;
-    CHECK_CUSPARSELT(cusparseLtStructuredDescriptorInit(
+    cusparseStatus_t status = cusparseLtStructuredDescriptorInit(
         &g_handle, &matA,
         rows, cols, rows,
         16, info.cuda_type, order,
-        CUSPARSELT_SPARSITY_50_PERCENT));
+        CUSPARSELT_SPARSITY_50_PERCENT);
+    
+    if (status != CUSPARSE_STATUS_SUCCESS) {
+        set_error("Failed to init descriptor for compress");
+        return -1;
+    }
     
     size_t compressed_size = 0;
-    CHECK_CUSPARSELT(cusparseLtSpMMACompressedSize(
-        &g_handle, &matA, &compressed_size));
+    status = cusparseLtSpMMACompressedSize(&g_handle, &matA, &compressed_size, nullptr);
+    if (status != CUSPARSE_STATUS_SUCCESS) {
+        cusparseLtMatDescriptorDestroy(&matA);
+        set_error("Failed to get compressed size");
+        return -1;
+    }
     
-    CHECK_CUSPARSELT(cusparseLtSpMMACompress(
+    status = cusparseLtSpMMACompress(
         &g_handle, &matA,
         input, output,
-        cu_stream));
+        cu_stream);
     
     cusparseLtMatDescriptorDestroy(&matA);
     
-    return (int64_t)compressed_size;
+    return (status == CUSPARSE_STATUS_SUCCESS) ? (int64_t)compressed_size : -1;
 }
 
 /**
@@ -621,7 +816,7 @@ const char* cusparselt_alg_search_get_last_error() {
  * @brief 获取对齐要求
  */
 int cusparselt_alg_search_get_alignment(const char* dtype) {
-    return 16;  // cuSPARSELt 通常需要 16 字节对齐
+    return 16;
 }
 
 /**
@@ -648,7 +843,7 @@ int64_t cusparselt_get_compressed_size(
     if (status != CUSPARSE_STATUS_SUCCESS) return -1;
     
     size_t compressed_size = 0;
-    status = cusparseLtSpMMACompressedSize(&g_handle, &matA, &compressed_size);
+    status = cusparseLtSpMMACompressedSize(&g_handle, &matA, &compressed_size, nullptr);
     
     cusparseLtMatDescriptorDestroy(&matA);
     
