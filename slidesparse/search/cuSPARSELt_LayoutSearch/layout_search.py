@@ -20,8 +20,6 @@ cuSPARSELt 布局离线搜索
   - 自适应 Split-K 倍增策略
   - Segment-K 测试 (SM90+ 支持)
 
-固定最优布局: T/N + Col/Col + Col
-
 运行示例:
     python3 layout_search.py --dtype int8 --outdtype bf16 --model BitNet-2B4T
     python3 layout_search.py --dtype fp8e4m3 --outdtype bf16 --no_segment_k
@@ -65,15 +63,19 @@ from utils import (
 # 布局常量
 # =============================================================================
 
-NUM_LAYOUTS = 16
+NUM_LAYOUTS = 8
 
 LAYOUT_NAMES = [
-    # D 输出为 ColMajor (前8种)
-    "TT_RowCol_Col", "TN_RowCol_Col", "NT_RowCol_Col", "NN_RowCol_Col",
-    "TT_ColCol_Col", "TN_ColCol_Col", "NT_ColCol_Col", "NN_ColCol_Col",
-    # D 输出为 RowMajor (后8种)
-    "TT_RowCol_Row", "TN_RowCol_Row", "NT_RowCol_Row", "NN_RowCol_Row",
-    "TT_ColCol_Row", "TN_ColCol_Row", "NT_ColCol_Row", "NN_ColCol_Row",
+    # D 输出为 ColMajor (前4种) - 有效的 trans+order 组合
+    "TN_CC_Col",   # TN + ColCol
+    "NT_RR_Col",   # NT + RowRow
+    "NN_RC_Col",   # NN + RowCol
+    "TT_CR_Col",   # TT + ColRow
+    # D 输出为 RowMajor (后4种)
+    "TN_CC_Row",   # TN + ColCol
+    "NT_RR_Row",   # NT + RowRow
+    "NN_RC_Row",   # NN + RowCol
+    "TT_CR_Row",   # TT + ColRow
 ]
 
 
@@ -404,8 +406,8 @@ def parse_args():
     p.add_argument("--dtype", default="int8", choices=SUPPORTED_DTYPES, help="输入数据类型")
     p.add_argument("--outdtype", default="bf16", choices=SUPPORTED_OUTDTYPES, help="输出数据类型")
     p.add_argument("--model", default="BitNet-2B4T", help="模型名称或路径")
-    p.add_argument("--warmup", type=int, default=25)
-    p.add_argument("--repeat", type=int, default=100)
+    p.add_argument("--warmup", type=int, default=5)
+    p.add_argument("--repeat", type=int, default=30)
     p.add_argument("--verify", action="store_true", help="开启正确性校验")
     p.add_argument("--compile", action="store_true", help="强制重新编译 CUDA 扩展")
     p.add_argument("--no_segment_k", action="store_true", help="禁用 Segment-K 测试")

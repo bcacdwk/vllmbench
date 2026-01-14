@@ -11,8 +11,6 @@ cuBLASLt 布局离线搜索
   - A/B 排列: RowCol, ColCol (2种)
   - D 输出: Col, Row (2种)
 
-固定最优布局: T/N + Col/Col + Col
-
 运行示例:
     python3 layout_search.py --dtype int8 --outdtype bf16 --model BitNet-2B4T
 """
@@ -54,15 +52,22 @@ from utils import (
 # 布局常量
 # =============================================================================
 
-NUM_LAYOUTS = 16
+NUM_LAYOUTS = 8
 
+# 8 种有效布局 (与旧代码对齐)
+# 根据 cuBLASLt 的约束，只有特定的转置和 order 组合是有效的：
+#   TN + ColCol, NT + RowRow, NN + RowCol, TT + ColRow
 LAYOUT_NAMES = [
-    # D 输出为 ColMajor (前8种)
-    "TT_RowCol_Col", "TN_RowCol_Col", "NT_RowCol_Col", "NN_RowCol_Col",
-    "TT_ColCol_Col", "TN_ColCol_Col", "NT_ColCol_Col", "NN_ColCol_Col",
-    # D 输出为 RowMajor (后8种)
-    "TT_RowCol_Row", "TN_RowCol_Row", "NT_RowCol_Row", "NN_RowCol_Row",
-    "TT_ColCol_Row", "TN_ColCol_Row", "NT_ColCol_Row", "NN_ColCol_Row",
+    # R 输出为 ColMajor (前4种)
+    "TN_CC_Col",   # transW=T, transA=N, orderW=Col, orderA=Col, orderR=Col (推荐)
+    "NT_RR_Col",   # transW=N, transA=T, orderW=Row, orderA=Row, orderR=Col
+    "NN_RC_Col",   # transW=N, transA=N, orderW=Row, orderA=Col, orderR=Col
+    "TT_CR_Col",   # transW=T, transA=T, orderW=Col, orderA=Row, orderR=Col
+    # R 输出为 RowMajor (后4种)
+    "TN_CC_Row",
+    "NT_RR_Row",
+    "NN_RC_Row",
+    "TT_CR_Row",
 ]
 
 
@@ -272,8 +277,8 @@ def parse_args():
     p.add_argument("--dtype", default="int8", choices=SUPPORTED_DTYPES, help="输入数据类型")
     p.add_argument("--outdtype", default="bf16", choices=SUPPORTED_OUTDTYPES, help="输出数据类型")
     p.add_argument("--model", default="BitNet-2B4T", help="模型名称或路径")
-    p.add_argument("--warmup", type=int, default=25)
-    p.add_argument("--repeat", type=int, default=100)
+    p.add_argument("--warmup", type=int, default=5)
+    p.add_argument("--repeat", type=int, default=30)
     p.add_argument("--verify", action="store_true", help="开启正确性校验")
     p.add_argument("--compile", action="store_true", help="强制重新编译 CUDA 扩展")
     p.add_argument("--out_dir", default=None, help="输出目录")

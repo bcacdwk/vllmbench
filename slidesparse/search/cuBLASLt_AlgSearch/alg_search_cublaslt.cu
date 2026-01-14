@@ -258,11 +258,11 @@ int cublaslt_search_single_m(
 
     // 创建矩阵布局描述符
     cublasLtMatrixLayout_t layoutW = nullptr, layoutA = nullptr, layoutR = nullptr;
-    CHECK_CUBLASLT(cublasLtMatrixlayoutRreate(&layoutW, type_AB, num_W_rows, num_W_cols, ldw));
+    CHECK_CUBLASLT(cublasLtMatrixLayoutCreate(&layoutW, type_AB, num_W_rows, num_W_cols, ldw));
     CHECK_CUBLASLT(cublasLtMatrixLayoutSetAttribute(layoutW, CUBLASLT_MATRIX_LAYOUT_ORDER, &orderW, sizeof(orderW)));
-    CHECK_CUBLASLT(cublasLtMatrixlayoutRreate(&layoutA, type_AB, num_A_rows, num_A_cols, lda));
+    CHECK_CUBLASLT(cublasLtMatrixLayoutCreate(&layoutA, type_AB, num_A_rows, num_A_cols, lda));
     CHECK_CUBLASLT(cublasLtMatrixLayoutSetAttribute(layoutA, CUBLASLT_MATRIX_LAYOUT_ORDER, &orderA, sizeof(orderA)));
-    CHECK_CUBLASLT(cublasLtMatrixlayoutRreate(&layoutR, type_C, num_R_rows, num_R_cols, ldr));
+    CHECK_CUBLASLT(cublasLtMatrixLayoutCreate(&layoutR, type_C, num_R_rows, num_R_cols, ldr));
     CHECK_CUBLASLT(cublasLtMatrixLayoutSetAttribute(layoutR, CUBLASLT_MATRIX_LAYOUT_ORDER, &orderR, sizeof(orderR)));
 
     // 创建算法偏好

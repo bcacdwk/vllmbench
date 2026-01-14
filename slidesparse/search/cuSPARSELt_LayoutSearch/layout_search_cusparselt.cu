@@ -55,40 +55,35 @@
 
 static constexpr size_t MAX_WORKSPACE_SIZE = 512ULL * 1024 * 1024;
 
-// 16 种布局组合 (4 转置 x 2 AB排列 x 2 D输出)
-static constexpr int NUM_LAYOUTS = 16;
+// 8 种布局组合 (4 种有效转置+order配对 × 2 种输出顺序)
+// 根据 cuSPARSELt 的约束，只有特定的转置和 order 组合是有效的：
+//   TN + ColCol, NT + RowRow, NN + RowCol, TT + ColRow
+static constexpr int NUM_LAYOUTS = 8;
 
 // 布局配置
 struct LayoutConfig {
-    cusparseOperation_t transA;
-    cusparseOperation_t transB;
-    cusparseOrder_t orderA;
-    cusparseOrder_t orderB;
-    cusparseOrder_t orderC;  // D 输出格式
+    cusparseOperation_t transW;  // W 的转置
+    cusparseOperation_t transA;  // A 的转置
+    cusparseOrder_t orderW;      // W 的存储顺序
+    cusparseOrder_t orderA;      // A 的存储顺序
+    cusparseOrder_t orderR;      // R 输出格式
     const char* name;
 };
 
-// 16 种布局配置
+// 所有 8 种有效布局配置 (与旧代码对齐)
+// 命名格式: {transW}{transA}_{orderW}{orderA}_{orderR}
 static const LayoutConfig LAYOUT_CONFIGS[NUM_LAYOUTS] = {
-    // transA,                               transB,                               orderA,             orderB,             orderC,             name
-    // D 输出为 ColMajor (前8种)
-    {CUSPARSE_OPERATION_TRANSPOSE,     CUSPARSE_OPERATION_TRANSPOSE,     CUSPARSE_ORDER_ROW, CUSPARSE_ORDER_COL, CUSPARSE_ORDER_COL, "TT_RowCol_Col"},
-    {CUSPARSE_OPERATION_TRANSPOSE,     CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_ORDER_ROW, CUSPARSE_ORDER_COL, CUSPARSE_ORDER_COL, "TN_RowCol_Col"},
-    {CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_OPERATION_TRANSPOSE,     CUSPARSE_ORDER_ROW, CUSPARSE_ORDER_COL, CUSPARSE_ORDER_COL, "NT_RowCol_Col"},
-    {CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_ORDER_ROW, CUSPARSE_ORDER_COL, CUSPARSE_ORDER_COL, "NN_RowCol_Col"},
-    {CUSPARSE_OPERATION_TRANSPOSE,     CUSPARSE_OPERATION_TRANSPOSE,     CUSPARSE_ORDER_COL, CUSPARSE_ORDER_COL, CUSPARSE_ORDER_COL, "TT_ColCol_Col"},
-    {CUSPARSE_OPERATION_TRANSPOSE,     CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_ORDER_COL, CUSPARSE_ORDER_COL, CUSPARSE_ORDER_COL, "TN_ColCol_Col"},  // 推荐
-    {CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_OPERATION_TRANSPOSE,     CUSPARSE_ORDER_COL, CUSPARSE_ORDER_COL, CUSPARSE_ORDER_COL, "NT_ColCol_Col"},
-    {CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_ORDER_COL, CUSPARSE_ORDER_COL, CUSPARSE_ORDER_COL, "NN_ColCol_Col"},
-    // D 输出为 RowMajor (后8种)
-    {CUSPARSE_OPERATION_TRANSPOSE,     CUSPARSE_OPERATION_TRANSPOSE,     CUSPARSE_ORDER_ROW, CUSPARSE_ORDER_COL, CUSPARSE_ORDER_ROW, "TT_RowCol_Row"},
-    {CUSPARSE_OPERATION_TRANSPOSE,     CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_ORDER_ROW, CUSPARSE_ORDER_COL, CUSPARSE_ORDER_ROW, "TN_RowCol_Row"},
-    {CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_OPERATION_TRANSPOSE,     CUSPARSE_ORDER_ROW, CUSPARSE_ORDER_COL, CUSPARSE_ORDER_ROW, "NT_RowCol_Row"},
-    {CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_ORDER_ROW, CUSPARSE_ORDER_COL, CUSPARSE_ORDER_ROW, "NN_RowCol_Row"},
-    {CUSPARSE_OPERATION_TRANSPOSE,     CUSPARSE_OPERATION_TRANSPOSE,     CUSPARSE_ORDER_COL, CUSPARSE_ORDER_COL, CUSPARSE_ORDER_ROW, "TT_ColCol_Row"},
-    {CUSPARSE_OPERATION_TRANSPOSE,     CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_ORDER_COL, CUSPARSE_ORDER_COL, CUSPARSE_ORDER_ROW, "TN_ColCol_Row"},
-    {CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_OPERATION_TRANSPOSE,     CUSPARSE_ORDER_COL, CUSPARSE_ORDER_COL, CUSPARSE_ORDER_ROW, "NT_ColCol_Row"},
-    {CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_ORDER_COL, CUSPARSE_ORDER_COL, CUSPARSE_ORDER_ROW, "NN_ColCol_Row"},
+    // transW,                           transA,                            orderW,          orderA,          orderR,          name
+    // R 输出为 ColMajor (前4种)
+    {CUSPARSE_OPERATION_TRANSPOSE,     CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_ORDER_COL, CUSPARSE_ORDER_COL, CUSPARSE_ORDER_COL, "TN_CC_Col"},  // 推荐
+    {CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_OPERATION_TRANSPOSE,     CUSPARSE_ORDER_ROW, CUSPARSE_ORDER_ROW, CUSPARSE_ORDER_COL, "NT_RR_Col"},
+    {CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_ORDER_ROW, CUSPARSE_ORDER_COL, CUSPARSE_ORDER_COL, "NN_RC_Col"},
+    {CUSPARSE_OPERATION_TRANSPOSE,     CUSPARSE_OPERATION_TRANSPOSE,     CUSPARSE_ORDER_COL, CUSPARSE_ORDER_ROW, CUSPARSE_ORDER_COL, "TT_CR_Col"},
+    // R 输出为 RowMajor (后4种)
+    {CUSPARSE_OPERATION_TRANSPOSE,     CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_ORDER_COL, CUSPARSE_ORDER_COL, CUSPARSE_ORDER_ROW, "TN_CC_Row"},
+    {CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_OPERATION_TRANSPOSE,     CUSPARSE_ORDER_ROW, CUSPARSE_ORDER_ROW, CUSPARSE_ORDER_ROW, "NT_RR_Row"},
+    {CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_ORDER_ROW, CUSPARSE_ORDER_COL, CUSPARSE_ORDER_ROW, "NN_RC_Row"},
+    {CUSPARSE_OPERATION_TRANSPOSE,     CUSPARSE_OPERATION_TRANSPOSE,     CUSPARSE_ORDER_COL, CUSPARSE_ORDER_ROW, CUSPARSE_ORDER_ROW, "TT_CR_Row"},
 };
 
 // =============================================================================
@@ -282,11 +277,11 @@ static int test_single_layout(
     // 根据布局配置，计算矩阵维度
     // =========================================================================
     
-    bool isW_transposed = (layout.transA == CUSPARSE_OPERATION_TRANSPOSE);
-    bool isA_transposed = (layout.transB == CUSPARSE_OPERATION_TRANSPOSE);
-    bool isW_rowmajor = (layout.orderA == CUSPARSE_ORDER_ROW);
-    bool isA_rowmajor = (layout.orderB == CUSPARSE_ORDER_ROW);
-    bool isR_rowmajor = (layout.orderC == CUSPARSE_ORDER_ROW);
+    bool isW_transposed = (layout.transW == CUSPARSE_OPERATION_TRANSPOSE);
+    bool isA_transposed = (layout.transA == CUSPARSE_OPERATION_TRANSPOSE);
+    bool isW_rowmajor = (layout.orderW == CUSPARSE_ORDER_ROW);
+    bool isA_rowmajor = (layout.orderA == CUSPARSE_ORDER_ROW);
+    bool isR_rowmajor = (layout.orderR == CUSPARSE_ORDER_ROW);
     
     // W[N,K]: 不转置时存储为[N,K]，转置时存储为[K,N]
     int64_t num_W_rows = isW_transposed ? K : N;
@@ -349,7 +344,7 @@ static int test_single_layout(
     // 稠密矩阵 A 描述符
     status = cusparseLtDenseDescriptorInit(
         &g_handle, &matA, num_A_rows, num_A_cols, lda, 16,
-        info.cuda_type, layout.orderB);
+        info.cuda_type, layout.orderA);
     if (status != CUSPARSE_STATUS_SUCCESS) {
         cusparseLtMatDescriptorDestroy(&matW);
         cudaFree(dW); cudaFree(dA); cudaFree(dR); cudaFree(d_valid);
@@ -359,7 +354,7 @@ static int test_single_layout(
     // 输出矩阵 R 描述符
     status = cusparseLtDenseDescriptorInit(
         &g_handle, &matR, num_R_rows, num_R_cols, ldr, 16,
-        out_type, layout.orderC);
+        out_type, layout.orderR);
     if (status != CUSPARSE_STATUS_SUCCESS) {
         cusparseLtMatDescriptorDestroy(&matW);
         cusparseLtMatDescriptorDestroy(&matA);
@@ -369,7 +364,7 @@ static int test_single_layout(
     
     // 矩阵乘法描述符
     status = cusparseLtMatmulDescriptorInit(
-        &g_handle, &matmul, layout.transA, layout.transB,
+        &g_handle, &matmul, layout.transW, layout.transA,
         &matW, &matA, &matR, &matR, compute_type);
     if (status != CUSPARSE_STATUS_SUCCESS) {
         cusparseLtMatDescriptorDestroy(&matW);

@@ -44,8 +44,10 @@
 // 最大 workspace 大小: 512 MB
 static constexpr size_t MAX_WORKSPACE_SIZE = 512ULL * 1024 * 1024;
 
-// 16 种布局组合 (4 转置 x 2 AB排列 x 2 D输出)
-static constexpr int NUM_LAYOUTS = 16;
+// 8 种布局组合 (4 种有效转置+order配对 × 2 种输出顺序)
+// 根据 cuBLASLt 的约束，只有特定的转置和 order 组合是有效的：
+//   TN + ColCol, NT + RowRow, NN + RowCol, TT + ColRow
+static constexpr int NUM_LAYOUTS = 8;
 
 // 布局组合枚举
 struct LayoutConfig {
@@ -57,27 +59,20 @@ struct LayoutConfig {
     const char* name;
 };
 
-// 所有16种布局配置
+// 所有 8 种有效布局配置 (与旧代码对齐)
+// 命名格式: {transW}{transA}_{orderW}{orderA}_{orderR}
 static const LayoutConfig LAYOUT_CONFIGS[NUM_LAYOUTS] = {
     // transW,       transA,       orderW,             orderA,             orderR,             name
-    // R 输出为 ColMajor (前8种)
-    {CUBLAS_OP_T, CUBLAS_OP_T, CUBLASLT_ORDER_ROW, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_COL, "TT_RowCol_Col"},
-    {CUBLAS_OP_T, CUBLAS_OP_N, CUBLASLT_ORDER_ROW, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_COL, "TN_RowCol_Col"},
-    {CUBLAS_OP_N, CUBLAS_OP_T, CUBLASLT_ORDER_ROW, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_COL, "NT_RowCol_Col"},
-    {CUBLAS_OP_N, CUBLAS_OP_N, CUBLASLT_ORDER_ROW, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_COL, "NN_RowCol_Col"},
-    {CUBLAS_OP_T, CUBLAS_OP_T, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_COL, "TT_ColCol_Col"},
-    {CUBLAS_OP_T, CUBLAS_OP_N, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_COL, "TN_ColCol_Col"},  // 推荐
-    {CUBLAS_OP_N, CUBLAS_OP_T, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_COL, "NT_ColCol_Col"},
-    {CUBLAS_OP_N, CUBLAS_OP_N, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_COL, "NN_ColCol_Col"},
-    // R 输出为 RowMajor (后8种)
-    {CUBLAS_OP_T, CUBLAS_OP_T, CUBLASLT_ORDER_ROW, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_ROW, "TT_RowCol_Row"},
-    {CUBLAS_OP_T, CUBLAS_OP_N, CUBLASLT_ORDER_ROW, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_ROW, "TN_RowCol_Row"},
-    {CUBLAS_OP_N, CUBLAS_OP_T, CUBLASLT_ORDER_ROW, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_ROW, "NT_RowCol_Row"},
-    {CUBLAS_OP_N, CUBLAS_OP_N, CUBLASLT_ORDER_ROW, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_ROW, "NN_RowCol_Row"},
-    {CUBLAS_OP_T, CUBLAS_OP_T, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_ROW, "TT_ColCol_Row"},
-    {CUBLAS_OP_T, CUBLAS_OP_N, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_ROW, "TN_ColCol_Row"},
-    {CUBLAS_OP_N, CUBLAS_OP_T, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_ROW, "NT_ColCol_Row"},
-    {CUBLAS_OP_N, CUBLAS_OP_N, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_ROW, "NN_ColCol_Row"},
+    // R 输出为 ColMajor (前4种)
+    {CUBLAS_OP_T, CUBLAS_OP_N, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_COL, "TN_CC_Col"},  // 推荐
+    {CUBLAS_OP_N, CUBLAS_OP_T, CUBLASLT_ORDER_ROW, CUBLASLT_ORDER_ROW, CUBLASLT_ORDER_COL, "NT_RR_Col"},
+    {CUBLAS_OP_N, CUBLAS_OP_N, CUBLASLT_ORDER_ROW, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_COL, "NN_RC_Col"},
+    {CUBLAS_OP_T, CUBLAS_OP_T, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_ROW, CUBLASLT_ORDER_COL, "TT_CR_Col"},
+    // R 输出为 RowMajor (后4种)
+    {CUBLAS_OP_T, CUBLAS_OP_N, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_ROW, "TN_CC_Row"},
+    {CUBLAS_OP_N, CUBLAS_OP_T, CUBLASLT_ORDER_ROW, CUBLASLT_ORDER_ROW, CUBLASLT_ORDER_ROW, "NT_RR_Row"},
+    {CUBLAS_OP_N, CUBLAS_OP_N, CUBLASLT_ORDER_ROW, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_ROW, "NN_RC_Row"},
+    {CUBLAS_OP_T, CUBLAS_OP_T, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_ROW, CUBLASLT_ORDER_ROW, "TT_CR_Row"},
 };
 
 // =============================================================================
@@ -286,8 +281,8 @@ static int test_single_layout(
         return 0;
     }
     
-    cublasLtMatmulDescSetAttribute(opDesc, CUBLASLT_MATMUL_DESC_transW, &layout.transW, sizeof(layout.transW));
-    cublasLtMatmulDescSetAttribute(opDesc, CUBLASLT_MATMUL_DESC_transA, &layout.transA, sizeof(layout.transA));
+    cublasLtMatmulDescSetAttribute(opDesc, CUBLASLT_MATMUL_DESC_TRANSA, &layout.transW, sizeof(layout.transW));
+    cublasLtMatmulDescSetAttribute(opDesc, CUBLASLT_MATMUL_DESC_TRANSB, &layout.transA, sizeof(layout.transA));
     
     // 创建偏好
     status = cublasLtMatmulPreferenceCreate(&pref);

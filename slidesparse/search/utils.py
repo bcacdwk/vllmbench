@@ -998,6 +998,8 @@ def save_layout_search_results(
     """
     保存布局搜索结果到 CSV 和 JSON 文件。
     
+    Layout Search 的目的是遍历所有布局，记录每种布局的最佳算法和性能。
+    
     Args:
         out_dir: 输出基础目录
         model_name: 模型名称
@@ -1008,7 +1010,7 @@ def save_layout_search_results(
         repeat: 重复次数
         verify: 是否验证
         layout_names: 布局名称列表
-        is_sparse: 是否为稀疏搜索
+        is_sparse: 是否为稀疏搜索 (cuSPARSELt)
     
     Returns:
         保存结果的子目录路径
@@ -1018,10 +1020,10 @@ def save_layout_search_results(
     subdir.mkdir(parents=True, exist_ok=True)
     
     csv_path = subdir / build_result_filename("layout_search_bench", model_name, "csv")
-    json_path = subdir / build_result_filename("layout_search_summary", model_name, "json")
+    json_path = subdir / build_result_filename("layout_search_results", model_name, "json")
     
     num_layouts = len(layout_names)
-    layout_tag = "SEARCH_SPARSE24" if is_sparse else "SEARCH"
+    layout_tag = "LAYOUT_SEARCH_SPARSE24" if is_sparse else "LAYOUT_SEARCH"
     
     # === CSV 生成 ===
     header_lines = build_csv_header_lines(
@@ -1039,7 +1041,12 @@ def save_layout_search_results(
     )
     
     csv_lines = list(header_lines)
-    csv_lines.append("M,N,K,layout,tops,lat_us,workspace,valid")
+    
+    # CSV 列格式：根据是否稀疏决定是否包含 split_k
+    if is_sparse:
+        csv_lines.append("M,N,K,layout,tops,lat_us,best_alg_id,best_split_k,workspace")
+    else:
+        csv_lines.append("M,N,K,layout,tops,lat_us,best_alg_id,workspace,waves_count")
     
     csv_rows = []
     
@@ -1051,76 +1058,96 @@ def save_layout_search_results(
             results = m_res.get("results", [])
             
             for r in results:
-                # 跳过无效的布局，避免 CSV 有大片空白
-                if not r["valid"]:
+                # 只输出有效的布局
+                if not r.get("valid", False):
                     continue
-                values = [
-                    str(M), str(N), str(K),
-                    r["layout_name"],
-                    f"{r['tops']:.6f}",
-                    f"{r['lat_us']:.3f}",
-                    str(r["workspace"]),
-                    "1",  # 只写有效的
-                ]
-                csv_rows.append((M, ",".join(values)))
+                
+                if is_sparse:
+                    values = [
+                        str(M), str(N), str(K),
+                        r["layout_name"],
+                        f"{r['tops']:.6f}",
+                        f"{r['lat_us']:.3f}",
+                        str(r.get("best_alg_id", -1)),
+                        str(r.get("best_split_k", 1)),
+                        str(r.get("workspace", 0)),
+                    ]
+                else:
+                    values = [
+                        str(M), str(N), str(K),
+                        r["layout_name"],
+                        f"{r['tops']:.6f}",
+                        f"{r['lat_us']:.3f}",
+                        str(r.get("best_alg_id", -1)),
+                        str(r.get("workspace", 0)),
+                        f"{r.get('waves_count', 0.0):.4f}",
+                    ]
+                csv_rows.append((M, N, K, r["layout_name"], ",".join(values)))
     
-    csv_rows.sort(key=lambda x: x[0])
-    for _, line in csv_rows:
+    # 排序：先按 M 升序，再按 N, K 升序，最后按 layout_name
+    csv_rows.sort(key=lambda x: (x[0], x[1], x[2], x[3]))
+    for _, _, _, _, line in csv_rows:
         csv_lines.append(line)
     
     csv_path.write_text("\n".join(csv_lines))
     
-    # === JSON 汇总 ===
-    layout_stats = {name: {"wins": 0, "total_tops": 0.0, "count": 0} for name in layout_names}
+    # === JSON 生成：保存完整的搜索结果 ===
+    # 格式与旧代码兼容：按 (N,K) 组织结果
+    json_results = {}
     
     for nk_res in search_ret["results"]:
+        N, K = nk_res["N"], nk_res["K"]
+        nk_key = f"({N},{K})"
+        
+        json_results[nk_key] = {}
+        
         for M in search_ret["M_list"]:
             m_res = nk_res["m_results"].get(M, {})
             results = m_res.get("results", [])
             
-            valid_results = [r for r in results if r["valid"]]
-            if valid_results:
-                best = max(valid_results, key=lambda x: x["tops"])
-                layout_stats[best["layout_name"]]["wins"] += 1
-            
+            m_results = {}
             for r in results:
-                if r["valid"]:
-                    layout_stats[r["layout_name"]]["total_tops"] += r["tops"]
-                    layout_stats[r["layout_name"]]["count"] += 1
+                if not r.get("valid", False):
+                    continue
+                
+                layout_name = r["layout_name"]
+                m_results[layout_name] = {
+                    "tops": r["tops"],
+                    "lat_us": r["lat_us"],
+                    "best_alg_id": r.get("best_alg_id", -1),
+                    "workspace": r.get("workspace", 0),
+                }
+                
+                if is_sparse:
+                    m_results[layout_name]["best_split_k"] = r.get("best_split_k", 1)
+                else:
+                    m_results[layout_name]["waves_count"] = r.get("waves_count", 0.0)
+            
+            json_results[nk_key][str(M)] = m_results
     
-    # 计算平均
-    for name in layout_names:
-        s = layout_stats[name]
-        s["avg_tops"] = s["total_tops"] / s["count"] if s["count"] > 0 else 0.0
-    
-    # 排序（只保留有成功执行记录的布局）
-    ranked = sorted(
-        [(name, stats) for name, stats in layout_stats.items() if stats["count"] > 0],
-        key=lambda x: x[1]["wins"],
-        reverse=True
-    )
-    
-    summary = {
+    meta = {
         "model": model_name,
         "dtype": dtype,
         "outdtype": outdtype,
         "gpu": hw_info.gpu_full_name,
-        "layout_ranking": [
-            {
-                "layout": name,
-                "wins": stats["wins"],
-                "avg_tops": stats["avg_tops"],
-            }
-            for name, stats in ranked
-        ],
-        "recommendation": ranked[0][0] if ranked else "TN_ColCol",
+        "gpu_short": hw_info.gpu_name,
+        "cc": hw_info.cc_tag,
+        "warmup": warmup,
+        "repeat": repeat,
+        "verify": verify,
+        "m_list": search_ret["M_list"],
+        "nk_list": [[nk[0], nk[1]] for nk in search_ret["NK_list"]],
+        "layout_names": layout_names,
+        "is_sparse": is_sparse,
     }
     
-    if is_sparse:
-        summary["sparsity"] = "2:4"
+    json_payload = {
+        "meta": meta,
+        "results": json_results,
+    }
     
     import json as json_mod
-    json_path.write_text(json_mod.dumps(summary, indent=2, ensure_ascii=False))
+    json_path.write_text(json_mod.dumps(json_payload, indent=2, ensure_ascii=False))
     
     print(f"已生成: {csv_path}")
     print(f"已生成: {json_path}")
