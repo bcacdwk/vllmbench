@@ -178,9 +178,13 @@ def main():
   FP8 模型 (FP8-dynamic):
 """ + "\n".join(f"    - {key}" for key in list_models(quant="fp8")) + """
 
+  BitNet 模型 (BF16):
+    - bitnet1.58-2b-bf16
+
 示例:
-  %(prog)s --all                    # 下载全部模型
+  %(prog)s --all                    # 下载全部模型 (INT8 + FP8)
   %(prog)s --int8 --qwen            # 下载 Qwen INT8 模型
+  %(prog)s --bitnet                 # 下载 BitNet BF16 模型
   %(prog)s --model qwen2.5-7b-fp8   # 下载指定模型
   %(prog)s --check                  # 检查下载状态
 """
@@ -209,6 +213,10 @@ def main():
         help="仅下载 Llama3.2 系列"
     )
     model_group.add_argument(
+        "-b", "--bitnet", action="store_true",
+        help="下载 BitNet BF16 模型 (microsoft)"
+    )
+    model_group.add_argument(
         "-m", "--model", type=str, metavar="NAME",
         help="下载指定模型"
     )
@@ -234,6 +242,11 @@ def main():
     # 检查模式
     if args.check:
         print_model_status(CHECKPOINT_DIR)
+        return 0
+    
+    # 处理 BitNet 特殊情况
+    if args.bitnet:
+        download_models(specific_model="bitnet1.58-2b-bf16")
         return 0
     
     # 确定过滤条件

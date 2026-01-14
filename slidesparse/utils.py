@@ -1326,6 +1326,7 @@ MODEL_SIZE_GB = {
     "0.5B": 0.9,
     "1B": 1.9,
     "1.5B": 2.1,
+    "2B": 4.8,    # BitNet 2B-BF16
     "3B": 4.0,
     "7B": 8.1,
     "14B": 15.2,
@@ -1435,6 +1436,8 @@ class ModelRegistry:
         # Llama3.2 FP8
         ("llama", "3.2", "1B", "fp8", "Llama-3.2-1B-Instruct-FP8-dynamic", "Llama3.2-1B-FP8"),
         ("llama", "3.2", "3B", "fp8", "Llama-3.2-3B-Instruct-FP8-dynamic", "Llama3.2-3B-FP8"),
+        # BitNet BF16 (microsoft)
+        ("bitnet", "1.58", "2B", "bf16", "bitnet-b1.58-2B-4T-bf16", "BitNet-2B-BF16", "microsoft"),
     ]
     
     def __init__(self, hf_org: str = "RedHatAI"):
@@ -1448,7 +1451,15 @@ class ModelRegistry:
         self._models: Dict[str, ModelEntry] = {}
         
         # 加载内置模型
-        for family, version, size, quant, hf_name, local_name in self._BUILTIN_MODELS:
+        # 支持 6 元组 (family, version, size, quant, hf_name, local_name)
+        # 和 7 元组 (family, version, size, quant, hf_name, local_name, custom_hf_org)
+        for model_tuple in self._BUILTIN_MODELS:
+            if len(model_tuple) == 7:
+                family, version, size, quant, hf_name, local_name, custom_org = model_tuple
+            else:
+                family, version, size, quant, hf_name, local_name = model_tuple
+                custom_org = hf_org
+            
             key = self._make_key(family, version, size, quant)
             self._models[key] = ModelEntry(
                 key=key,
@@ -1458,7 +1469,7 @@ class ModelRegistry:
                 quant=quant,
                 hf_name=hf_name,
                 local_name=local_name,
-                hf_org=hf_org,
+                hf_org=custom_org,
             )
     
     @staticmethod
