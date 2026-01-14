@@ -531,7 +531,7 @@ def get_torch_dtype(dtype_str: str) -> torch.dtype:
 # 维度计算工具
 # =============================================================================
 
-def compute_output_k(k_in: int, config: SlideSparseConfig, align_to: int = 16) -> Tuple[int, int]:
+def compute_output_k(k_in: int, config: SlideSparseConfig, align_to: int = 32) -> Tuple[int, int]:
     """
     计算滑动扩展后的 K 维度
     

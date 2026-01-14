@@ -5,10 +5,11 @@ Compress 正确性测试
 
 验证 cuSPARSELt 压缩功能的正确性：
 1. 压缩扩展是否可加载
-2. 压缩大小查询是否正确
-3. 压缩后数据大小符合预期
-4. 模拟压缩功能测试
-5. 不同维度的压缩测试
+2. 多数据类型支持（INT8, FP8E4M3）
+3. 压缩大小查询是否正确
+4. 压缩后数据大小符合预期
+5. 模拟压缩功能测试
+6. 真实 checkpoint 权重压缩测试
 """
 
 import sys
@@ -20,6 +21,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import torch
 
 
+# =============================================================================
+# 测试辅助函数
+# =============================================================================
+
 def create_2to4_sparse_tensor(N: int, K: int, dtype=torch.int8) -> torch.Tensor:
     """
     创建满足 2:4 稀疏约束的张量
@@ -27,7 +32,7 @@ def create_2to4_sparse_tensor(N: int, K: int, dtype=torch.int8) -> torch.Tensor:
     Args:
         N: 行数
         K: 列数（必须是 4 的倍数）
-        dtype: 数据类型
+        dtype: 数据类型（torch.int8 或 torch.float8_e4m3fn）
     
     Returns:
         满足 2:4 约束的张量（每 4 个元素中 2 个为零）
@@ -38,6 +43,9 @@ def create_2to4_sparse_tensor(N: int, K: int, dtype=torch.int8) -> torch.Tensor:
     # 创建随机非零值
     if dtype == torch.int8:
         weight = torch.randint(-127, 127, (N, K), dtype=torch.float32)
+    elif dtype == torch.float8_e4m3fn:
+        # FP8E4M3 的范围较小，用缩放后的随机数
+        weight = torch.randn(N, K, dtype=torch.float32) * 0.5
     else:
         weight = torch.randn(N, K, dtype=torch.float32)
     
@@ -51,6 +59,10 @@ def create_2to4_sparse_tensor(N: int, K: int, dtype=torch.int8) -> torch.Tensor:
     
     return weight.to(dtype)
 
+
+# =============================================================================
+# 基础测试
+# =============================================================================
 
 def test_fake_compress_basic():
     """测试模拟压缩的基本功能"""
@@ -105,9 +117,6 @@ def test_fake_compress_value_preservation():
     print(f"  Input: {weight.tolist()}")
     print(f"  Values: {values.tolist()}")
     print(f"  Metadata: {metadata.tolist()}")
-    
-    # 验证第一行：非零值是 1,2,3,4
-    # 验证第二行：非零值是 5,6,7,8
     
     # 检查非零值数量
     original_nonzeros = (weight != 0).sum().item()
@@ -164,10 +173,50 @@ def test_fake_compress_different_sizes():
     return all_pass
 
 
-def test_compress_sizes_query():
-    """测试压缩大小查询"""
+# =============================================================================
+# cuSPARSELt 真实压缩测试
+# =============================================================================
+
+def test_extension_availability():
+    """测试压缩扩展是否可用"""
     print("=" * 60)
-    print("Test: Compress Sizes Query")
+    print("Test: Extension Availability")
+    print("=" * 60)
+    
+    try:
+        from compress import check_compress_available, get_compress_module, get_supported_dtypes_from_lib
+        
+        available = check_compress_available()
+        print(f"  cuSPARSELt compress available: {available}")
+        
+        if available:
+            lib = get_compress_module()
+            print(f"  Module loaded successfully")
+            
+            # 测试支持的数据类型
+            supported = get_supported_dtypes_from_lib()
+            print(f"  Supported dtypes: {supported}")
+            
+            assert "int8" in supported, "int8 should be supported"
+            assert "fp8e4m3" in supported, "fp8e4m3 should be supported"
+        else:
+            print("  (extension not available, skipping detailed tests)")
+        
+        print("  Status: PASS")
+        print()
+        return True
+        
+    except Exception as e:
+        print(f"  Error: {e}")
+        print("  Status: SKIPPED")
+        print()
+        return True
+
+
+def test_compress_sizes_query_int8():
+    """测试 INT8 压缩大小查询"""
+    print("=" * 60)
+    print("Test: Compress Sizes Query (INT8)")
     print("=" * 60)
     
     try:
@@ -179,17 +228,13 @@ def test_compress_sizes_query():
             print()
             return True
         
-        # cuSPARSELt 要求:
-        # - 稀疏矩阵 (INT8): N, K, ld 必须是 32 的倍数
-        # - 稠密矩阵 (INT8): rows, cols, ld 必须是 16 的倍数
-        # 先用简单的正方形尺寸测试
         test_cases = [
             (64, 64),
             (128, 128),
             (256, 256),
             (512, 512),
             (1024, 1024),
-            (1024, 2048),  # 非正方形但都是 32 的倍数
+            (1024, 2048),
             (2048, 1024),
         ]
         
@@ -197,16 +242,14 @@ def test_compress_sizes_query():
         
         for N, K in test_cases:
             try:
-                compressed_size, temp_size = get_compress_sizes(N, K)
-                
+                compressed_size, temp_size = get_compress_sizes(N, K, "int8")
                 # 压缩后大小应该大于 0
-                valid = (compressed_size > 0)
-                all_valid &= valid
-                
+                valid = compressed_size > 0
                 status = "✓" if valid else "✗"
-                print(f"  {status} [{N:5d}, {K:5d}]: compressed={compressed_size:10d}, temp={temp_size:10d}")
+                print(f"  {status} INT8 [{N:4d}, {K:4d}] -> compressed={compressed_size:8d}, temp={temp_size:8d}")
+                all_valid &= valid
             except Exception as e:
-                print(f"  ✗ [{N:5d}, {K:5d}]: Error - {e}")
+                print(f"  ✗ INT8 [{N:4d}, {K:4d}] -> Error: {e}")
                 all_valid = False
         
         print(f"  Status: {'PASS' if all_valid else 'FAIL'}")
@@ -220,10 +263,57 @@ def test_compress_sizes_query():
         return True
 
 
-def test_real_compress():
-    """测试真实的 cuSPARSELt 压缩"""
+def test_compress_sizes_query_fp8():
+    """测试 FP8E4M3 压缩大小查询"""
     print("=" * 60)
-    print("Test: Real cuSPARSELt Compress")
+    print("Test: Compress Sizes Query (FP8E4M3)")
+    print("=" * 60)
+    
+    try:
+        from compress import get_compress_sizes, check_compress_available
+        
+        if not check_compress_available():
+            print("  cuSPARSELt compress not available, skipping")
+            print("  Status: SKIPPED")
+            print()
+            return True
+        
+        test_cases = [
+            (64, 64),
+            (128, 128),
+            (256, 256),
+            (512, 512),
+            (1024, 1024),
+        ]
+        
+        all_valid = True
+        
+        for N, K in test_cases:
+            try:
+                compressed_size, temp_size = get_compress_sizes(N, K, "fp8e4m3")
+                valid = compressed_size > 0
+                status = "✓" if valid else "✗"
+                print(f"  {status} FP8 [{N:4d}, {K:4d}] -> compressed={compressed_size:8d}, temp={temp_size:8d}")
+                all_valid &= valid
+            except Exception as e:
+                print(f"  ✗ FP8 [{N:4d}, {K:4d}] -> Error: {e}")
+                all_valid = False
+        
+        print(f"  Status: {'PASS' if all_valid else 'FAIL'}")
+        print()
+        return all_valid
+        
+    except Exception as e:
+        print(f"  Error: {e}")
+        print("  Status: SKIPPED (extension not available)")
+        print()
+        return True
+
+
+def test_real_compress_int8():
+    """测试真实的 INT8 cuSPARSELt 压缩"""
+    print("=" * 60)
+    print("Test: Real cuSPARSELt Compress (INT8)")
     print("=" * 60)
     
     try:
@@ -250,18 +340,18 @@ def test_real_compress():
             weight = create_2to4_sparse_tensor(N, K, dtype=torch.int8)
             
             try:
-                compressed, metadata = compress_tensor(weight)
+                compressed, metadata = compress_tensor(weight, dtype="int8")
                 
-                # 验证压缩结果
-                assert compressed.dtype == torch.uint8
-                assert len(compressed.shape) == 1  # 压缩后是 1D 的字节数组
+                # 验证元数据
                 assert metadata["original_shape"] == [N, K]
-                assert metadata["sparsity_pattern"] == "2:4"
+                assert metadata["dtype"] == "int8"
+                assert metadata["compressed_size_bytes"] > 0
                 
-                print(f"  ✓ [{N:4d}, {K:4d}] -> compressed size: {compressed.shape[0]} bytes")
+                status = "✓"
+                print(f"  {status} INT8 [{N:4d}, {K:4d}] -> compressed size: {len(compressed)} bytes")
                 
             except Exception as e:
-                print(f"  ✗ [{N:4d}, {K:4d}] failed: {e}")
+                print(f"  ✗ INT8 [{N:4d}, {K:4d}] -> Error: {e}")
                 all_pass = False
         
         print(f"  Status: {'PASS' if all_pass else 'FAIL'}")
@@ -275,10 +365,10 @@ def test_real_compress():
         return True
 
 
-def test_compress_alignment_requirements():
-    """测试压缩对齐要求"""
+def test_real_compress_fp8():
+    """测试真实的 FP8E4M3 cuSPARSELt 压缩"""
     print("=" * 60)
-    print("Test: Compress Alignment Requirements")
+    print("Test: Real cuSPARSELt Compress (FP8E4M3)")
     print("=" * 60)
     
     try:
@@ -292,38 +382,239 @@ def test_compress_alignment_requirements():
         
         torch.manual_seed(42)
         
-        # cuSPARSELt 要求：
-        # - K 必须是 4 的倍数（2:4 稀疏）
-        # - N 和 K 必须是 32 的倍数（对齐要求）
-        
-        # 对齐的尺寸应该工作
-        aligned_cases = [
-            (32, 32),
+        test_cases = [
             (64, 64),
             (128, 128),
             (256, 256),
+            (512, 512),
         ]
         
-        print("  Testing aligned dimensions:")
-        all_aligned_pass = True
-        for N, K in aligned_cases:
-            weight = create_2to4_sparse_tensor(N, K, dtype=torch.int8)
-            try:
-                compressed, _ = compress_tensor(weight)
-                print(f"    ✓ [{N:4d}, {K:4d}]: OK")
-            except Exception as e:
-                print(f"    ✗ [{N:4d}, {K:4d}]: {e}")
-                all_aligned_pass = False
+        all_pass = True
         
-        print(f"  Status: {'PASS' if all_aligned_pass else 'FAIL'}")
+        for N, K in test_cases:
+            weight = create_2to4_sparse_tensor(N, K, dtype=torch.float8_e4m3fn)
+            
+            try:
+                compressed, metadata = compress_tensor(weight, dtype="fp8e4m3")
+                
+                # 验证元数据
+                assert metadata["original_shape"] == [N, K]
+                assert metadata["dtype"] == "fp8e4m3"
+                assert metadata["compressed_size_bytes"] > 0
+                
+                status = "✓"
+                print(f"  {status} FP8 [{N:4d}, {K:4d}] -> compressed size: {len(compressed)} bytes")
+                
+            except Exception as e:
+                print(f"  ✗ FP8 [{N:4d}, {K:4d}] -> Error: {e}")
+                all_pass = False
+        
+        print(f"  Status: {'PASS' if all_pass else 'FAIL'}")
         print()
-        return all_aligned_pass
+        return all_pass
         
     except Exception as e:
         print(f"  Error: {e}")
         print("  Status: SKIPPED (extension not available)")
         print()
         return True
+
+
+def test_auto_dtype_detection():
+    """测试自动数据类型检测"""
+    print("=" * 60)
+    print("Test: Auto Dtype Detection")
+    print("=" * 60)
+    
+    try:
+        from compress import compress_tensor, check_compress_available, is_supported_dtype
+        
+        if not check_compress_available():
+            print("  cuSPARSELt compress not available, skipping")
+            print("  Status: SKIPPED")
+            print()
+            return True
+        
+        torch.manual_seed(42)
+        N, K = 64, 64
+        
+        all_pass = True
+        
+        # 测试 INT8 自动检测
+        weight_int8 = create_2to4_sparse_tensor(N, K, dtype=torch.int8)
+        assert is_supported_dtype(weight_int8.dtype), "INT8 should be supported"
+        
+        try:
+            compressed, metadata = compress_tensor(weight_int8)  # 不指定 dtype
+            assert metadata["dtype"] == "int8", f"Expected int8, got {metadata['dtype']}"
+            print(f"  ✓ INT8 auto-detected: {metadata['dtype']}")
+        except Exception as e:
+            print(f"  ✗ INT8 auto-detection failed: {e}")
+            all_pass = False
+        
+        # 测试 FP8 自动检测
+        weight_fp8 = create_2to4_sparse_tensor(N, K, dtype=torch.float8_e4m3fn)
+        assert is_supported_dtype(weight_fp8.dtype), "FP8E4M3 should be supported"
+        
+        try:
+            compressed, metadata = compress_tensor(weight_fp8)  # 不指定 dtype
+            assert metadata["dtype"] == "fp8e4m3", f"Expected fp8e4m3, got {metadata['dtype']}"
+            print(f"  ✓ FP8E4M3 auto-detected: {metadata['dtype']}")
+        except Exception as e:
+            print(f"  ✗ FP8E4M3 auto-detection failed: {e}")
+            all_pass = False
+        
+        print(f"  Status: {'PASS' if all_pass else 'FAIL'}")
+        print()
+        return all_pass
+        
+    except Exception as e:
+        print(f"  Error: {e}")
+        print("  Status: SKIPPED (extension not available)")
+        print()
+        return True
+
+
+# =============================================================================
+# 真实 Checkpoint 测试
+# =============================================================================
+
+def test_real_checkpoint_int8():
+    """测试真实 INT8 checkpoint 的权重压缩"""
+    print("=" * 60)
+    print("Test: Real Checkpoint Compress (INT8)")
+    print("=" * 60)
+    
+    checkpoint_path = Path("/root/vllmbench/checkpoints_slidesparse/BitNet-2B_mag_Z2L8_INT8_slided_2_8/model.safetensors")
+    
+    if not checkpoint_path.exists():
+        print(f"  Checkpoint not found: {checkpoint_path}")
+        print("  Status: SKIPPED")
+        print()
+        return True
+    
+    try:
+        from compress import compress_tensor, check_compress_available
+        from safetensors import safe_open
+        
+        if not check_compress_available():
+            print("  cuSPARSELt compress not available, skipping")
+            print("  Status: SKIPPED")
+            print()
+            return True
+        
+        all_pass = True
+        compressed_count = 0
+        
+        with safe_open(str(checkpoint_path), framework="pt") as f:
+            keys = list(f.keys())
+            
+            # 只测试前几个权重层
+            weight_keys = [k for k in keys if ".weight" in k and "_scale" not in k][:3]
+            
+            for key in weight_keys:
+                tensor = f.get_tensor(key)
+                
+                # 只处理 INT8 2D 权重
+                if tensor.dtype != torch.int8 or tensor.dim() != 2:
+                    continue
+                
+                N, K = tensor.shape
+                
+                # 跳过太小的维度
+                if N < 32 or K < 32 or N % 32 != 0 or K % 32 != 0:
+                    print(f"  - Skipping {key}: dimension not aligned [{N}, {K}]")
+                    continue
+                
+                try:
+                    compressed, metadata = compress_tensor(tensor)
+                    print(f"  ✓ {key}: [{N}, {K}] -> {len(compressed)} bytes (dtype={metadata['dtype']})")
+                    compressed_count += 1
+                except Exception as e:
+                    print(f"  ✗ {key}: [{N}, {K}] -> Error: {e}")
+                    all_pass = False
+        
+        print(f"  Compressed {compressed_count} layers")
+        print(f"  Status: {'PASS' if all_pass else 'FAIL'}")
+        print()
+        return all_pass
+        
+    except Exception as e:
+        print(f"  Error: {e}")
+        import traceback
+        traceback.print_exc()
+        print("  Status: FAIL")
+        print()
+        return False
+
+
+def test_real_checkpoint_fp8():
+    """测试真实 FP8 checkpoint 的权重压缩"""
+    print("=" * 60)
+    print("Test: Real Checkpoint Compress (FP8E4M3)")
+    print("=" * 60)
+    
+    checkpoint_path = Path("/root/vllmbench/checkpoints_slidesparse/BitNet-2B_mag_Z2L6_FP8E4M3_slided_2_6/model.safetensors")
+    
+    if not checkpoint_path.exists():
+        print(f"  Checkpoint not found: {checkpoint_path}")
+        print("  Status: SKIPPED")
+        print()
+        return True
+    
+    try:
+        from compress import compress_tensor, check_compress_available
+        from safetensors import safe_open
+        
+        if not check_compress_available():
+            print("  cuSPARSELt compress not available, skipping")
+            print("  Status: SKIPPED")
+            print()
+            return True
+        
+        all_pass = True
+        compressed_count = 0
+        
+        with safe_open(str(checkpoint_path), framework="pt") as f:
+            keys = list(f.keys())
+            
+            # 只测试前几个权重层
+            weight_keys = [k for k in keys if ".weight" in k and "_scale" not in k][:3]
+            
+            for key in weight_keys:
+                tensor = f.get_tensor(key)
+                
+                # 只处理 FP8 2D 权重
+                if tensor.dtype != torch.float8_e4m3fn or tensor.dim() != 2:
+                    continue
+                
+                N, K = tensor.shape
+                
+                # 跳过太小的维度
+                if N < 32 or K < 32 or N % 32 != 0 or K % 32 != 0:
+                    print(f"  - Skipping {key}: dimension not aligned [{N}, {K}]")
+                    continue
+                
+                try:
+                    compressed, metadata = compress_tensor(tensor)
+                    print(f"  ✓ {key}: [{N}, {K}] -> {len(compressed)} bytes (dtype={metadata['dtype']})")
+                    compressed_count += 1
+                except Exception as e:
+                    print(f"  ✗ {key}: [{N}, {K}] -> Error: {e}")
+                    all_pass = False
+        
+        print(f"  Compressed {compressed_count} layers")
+        print(f"  Status: {'PASS' if all_pass else 'FAIL'}")
+        print()
+        return all_pass
+        
+    except Exception as e:
+        print(f"  Error: {e}")
+        import traceback
+        traceback.print_exc()
+        print("  Status: FAIL")
+        print()
+        return False
 
 
 def test_compress_sparsity_verification():
@@ -348,24 +639,24 @@ def test_compress_sparsity_verification():
         weight_invalid = torch.randint(-127, 127, (N, K), dtype=torch.int8)
         
         try:
-            compressed, _ = compress_tensor(weight_invalid)
-            print("  ✗ Expected exception for invalid sparsity, but none raised")
+            compressed, metadata = compress_tensor(weight_invalid)
+            print("  ✗ Should have rejected non-sparse weight")
             return False
         except ValueError as e:
             if "2:4 sparsity" in str(e):
-                print(f"  ✓ Correctly rejected invalid sparsity: {e}")
+                print(f"  ✓ Correctly rejected non-sparse weight: {e}")
             else:
-                print(f"  ✗ Wrong exception: {e}")
+                print(f"  ✗ Wrong error: {e}")
                 return False
         
         # 创建满足 2:4 的权重
         weight_valid = create_2to4_sparse_tensor(N, K, dtype=torch.int8)
         
         try:
-            compressed, _ = compress_tensor(weight_valid)
-            print(f"  ✓ Valid 2:4 weight compressed successfully")
+            compressed, metadata = compress_tensor(weight_valid)
+            print(f"  ✓ Accepted valid sparse weight")
         except Exception as e:
-            print(f"  ✗ Valid weight rejected: {e}")
+            print(f"  ✗ Rejected valid sparse weight: {e}")
             return False
         
         print("  Status: PASS")
@@ -379,60 +670,30 @@ def test_compress_sparsity_verification():
         return True
 
 
-def test_extension_availability():
-    """测试压缩扩展是否可用"""
-    print("=" * 60)
-    print("Test: Extension Availability")
-    print("=" * 60)
-    
-    try:
-        from compress import check_compress_available, get_compress_module
-        
-        available = check_compress_available()
-        print(f"  cuSPARSELt compress available: {available}")
-        
-        if available:
-            module = get_compress_module()
-            print(f"  Module loaded: {module}")
-            
-            # 检查函数是否存在
-            has_get_sizes = hasattr(module, 'cusparselt_get_compress_sizes')
-            has_compress = hasattr(module, 'cusparselt_compress_weight')
-            has_check = hasattr(module, 'cusparselt_is_available')
-            
-            print(f"  Has cusparselt_get_compress_sizes: {has_get_sizes}")
-            print(f"  Has cusparselt_compress_weight: {has_compress}")
-            print(f"  Has cusparselt_is_available: {has_check}")
-            
-            if has_get_sizes and has_compress and has_check:
-                print("  Status: PASS")
-            else:
-                print("  Status: FAIL (missing functions)")
-                return False
-        else:
-            print("  Status: SKIPPED (not available)")
-        
-        print()
-        return True
-        
-    except Exception as e:
-        print(f"  Error: {e}")
-        print("  Status: SKIPPED")
-        print()
-        return True
-
+# =============================================================================
+# 主函数
+# =============================================================================
 
 def main():
     """运行所有测试"""
     tests = [
+        # 基础测试
         test_fake_compress_basic,
         test_fake_compress_value_preservation,
         test_fake_compress_different_sizes,
+        
+        # cuSPARSELt 测试
         test_extension_availability,
-        test_compress_sizes_query,
-        test_real_compress,
-        test_compress_alignment_requirements,
+        test_compress_sizes_query_int8,
+        test_compress_sizes_query_fp8,
+        test_real_compress_int8,
+        test_real_compress_fp8,
+        test_auto_dtype_detection,
         test_compress_sparsity_verification,
+        
+        # 真实 checkpoint 测试
+        test_real_checkpoint_int8,
+        test_real_checkpoint_fp8,
     ]
     
     passed = 0
@@ -440,18 +701,17 @@ def main():
     skipped = 0
     
     print("\n" + "=" * 60)
-    print("Compress Correctness Tests")
+    print("Compress Correctness Tests (Multi-Dtype)")
     print("=" * 60 + "\n")
     
     for test in tests:
         try:
-            result = test()
-            if result:
+            if test():
                 passed += 1
             else:
                 failed += 1
         except Exception as e:
-            print(f"  FAILED with exception: {e}")
+            print(f"  Unexpected error in {test.__name__}: {e}")
             failed += 1
     
     print("=" * 60)

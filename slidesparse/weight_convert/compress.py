@@ -5,13 +5,17 @@ SlideSparse cuSPARSELt 压缩脚本
 
 将满足 2:4 稀疏约束的权重使用 cuSPARSELt 压缩为硬件加速格式。
 
+支持的数据类型：
+- INT8:     torch.int8 -> CUDA_R_8I,      计算类型 CUSPARSE_COMPUTE_32I
+- FP8E4M3:  torch.float8_e4m3fn -> CUDA_R_8F_E4M3, 计算类型 CUSPARSE_COMPUTE_32F
+
 压缩原理：
 - cuSPARSELt 的 2:4 结构化稀疏将每 4 个元素压缩为 2 个非零值 + 元数据
-- K 维度减半：[N, K] -> [N, K/2] (压缩数据) + 元数据
+- K 维度减半：[N, K] -> 压缩后约 [N, K/2] + 元数据
 
 布局约定（TN-CC 格式）：
-- D = W × A
-- W: 稀疏权重 [N, K]，列主序，转置 (opW = T)
+- D = W^T × A
+- W: 稀疏权重 [N, K]，行主序，转置 (opW = T)
 - A: 稠密激活 [K, M]，列主序，不转置 (opA = N)  
 - D: 输出 [N, M]，列主序
 
@@ -23,7 +27,7 @@ import argparse
 import ctypes
 import sys
 from pathlib import Path
-from typing import Dict, Any, Tuple, Optional
+from typing import Dict, Any, Tuple, Optional, Union
 
 import torch
 
@@ -59,6 +63,35 @@ from utils import (
     print_warning,
     print_error,
 )
+
+
+# =============================================================================
+# 数据类型映射
+# =============================================================================
+
+# PyTorch dtype 到 C 字符串的映射
+DTYPE_TO_STR = {
+    torch.int8: "int8",
+    torch.float8_e4m3fn: "fp8e4m3",
+}
+
+# 支持的数据类型
+SUPPORTED_DTYPES = set(DTYPE_TO_STR.keys())
+
+
+def get_dtype_str(dtype: torch.dtype) -> str:
+    """将 PyTorch dtype 转换为 C 字符串"""
+    if dtype not in DTYPE_TO_STR:
+        raise ValueError(
+            f"Unsupported dtype: {dtype}. "
+            f"Supported: {', '.join(str(d) for d in SUPPORTED_DTYPES)}"
+        )
+    return DTYPE_TO_STR[dtype]
+
+
+def is_supported_dtype(dtype: torch.dtype) -> bool:
+    """检查是否为支持的数据类型"""
+    return dtype in SUPPORTED_DTYPES
 
 
 # =============================================================================
@@ -116,22 +149,24 @@ def get_compress_module():
     lib = ctypes.CDLL(str(so_path))
     
     # 设置函数签名
-    # void cusparselt_get_compress_sizes(int N, int K, size_t* compressed_size, size_t* temp_buffer_size)
+    # void cusparselt_get_compress_sizes(int N, int K, const char* dtype, size_t* compressed_size, size_t* temp_buffer_size)
     lib.cusparselt_get_compress_sizes.argtypes = [
         ctypes.c_int,                      # N
         ctypes.c_int,                      # K
+        ctypes.c_char_p,                   # dtype
         ctypes.POINTER(ctypes.c_size_t),   # compressed_size
         ctypes.POINTER(ctypes.c_size_t),   # temp_buffer_size
     ]
     lib.cusparselt_get_compress_sizes.restype = None
     
-    # void cusparselt_compress_weight(const int8_t* input, void* compressed, void* temp, int N, int K, cudaStream_t stream)
+    # void cusparselt_compress_weight(const void* input, void* compressed, void* temp, int N, int K, const char* dtype, cudaStream_t stream)
     lib.cusparselt_compress_weight.argtypes = [
         ctypes.c_void_p,  # input_weight
         ctypes.c_void_p,  # compressed_weight
         ctypes.c_void_p,  # temp_buffer
         ctypes.c_int,     # N
         ctypes.c_int,     # K
+        ctypes.c_char_p,  # dtype
         ctypes.c_void_p,  # stream (可以是 None)
     ]
     lib.cusparselt_compress_weight.restype = None
@@ -139,6 +174,10 @@ def get_compress_module():
     # int cusparselt_is_available()
     lib.cusparselt_is_available.argtypes = []
     lib.cusparselt_is_available.restype = ctypes.c_int
+    
+    # const char* cusparselt_get_supported_dtypes()
+    lib.cusparselt_get_supported_dtypes.argtypes = []
+    lib.cusparselt_get_supported_dtypes.restype = ctypes.c_char_p
     
     _compress_module = lib
     return lib
@@ -154,28 +193,46 @@ def check_compress_available() -> bool:
         return False
 
 
+def get_supported_dtypes_from_lib() -> list:
+    """从库获取支持的数据类型列表"""
+    try:
+        lib = get_compress_module()
+        dtypes_str = lib.cusparselt_get_supported_dtypes().decode("utf-8")
+        return dtypes_str.split(",")
+    except Exception:
+        return ["int8", "fp8e4m3"]
+
+
 # =============================================================================
 # 压缩核心函数
 # =============================================================================
 
-def get_compress_sizes(N: int, K: int) -> Tuple[int, int]:
+def get_compress_sizes(N: int, K: int, dtype: Union[torch.dtype, str] = "int8") -> Tuple[int, int]:
     """
     查询压缩后的大小和临时缓冲区大小
     
     Args:
         N: 权重行数（out_features）
         K: 权重列数（in_features，必须满足 2:4）
+        dtype: 数据类型（torch.dtype 或字符串）
     
     Returns:
         (compressed_size, temp_buffer_size) in bytes
     """
     lib = get_compress_module()
     
+    # 处理数据类型
+    if isinstance(dtype, torch.dtype):
+        dtype_str = get_dtype_str(dtype)
+    else:
+        dtype_str = dtype
+    
     compressed_size = ctypes.c_size_t()
     temp_buffer_size = ctypes.c_size_t()
     
     lib.cusparselt_get_compress_sizes(
         N, K,
+        dtype_str.encode("utf-8"),
         ctypes.byref(compressed_size),
         ctypes.byref(temp_buffer_size),
     )
@@ -185,13 +242,15 @@ def get_compress_sizes(N: int, K: int) -> Tuple[int, int]:
 
 def compress_tensor(
     weight: torch.Tensor,
+    dtype: Optional[str] = None,
     verbose: bool = False,
 ) -> Tuple[torch.Tensor, Dict[str, Any]]:
     """
     使用 cuSPARSELt 压缩 2:4 稀疏权重
     
     Args:
-        weight: 满足 2:4 稀疏的权重 [N, K]，必须是 INT8
+        weight: 满足 2:4 稀疏的权重 [N, K]，INT8 或 FP8E4M3
+        dtype: 数据类型字符串（自动检测如果为 None）
         verbose: 是否打印详细信息
     
     Returns:
@@ -199,8 +258,14 @@ def compress_tensor(
         - compressed_weight: 压缩后的数据，uint8 tensor
         - metadata: 压缩元数据
     """
-    if weight.dtype != torch.int8:
-        raise ValueError(f"cuSPARSELt compress requires INT8 weight, got {weight.dtype}")
+    # 自动检测数据类型
+    if dtype is None:
+        if not is_supported_dtype(weight.dtype):
+            raise ValueError(
+                f"Unsupported weight dtype: {weight.dtype}. "
+                f"Supported: {', '.join(str(d) for d in SUPPORTED_DTYPES)}"
+            )
+        dtype = get_dtype_str(weight.dtype)
     
     if weight.dim() != 2:
         raise ValueError(f"Weight must be 2D, got {weight.dim()}D")
@@ -210,16 +275,17 @@ def compress_tensor(
     if K % 4 != 0:
         raise ValueError(f"K must be multiple of 4 for 2:4 sparsity, got K={K}")
     
-    # 验证 2:4 稀疏性
-    is_valid, violation_ratio = verify_2to4_sparsity(weight.float())
+    # 验证 2:4 稀疏性（转为 float 进行检查）
+    weight_float = weight.float()
+    is_valid, violation_ratio = verify_2to4_sparsity(weight_float)
     if not is_valid:
         raise ValueError(f"Weight does not satisfy 2:4 sparsity (violation: {violation_ratio:.2%})")
     
     # 查询压缩大小
-    compressed_size, temp_buffer_size = get_compress_sizes(N, K)
+    compressed_size, temp_buffer_size = get_compress_sizes(N, K, dtype)
     
     if verbose:
-        print_info(f"  Compress sizes: compressed={compressed_size}, temp={temp_buffer_size}")
+        print_info(f"  dtype={dtype}, compressed={compressed_size}, temp={temp_buffer_size}")
     
     # 分配 GPU 内存
     weight_gpu = weight.cuda().contiguous()
@@ -239,6 +305,7 @@ def compress_tensor(
         ctypes.c_void_p(compressed_gpu.data_ptr()),
         ctypes.c_void_p(temp_ptr) if temp_ptr else None,
         N, K,
+        dtype.encode("utf-8"),
         None,  # stream
     )
     
@@ -255,6 +322,7 @@ def compress_tensor(
         "temp_buffer_size_bytes": temp_buffer_size,
         "sparsity_pattern": "2:4",
         "layout": "TN-CC",  # W^T * A, all column-major
+        "dtype": dtype,
     }
     
     return compressed_cpu, metadata
@@ -304,11 +372,15 @@ def compress_tensor_fake(
                 # 编码位置到 metadata（简化：直接存储索引）
                 metadata_bits[i, j] |= (pos.item() << (idx * 2))
     
+    # 检测数据类型
+    dtype_str = get_dtype_str(weight.dtype) if is_supported_dtype(weight.dtype) else "unknown"
+    
     info = {
         "original_shape": [N, K],
         "values_shape": list(values.shape),
         "metadata_shape": list(metadata_bits.shape),
         "compression_type": "fake_2to4",
+        "dtype": dtype_str,
     }
     
     return values, metadata_bits, info
@@ -347,6 +419,7 @@ def compress_safetensors(
         "use_real_cusparselt": use_real_cusparselt,
         "processed_layers": [],
         "skipped_layers": [],
+        "dtype_stats": {},
     }
     
     output_weights = {}
@@ -365,36 +438,47 @@ def compress_safetensors(
             continue
         
         # 检查数据类型
-        if tensor.dtype != torch.int8:
+        if not is_supported_dtype(tensor.dtype):
             if verbose:
-                print_warning(f"  Skipping {key}: not INT8 (got {tensor.dtype})")
+                print_warning(f"  Skipping {key}: unsupported dtype {tensor.dtype}")
             output_weights[key] = tensor
             report["skipped_layers"].append(key)
             continue
         
+        # 获取数据类型字符串
+        dtype_str = get_dtype_str(tensor.dtype)
+        
+        # 统计数据类型
+        if dtype_str not in report["dtype_stats"]:
+            report["dtype_stats"][dtype_str] = 0
+        report["dtype_stats"][dtype_str] += 1
+        
         N, K = tensor.shape
         
         if verbose:
-            print_info(f"  Compressing {key}: [{N}, {K}]")
+            print_info(f"  Compressing {key}: [{N}, {K}] ({dtype_str})")
         
         try:
             if use_real_cusparselt:
-                compressed, metadata = compress_tensor(tensor, verbose=verbose)
+                compressed, metadata = compress_tensor(tensor, dtype=dtype_str, verbose=verbose)
                 # 保存压缩数据
                 output_weights[key] = compressed
-                # 保存元数据（作为额外的 tensor 或属性）
-                output_weights[f"{key}_metadata"] = torch.tensor(
-                    [N, K, metadata["compressed_size_bytes"]], dtype=torch.int64
+                # 保存元数据（作为额外的 tensor）
+                # 格式: [N, K, compressed_size_bytes, dtype_id]
+                dtype_id = 0 if dtype_str == "int8" else 1  # 0=int8, 1=fp8e4m3
+                output_weights[f"{key}_compress_meta"] = torch.tensor(
+                    [N, K, metadata["compressed_size_bytes"], dtype_id], dtype=torch.int64
                 )
             else:
                 values, meta_bits, info = compress_tensor_fake(tensor, verbose=verbose)
                 output_weights[key] = values
-                output_weights[f"{key}_metadata"] = meta_bits
+                output_weights[f"{key}_compress_meta"] = meta_bits
             
             report["processed_layers"].append({
                 "key": key,
                 "original_shape": [N, K],
                 "compressed_shape": list(compressed.shape) if use_real_cusparselt else list(values.shape),
+                "dtype": dtype_str,
             })
             
         except Exception as e:
@@ -412,6 +496,99 @@ def compress_safetensors(
     return report
 
 
+def compress_checkpoint(
+    input_dir: Path,
+    output_dir: Path,
+    use_real_cusparselt: bool = True,
+    verbose: bool = True,
+) -> Dict[str, Any]:
+    """
+    压缩整个 checkpoint 目录
+    
+    Args:
+        input_dir: 输入目录
+        output_dir: 输出目录
+        use_real_cusparselt: 是否使用真实的 cuSPARSELt
+        verbose: 是否打印详细信息
+    
+    Returns:
+        处理报告
+    """
+    if not input_dir.is_dir():
+        raise ValueError(f"Input is not a directory: {input_dir}")
+    
+    # 确保输出目录存在
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    # 找到所有 safetensors 文件
+    safetensors_files = get_all_safetensors_files(input_dir)
+    
+    if not safetensors_files:
+        raise ValueError(f"No safetensors files found in {input_dir}")
+    
+    if verbose:
+        print_info(f"Found {len(safetensors_files)} safetensors file(s)")
+    
+    overall_report = {
+        "input_dir": str(input_dir),
+        "output_dir": str(output_dir),
+        "files_processed": 0,
+        "total_layers_compressed": 0,
+        "total_layers_skipped": 0,
+        "dtype_stats": {},
+        "file_reports": [],
+    }
+    
+    for sf_path in safetensors_files:
+        rel_path = sf_path.relative_to(input_dir)
+        out_path = output_dir / rel_path
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        if verbose:
+            print_header(f"Processing: {sf_path.name}")
+        
+        try:
+            report = compress_safetensors(
+                sf_path,
+                out_path,
+                use_real_cusparselt=use_real_cusparselt,
+                verbose=verbose,
+            )
+            
+            overall_report["files_processed"] += 1
+            overall_report["total_layers_compressed"] += len(report["processed_layers"])
+            overall_report["total_layers_skipped"] += len(report["skipped_layers"])
+            
+            # 合并 dtype 统计
+            for dtype_str, count in report.get("dtype_stats", {}).items():
+                if dtype_str not in overall_report["dtype_stats"]:
+                    overall_report["dtype_stats"][dtype_str] = 0
+                overall_report["dtype_stats"][dtype_str] += count
+            
+            overall_report["file_reports"].append(report)
+            
+            if verbose:
+                print_success(f"  Compressed {len(report['processed_layers'])} layers")
+                print_info(f"  Skipped {len(report['skipped_layers'])} layers")
+                
+        except Exception as e:
+            print_error(f"  Error processing {sf_path.name}: {e}")
+            overall_report["file_reports"].append({
+                "input_path": str(sf_path),
+                "error": str(e),
+            })
+    
+    # 复制非 safetensors 文件（如 config.json 等）
+    for item in input_dir.iterdir():
+        if item.is_file() and not item.suffix == ".safetensors":
+            import shutil
+            shutil.copy2(item, output_dir / item.name)
+            if verbose:
+                print_info(f"Copied: {item.name}")
+    
+    return overall_report
+
+
 # =============================================================================
 # 命令行接口
 # =============================================================================
@@ -424,11 +601,24 @@ def main():
 压缩说明：
   2:4 结构化稀疏压缩将 K 维度减半
   
-  输入：[N, K] 满足 2:4 稀疏的 INT8 权重
+  输入：[N, K] 满足 2:4 稀疏的 INT8/FP8E4M3 权重
   输出：压缩后的数据 + 元数据
+
+支持的数据类型：
+  - INT8 (torch.int8)
+  - FP8E4M3 (torch.float8_e4m3fn)
 
 布局约定：
   TN-CC 格式（W^T * A，全列主序）
+
+示例：
+  # 压缩 INT8 checkpoint
+  python compress.py -i checkpoints_slidesparse/BitNet-2B_mag_Z2L8_INT8_slided \\
+                     -o checkpoints_slidesparse/BitNet-2B_mag_Z2L8_INT8_compressed
+  
+  # 压缩 FP8 checkpoint
+  python compress.py -i checkpoints_slidesparse/BitNet-2B_mag_Z2L6_FP8E4M3_slided \\
+                     -o checkpoints_slidesparse/BitNet-2B_mag_Z2L6_FP8E4M3_compressed
 
 使用 --fake 可以跳过真实压缩进行测试
         """
@@ -467,62 +657,73 @@ def main():
         print_warning("cuSPARSELt compress not available, using fake compression")
         use_real = False
     
-    # 确定输入文件
-    if input_path.is_dir():
-        safetensors_files = get_all_safetensors_files(input_path)
-        if not safetensors_files:
-            print_error(f"No safetensors files found in {input_path}")
-            return 1
-    else:
-        safetensors_files = [input_path]
-    
     # 确定输出路径
     if args.output:
-        output_base = Path(args.output)
+        output_path = Path(args.output)
     else:
         if input_path.is_dir():
-            output_base = input_path.parent / f"{input_path.name}_compressed"
+            # 替换 _slided 为 _compressed
+            name = input_path.name
+            if name.endswith("_slided"):
+                new_name = name[:-7] + "_compressed"
+            else:
+                new_name = name + "_compressed"
+            output_path = input_path.parent / new_name
         else:
-            output_base = input_path.parent / f"{input_path.stem}_compressed"
+            output_path = input_path.parent / f"{input_path.stem}_compressed"
     
     if not args.quiet:
         print_header("SlideSparse Compress")
         print_info(f"Input: {input_path}")
-        print_info(f"Output: {output_base}")
+        print_info(f"Output: {output_path}")
+        print_info(f"Mode: {'Real cuSPARSELt' if use_real else 'Fake (simulation)'}")
+        print_info(f"Supported dtypes: {', '.join(get_supported_dtypes_from_lib())}")
     
-    # 处理每个文件
-    for sf_path in safetensors_files:
+    # 处理
+    try:
         if input_path.is_dir():
-            rel_path = sf_path.relative_to(input_path)
-            out_path = output_base / rel_path
-        else:
-            out_path = output_base.with_suffix(".safetensors")
-        
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        
-        if not args.quiet:
-            print_info(f"Processing: {sf_path.name}")
-        
-        try:
-            report = compress_safetensors(
-                sf_path,
-                out_path,
+            report = compress_checkpoint(
+                input_path,
+                output_path,
                 use_real_cusparselt=use_real,
                 verbose=not args.quiet,
             )
+        else:
+            # 单文件
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            if output_path.is_dir():
+                output_file = output_path / input_path.name
+            else:
+                output_file = output_path.with_suffix(".safetensors")
             
-            if not args.quiet:
-                print_success(f"  Processed {len(report['processed_layers'])} layers")
-                print_info(f"  Skipped {len(report['skipped_layers'])} layers")
-                
-        except Exception as e:
-            print_error(f"  Error: {e}")
-            return 1
-    
-    if not args.quiet:
-        print_success("Done!")
-    
-    return 0
+            report = compress_safetensors(
+                input_path,
+                output_file,
+                use_real_cusparselt=use_real,
+                verbose=not args.quiet,
+            )
+        
+        if not args.quiet:
+            print_header("Summary")
+            if "files_processed" in report:
+                print_success(f"Files processed: {report['files_processed']}")
+                print_success(f"Total layers compressed: {report['total_layers_compressed']}")
+                print_info(f"Total layers skipped: {report['total_layers_skipped']}")
+                if report.get("dtype_stats"):
+                    print_info(f"Dtype stats: {report['dtype_stats']}")
+            else:
+                print_success(f"Layers compressed: {len(report['processed_layers'])}")
+                print_info(f"Layers skipped: {len(report['skipped_layers'])}")
+            
+            print_success("Done!")
+        
+        return 0
+        
+    except Exception as e:
+        print_error(f"Error: {e}")
+        import traceback
+        traceback.print_exc()
+        return 1
 
 
 if __name__ == "__main__":
