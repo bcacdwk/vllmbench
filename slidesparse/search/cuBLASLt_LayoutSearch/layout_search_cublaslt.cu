@@ -8,7 +8,7 @@
  * 本文件提供 cuBLASLt 布局配置搜索功能，测试 16 种布局组合：
  *   - 转置 : TT, TN, NT, NN (4种)
  *   - A/B 排列 : RowCol, ColCol (2种)
- *   - D 输出 : Col, Row (2种)
+ *   - R 输出 : Col, Row (2种)
  *
  * 固定最优布局: T/N + Col/Col + Col (权重 W 在左)
  *
@@ -49,35 +49,35 @@ static constexpr int NUM_LAYOUTS = 16;
 
 // 布局组合枚举
 struct LayoutConfig {
+    cublasOperation_t transW;
     cublasOperation_t transA;
-    cublasOperation_t transB;
+    cublasLtOrder_t orderW;
     cublasLtOrder_t orderA;
-    cublasLtOrder_t orderB;
-    cublasLtOrder_t orderC;  // D 输出格式
+    cublasLtOrder_t orderR;  // R 输出格式
     const char* name;
 };
 
 // 所有16种布局配置
 static const LayoutConfig LAYOUT_CONFIGS[NUM_LAYOUTS] = {
-    // transA,       transB,       orderA,             orderB,             orderC,             name
-    // D 输出为 ColMajor (前8种)
-    {CUBLAS_OP_T, CUBLAS_OP_T, CUBLASLT_ORDER_ROW, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_COL, "TT_RowCol_DCol"},
-    {CUBLAS_OP_T, CUBLAS_OP_N, CUBLASLT_ORDER_ROW, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_COL, "TN_RowCol_DCol"},
-    {CUBLAS_OP_N, CUBLAS_OP_T, CUBLASLT_ORDER_ROW, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_COL, "NT_RowCol_DCol"},
-    {CUBLAS_OP_N, CUBLAS_OP_N, CUBLASLT_ORDER_ROW, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_COL, "NN_RowCol_DCol"},
-    {CUBLAS_OP_T, CUBLAS_OP_T, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_COL, "TT_ColCol_DCol"},
-    {CUBLAS_OP_T, CUBLAS_OP_N, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_COL, "TN_ColCol_DCol"},  // 推荐
-    {CUBLAS_OP_N, CUBLAS_OP_T, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_COL, "NT_ColCol_DCol"},
-    {CUBLAS_OP_N, CUBLAS_OP_N, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_COL, "NN_ColCol_DCol"},
-    // D 输出为 RowMajor (后8种)
-    {CUBLAS_OP_T, CUBLAS_OP_T, CUBLASLT_ORDER_ROW, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_ROW, "TT_RowCol_DRow"},
-    {CUBLAS_OP_T, CUBLAS_OP_N, CUBLASLT_ORDER_ROW, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_ROW, "TN_RowCol_DRow"},
-    {CUBLAS_OP_N, CUBLAS_OP_T, CUBLASLT_ORDER_ROW, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_ROW, "NT_RowCol_DRow"},
-    {CUBLAS_OP_N, CUBLAS_OP_N, CUBLASLT_ORDER_ROW, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_ROW, "NN_RowCol_DRow"},
-    {CUBLAS_OP_T, CUBLAS_OP_T, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_ROW, "TT_ColCol_DRow"},
-    {CUBLAS_OP_T, CUBLAS_OP_N, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_ROW, "TN_ColCol_DRow"},
-    {CUBLAS_OP_N, CUBLAS_OP_T, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_ROW, "NT_ColCol_DRow"},
-    {CUBLAS_OP_N, CUBLAS_OP_N, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_ROW, "NN_ColCol_DRow"},
+    // transW,       transA,       orderW,             orderA,             orderR,             name
+    // R 输出为 ColMajor (前8种)
+    {CUBLAS_OP_T, CUBLAS_OP_T, CUBLASLT_ORDER_ROW, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_COL, "TT_RowCol_Col"},
+    {CUBLAS_OP_T, CUBLAS_OP_N, CUBLASLT_ORDER_ROW, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_COL, "TN_RowCol_Col"},
+    {CUBLAS_OP_N, CUBLAS_OP_T, CUBLASLT_ORDER_ROW, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_COL, "NT_RowCol_Col"},
+    {CUBLAS_OP_N, CUBLAS_OP_N, CUBLASLT_ORDER_ROW, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_COL, "NN_RowCol_Col"},
+    {CUBLAS_OP_T, CUBLAS_OP_T, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_COL, "TT_ColCol_Col"},
+    {CUBLAS_OP_T, CUBLAS_OP_N, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_COL, "TN_ColCol_Col"},  // 推荐
+    {CUBLAS_OP_N, CUBLAS_OP_T, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_COL, "NT_ColCol_Col"},
+    {CUBLAS_OP_N, CUBLAS_OP_N, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_COL, "NN_ColCol_Col"},
+    // R 输出为 RowMajor (后8种)
+    {CUBLAS_OP_T, CUBLAS_OP_T, CUBLASLT_ORDER_ROW, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_ROW, "TT_RowCol_Row"},
+    {CUBLAS_OP_T, CUBLAS_OP_N, CUBLASLT_ORDER_ROW, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_ROW, "TN_RowCol_Row"},
+    {CUBLAS_OP_N, CUBLAS_OP_T, CUBLASLT_ORDER_ROW, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_ROW, "NT_RowCol_Row"},
+    {CUBLAS_OP_N, CUBLAS_OP_N, CUBLASLT_ORDER_ROW, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_ROW, "NN_RowCol_Row"},
+    {CUBLAS_OP_T, CUBLAS_OP_T, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_ROW, "TT_ColCol_Row"},
+    {CUBLAS_OP_T, CUBLAS_OP_N, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_ROW, "TN_ColCol_Row"},
+    {CUBLAS_OP_N, CUBLAS_OP_T, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_ROW, "NT_ColCol_Row"},
+    {CUBLAS_OP_N, CUBLAS_OP_N, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_COL, CUBLASLT_ORDER_ROW, "NN_ColCol_Row"},
 };
 
 // =============================================================================
@@ -194,8 +194,8 @@ struct LayoutResult {
 static int test_single_layout(
     const LayoutConfig& layout,
     int layout_id,
-    void* A_ptr, void* B_ptr, void* C_ptr,
-    int64_t M, int64_t N, int64_t K,
+    void* W_ptr, void* A_ptr, void* R_ptr,
+    int64_t N, int64_t K, int64_t M,  // 注意：参数顺序改为 N, K, M
     const char* dtype, const char* outdtype,
     int warmup, int repeat,
     void* workspace, size_t workspace_size,
@@ -216,184 +216,211 @@ static int test_single_layout(
     result->layout_name[31] = '\0';
     result->valid = 0;
     
+    // =========================================================================
+    // 维度计算 (与旧代码一致)
+    // cuBLASLt GEMM: R = alpha * op(W) * op(A) + beta * C
+    // 我们的约定: R = W * A (W 在左边)
+    // 其中 W[N,K], A[K,M], R[N,M]
+    // =========================================================================
+    
+    bool isW_transposed = (layout.transW == CUBLAS_OP_T);
+    bool isA_transposed = (layout.transA == CUBLAS_OP_T);
+    bool isW_rowmajor = (layout.orderW == CUBLASLT_ORDER_ROW);
+    bool isA_rowmajor = (layout.orderA == CUBLASLT_ORDER_ROW);
+    bool isR_rowmajor = (layout.orderR == CUBLASLT_ORDER_ROW);
+    
+    // W (矩阵 A in cuBLASLt): 逻辑维度 [N,K]
+    // 如果 opW=T，存储为 [K,N]；如果 opW=N，存储为 [N,K]
+    int64_t num_W_rows = isW_transposed ? K : N;
+    int64_t num_W_cols = isW_transposed ? N : K;
+    
+    // A (矩阵 B in cuBLASLt): 逻辑维度 [K,M]
+    // 如果 opA=T，存储为 [M,K]；如果 opA=N，存储为 [K,M]
+    int64_t num_A_rows = isA_transposed ? M : K;
+    int64_t num_A_cols = isA_transposed ? K : M;
+    
+    // R (矩阵 C/D): [N,M]
+    int64_t num_R_rows = N;
+    int64_t num_R_cols = M;
+    
+    // Leading dimensions
+    int64_t ldw = isW_rowmajor ? num_W_cols : num_W_rows;
+    int64_t lda = isA_rowmajor ? num_A_cols : num_A_rows;
+    int64_t ldr = isR_rowmajor ? num_R_cols : num_R_rows;
+    
     // 创建矩阵描述符
-    // 对于 C = A^T * B
-    // A: [K, M], B: [K, N], C: [M, N] (逻辑维度)
-    cublasLtMatrixLayout_t layoutA = nullptr, layoutB = nullptr, layoutC = nullptr;
+    cublasLtMatrixLayout_t layoutW = nullptr, layoutA_mat = nullptr, layoutR = nullptr;
     cublasLtMatmulDesc_t opDesc = nullptr;
     cublasLtMatmulPreference_t pref = nullptr;
     
-    // 根据转置设置维度
-    int64_t ldA, ldB, ldC;
-    int64_t rowsA, colsA, rowsB, colsB;
-    
-    if (layout.transA == CUBLAS_OP_N) {
-        rowsA = M; colsA = K;
-    } else {
-        rowsA = K; colsA = M;
-    }
-    
-    if (layout.transB == CUBLAS_OP_N) {
-        rowsB = K; colsB = N;
-    } else {
-        rowsB = N; colsB = K;
-    }
-    
-    // Leading dimension
-    if (layout.orderA == CUBLASLT_ORDER_COL) {
-        ldA = rowsA;
-    } else {
-        ldA = colsA;
-    }
-    
-    if (layout.orderB == CUBLASLT_ORDER_COL) {
-        ldB = rowsB;
-    } else {
-        ldB = colsB;
-    }
-    
-    // C 的 leading dimension 取决于 orderC
-    if (layout.orderC == CUBLASLT_ORDER_COL) {
-        ldC = M;
-    } else {
-        ldC = N;
-    }
-    
-    // 创建描述符
-    cublasStatus_t status;
-    
-    status = cublasLtMatrixLayoutCreate(&layoutA, info.cuda_type, rowsA, colsA, ldA);
+    // W 矩阵布局 (矩阵 A in cuBLASLt)
+    cublasStatus_t status = cublasLtMatrixLayoutCreate(&layoutW, info.cuda_type, num_W_rows, num_W_cols, ldw);
     if (status != CUBLAS_STATUS_SUCCESS) {
         return 0;  // 不支持此布局
     }
+    cublasLtMatrixLayoutSetAttribute(layoutW, CUBLASLT_MATRIX_LAYOUT_ORDER, &layout.orderW, sizeof(layout.orderW));
     
+    // A 矩阵布局 (矩阵 B in cuBLASLt)
+    status = cublasLtMatrixLayoutCreate(&layoutA_mat, info.cuda_type, num_A_rows, num_A_cols, lda);
+    if (status != CUBLAS_STATUS_SUCCESS) {
+        cublasLtMatrixLayoutDestroy(layoutW);
+        return 0;
+    }
+    cublasLtMatrixLayoutSetAttribute(layoutA_mat, CUBLASLT_MATRIX_LAYOUT_ORDER, &layout.orderA, sizeof(layout.orderA));
+    
+    // R 矩阵布局 (矩阵 C/D)
+    status = cublasLtMatrixLayoutCreate(&layoutR, out_type, num_R_rows, num_R_cols, ldr);
+    if (status != CUBLAS_STATUS_SUCCESS) {
+        cublasLtMatrixLayoutDestroy(layoutW);
+        cublasLtMatrixLayoutDestroy(layoutA_mat);
+        return 0;
+    }
+    cublasLtMatrixLayoutSetAttribute(layoutR, CUBLASLT_MATRIX_LAYOUT_ORDER, &layout.orderR, sizeof(layout.orderR));
+    
+    // 创建矩阵乘法描述符
     status = cublasLtMatmulDescCreate(&opDesc, compute_type, CUDA_R_32F);
     if (status != CUBLAS_STATUS_SUCCESS) {
-        cublasLtMatrixLayoutDestroy(layoutA);
+        cublasLtMatrixLayoutDestroy(layoutW);
+        cublasLtMatrixLayoutDestroy(layoutA_mat);
+        cublasLtMatrixLayoutDestroy(layoutR);
         return 0;
     }
     
-    cublasLtMatmulDescSetAttribute(opDesc, CUBLASLT_MATMUL_DESC_TRANSA, &layout.transA, sizeof(layout.transA));
-    cublasLtMatmulDescSetAttribute(opDesc, CUBLASLT_MATMUL_DESC_TRANSB, &layout.transB, sizeof(layout.transB));
-    
-    status = cublasLtMatrixLayoutCreate(&layoutB, info.cuda_type, rowsB, colsB, ldB);
-    if (status != CUBLAS_STATUS_SUCCESS) {
-        cublasLtMatrixLayoutDestroy(layoutA);
-        cublasLtMatmulDescDestroy(opDesc);
-        return 0;
-    }
-    
-    status = cublasLtMatrixLayoutCreate(&layoutC, out_type, M, N, ldC);
-    if (status != CUBLAS_STATUS_SUCCESS) {
-        cublasLtMatrixLayoutDestroy(layoutA);
-        cublasLtMatrixLayoutDestroy(layoutB);
-        cublasLtMatmulDescDestroy(opDesc);
-        return 0;
-    }
-    
-    // 设置 order
-    cublasLtMatrixLayoutSetAttribute(layoutA, CUBLASLT_MATRIX_LAYOUT_ORDER, &layout.orderA, sizeof(layout.orderA));
-    cublasLtMatrixLayoutSetAttribute(layoutB, CUBLASLT_MATRIX_LAYOUT_ORDER, &layout.orderB, sizeof(layout.orderB));
-    cublasLtMatrixLayoutSetAttribute(layoutC, CUBLASLT_MATRIX_LAYOUT_ORDER, &layout.orderC, sizeof(layout.orderC));
+    cublasLtMatmulDescSetAttribute(opDesc, CUBLASLT_MATMUL_DESC_transW, &layout.transW, sizeof(layout.transW));
+    cublasLtMatmulDescSetAttribute(opDesc, CUBLASLT_MATMUL_DESC_transA, &layout.transA, sizeof(layout.transA));
     
     // 创建偏好
     status = cublasLtMatmulPreferenceCreate(&pref);
     if (status != CUBLAS_STATUS_SUCCESS) {
-        cublasLtMatrixLayoutDestroy(layoutA);
-        cublasLtMatrixLayoutDestroy(layoutB);
-        cublasLtMatrixLayoutDestroy(layoutC);
+        cublasLtMatrixLayoutDestroy(layoutW);
+        cublasLtMatrixLayoutDestroy(layoutA_mat);
+        cublasLtMatrixLayoutDestroy(layoutR);
         cublasLtMatmulDescDestroy(opDesc);
         return 0;
     }
     
     cublasLtMatmulPreferenceSetAttribute(pref, CUBLASLT_MATMUL_PREF_MAX_WORKSPACE_BYTES, &workspace_size, sizeof(workspace_size));
     
-    // 获取启发式算法
-    cublasLtMatmulHeuristicResult_t heurResult[8];
+    // 获取启发式算法 (增加搜索数量以找到最优算法)
+    const int max_algo_count = 128;
+    cublasLtMatmulHeuristicResult_t heurResult[max_algo_count];
     int numResults = 0;
     
-    status = cublasLtMatmulAlgoGetHeuristic(g_lt_handle, opDesc, layoutA, layoutB, layoutC, layoutC,
-                                            pref, 8, heurResult, &numResults);
+    status = cublasLtMatmulAlgoGetHeuristic(g_lt_handle, opDesc, layoutW, layoutA_mat, layoutR, layoutR,
+                                            pref, max_algo_count, heurResult, &numResults);
     
     if (status != CUBLAS_STATUS_SUCCESS || numResults == 0) {
         cublasLtMatmulPreferenceDestroy(pref);
-        cublasLtMatrixLayoutDestroy(layoutA);
-        cublasLtMatrixLayoutDestroy(layoutB);
-        cublasLtMatrixLayoutDestroy(layoutC);
+        cublasLtMatrixLayoutDestroy(layoutW);
+        cublasLtMatrixLayoutDestroy(layoutA_mat);
+        cublasLtMatrixLayoutDestroy(layoutR);
         cublasLtMatmulDescDestroy(opDesc);
         return 0;  // 此布局不支持
     }
     
-    // 使用第一个算法进行测试
-    cublasLtMatmulAlgo_t& algo = heurResult[0].algo;
-    size_t ws_size = heurResult[0].workspaceSize;
-    
     float alpha = 1.0f, beta = 0.0f;
     
-    // 验证算法可用性
-    status = cublasLtMatmul(g_lt_handle, opDesc, &alpha,
-                           A_ptr, layoutA, B_ptr, layoutB,
-                           &beta, C_ptr, layoutC, C_ptr, layoutC,
-                           &algo, workspace, ws_size, stream);
+    // 遍历所有算法找到最优的 (与旧代码对齐)
+    float best_lat_us = 1e12f;
+    int best_algo_idx = -1;
+    float best_waves_count = 0.0f;
+    size_t best_ws_size = 0;
     
-    if (status != CUBLAS_STATUS_SUCCESS) {
-        cublasLtMatmulPreferenceDestroy(pref);
-        cublasLtMatrixLayoutDestroy(layoutA);
-        cublasLtMatrixLayoutDestroy(layoutB);
-        cublasLtMatrixLayoutDestroy(layoutC);
-        cublasLtMatmulDescDestroy(opDesc);
-        return 0;
-    }
-    
-    cudaStreamSynchronize(stream);
-    
-    // Warmup
-    for (int i = 0; i < warmup; ++i) {
-        cublasLtMatmul(g_lt_handle, opDesc, &alpha,
-                      A_ptr, layoutA, B_ptr, layoutB,
-                      &beta, C_ptr, layoutC, C_ptr, layoutC,
-                      &algo, workspace, ws_size, stream);
-    }
-    cudaStreamSynchronize(stream);
-    
-    // Benchmark
     cudaEvent_t start, stop;
     cudaEventCreate(&start);
     cudaEventCreate(&stop);
     
-    cudaEventRecord(start, stream);
-    for (int i = 0; i < repeat; ++i) {
-        cublasLtMatmul(g_lt_handle, opDesc, &alpha,
-                      A_ptr, layoutA, B_ptr, layoutB,
-                      &beta, C_ptr, layoutC, C_ptr, layoutC,
-                      &algo, workspace, ws_size, stream);
+    for (int alg_idx = 0; alg_idx < numResults; ++alg_idx) {
+        if (heurResult[alg_idx].state != CUBLAS_STATUS_SUCCESS) {
+            continue;
+        }
+        
+        cublasLtMatmulAlgo_t& algo = heurResult[alg_idx].algo;
+        size_t ws_size = heurResult[alg_idx].workspaceSize;
+        
+        if (ws_size > workspace_size) {
+            continue;  // workspace 不足
+        }
+        
+        // 验证算法可用性
+        status = cublasLtMatmul(g_lt_handle, opDesc, &alpha,
+                               W_ptr, layoutW, A_ptr, layoutA_mat,
+                               &beta, R_ptr, layoutR, R_ptr, layoutR,
+                               &algo, workspace, ws_size, stream);
+        
+        if (status != CUBLAS_STATUS_SUCCESS) {
+            continue;
+        }
+        
+        cudaStreamSynchronize(stream);
+        
+        // Warmup
+        for (int i = 0; i < warmup; ++i) {
+            cublasLtMatmul(g_lt_handle, opDesc, &alpha,
+                          W_ptr, layoutW, A_ptr, layoutA_mat,
+                          &beta, R_ptr, layoutR, R_ptr, layoutR,
+                          &algo, workspace, ws_size, stream);
+        }
+        cudaStreamSynchronize(stream);
+        
+        // Benchmark
+        cudaEventRecord(start, stream);
+        for (int i = 0; i < repeat; ++i) {
+            cublasLtMatmul(g_lt_handle, opDesc, &alpha,
+                          W_ptr, layoutW, A_ptr, layoutA_mat,
+                          &beta, R_ptr, layoutR, R_ptr, layoutR,
+                          &algo, workspace, ws_size, stream);
+        }
+        cudaEventRecord(stop, stream);
+        cudaEventSynchronize(stop);
+        
+        float ms_total = 0;
+        cudaEventElapsedTime(&ms_total, start, stop);
+        float lat_us = (ms_total * 1000.0f) / repeat;
+        
+        if (lat_us < best_lat_us) {
+            best_lat_us = lat_us;
+            best_algo_idx = alg_idx;
+            best_waves_count = heurResult[alg_idx].wavesCount;
+            best_ws_size = ws_size;
+        }
     }
-    cudaEventRecord(stop, stream);
-    cudaEventSynchronize(stop);
-    
-    float ms_total = 0;
-    cudaEventElapsedTime(&ms_total, start, stop);
-    
-    float lat_us = (ms_total * 1000.0f) / repeat;
-    float tops = (2.0 * M * N * K / 1e12) / (lat_us / 1e6);
     
     cudaEventDestroy(start);
     cudaEventDestroy(stop);
     
+    // 没有找到有效算法
+    if (best_algo_idx < 0) {
+        cublasLtMatmulPreferenceDestroy(pref);
+        cublasLtMatrixLayoutDestroy(layoutW);
+        cublasLtMatrixLayoutDestroy(layoutA_mat);
+        cublasLtMatrixLayoutDestroy(layoutR);
+        cublasLtMatmulDescDestroy(opDesc);
+        return 0;
+    }
+    
+    float tops = (2.0 * M * N * K / 1e12) / (best_lat_us / 1e6);
+    
+    // 提取最佳算法 ID
+    int algo_id = 0;
+    cublasLtMatmulAlgoConfigGetAttribute(&heurResult[best_algo_idx].algo, CUBLASLT_ALGO_CONFIG_ID,
+                                          &algo_id, sizeof(algo_id), nullptr);
+    
     // 填充结果
-    result->lat_us = lat_us;
+    result->lat_us = best_lat_us;
     result->tops = tops;
-    result->best_alg_id = 0;  // 使用第一个算法
-    result->workspace = (int64_t)ws_size;
-    result->waves_count = 0;  // 布局搜索不关心 waves
-    memcpy(result->algo_data, &algo, sizeof(algo) < 64 ? sizeof(algo) : 64);
+    result->best_alg_id = algo_id;
+    result->workspace = (int64_t)best_ws_size;
+    result->waves_count = best_waves_count;
+    memcpy(result->algo_data, &heurResult[best_algo_idx].algo, 
+           sizeof(cublasLtMatmulAlgo_t) < 64 ? sizeof(cublasLtMatmulAlgo_t) : 64);
     result->valid = 1;
     
     // 清理
     cublasLtMatmulPreferenceDestroy(pref);
-    cublasLtMatrixLayoutDestroy(layoutA);
-    cublasLtMatrixLayoutDestroy(layoutB);
-    cublasLtMatrixLayoutDestroy(layoutC);
+    cublasLtMatrixLayoutDestroy(layoutW);
+    cublasLtMatrixLayoutDestroy(layoutA_mat);
+    cublasLtMatrixLayoutDestroy(layoutR);
     cublasLtMatmulDescDestroy(opDesc);
     
     return 1;  // 成功
@@ -406,25 +433,27 @@ static int test_single_layout(
 extern "C" {
 
 /**
- * @brief 测试单个 (N,K,M) 的 8 种布局配置
+ * @brief 测试单个 (N,K,M) 的 16 种布局配置
  *
- * @param A_ptr        A 矩阵设备指针
- * @param B_ptr        B 矩阵设备指针
- * @param C_ptr        C 矩阵设备指针
- * @param M            M 维度
- * @param N            N 维度
- * @param K            K 维度
+ * @param W_ptr        W 权重矩阵设备指针
+ * @param A_ptr        A 激活矩阵设备指针
+ * @param R_ptr        R 输出矩阵设备指针
+ * @param N            N 维度 (输出行数)
+ * @param K            K 维度 (共享维度)
+ * @param M            M 维度 (batch size)
  * @param dtype        输入数据类型 ("int8" / "fp8e4m3")
  * @param outdtype     输出数据类型 ("bf16" / "fp32")
  * @param warmup       预热次数
  * @param repeat       计时重复次数
  *
- * 输出参数 (每个数组大小为 8):
+ * 输出参数 (每个数组大小为 16):
  * @param out_layout_ids     布局 ID
  * @param out_layout_names   布局名称 (每个 32 字节)
  * @param out_lat_us         延迟 (微秒)
  * @param out_tops           吞吐量 (TOPS)
  * @param out_workspace      workspace 大小
+ * @param out_best_alg_id    最佳算法 ID
+ * @param out_waves_count    GPU 利用率 (waves count)
  * @param out_valid          是否有效
  * @param out_num_valid      有效布局数量
  * @param stream             CUDA 流 (可为 nullptr)
@@ -432,16 +461,18 @@ extern "C" {
  * @return 0 成功, -1 失败
  */
 int cublaslt_layout_search_single(
-    void* A_ptr, void* B_ptr, void* C_ptr,
-    int64_t M, int64_t N, int64_t K,
+    void* W_ptr, void* A_ptr, void* R_ptr,
+    int64_t N, int64_t K, int64_t M,
     const char* dtype, const char* outdtype,
     int warmup, int repeat,
-    // 输出数组 (大小 = NUM_LAYOUTS = 8)
+    // 输出数组 (大小 = NUM_LAYOUTS = 16)
     int* out_layout_ids,
-    char* out_layout_names,  // 8 * 32 = 256 bytes
+    char* out_layout_names,  // 16 * 32 = 512 bytes
     float* out_lat_us,
     float* out_tops,
     int64_t* out_workspace,
+    int* out_best_alg_id,
+    float* out_waves_count,
     uint8_t* out_valid,
     int* out_num_valid,
     void* stream)
@@ -463,8 +494,8 @@ int cublaslt_layout_search_single(
         
         int ret = test_single_layout(
             LAYOUT_CONFIGS[i], i,
-            A_ptr, B_ptr, C_ptr,
-            M, N, K,
+            W_ptr, A_ptr, R_ptr,
+            N, K, M,
             dtype, outdtype,
             warmup, repeat,
             workspace, workspace_size,
@@ -476,6 +507,8 @@ int cublaslt_layout_search_single(
         out_lat_us[i] = result.lat_us;
         out_tops[i] = result.tops;
         out_workspace[i] = result.workspace;
+        out_best_alg_id[i] = result.best_alg_id;
+        out_waves_count[i] = result.waves_count;
         out_valid[i] = result.valid;
         
         if (result.valid) {

@@ -58,11 +58,11 @@ NUM_LAYOUTS = 16
 
 LAYOUT_NAMES = [
     # D 输出为 ColMajor (前8种)
-    "TT_RowCol_DCol", "TN_RowCol_DCol", "NT_RowCol_DCol", "NN_RowCol_DCol",
-    "TT_ColCol_DCol", "TN_ColCol_DCol", "NT_ColCol_DCol", "NN_ColCol_DCol",
+    "TT_RowCol_Col", "TN_RowCol_Col", "NT_RowCol_Col", "NN_RowCol_Col",
+    "TT_ColCol_Col", "TN_ColCol_Col", "NT_ColCol_Col", "NN_ColCol_Col",
     # D 输出为 RowMajor (后8种)
-    "TT_RowCol_DRow", "TN_RowCol_DRow", "NT_RowCol_DRow", "NN_RowCol_DRow",
-    "TT_ColCol_DRow", "TN_ColCol_DRow", "NT_ColCol_DRow", "NN_ColCol_DRow",
+    "TT_RowCol_Row", "TN_RowCol_Row", "NT_RowCol_Row", "NN_RowCol_Row",
+    "TT_ColCol_Row", "TN_ColCol_Row", "NT_ColCol_Row", "NN_ColCol_Row",
 ]
 
 
@@ -73,12 +73,12 @@ LAYOUT_NAMES = [
 def setup_lib_signatures(lib: ctypes.CDLL) -> None:
     """设置 CUDA 扩展的函数签名"""
     lib.cublaslt_layout_search_single.argtypes = [
+        ctypes.c_void_p,   # W_ptr
         ctypes.c_void_p,   # A_ptr
-        ctypes.c_void_p,   # B_ptr
-        ctypes.c_void_p,   # C_ptr
-        ctypes.c_int64,    # M
+        ctypes.c_void_p,   # R_ptr
         ctypes.c_int64,    # N
         ctypes.c_int64,    # K
+        ctypes.c_int64,    # M
         ctypes.c_char_p,   # dtype
         ctypes.c_char_p,   # outdtype
         ctypes.c_int,      # warmup
@@ -88,6 +88,8 @@ def setup_lib_signatures(lib: ctypes.CDLL) -> None:
         ctypes.POINTER(ctypes.c_float),      # out_lat_us
         ctypes.POINTER(ctypes.c_float),      # out_tops
         ctypes.POINTER(ctypes.c_int64),      # out_workspace
+        ctypes.POINTER(ctypes.c_int),        # out_best_alg_id
+        ctypes.POINTER(ctypes.c_float),      # out_waves_count
         ctypes.POINTER(ctypes.c_uint8),      # out_valid
         ctypes.POINTER(ctypes.c_int),        # out_num_valid
         ctypes.c_void_p,   # stream
@@ -114,8 +116,8 @@ def setup_lib_signatures(lib: ctypes.CDLL) -> None:
 def search_single_nk(
     lib: ctypes.CDLL,
     N: int, K: int, M: int,
+    W_q: torch.Tensor,
     A_q: torch.Tensor,
-    B_q: torch.Tensor,
     dtype: str,
     outdtype: str,
     warmup: int,
@@ -124,7 +126,8 @@ def search_single_nk(
     """搜索单个 (N, K, M) 组合的所有布局"""
     # 分配输出缓冲
     C_torch_dtype = get_output_torch_dtype(outdtype)
-    C_out = torch.zeros(M, N, dtype=C_torch_dtype, device=A_q.device)
+    # 输出 R[N, M]，Column Major 在 PyTorch Row Major 中存储为 [M, N]
+    R_out = torch.zeros(M, N, dtype=C_torch_dtype, device=W_q.device)
     
     # 分配输出数组
     out_layout_ids = (ctypes.c_int * NUM_LAYOUTS)()
@@ -132,15 +135,17 @@ def search_single_nk(
     out_lat_us = (ctypes.c_float * NUM_LAYOUTS)()
     out_tops = (ctypes.c_float * NUM_LAYOUTS)()
     out_workspace = (ctypes.c_int64 * NUM_LAYOUTS)()
+    out_best_alg_id = (ctypes.c_int * NUM_LAYOUTS)()
+    out_waves_count = (ctypes.c_float * NUM_LAYOUTS)()
     out_valid = (ctypes.c_uint8 * NUM_LAYOUTS)()
     out_num_valid = ctypes.c_int(0)
     
     # 调用 C 函数
     ret = lib.cublaslt_layout_search_single(
+        W_q.data_ptr(),
         A_q.data_ptr(),
-        B_q.data_ptr(),
-        C_out.data_ptr(),
-        M, N, K,
+        R_out.data_ptr(),
+        N, K, M,
         dtype.encode(),
         outdtype.encode(),
         warmup,
@@ -150,6 +155,8 @@ def search_single_nk(
         out_lat_us,
         out_tops,
         out_workspace,
+        out_best_alg_id,
+        out_waves_count,
         out_valid,
         ctypes.byref(out_num_valid),
         None,
@@ -171,6 +178,8 @@ def search_single_nk(
             "lat_us": out_lat_us[i],
             "tops": out_tops[i],
             "workspace": out_workspace[i],
+            "best_alg_id": out_best_alg_id[i],
+            "waves_count": out_waves_count[i],
             "valid": bool(out_valid[i]),
         })
     
@@ -201,12 +210,14 @@ def run_search(
             print(f"    NK {nk_id+1}/{total_nk}: ({N}, {K})", flush=True)
         
         # 生成随机数据
+        # W[N, K]: 权重矩阵
+        # A[M, K]: 激活矩阵 (max_M 用于预分配，后续按需切片)
+        W = torch.randn(N, K, device="cuda", dtype=torch.bfloat16)
         A = torch.randn(max_M, K, device="cuda", dtype=torch.bfloat16)
-        B = torch.randn(K, N, device="cuda", dtype=torch.bfloat16)
         
         # 量化
+        W_q = quantize_tensor(W, dtype)
         A_q = quantize_tensor(A, dtype)
-        B_q = quantize_tensor(B, dtype)
         
         nk_results = {
             "nk_id": nk_id,
@@ -220,7 +231,7 @@ def run_search(
             
             out = search_single_nk(
                 lib, N, K, M,
-                A_slice, B_q,
+                W_q, A_slice,
                 dtype, outdtype,
                 warmup, repeat,
             )
@@ -237,7 +248,7 @@ def run_search(
         
         results.append(nk_results)
         
-        del A, B, A_q, B_q
+        del W, A, W_q, A_q
     
     torch.cuda.empty_cache()
     

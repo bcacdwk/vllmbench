@@ -1126,3 +1126,223 @@ def save_layout_search_results(
     print(f"已生成: {json_path}")
     
     return subdir
+
+
+# =============================================================================
+# 搜索结果验证 (从 CUDA 端迁移)
+# =============================================================================
+
+def verify_gemm_result(
+    W_q: torch.Tensor,
+    A_q: torch.Tensor, 
+    R_out: torch.Tensor,
+    M: int,
+    *,
+    is_col_major: bool = True,
+    tol: float = 0.05,
+    critical_tol: float = 1.00,
+) -> Dict[str, Any]:
+    """
+    验证 GEMM 计算结果的正确性。
+    
+    使用量化后的数据做 FP32 参考计算，与 CUDA 输出比较。
+    
+    计算公式: C = W^T @ A^T = W[N,K] @ A[M,K]^T = [N, M]
+    
+    Args:
+        W_q: 量化后的权重矩阵 [N, K] (int8/fp8)
+        A_q: 量化后的激活矩阵 [M, K] (int8/fp8)
+        R_out: CUDA 输出矩阵 (bf16/fp32)
+        M: batch 维度 (用于 A 切片)
+        is_col_major: R_out 是否为 Column Major 存储
+                      Column Major [N,M] 在 PyTorch 中存储为 [M,N]
+        tol: 相对误差容限 (默认 5%)
+        critical_tol: 严重误差阈值 (默认 100%)
+    
+    Returns:
+        dict: {
+            "valid": bool,          # 是否通过验证
+            "max_rel_err": float,   # 最大相对误差
+            "passed": bool,         # 误差 < tol
+            "critical": bool,       # 误差 > critical_tol (严重错误)
+            "message": str,         # 结果描述
+        }
+    """
+    import math
+    
+    # 使用量化后的数据做 FP32 参考计算
+    # 这样才能和 INT8/FP8 GEMM 结果对比
+    A_slice = A_q.narrow(0, 0, M)
+    A_fp32 = A_slice.to(torch.float32)
+    W_fp32 = W_q.to(torch.float32)
+    
+    # 参考计算: C = W @ A^T -> [N, M]
+    ref = torch.matmul(W_fp32, A_fp32.transpose(0, 1))  # [N, M]
+    
+    # 将输出转为 FP32 比较
+    # R_out 的创建已经考虑了布局：
+    #   - Column Major 时创建为 [M, N]，转置后得到 [N, M]
+    #   - Row Major 时直接创建为 [N, M]
+    if is_col_major:
+        # R_out 是 [M, N]，转置得到 [N, M] 与 ref 对齐
+        out_fp32 = R_out.to(torch.float32).t().contiguous()
+    else:
+        # Row Major: 直接使用
+        out_fp32 = R_out.to(torch.float32)
+    
+    # 计算相对误差（相对于参考值的绝对值）
+    ref_abs = ref.abs().clamp_min(1.0)  # 避免除以0
+    rel_diff = ((out_fp32 - ref) / ref_abs).abs()
+    max_rel_err = rel_diff.max().item()
+    
+    # 判断结果
+    is_nan = math.isnan(max_rel_err)
+    is_critical = max_rel_err > critical_tol or is_nan
+    is_passed = max_rel_err <= tol and not is_nan
+    
+    if is_critical:
+        message = f"严重错误: 相对误差={max_rel_err*100:.2f}% > {critical_tol*100:.0f}%"
+        valid = False
+    elif not is_passed:
+        message = f"警告: 相对误差={max_rel_err*100:.2f}% > {tol*100:.0f}%"
+        valid = True  # 可用但有警告
+    else:
+        message = f"通过: 相对误差={max_rel_err*100:.4f}%"
+        valid = True
+    
+    return {
+        "valid": valid,
+        "max_rel_err": max_rel_err,
+        "passed": is_passed,
+        "critical": is_critical,
+        "message": message,
+    }
+
+
+def verify_search_topk(
+    W_q: torch.Tensor,
+    A_q: torch.Tensor,
+    M_list: List[int],
+    topk_results: Dict[str, Any],
+    *,
+    is_col_major: bool = True,
+    run_gemm_func: Optional[Callable] = None,
+    tol: float = 0.05,
+    critical_tol: float = 1.00,
+    verbose: bool = True,
+) -> Dict[str, Any]:
+    """
+    验证 search_topk 的结果。
+    
+    对每个 M 值的 top-1 算法执行实际计算并验证结果正确性。
+    
+    Args:
+        W_q: 量化后的权重矩阵 [N, K]
+        A_q: 量化后的激活矩阵 [max_M, K]
+        M_list: M 值列表
+        topk_results: search_topk 返回的结果字典
+        is_col_major: 输出是否为 Column Major
+        run_gemm_func: 执行 GEMM 的函数 (W, A, M) -> C
+                       如果为 None，则使用 PyTorch 参考实现
+        tol: 相对误差容限
+        critical_tol: 严重误差阈值
+        verbose: 是否打印详细信息
+    
+    Returns:
+        dict: {
+            "all_passed": bool,
+            "num_verified": int,
+            "num_passed": int,
+            "num_critical": int,
+            "results": List[dict],  # 每个 M 的验证结果
+        }
+    """
+    N, K = W_q.shape
+    results = []
+    num_passed = 0
+    num_critical = 0
+    
+    for m_idx, M in enumerate(M_list):
+        # 检查是否有有效的 top-1 结果
+        valid_mask = topk_results.get("valid_mask")
+        if valid_mask is not None:
+            if hasattr(valid_mask, "numpy"):
+                is_valid = valid_mask[m_idx, 0].item() if valid_mask.dim() > 1 else valid_mask[m_idx].item()
+            else:
+                is_valid = valid_mask[m_idx][0] if len(valid_mask[m_idx]) > 1 else valid_mask[m_idx]
+            
+            if not is_valid:
+                results.append({
+                    "M": M,
+                    "verified": False,
+                    "reason": "无有效算法",
+                })
+                continue
+        
+        # 准备输出缓冲区
+        outdtype = topk_results.get("outdtype", "bf16")
+        out_torch_dtype = torch.bfloat16 if outdtype == "bf16" else torch.float32
+        
+        if is_col_major:
+            # Column Major [N,M] 在 PyTorch 中存储为 [M,N]
+            R_out = torch.zeros((M, N), dtype=out_torch_dtype, device=W_q.device)
+        else:
+            R_out = torch.zeros((N, M), dtype=out_torch_dtype, device=W_q.device)
+        
+        # 执行 GEMM (使用提供的函数或 PyTorch 参考)
+        if run_gemm_func is not None:
+            try:
+                R_out = run_gemm_func(W_q, A_q, M, m_idx)
+            except Exception as e:
+                results.append({
+                    "M": M,
+                    "verified": False,
+                    "reason": f"GEMM 执行失败: {e}",
+                })
+                continue
+        else:
+            # 使用 PyTorch 参考实现
+            A_slice = A_q.narrow(0, 0, M).to(torch.float32)
+            W_fp32 = W_q.to(torch.float32)
+            ref = torch.matmul(W_fp32, A_slice.transpose(0, 1))
+            if is_col_major:
+                R_out = ref.t().to(out_torch_dtype)
+            else:
+                R_out = ref.to(out_torch_dtype)
+        
+        # 验证
+        verify_result = verify_gemm_result(
+            W_q, A_q, R_out, M,
+            is_col_major=is_col_major,
+            tol=tol,
+            critical_tol=critical_tol,
+        )
+        
+        if verbose:
+            alg_id = -1
+            if "topk_alg_id" in topk_results:
+                alg_id = topk_results["topk_alg_id"][m_idx, 0].item()
+            elif "topk_alg" in topk_results:
+                alg_id = topk_results["topk_alg"][m_idx, 0].item()
+            
+            status = "✓" if verify_result["passed"] else ("✗" if verify_result["critical"] else "⚠")
+            print(f"  M={M:5d} alg_id={alg_id:3d} {status} {verify_result['message']}")
+        
+        if verify_result["passed"]:
+            num_passed += 1
+        if verify_result["critical"]:
+            num_critical += 1
+        
+        results.append({
+            "M": M,
+            "verified": True,
+            **verify_result,
+        })
+    
+    return {
+        "all_passed": num_passed == len(results) and num_critical == 0,
+        "num_verified": len([r for r in results if r.get("verified", False)]),
+        "num_passed": num_passed,
+        "num_critical": num_critical,
+        "results": results,
+    }

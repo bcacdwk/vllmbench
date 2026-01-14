@@ -23,7 +23,7 @@ import argparse
 import ctypes
 import sys
 from pathlib import Path
-from typing import Dict, List, Tuple, Any
+from typing import Dict, List, Tuple, Any, Optional
 
 import torch
 
@@ -47,6 +47,8 @@ from utils import (
     get_output_torch_dtype,
     # 结果保存
     save_alg_search_results,
+    # 验证
+    verify_gemm_result,
     # dtype 检测
     SUPPORTED_DTYPES,
     SUPPORTED_OUTDTYPES,
@@ -110,13 +112,17 @@ def search_single_nk(
     warmup: int,
     repeat: int,
     topk: int = 3,
+    verify: bool = False,
+    W_q_for_verify: Optional[torch.Tensor] = None,
+    A_q_for_verify: Optional[torch.Tensor] = None,
 ) -> Dict[str, Any]:
     """
     搜索单个 (N, K, M) 组合的最佳算法。
     """
     # 分配输出缓冲
-    C_torch_dtype = get_output_torch_dtype(outdtype)
-    C_out = torch.zeros(M, N, dtype=C_torch_dtype, device=W_q.device)
+    R_torch_dtype = get_output_torch_dtype(outdtype)
+    # Column Major [N, M] 在 PyTorch Row Major 中存储为 [M, N]
+    R_out = torch.zeros(M, N, dtype=R_torch_dtype, device=W_q.device)
     
     # 分配输出数组
     out_alg_ids = (ctypes.c_int * topk)()
@@ -133,7 +139,7 @@ def search_single_nk(
     ret = lib.cublaslt_search_single_m(
         W_q.data_ptr(),
         A_q.data_ptr(),
-        C_out.data_ptr(),
+        R_out.data_ptr(),
         N, K, M,
         dtype.encode(),
         outdtype.encode(),
@@ -170,10 +176,26 @@ def search_single_nk(
                 "algo_data": algo_bytes,
             })
     
+    # 验证正确性
+    verify_result = None
+    if verify and W_q_for_verify is not None and A_q_for_verify is not None:
+        verify_result = verify_gemm_result(
+            W_q=W_q_for_verify,
+            A_q=A_q_for_verify,
+            R_out=R_out,
+            M=M,
+            is_col_major=True,  # cuBLASLt AlgSearch 固定使用 Column Major
+        )
+        if verify_result["critical"]:
+            print(f"    [CRITICAL] M={M}: {verify_result['message']}")
+        elif not verify_result["passed"]:
+            print(f"    [WARN] M={M}: {verify_result['message']}")
+    
     return {
         "results": results,
         "num_valid": out_num_valid.value,
         "alg_count": out_alg_count.value,
+        "verify_result": verify_result,
     }
 
 
@@ -186,6 +208,7 @@ def run_search(
     warmup: int,
     repeat: int,
     topk: int = 3,
+    verify: bool = False,
     verbose: bool = True,
 ) -> Dict:
     """
@@ -196,6 +219,9 @@ def run_search(
     total_nk = len(nk_list)
     
     max_alg_count = 0
+    
+    # verify 统计
+    verify_stats = {"total": 0, "passed": 0, "warned": 0, "critical": 0}
     
     for nk_id, (N, K) in enumerate(nk_list):
         if verbose:
@@ -219,18 +245,34 @@ def run_search(
         for M in m_list:
             # 切片
             A_slice = A_q[:M].contiguous()
+            # verify 用的 A_q 切片
+            A_q_slice = A_slice if verify else None
             
             out = search_single_nk(
                 lib, N, K, M,
                 W_q, A_slice,
                 dtype, outdtype,
                 warmup, repeat, topk,
+                verify=verify,
+                W_q_for_verify=W_q if verify else None,
+                A_q_for_verify=A_q_slice,
             )
             
             nk_results["m_results"][M] = out
             
             if out["alg_count"] > max_alg_count:
                 max_alg_count = out["alg_count"]
+            
+            # 更新 verify 统计
+            if verify and out.get("verify_result"):
+                vr = out["verify_result"]
+                verify_stats["total"] += 1
+                if vr["critical"]:
+                    verify_stats["critical"] += 1
+                elif vr["passed"]:
+                    verify_stats["passed"] += 1
+                else:
+                    verify_stats["warned"] += 1
         
         if verbose:
             first_m = m_list[0]
@@ -243,6 +285,14 @@ def run_search(
         del W, A, W_q, A_q
     
     torch.cuda.empty_cache()
+    
+    # 打印 verify 汇总
+    if verify and verbose:
+        print()
+        print(f"    验证统计: 总计={verify_stats['total']}, "
+              f"通过={verify_stats['passed']}, "
+              f"警告={verify_stats['warned']}, "
+              f"严重错误={verify_stats['critical']}")
     
     return {
         "dtype": dtype,
@@ -335,6 +385,7 @@ def main():
         args.warmup,
         args.repeat,
         topk=3,
+        verify=args.verify,
         verbose=True,
     )
     

@@ -11,17 +11,27 @@ cuSPARSELt 布局离线搜索
   - A/B 排列: RowCol, ColCol (2种)
   - D 输出: Col, Row (2种)
 
+数据准备策略 (与 AlgSearch 对齐):
+  - Python 端：生成数据 → 量化 → 调用 CUDA prune
+  - CUDA 端：接收 W_pruned 和 A_q，测试各种布局
+
+搜索策略:
+  - 每种布局进行完整的 alg_id × split_k 搜索
+  - 自适应 Split-K 倍增策略
+  - Segment-K 测试 (SM90+ 支持)
+
 固定最优布局: T/N + Col/Col + Col
 
 运行示例:
     python3 layout_search.py --dtype int8 --outdtype bf16 --model BitNet-2B4T
+    python3 layout_search.py --dtype fp8e4m3 --outdtype bf16 --no_segment_k
 """
 
 import argparse
 import ctypes
 import sys
 from pathlib import Path
-from typing import Dict, List, Tuple, Any
+from typing import Dict, List, Any
 
 import torch
 
@@ -59,11 +69,11 @@ NUM_LAYOUTS = 16
 
 LAYOUT_NAMES = [
     # D 输出为 ColMajor (前8种)
-    "TT_RowCol_DCol", "TN_RowCol_DCol", "NT_RowCol_DCol", "NN_RowCol_DCol",
-    "TT_ColCol_DCol", "TN_ColCol_DCol", "NT_ColCol_DCol", "NN_ColCol_DCol",
+    "TT_RowCol_Col", "TN_RowCol_Col", "NT_RowCol_Col", "NN_RowCol_Col",
+    "TT_ColCol_Col", "TN_ColCol_Col", "NT_ColCol_Col", "NN_ColCol_Col",
     # D 输出为 RowMajor (后8种)
-    "TT_RowCol_DRow", "TN_RowCol_DRow", "NT_RowCol_DRow", "NN_RowCol_DRow",
-    "TT_ColCol_DRow", "TN_ColCol_DRow", "NT_ColCol_DRow", "NN_ColCol_DRow",
+    "TT_RowCol_Row", "TN_RowCol_Row", "NT_RowCol_Row", "NN_RowCol_Row",
+    "TT_ColCol_Row", "TN_ColCol_Row", "NT_ColCol_Row", "NN_ColCol_Row",
 ]
 
 
@@ -73,10 +83,10 @@ LAYOUT_NAMES = [
 
 def setup_lib_signatures(lib: ctypes.CDLL) -> None:
     """设置 CUDA 扩展的函数签名"""
+    # 主搜索函数 (新接口，接收外部数据)
     lib.cusparselt_layout_search_single.argtypes = [
-        ctypes.c_void_p,   # A_compressed_ptr
-        ctypes.c_void_p,   # B_ptr
-        ctypes.c_void_p,   # C_ptr
+        ctypes.c_void_p,   # W_pruned_ptr (已剪枝的权重)
+        ctypes.c_void_p,   # A_ptr (激活矩阵)
         ctypes.c_int64,    # M
         ctypes.c_int64,    # N
         ctypes.c_int64,    # K
@@ -84,46 +94,34 @@ def setup_lib_signatures(lib: ctypes.CDLL) -> None:
         ctypes.c_char_p,   # outdtype
         ctypes.c_int,      # warmup
         ctypes.c_int,      # repeat
+        ctypes.c_int,      # test_segment_k
+        # 输出数组 (大小 = NUM_LAYOUTS = 16)
         ctypes.POINTER(ctypes.c_int),        # out_layout_ids
-        ctypes.c_char_p,                     # out_layout_names
+        ctypes.c_char_p,                     # out_layout_names (16 * 32 bytes)
         ctypes.POINTER(ctypes.c_float),      # out_lat_us
         ctypes.POINTER(ctypes.c_float),      # out_tops
         ctypes.POINTER(ctypes.c_int64),      # out_workspace
+        ctypes.POINTER(ctypes.c_int),        # out_best_alg_id
+        ctypes.POINTER(ctypes.c_int),        # out_best_split_k
+        ctypes.POINTER(ctypes.c_int),        # out_alg_count
+        ctypes.POINTER(ctypes.c_int),        # out_config_count
         ctypes.POINTER(ctypes.c_uint8),      # out_valid
         ctypes.POINTER(ctypes.c_int),        # out_num_valid
         ctypes.c_void_p,   # stream
     ]
     lib.cusparselt_layout_search_single.restype = ctypes.c_int
     
+    # Prune 函数
     lib.cusparselt_layout_prune_24.argtypes = [
-        ctypes.c_void_p,
-        ctypes.c_void_p,
-        ctypes.c_int64,
-        ctypes.c_int64,
-        ctypes.c_char_p,
-        ctypes.c_int,
-        ctypes.c_void_p,
+        ctypes.c_void_p,   # input
+        ctypes.c_void_p,   # output
+        ctypes.c_int64,    # rows
+        ctypes.c_int64,    # cols
+        ctypes.c_char_p,   # dtype
+        ctypes.c_int,      # order (0=COL, 1=ROW)
+        ctypes.c_void_p,   # stream
     ]
     lib.cusparselt_layout_prune_24.restype = ctypes.c_int
-    
-    lib.cusparselt_layout_compress.argtypes = [
-        ctypes.c_void_p,
-        ctypes.c_void_p,
-        ctypes.c_int64,
-        ctypes.c_int64,
-        ctypes.c_char_p,
-        ctypes.c_int,
-        ctypes.c_void_p,
-    ]
-    lib.cusparselt_layout_compress.restype = ctypes.c_int64
-    
-    lib.cusparselt_layout_get_compressed_size.argtypes = [
-        ctypes.c_int64,
-        ctypes.c_int64,
-        ctypes.c_char_p,
-        ctypes.c_int,
-    ]
-    lib.cusparselt_layout_get_compressed_size.restype = ctypes.c_int64
     
     lib.cusparselt_layout_search_is_available.argtypes = []
     lib.cusparselt_layout_search_is_available.restype = ctypes.c_int
@@ -139,41 +137,46 @@ def setup_lib_signatures(lib: ctypes.CDLL) -> None:
 
 
 # =============================================================================
-# 数据准备 (cuSPARSELt 特定的压缩流程)
+# 数据准备 (与 AlgSearch 对齐)
 # =============================================================================
 
 def prepare_and_prune_weight(
     lib: ctypes.CDLL,
-    A_bf16: torch.Tensor,
+    W_bf16: torch.Tensor,
     dtype: str,
-    order: int = 0,  # 0=COL, 1=ROW
-) -> Tuple[torch.Tensor, torch.Tensor]:
+) -> torch.Tensor:
     """
-    准备并剪枝稀疏矩阵 A (权重)。
+    准备并剪枝权重矩阵。
     
-    返回:
-        (A_pruned, A_compressed)
+    Args:
+        lib: CUDA 扩展库
+        W_bf16: 权重矩阵 (N x K, bfloat16)
+        dtype: 目标数据类型 ("int8" / "fp8e4m3")
+    
+    Returns:
+        W_pruned: 剪枝后的矩阵 (K x N, 列主序)
     """
-    rows, cols = A_bf16.shape
+    N, K = W_bf16.shape
     
     # 量化
     if dtype == "int8":
-        A_q, _ = quantize_int8(A_bf16)
+        W_q, _ = quantize_int8(W_bf16)
     elif dtype == "fp8e4m3":
-        A_q = to_fp8_e4m3(A_bf16)
+        W_q = to_fp8_e4m3(W_bf16)
     else:
         raise ValueError(f"不支持的数据类型: {dtype}")
     
-    A_q = A_q.contiguous()
+    # 转置为 K x N (列主序存储)
+    W_t = W_q.t().contiguous()
     
     # Prune 2:4
-    A_pruned = torch.empty_like(A_q)
+    W_pruned = torch.empty_like(W_t)
     ret = lib.cusparselt_layout_prune_24(
-        A_q.data_ptr(),
-        A_pruned.data_ptr(),
-        rows, cols,
+        W_t.data_ptr(),
+        W_pruned.data_ptr(),
+        K, N,
         dtype.encode(),
-        order,
+        0,  # order=COL
         None,
     )
     if ret != 0:
@@ -182,43 +185,32 @@ def prepare_and_prune_weight(
     
     torch.cuda.synchronize()
     
-    # 获取压缩大小
-    compressed_size = lib.cusparselt_layout_get_compressed_size(rows, cols, dtype.encode(), order)
-    if compressed_size < 0:
-        raise RuntimeError("获取压缩大小失败")
-    
-    # 压缩
-    A_compressed = torch.empty(compressed_size, dtype=torch.uint8, device=A_q.device)
-    ret = lib.cusparselt_layout_compress(
-        A_pruned.data_ptr(),
-        A_compressed.data_ptr(),
-        rows, cols,
-        dtype.encode(),
-        order,
-        None,
-    )
-    if ret < 0:
-        error = lib.cusparselt_layout_search_get_last_error()
-        raise RuntimeError(f"Compress 失败: {error.decode() if error else 'unknown'}")
-    
-    torch.cuda.synchronize()
-    
-    return A_pruned, A_compressed
+    return W_pruned
 
 
 def prepare_activation(
-    B_bf16: torch.Tensor,
+    A_bf16: torch.Tensor,
     dtype: str,
 ) -> torch.Tensor:
-    """准备稠密矩阵 B (激活)"""
+    """
+    准备激活矩阵。
+    
+    Args:
+        A_bf16: 激活矩阵 (M x K, bfloat16)
+        dtype: 目标数据类型 ("int8" / "fp8e4m3")
+    
+    Returns:
+        A_q: 量化后的矩阵 (K x M, 列主序)
+    """
     if dtype == "int8":
-        B_q, _ = quantize_int8(B_bf16)
+        A_q, _ = quantize_int8(A_bf16)
     elif dtype == "fp8e4m3":
-        B_q = to_fp8_e4m3(B_bf16)
+        A_q = to_fp8_e4m3(A_bf16)
     else:
         raise ValueError(f"不支持的数据类型: {dtype}")
     
-    return B_q.contiguous()
+    # 转置为 K x M (列主序)
+    return A_q.t().contiguous()
 
 
 # =============================================================================
@@ -228,42 +220,62 @@ def prepare_activation(
 def search_single_nk(
     lib: ctypes.CDLL,
     N: int, K: int, M: int,
-    A_compressed: torch.Tensor,
-    B_q: torch.Tensor,
+    W_pruned: torch.Tensor,
+    A_q: torch.Tensor,
     dtype: str,
     outdtype: str,
     warmup: int,
     repeat: int,
+    test_segment_k: bool = True,
 ) -> Dict[str, Any]:
-    """搜索单个 (N, K, M) 组合的所有布局"""
-    # 分配输出缓冲
-    C_torch_dtype = get_output_torch_dtype(outdtype)
-    C_out = torch.zeros(N, M, dtype=C_torch_dtype, device=B_q.device)
+    """
+    搜索单个 (N, K, M) 组合的所有布局。
     
+    Args:
+        lib: CUDA 扩展库
+        N, K, M: 矩阵维度
+        W_pruned: 已剪枝的权重矩阵 (K x N, 列主序)
+        A_q: 激活矩阵 (K x M, 列主序)
+        dtype: 输入数据类型
+        outdtype: 输出数据类型
+        warmup, repeat: 预热和计时参数
+        test_segment_k: 是否测试 segment-k
+    
+    Returns:
+        搜索结果字典
+    """
     # 分配输出数组
     out_layout_ids = (ctypes.c_int * NUM_LAYOUTS)()
     out_layout_names = ctypes.create_string_buffer(NUM_LAYOUTS * 32)
     out_lat_us = (ctypes.c_float * NUM_LAYOUTS)()
     out_tops = (ctypes.c_float * NUM_LAYOUTS)()
     out_workspace = (ctypes.c_int64 * NUM_LAYOUTS)()
+    out_best_alg_id = (ctypes.c_int * NUM_LAYOUTS)()
+    out_best_split_k = (ctypes.c_int * NUM_LAYOUTS)()
+    out_alg_count = (ctypes.c_int * NUM_LAYOUTS)()
+    out_config_count = (ctypes.c_int * NUM_LAYOUTS)()
     out_valid = (ctypes.c_uint8 * NUM_LAYOUTS)()
     out_num_valid = ctypes.c_int(0)
     
-    # 调用 C 函数
+    # 调用 C 函数 (新接口传入数据指针)
     ret = lib.cusparselt_layout_search_single(
-        A_compressed.data_ptr(),
-        B_q.data_ptr(),
-        C_out.data_ptr(),
+        W_pruned.data_ptr(),
+        A_q.data_ptr(),
         M, N, K,
         dtype.encode(),
         outdtype.encode(),
         warmup,
         repeat,
+        1 if test_segment_k else 0,
         out_layout_ids,
         out_layout_names,
         out_lat_us,
         out_tops,
         out_workspace,
+        out_best_alg_id,
+        out_best_split_k,
+        out_alg_count,
+        out_config_count,
         out_valid,
         ctypes.byref(out_num_valid),
         None,
@@ -285,6 +297,10 @@ def search_single_nk(
             "lat_us": out_lat_us[i],
             "tops": out_tops[i],
             "workspace": out_workspace[i],
+            "best_alg_id": out_best_alg_id[i],
+            "best_split_k": out_best_split_k[i],
+            "alg_count": out_alg_count[i],
+            "config_count": out_config_count[i],
             "valid": bool(out_valid[i]),
         })
     
@@ -302,12 +318,19 @@ def run_search(
     m_list: List[int],
     warmup: int,
     repeat: int,
+    test_segment_k: bool = True,
     verbose: bool = True,
 ) -> Dict:
-    """运行完整的布局搜索"""
+    """
+    运行完整的布局搜索。
+    
+    数据准备策略 (与 AlgSearch 对齐):
+    - Python 端生成随机数据、量化、调用 CUDA prune
+    - CUDA 端接收 W_pruned 和 A_q，测试各种布局
+    """
     results = []
-    max_M = max(m_list)
     total_nk = len(nk_list)
+    max_M = max(m_list)
     
     for nk_id, nk in enumerate(nk_list):
         N, K = nk[0], nk[1]
@@ -315,17 +338,14 @@ def run_search(
             print(f"    NK {nk_id+1}/{total_nk}: ({N}, {K})", flush=True)
         
         # 生成随机数据
-        # A: 稀疏矩阵 (N x K 或 K x N 取决于布局)
-        # 为了简化，我们使用固定的 TN_ColCol 布局进行压缩
-        # A: K x N (列主序)
-        A = torch.randn(K, N, device="cuda", dtype=torch.bfloat16)
-        B = torch.randn(K, max_M, device="cuda", dtype=torch.bfloat16)
+        W = torch.randn(N, K, device="cuda", dtype=torch.bfloat16)
+        A = torch.randn(max_M, K, device="cuda", dtype=torch.bfloat16)
         
-        # 剪枝并压缩 A (使用列主序)
-        A_pruned, A_compressed = prepare_and_prune_weight(lib, A, dtype, order=0)
+        # 剪枝权重 (与 AlgSearch 一致)
+        W_pruned = prepare_and_prune_weight(lib, W, dtype)
         
-        # 准备 B
-        B_q = prepare_activation(B, dtype)
+        # 准备激活
+        A_q = prepare_activation(A, dtype)
         
         nk_results = {
             "nk_id": nk_id,
@@ -335,13 +355,15 @@ def run_search(
         }
         
         for M in m_list:
-            B_slice = B_q[:, :M].contiguous()
+            # 切片 (A_q 是 K x M)
+            A_slice = A_q[:, :M].contiguous()
             
             out = search_single_nk(
                 lib, N, K, M,
-                A_compressed, B_slice,
+                W_pruned, A_slice,
                 dtype, outdtype,
                 warmup, repeat,
+                test_segment_k,
             )
             
             nk_results["m_results"][M] = out
@@ -352,13 +374,14 @@ def run_search(
             valid_layouts = [r for r in first_result["results"] if r["valid"]]
             if valid_layouts:
                 best = max(valid_layouts, key=lambda x: x["tops"])
-                print(f"      → 最优布局: {best['layout_name']}, {best['tops']:.2f} TOPS")
+                print(f"      → 最优布局: {best['layout_name']}, {best['tops']:.2f} TOPS, alg={best['best_alg_id']}, split_k={best['best_split_k']}")
             else:
                 print(f"      → 无有效布局")
         
         results.append(nk_results)
         
-        del A, B, A_pruned, A_compressed, B_q
+        # 清理
+        del W, A, W_pruned, A_q
     
     torch.cuda.empty_cache()
     
@@ -368,6 +391,7 @@ def run_search(
         "results": results,
         "M_list": m_list,
         "NK_list": nk_list,
+        "test_segment_k": test_segment_k,
     }
 
 
@@ -384,6 +408,7 @@ def parse_args():
     p.add_argument("--repeat", type=int, default=100)
     p.add_argument("--verify", action="store_true", help="开启正确性校验")
     p.add_argument("--compile", action="store_true", help="强制重新编译 CUDA 扩展")
+    p.add_argument("--no_segment_k", action="store_true", help="禁用 Segment-K 测试")
     p.add_argument("--out_dir", default=None, help="输出目录")
     p.add_argument("--m_list", type=str, default=None, help="M 列表，逗号分隔")
     return p.parse_args()
@@ -397,12 +422,15 @@ def main():
     
     model_name = build_model_name_with_dtype(args.model.split('/')[-1], args.dtype)
     
+    test_segment_k = not args.no_segment_k
+    
     print("=" * 60)
     print("cuSPARSELt 布局离线搜索 (2:4 稀疏)")
     print("=" * 60)
     print(f"GPU: {hw_info.gpu_full_name} ({hw_info.cc_tag}, {hw_info.arch_name})")
     print(f"模型: {model_name}")
     print(f"参数: dtype={args.dtype}, outdtype={args.outdtype}")
+    print(f"Segment-K 测试: {'开启' if test_segment_k else '关闭'}")
     print()
     
     out_dir = Path(args.out_dir) if args.out_dir else Path("./layout_search_results")
@@ -446,6 +474,7 @@ def main():
         m_list,
         args.warmup,
         args.repeat,
+        test_segment_k=test_segment_k,
         verbose=True,
     )
     

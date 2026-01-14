@@ -1,6 +1,6 @@
 // cuBLASLt 算法离线搜索 (extern "C" 版本)
 // 固定的 layout: 权重 W 在左，T/N + C/C GEMM，输出矩阵 order 固定为 Column 主序
-// C[N,M]_col = W[N,K]^T_col * A[K,M]_col
+// R[N,M]_col = W[N,K]^T_col * A[K,M]_col
 // 支持的数据类型：int8, fp8e4m3
 // 输出类型：bf16 (CUDA_R_16BF) 或 fp32 (CUDA_R_32F)
 //
@@ -165,11 +165,11 @@ const char* cublaslt_alg_search_get_last_error() {
  * 搜索单个 (N, K, M) 组合的最佳算法
  *
  * 固定布局: T/N + Col/Col + Col (权重 W 在左)
- * W[N,K]^T_col * A[K,M]_col = C[N,M]_col
+ * W[N,K]^T_col * A[K,M]_col = R[N,M]_col
  *
  * @param W_ptr       权重矩阵指针 [N, K]，已量化的数据
  * @param A_ptr       激活矩阵指针 [M, K]，已量化的数据
- * @param C_ptr       输出矩阵指针 [M, N] (Column Major [N,M])
+ * @param R_ptr       输出矩阵指针 [M, N] (Column Major [N,M])
  * @param N           权重行数
  * @param K           内维度
  * @param M           激活行数 / 输出列数
@@ -194,7 +194,7 @@ const char* cublaslt_alg_search_get_last_error() {
 int cublaslt_search_single_m(
     const void* W_ptr,
     const void* A_ptr,
-    void* C_ptr,
+    void* R_ptr,
     int64_t N, int64_t K, int64_t M,
     const char* dtype,
     const char* outdtype,
@@ -215,7 +215,7 @@ int cublaslt_search_single_m(
   clear_error();
   
   try {
-    if (!W_ptr || !A_ptr || !C_ptr) {
+    if (!W_ptr || !A_ptr || !R_ptr) {
       set_error("Input/output pointers cannot be null");
       return -1;
     }
@@ -233,7 +233,7 @@ int cublaslt_search_single_m(
     cublasOperation_t opA = CUBLAS_OP_N;
     cublasLtOrder_t orderW = CUBLASLT_ORDER_COL;
     cublasLtOrder_t orderA = CUBLASLT_ORDER_COL;
-    cublasLtOrder_t orderC = CUBLASLT_ORDER_COL;
+    cublasLtOrder_t orderR = CUBLASLT_ORDER_COL;
 
     // W[N,K] 存储维度
     int64_t num_W_rows = K;
@@ -246,9 +246,9 @@ int cublaslt_search_single_m(
     int64_t lda = K;
 
     // C[N,M] 存储维度
-    int64_t num_C_rows = N;
-    int64_t num_C_cols = M;
-    int64_t ldc = N;
+    int64_t num_R_rows = N;
+    int64_t num_R_cols = M;
+    int64_t ldr = N;
 
     // 创建矩阵乘法描述符
     cublasLtMatmulDesc_t matmulDesc = nullptr;
@@ -257,13 +257,13 @@ int cublaslt_search_single_m(
     CHECK_CUBLASLT(cublasLtMatmulDescSetAttribute(matmulDesc, CUBLASLT_MATMUL_DESC_TRANSB, &opA, sizeof(opA)));
 
     // 创建矩阵布局描述符
-    cublasLtMatrixLayout_t layoutW = nullptr, layoutA = nullptr, layoutC = nullptr;
-    CHECK_CUBLASLT(cublasLtMatrixLayoutCreate(&layoutW, type_AB, num_W_rows, num_W_cols, ldw));
+    cublasLtMatrixLayout_t layoutW = nullptr, layoutA = nullptr, layoutR = nullptr;
+    CHECK_CUBLASLT(cublasLtMatrixlayoutRreate(&layoutW, type_AB, num_W_rows, num_W_cols, ldw));
     CHECK_CUBLASLT(cublasLtMatrixLayoutSetAttribute(layoutW, CUBLASLT_MATRIX_LAYOUT_ORDER, &orderW, sizeof(orderW)));
-    CHECK_CUBLASLT(cublasLtMatrixLayoutCreate(&layoutA, type_AB, num_A_rows, num_A_cols, lda));
+    CHECK_CUBLASLT(cublasLtMatrixlayoutRreate(&layoutA, type_AB, num_A_rows, num_A_cols, lda));
     CHECK_CUBLASLT(cublasLtMatrixLayoutSetAttribute(layoutA, CUBLASLT_MATRIX_LAYOUT_ORDER, &orderA, sizeof(orderA)));
-    CHECK_CUBLASLT(cublasLtMatrixLayoutCreate(&layoutC, type_C, num_C_rows, num_C_cols, ldc));
-    CHECK_CUBLASLT(cublasLtMatrixLayoutSetAttribute(layoutC, CUBLASLT_MATRIX_LAYOUT_ORDER, &orderC, sizeof(orderC)));
+    CHECK_CUBLASLT(cublasLtMatrixlayoutRreate(&layoutR, type_C, num_R_rows, num_R_cols, ldr));
+    CHECK_CUBLASLT(cublasLtMatrixLayoutSetAttribute(layoutR, CUBLASLT_MATRIX_LAYOUT_ORDER, &orderR, sizeof(orderR)));
 
     // 创建算法偏好
     cublasLtMatmulPreference_t preference = nullptr;
@@ -285,7 +285,7 @@ int cublaslt_search_single_m(
     int returnedAlgoCount = 0;
 
     cublasStatus_t heur_status = cublasLtMatmulAlgoGetHeuristic(
-        handle, matmulDesc, layoutW, layoutA, layoutC, layoutC,
+        handle, matmulDesc, layoutW, layoutA, layoutR, layoutR,
         preference, max_algo_count, heuristicResult, &returnedAlgoCount);
 
     if (out_alg_count) *out_alg_count = returnedAlgoCount;
@@ -295,14 +295,14 @@ int cublaslt_search_single_m(
       cublasLtMatmulPreferenceDestroy(preference);
       cublasLtMatrixLayoutDestroy(layoutW);
       cublasLtMatrixLayoutDestroy(layoutA);
-      cublasLtMatrixLayoutDestroy(layoutC);
+      cublasLtMatrixLayoutDestroy(layoutR);
       cublasLtMatmulDescDestroy(matmulDesc);
       
       if (out_num_valid) *out_num_valid = 0;
       return 0;
     }
 
-    // 分配共享 workspace
+    // 分配共享 workspace (初始 512MB, 可动态扩展)
     void* workspace = nullptr;
     size_t current_workspace_size = max_workspace_size;
     CHECK_CUDA(cudaMalloc(&workspace, current_workspace_size));
@@ -319,8 +319,17 @@ int cublaslt_search_single_m(
       const cublasLtMatmulAlgo_t* algo = &heuristicResult[alg_idx].algo;
       size_t ws_size = heuristicResult[alg_idx].workspaceSize;
 
+      // 动态扩展 workspace
       if (ws_size > current_workspace_size) {
-        continue;  // 跳过需要更大 workspace 的算法
+        void* new_workspace = nullptr;
+        cudaError_t alloc_err = cudaMalloc(&new_workspace, ws_size);
+        if (alloc_err == cudaSuccess) {
+          cudaFree(workspace);
+          workspace = new_workspace;
+          current_workspace_size = ws_size;
+        } else {
+          continue;  // 分配失败，跳过此算法
+        }
       }
 
       void* ws_ptr = (ws_size > 0) ? workspace : nullptr;
@@ -331,7 +340,7 @@ int cublaslt_search_single_m(
         cublasStatus_t st = cublasLtMatmul(
             handle, matmulDesc, &alpha,
             W_ptr, layoutW, A_ptr, layoutA, &beta,
-            C_ptr, layoutC, C_ptr, layoutC,
+            R_ptr, layoutR, R_ptr, layoutR,
             algo, ws_ptr, ws_size, stream);
         if (st != CUBLAS_STATUS_SUCCESS) success = false;
       }
@@ -350,7 +359,7 @@ int cublaslt_search_single_m(
           cublasStatus_t st = cublasLtMatmul(
               handle, matmulDesc, &alpha,
               W_ptr, layoutW, A_ptr, layoutA, &beta,
-              C_ptr, layoutC, C_ptr, layoutC,
+              R_ptr, layoutR, R_ptr, layoutR,
               algo, ws_ptr, ws_size, stream);
           if (st != CUBLAS_STATUS_SUCCESS) success = false;
         }
@@ -415,7 +424,7 @@ int cublaslt_search_single_m(
     cublasLtMatmulPreferenceDestroy(preference);
     cublasLtMatrixLayoutDestroy(layoutW);
     cublasLtMatrixLayoutDestroy(layoutA);
-    cublasLtMatrixLayoutDestroy(layoutC);
+    cublasLtMatrixLayoutDestroy(layoutR);
     cublasLtMatmulDescDestroy(matmulDesc);
 
     return 0;

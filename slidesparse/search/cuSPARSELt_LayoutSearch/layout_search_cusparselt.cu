@@ -11,6 +11,11 @@
  *   - A/B 排列 : RowCol, ColCol (2种)
  *   - D 输出 : Col, Row (2种)
  *
+ * 数据准备策略 (与 AlgSearch 对齐):
+ *   - Python 端：生成数据 → 量化 → 调用 prune
+ *   - CUDA 端：接收 W_pruned 和 A_q，测试各种布局
+ *
+ * 搜索策略:
  *   - 使用 CUSPARSELT_PRUNE_SPMMA_TILE 剪枝模式
  *   - 使用 CUSPARSELT_MATMUL_ALG_CONFIG_MAX_ID 获取算法数量
  *   - 自适应倍增 Split-K 搜索
@@ -60,23 +65,23 @@ struct LayoutConfig {
 static const LayoutConfig LAYOUT_CONFIGS[NUM_LAYOUTS] = {
     // transA,                               transB,                               orderA,             orderB,             orderC,             name
     // D 输出为 ColMajor (前8种)
-    {CUSPARSE_OPERATION_TRANSPOSE,     CUSPARSE_OPERATION_TRANSPOSE,     CUSPARSE_ORDER_ROW, CUSPARSE_ORDER_COL, CUSPARSE_ORDER_COL, "TT_RowCol_DCol"},
-    {CUSPARSE_OPERATION_TRANSPOSE,     CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_ORDER_ROW, CUSPARSE_ORDER_COL, CUSPARSE_ORDER_COL, "TN_RowCol_DCol"},
-    {CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_OPERATION_TRANSPOSE,     CUSPARSE_ORDER_ROW, CUSPARSE_ORDER_COL, CUSPARSE_ORDER_COL, "NT_RowCol_DCol"},
-    {CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_ORDER_ROW, CUSPARSE_ORDER_COL, CUSPARSE_ORDER_COL, "NN_RowCol_DCol"},
-    {CUSPARSE_OPERATION_TRANSPOSE,     CUSPARSE_OPERATION_TRANSPOSE,     CUSPARSE_ORDER_COL, CUSPARSE_ORDER_COL, CUSPARSE_ORDER_COL, "TT_ColCol_DCol"},
-    {CUSPARSE_OPERATION_TRANSPOSE,     CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_ORDER_COL, CUSPARSE_ORDER_COL, CUSPARSE_ORDER_COL, "TN_ColCol_DCol"},  // 推荐
-    {CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_OPERATION_TRANSPOSE,     CUSPARSE_ORDER_COL, CUSPARSE_ORDER_COL, CUSPARSE_ORDER_COL, "NT_ColCol_DCol"},
-    {CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_ORDER_COL, CUSPARSE_ORDER_COL, CUSPARSE_ORDER_COL, "NN_ColCol_DCol"},
+    {CUSPARSE_OPERATION_TRANSPOSE,     CUSPARSE_OPERATION_TRANSPOSE,     CUSPARSE_ORDER_ROW, CUSPARSE_ORDER_COL, CUSPARSE_ORDER_COL, "TT_RowCol_Col"},
+    {CUSPARSE_OPERATION_TRANSPOSE,     CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_ORDER_ROW, CUSPARSE_ORDER_COL, CUSPARSE_ORDER_COL, "TN_RowCol_Col"},
+    {CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_OPERATION_TRANSPOSE,     CUSPARSE_ORDER_ROW, CUSPARSE_ORDER_COL, CUSPARSE_ORDER_COL, "NT_RowCol_Col"},
+    {CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_ORDER_ROW, CUSPARSE_ORDER_COL, CUSPARSE_ORDER_COL, "NN_RowCol_Col"},
+    {CUSPARSE_OPERATION_TRANSPOSE,     CUSPARSE_OPERATION_TRANSPOSE,     CUSPARSE_ORDER_COL, CUSPARSE_ORDER_COL, CUSPARSE_ORDER_COL, "TT_ColCol_Col"},
+    {CUSPARSE_OPERATION_TRANSPOSE,     CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_ORDER_COL, CUSPARSE_ORDER_COL, CUSPARSE_ORDER_COL, "TN_ColCol_Col"},  // 推荐
+    {CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_OPERATION_TRANSPOSE,     CUSPARSE_ORDER_COL, CUSPARSE_ORDER_COL, CUSPARSE_ORDER_COL, "NT_ColCol_Col"},
+    {CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_ORDER_COL, CUSPARSE_ORDER_COL, CUSPARSE_ORDER_COL, "NN_ColCol_Col"},
     // D 输出为 RowMajor (后8种)
-    {CUSPARSE_OPERATION_TRANSPOSE,     CUSPARSE_OPERATION_TRANSPOSE,     CUSPARSE_ORDER_ROW, CUSPARSE_ORDER_COL, CUSPARSE_ORDER_ROW, "TT_RowCol_DRow"},
-    {CUSPARSE_OPERATION_TRANSPOSE,     CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_ORDER_ROW, CUSPARSE_ORDER_COL, CUSPARSE_ORDER_ROW, "TN_RowCol_DRow"},
-    {CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_OPERATION_TRANSPOSE,     CUSPARSE_ORDER_ROW, CUSPARSE_ORDER_COL, CUSPARSE_ORDER_ROW, "NT_RowCol_DRow"},
-    {CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_ORDER_ROW, CUSPARSE_ORDER_COL, CUSPARSE_ORDER_ROW, "NN_RowCol_DRow"},
-    {CUSPARSE_OPERATION_TRANSPOSE,     CUSPARSE_OPERATION_TRANSPOSE,     CUSPARSE_ORDER_COL, CUSPARSE_ORDER_COL, CUSPARSE_ORDER_ROW, "TT_ColCol_DRow"},
-    {CUSPARSE_OPERATION_TRANSPOSE,     CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_ORDER_COL, CUSPARSE_ORDER_COL, CUSPARSE_ORDER_ROW, "TN_ColCol_DRow"},
-    {CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_OPERATION_TRANSPOSE,     CUSPARSE_ORDER_COL, CUSPARSE_ORDER_COL, CUSPARSE_ORDER_ROW, "NT_ColCol_DRow"},
-    {CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_ORDER_COL, CUSPARSE_ORDER_COL, CUSPARSE_ORDER_ROW, "NN_ColCol_DRow"},
+    {CUSPARSE_OPERATION_TRANSPOSE,     CUSPARSE_OPERATION_TRANSPOSE,     CUSPARSE_ORDER_ROW, CUSPARSE_ORDER_COL, CUSPARSE_ORDER_ROW, "TT_RowCol_Row"},
+    {CUSPARSE_OPERATION_TRANSPOSE,     CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_ORDER_ROW, CUSPARSE_ORDER_COL, CUSPARSE_ORDER_ROW, "TN_RowCol_Row"},
+    {CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_OPERATION_TRANSPOSE,     CUSPARSE_ORDER_ROW, CUSPARSE_ORDER_COL, CUSPARSE_ORDER_ROW, "NT_RowCol_Row"},
+    {CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_ORDER_ROW, CUSPARSE_ORDER_COL, CUSPARSE_ORDER_ROW, "NN_RowCol_Row"},
+    {CUSPARSE_OPERATION_TRANSPOSE,     CUSPARSE_OPERATION_TRANSPOSE,     CUSPARSE_ORDER_COL, CUSPARSE_ORDER_COL, CUSPARSE_ORDER_ROW, "TT_ColCol_Row"},
+    {CUSPARSE_OPERATION_TRANSPOSE,     CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_ORDER_COL, CUSPARSE_ORDER_COL, CUSPARSE_ORDER_ROW, "TN_ColCol_Row"},
+    {CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_OPERATION_TRANSPOSE,     CUSPARSE_ORDER_COL, CUSPARSE_ORDER_COL, CUSPARSE_ORDER_ROW, "NT_ColCol_Row"},
+    {CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_ORDER_COL, CUSPARSE_ORDER_COL, CUSPARSE_ORDER_ROW, "NN_ColCol_Row"},
 };
 
 // =============================================================================
@@ -199,10 +204,31 @@ struct LayoutResult {
 };
 
 // =============================================================================
-// 单个布局测试 (与旧代码一致的完整搜索)
+// 单个布局测试 (接收外部数据，与 AlgSearch 策略对齐)
 // =============================================================================
 
+/**
+ * @brief 测试单个布局配置
+ * 
+ * @param W_pruned_ptr  已剪枝的权重矩阵 (K x N, 列主序)
+ * @param A_ptr         激活矩阵 (K x M, 列主序)
+ * @param layout        布局配置
+ * @param layout_id     布局 ID
+ * @param N, K, M       矩阵维度
+ * @param dtype         输入数据类型
+ * @param outdtype      输出数据类型
+ * @param warmup, repeat 预热和计时参数
+ * @param test_segment_k 是否测试 segment-k
+ * @param shared_workspace 共享 workspace
+ * @param workspace_size  workspace 大小
+ * @param stream          CUDA 流
+ * @param result          输出结果
+ * 
+ * @return 1 表示有效，0 表示无效
+ */
 static int test_single_layout(
+    void* W_pruned_ptr,  // 已剪枝的权重 (K x N, 列主序)
+    void* A_ptr,         // 激活矩阵 (K x M, 列主序)
     const LayoutConfig& layout,
     int layout_id,
     int64_t N, int64_t K, int64_t M,
@@ -231,7 +257,13 @@ static int test_single_layout(
     result->alg_count = 0;
     result->config_count = 0;
     
-    // 计算矩阵维度
+    // =========================================================================
+    // 根据布局配置，从标准格式 (K x N 列主序 W, K x M 列主序 A) 转换数据
+    // 标准输入: W[K,N] ColMajor, A[K,M] ColMajor
+    // 输出: R[N,M]
+    // =========================================================================
+    
+    // 计算目标布局需要的矩阵维度
     bool isW_transposed = (layout.transA == CUSPARSE_OPERATION_TRANSPOSE);
     bool isA_transposed = (layout.transB == CUSPARSE_OPERATION_TRANSPOSE);
     bool isW_rowmajor = (layout.orderA == CUSPARSE_ORDER_ROW);
@@ -266,7 +298,7 @@ static int test_single_layout(
     size_t A_size = A_elems * info.elem_size;
     size_t R_size = R_elems * out_elem_size;
     
-    // 分配设备内存
+    // 分配设备内存 (转换后的数据)
     void *dW = nullptr, *dA = nullptr, *dR = nullptr;
     int *d_valid = nullptr;
     
@@ -275,14 +307,19 @@ static int test_single_layout(
     if (cudaMalloc(&dR, R_size) != cudaSuccess) { cudaFree(dW); cudaFree(dA); return 0; }
     if (cudaMalloc(&d_valid, sizeof(int)) != cudaSuccess) { cudaFree(dW); cudaFree(dA); cudaFree(dR); return 0; }
     
-    // 随机初始化
-    {
-        std::vector<int8_t> hW(W_elems), hA(A_elems);
-        for (size_t i = 0; i < W_elems; ++i) hW[i] = (int8_t)(rand() % 256 - 128);
-        for (size_t i = 0; i < A_elems; ++i) hA[i] = (int8_t)(rand() % 256 - 128);
-        cudaMemcpy(dW, hW.data(), W_size, cudaMemcpyHostToDevice);
-        cudaMemcpy(dA, hA.data(), A_size, cudaMemcpyHostToDevice);
-    }
+    // =========================================================================
+    // 从标准格式复制数据到目标布局格式
+    // 注意：简化处理，直接复制（假设 Python 已按正确格式准备数据）
+    // 对于不同布局，这里使用相同的输入数据进行性能测试
+    // 实际性能只与矩阵尺寸和布局配置相关，与数据内容无关
+    // =========================================================================
+    size_t src_W_size = (size_t)K * N * info.elem_size;
+    size_t src_A_size = (size_t)K * M * info.elem_size;
+    
+    // 复制 W (如果目标布局需要不同格式，这里只是复制原始数据用于性能测试)
+    cudaMemcpy(dW, W_pruned_ptr, std::min(W_size, src_W_size), cudaMemcpyDeviceToDevice);
+    // 复制 A
+    cudaMemcpy(dA, A_ptr, std::min(A_size, src_A_size), cudaMemcpyDeviceToDevice);
     cudaMemset(dR, 0, R_size);
     
     // 初始化描述符
@@ -664,8 +701,25 @@ extern "C" {
 
 /**
  * @brief 测试单个 (N,K,M) 的 16 种布局配置
+ * 
+ * 数据准备策略 (与 AlgSearch 对齐):
+ * - Python 端生成数据、量化、调用 prune
+ * - CUDA 端接收 W_pruned 和 A_q，测试各种布局
+ * 
+ * @param W_pruned_ptr  已剪枝的权重矩阵 (K x N, 列主序)
+ * @param A_ptr         激活矩阵 (K x M, 列主序)
+ * @param M, N, K       矩阵维度
+ * @param dtype         输入数据类型
+ * @param outdtype      输出数据类型
+ * @param warmup        预热次数
+ * @param repeat        计时重复次数
+ * @param test_segment_k 是否测试 segment-k
+ * @param out_*         输出数组
+ * @param stream        CUDA 流
  */
 int cusparselt_layout_search_single(
+    void* W_pruned_ptr,  // 已剪枝的权重 (K x N, 列主序)
+    void* A_ptr,         // 激活矩阵 (K x M, 列主序)
     int64_t M, int64_t N, int64_t K,
     const char* dtype, const char* outdtype,
     int warmup, int repeat,
@@ -700,6 +754,7 @@ int cusparselt_layout_search_single(
         memset(&result, 0, sizeof(result));
         
         test_single_layout(
+            W_pruned_ptr, A_ptr,
             LAYOUT_CONFIGS[i], i,
             N, K, M,
             dtype, outdtype,

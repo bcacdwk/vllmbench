@@ -13,17 +13,23 @@ cuSPARSELt 算法离线搜索
 - 权重 W 进行 2:4 剪枝后压缩
 - 固定 Layout: T/N + Col/Col + Col
 
+搜索策略:
+- 自适应 Split-K 倍增策略 (1, 2, 4, 8, ...)
+- Segment-K 测试 (SM90+ 支持 split_k=-1)
+- 官方 API 搜索对比 (cusparseLtMatmulSearch)
+- 每个 alg_id 独立压缩权重
+
 运行示例:
     python3 alg_search.py --dtype int8 --outdtype bf16 --model BitNet-2B4T
     python3 alg_search.py --dtype fp8e4m3 --outdtype bf16 --model BitNet-2B4T
-    python3 alg_search.py --dtype int8 --outdtype bf16 --search_split_k
+    python3 alg_search.py --dtype int8 --outdtype bf16 --no_api_search
 """
 
 import argparse
 import ctypes
 import sys
 from pathlib import Path
-from typing import Dict, List, Tuple, Any
+from typing import Dict, List, Tuple, Any, Optional
 
 import torch
 
@@ -46,6 +52,8 @@ from utils import (
     get_output_torch_dtype,
     # 结果保存
     save_alg_search_results,
+    # 验证
+    verify_gemm_result,
     # 常量
     SUPPORTED_DTYPES,
     SUPPORTED_OUTDTYPES,
@@ -60,7 +68,7 @@ from utils import (
 def setup_lib_signatures(lib: ctypes.CDLL) -> None:
     """设置 CUDA 扩展的函数签名"""
     lib.cusparselt_search_single_m.argtypes = [
-        ctypes.c_void_p,   # W_ptr
+        ctypes.c_void_p,   # W_pruned_ptr
         ctypes.c_void_p,   # A_ptr
         ctypes.c_void_p,   # C_ptr
         ctypes.c_int64,    # N
@@ -71,7 +79,9 @@ def setup_lib_signatures(lib: ctypes.CDLL) -> None:
         ctypes.c_int,      # warmup
         ctypes.c_int,      # repeat
         ctypes.c_int,      # topk
-        ctypes.c_int,      # search_split_k
+        ctypes.c_int,      # test_segment_k
+        ctypes.c_int,      # do_api_search
+        # 输出
         ctypes.POINTER(ctypes.c_int),        # out_alg_ids
         ctypes.POINTER(ctypes.c_int),        # out_split_k
         ctypes.POINTER(ctypes.c_float),      # out_lat_us
@@ -80,6 +90,11 @@ def setup_lib_signatures(lib: ctypes.CDLL) -> None:
         ctypes.POINTER(ctypes.c_uint8),      # out_valid
         ctypes.POINTER(ctypes.c_int),        # out_num_valid
         ctypes.POINTER(ctypes.c_int),        # out_alg_count
+        ctypes.POINTER(ctypes.c_int),        # out_config_count
+        ctypes.POINTER(ctypes.c_int),        # out_api_alg_id
+        ctypes.POINTER(ctypes.c_int),        # out_api_split_k
+        ctypes.POINTER(ctypes.c_float),      # out_api_lat_us
+        ctypes.POINTER(ctypes.c_int),        # out_api_rank
         ctypes.c_void_p,   # stream
     ]
     lib.cusparselt_search_single_m.restype = ctypes.c_int
@@ -129,12 +144,15 @@ def prepare_and_prune_weight(
     lib: ctypes.CDLL,
     W_bf16: torch.Tensor,
     dtype: str,
-) -> Tuple[torch.Tensor, torch.Tensor]:
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     准备并剪枝权重矩阵。
     
     返回:
-        (W_pruned, W_compressed): 剪枝后的矩阵和压缩后的矩阵
+        (W_pruned, W_compressed, W_q): 
+            W_pruned: 剪枝后的矩阵 [K, N]
+            W_compressed: 压缩后的矩阵
+            W_q: 原始量化权重 [N, K]（用于 verify）
     """
     N, K = W_bf16.shape
     
@@ -184,14 +202,25 @@ def prepare_and_prune_weight(
     
     torch.cuda.synchronize()
     
-    return W_pruned, W_compressed
+    # 返回剪枝后权重 [K, N] 的转置 [N, K] 作为 W_q 用于 verify
+    # 注意：剪枝会改变权重值（将某些元素置零），verify 需要使用剪枝后的权重
+    W_q_pruned = W_pruned.t().contiguous()  # [N, K]
+    
+    return W_pruned, W_compressed, W_q_pruned
 
 
 def prepare_activation(
     A_bf16: torch.Tensor,
     dtype: str,
-) -> torch.Tensor:
-    """准备激活矩阵"""
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    准备激活矩阵。
+    
+    返回:
+        (A_transposed, A_q):
+            A_transposed: 转置后的激活 [K, M] (用于 CUDA)
+            A_q: 原始量化激活 [M, K] (用于 verify)
+    """
     if dtype == "int8":
         A_q, _ = quantize_int8(A_bf16)
     elif dtype == "fp8e4m3":
@@ -200,7 +229,9 @@ def prepare_activation(
         raise ValueError(f"不支持的数据类型: {dtype}")
     
     # 转置为 K x M (列主序)
-    return A_q.t().contiguous()
+    A_transposed = A_q.t().contiguous()
+    
+    return A_transposed, A_q
 
 
 # =============================================================================
@@ -318,19 +349,24 @@ def rerank_candidates(
 def search_single_nk(
     lib: ctypes.CDLL,
     N: int, K: int, M: int,
-    W_compressed: torch.Tensor,
-    A_q: torch.Tensor,
+    W_pruned: torch.Tensor,
+    A_transposed: torch.Tensor,
     dtype: str,
     outdtype: str,
     warmup: int,
     repeat: int,
     topk: int = 3,
-    search_split_k: bool = False,
+    test_segment_k: bool = True,
+    do_api_search: bool = True,
+    verify: bool = False,
+    W_q_for_verify: Optional[torch.Tensor] = None,
+    A_q_for_verify: Optional[torch.Tensor] = None,
 ) -> Dict[str, Any]:
     """搜索单个 (N, K, M) 组合的最佳算法"""
     # 分配输出缓冲
-    C_torch_dtype = get_output_torch_dtype(outdtype)
-    C_out = torch.zeros(N, M, dtype=C_torch_dtype, device=A_q.device)
+    R_torch_dtype = get_output_torch_dtype(outdtype)
+    # Column Major [N, M] 在 PyTorch Row Major 中存储为 [M, N]
+    R_out = torch.zeros(M, N, dtype=R_torch_dtype, device=A_transposed.device)
     
     # 分配输出数组
     out_alg_ids = (ctypes.c_int * topk)()
@@ -341,19 +377,25 @@ def search_single_nk(
     out_valid = (ctypes.c_uint8 * topk)()
     out_num_valid = ctypes.c_int(0)
     out_alg_count = ctypes.c_int(0)
+    out_config_count = ctypes.c_int(0)
+    out_api_alg_id = ctypes.c_int(-1)
+    out_api_split_k = ctypes.c_int(1)
+    out_api_lat_us = ctypes.c_float(0.0)
+    out_api_rank = ctypes.c_int(-1)
     
-    # 调用 C 函数
+    # 调用 C 函数 (传入剪枝后的 W_pruned, CUDA 内部会对每个 alg_id 重新压缩)
     ret = lib.cusparselt_search_single_m(
-        W_compressed.data_ptr(),
-        A_q.data_ptr(),
-        C_out.data_ptr(),
+        W_pruned.data_ptr(),
+        A_transposed.data_ptr(),
+        R_out.data_ptr(),
         N, K, M,
         dtype.encode(),
         outdtype.encode(),
         warmup,
         repeat,
         topk,
-        1 if search_split_k else 0,
+        1 if test_segment_k else 0,
+        1 if do_api_search else 0,
         out_alg_ids,
         out_split_k,
         out_lat_us,
@@ -362,6 +404,11 @@ def search_single_nk(
         out_valid,
         ctypes.byref(out_num_valid),
         ctypes.byref(out_alg_count),
+        ctypes.byref(out_config_count),
+        ctypes.byref(out_api_alg_id),
+        ctypes.byref(out_api_split_k),
+        ctypes.byref(out_api_lat_us),
+        ctypes.byref(out_api_rank),
         None,
     )
     
@@ -381,10 +428,33 @@ def search_single_nk(
                 "workspace": out_workspace[i],
             })
     
+    # 验证正确性
+    verify_result = None
+    if verify and W_q_for_verify is not None and A_q_for_verify is not None:
+        verify_result = verify_gemm_result(
+            W_q=W_q_for_verify,
+            A_q=A_q_for_verify,
+            R_out=R_out,
+            M=M,
+            is_col_major=True,  # cuSPARSELt AlgSearch 固定使用 Column Major
+        )
+        if verify_result["critical"]:
+            print(f"    [CRITICAL] M={M}: {verify_result['message']}")
+        elif not verify_result["passed"]:
+            print(f"    [WARN] M={M}: {verify_result['message']}")
+    
     return {
         "results": results,
         "num_valid": out_num_valid.value,
         "alg_count": out_alg_count.value,
+        "config_count": out_config_count.value,
+        "api_result": {
+            "alg_id": out_api_alg_id.value,
+            "split_k": out_api_split_k.value,
+            "lat_us": out_api_lat_us.value,
+            "rank": out_api_rank.value,
+        } if out_api_alg_id.value >= 0 else None,
+        "verify_result": verify_result,
     }
 
 
@@ -397,7 +467,9 @@ def run_search(
     warmup: int,
     repeat: int,
     topk: int = 3,
-    search_split_k: bool = False,
+    test_segment_k: bool = True,
+    do_api_search: bool = True,
+    verify: bool = False,
     verbose: bool = True,
 ) -> Dict:
     """
@@ -413,10 +485,14 @@ def run_search(
     total_nk = len(nk_list)
     
     max_alg_count = 0
+    max_config_count = 0
     supports_segment_k = bool(lib.cusparselt_supports_segment_k())
     
     # 收集更多候选用于 rerank
     search_topk = 16
+    
+    # verify 统计
+    verify_stats = {"total": 0, "passed": 0, "warned": 0, "critical": 0}
     
     for nk_id, nk in enumerate(nk_list):
         N, K = nk[0], nk[1]
@@ -427,31 +503,52 @@ def run_search(
         W = torch.randn(N, K, device="cuda", dtype=torch.bfloat16)
         A = torch.randn(max_M, K, device="cuda", dtype=torch.bfloat16)
         
-        # 剪枝并压缩权重
-        W_pruned, W_compressed = prepare_and_prune_weight(lib, W, dtype)
+        # 剪枝权重 (不需要预压缩，CUDA 内部会对每个 alg_id 重新压缩)
+        # W_q_pruned [N, K] 是剪枝后的权重，用于 verify
+        W_pruned, _, W_q_pruned = prepare_and_prune_weight(lib, W, dtype)
         
         # 准备激活
-        A_q = prepare_activation(A, dtype)
+        # A_transposed [K, M] 用于 CUDA, A_q [M, K] 用于 verify
+        A_transposed, A_q = prepare_activation(A, dtype)
         
         nk_m_results = {}
         
         for M in m_list:
-            # 切片 (A_q 是 K x M)
-            A_slice = A_q[:, :M].contiguous()
+            # 切片 (A_transposed 是 K x M_max, 切片得到 K x M)
+            A_slice = A_transposed[:, :M].contiguous()
+            # verify 用的 A_q 切片 (M, K) -> (M_slice, K)
+            A_q_slice = A_q[:M, :].contiguous() if verify else None
             
             # 搜索更多候选用于 rerank
             out = search_single_nk(
                 lib, N, K, M,
-                W_compressed, A_slice,
+                W_pruned, A_slice,
                 dtype, outdtype,
                 warmup, repeat, search_topk,
-                search_split_k,
+                test_segment_k,
+                do_api_search,
+                verify=verify,
+                W_q_for_verify=W_q_pruned if verify else None,
+                A_q_for_verify=A_q_slice,
             )
             
             nk_m_results[M] = out
             
             if out["alg_count"] > max_alg_count:
                 max_alg_count = out["alg_count"]
+            if out.get("config_count", 0) > max_config_count:
+                max_config_count = out["config_count"]
+            
+            # 更新 verify 统计
+            if verify and out.get("verify_result"):
+                vr = out["verify_result"]
+                verify_stats["total"] += 1
+                if vr["critical"]:
+                    verify_stats["critical"] += 1
+                elif vr["passed"]:
+                    verify_stats["passed"] += 1
+                else:
+                    verify_stats["warned"] += 1
         
         # 重排序：综合考虑 latency/workspace/split_k，保留 top3
         reranked_results = rerank_candidates(nk_m_results, m_list, final_topk=topk)
@@ -472,9 +569,19 @@ def run_search(
         
         results.append(nk_results)
         
-        del W, A, W_pruned, W_compressed, A_q
+        del W, A, W_pruned, A_transposed, A_q
+        if verify:
+            del W_q_pruned
     
     torch.cuda.empty_cache()
+    
+    # 打印 verify 汇总
+    if verify and verbose:
+        print()
+        print(f"    验证统计: 总计={verify_stats['total']}, "
+              f"通过={verify_stats['passed']}, "
+              f"警告={verify_stats['warned']}, "
+              f"严重错误={verify_stats['critical']}")
     
     return {
         "dtype": dtype,
@@ -483,8 +590,10 @@ def run_search(
         "M_list": m_list,
         "NK_list": nk_list,
         "max_alg_count": max_alg_count,
+        "max_config_count": max_config_count,
         "supports_segment_k": supports_segment_k,
-        "search_split_k": search_split_k,
+        "test_segment_k": test_segment_k,
+        "do_api_search": do_api_search,
     }
 
 
@@ -501,7 +610,8 @@ def parse_args():
     p.add_argument("--repeat", type=int, default=100)
     p.add_argument("--verify", action="store_true", help="开启正确性校验")
     p.add_argument("--compile", action="store_true", help="强制重新编译 CUDA 扩展")
-    p.add_argument("--search_split_k", action="store_true", help="搜索 split-k 配置")
+    p.add_argument("--no_segment_k", action="store_true", help="禁用 Segment-K 测试")
+    p.add_argument("--no_api_search", action="store_true", help="禁用官方 API 搜索对比")
     p.add_argument("--out_dir", default=None, help="输出目录")
     p.add_argument("--m_list", type=str, default=None, help="M 列表，逗号分隔")
     return p.parse_args()
@@ -515,13 +625,17 @@ def main():
     
     model_name = build_model_name_with_dtype(args.model.split('/')[-1], args.dtype)
     
+    test_segment_k = not args.no_segment_k
+    do_api_search = not args.no_api_search
+    
     print("=" * 60)
     print("cuSPARSELt 算法离线搜索 (2:4 稀疏)")
     print("=" * 60)
     print(f"GPU: {hw_info.gpu_full_name} ({hw_info.cc_tag}, {hw_info.arch_name})")
     print(f"模型: {model_name}")
     print(f"参数: dtype={args.dtype}, outdtype={args.outdtype}")
-    print(f"Split-K 搜索: {'开启' if args.search_split_k else '关闭'}")
+    print(f"Segment-K 测试: {'开启' if test_segment_k else '关闭'}")
+    print(f"API 搜索对比: {'开启' if do_api_search else '关闭'}")
     print()
     
     out_dir = Path(args.out_dir) if args.out_dir else Path("./alg_search_results")
@@ -568,7 +682,9 @@ def main():
         args.warmup,
         args.repeat,
         topk=3,
-        search_split_k=args.search_split_k,
+        test_segment_k=test_segment_k,
+        do_api_search=do_api_search,
+        verify=args.verify,
         verbose=True,
     )
     

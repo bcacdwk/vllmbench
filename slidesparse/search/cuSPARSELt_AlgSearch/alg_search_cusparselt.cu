@@ -174,21 +174,21 @@ static int prune_24_internal(
     
     cusparseOrder_t order = CUSPARSE_ORDER_COL;
     
-    cusparseLtMatDescriptor_t matA;
+    cusparseLtMatDescriptor_t matW;
     CHECK_CUSPARSELT(cusparseLtStructuredDescriptorInit(
-        &g_handle, &matA,
+        &g_handle, &matW,
         rows, cols, rows,  // ld = rows for col-major
         16,  // alignment
         info.cuda_type, order,
         CUSPARSELT_SPARSITY_50_PERCENT));
     
     CHECK_CUSPARSELT(cusparseLtSpMMAPrune(
-        &g_handle, &matA,
+        &g_handle, &matW,
         input, output,
         CUSPARSELT_PRUNE_SPMMA_TILE,  // 与旧代码一致
         stream));
     
-    CHECK_CUSPARSELT(cusparseLtMatDescriptorDestroy(&matA));
+    CHECK_CUSPARSELT(cusparseLtMatDescriptorDestroy(&matW));
     
     return 0;
 }
@@ -228,7 +228,7 @@ extern "C" {
  *
  * @param W_pruned_ptr  W 矩阵设备指针 (已剪枝但未压缩)
  * @param A_ptr         A 矩阵设备指针
- * @param C_ptr         C 矩阵设备指针
+ * @param R_ptr         R 矩阵设备指针
  * @param N             N 维度
  * @param K             K 维度
  * @param M             M 维度
@@ -259,7 +259,7 @@ extern "C" {
  * @return 0 成功, -1 失败
  */
 int cusparselt_search_single_m(
-    void* W_pruned_ptr, void* A_ptr, void* C_ptr,
+    void* W_pruned_ptr, void* A_ptr, void* R_ptr,
     int64_t N, int64_t K, int64_t M,
     const char* dtype, const char* outdtype,
     int warmup, int repeat,
@@ -315,26 +315,26 @@ int cusparselt_search_single_m(
     float alpha = 1.0f, beta = 0.0f;
     
     // 创建基础矩阵描述符
-    // C = W^T * A  (W: K x N 存储, sparse, A: K x M dense, C: N x M)
-    cusparseLtMatDescriptor_t matA, matB, matC;
+    // R = W^T * A  (W: K x N 存储, sparse, A: K x M dense, R: N x M)
+    cusparseLtMatDescriptor_t matW, matA, matR;
     cusparseOrder_t order = CUSPARSE_ORDER_COL;
     
     // W (稀疏, structured) - 存储为 [K, N], 转置后为 [N, K]
     CHECK_CUSPARSELT(cusparseLtStructuredDescriptorInit(
-        &g_handle, &matA,
+        &g_handle, &matW,
         K, N, K,  // rows=K, cols=N, ld=K
         16, info.cuda_type, order,
         CUSPARSELT_SPARSITY_50_PERCENT));
     
     // A (dense) - [K, M]
     CHECK_CUSPARSELT(cusparseLtDenseDescriptorInit(
-        &g_handle, &matB,
+        &g_handle, &matA,
         K, M, K,
         16, info.cuda_type, order));
     
-    // C (dense) - [N, M]
+    // R (dense) - [N, M]
     CHECK_CUSPARSELT(cusparseLtDenseDescriptorInit(
-        &g_handle, &matC,
+        &g_handle, &matR,
         N, M, N,
         16, out_type, order));
     
@@ -343,7 +343,7 @@ int cusparselt_search_single_m(
     CHECK_CUSPARSELT(cusparseLtMatmulDescriptorInit(
         &g_handle, &matmul,
         CUSPARSE_OPERATION_TRANSPOSE, CUSPARSE_OPERATION_NON_TRANSPOSE,
-        &matA, &matB, &matC, &matC,
+        &matW, &matA, &matR, &matR,
         compute_type));
     
     // 获取最大算法 ID (使用与旧代码一致的 API)
@@ -361,9 +361,9 @@ int cusparselt_search_single_m(
     cusparseLtMatmulAlgSelectionDestroy(&alg_sel_tmp);
     
     if (attr_status != CUSPARSE_STATUS_SUCCESS || max_alg_id <= 0) {
+        cusparseLtMatDescriptorDestroy(&matW);
         cusparseLtMatDescriptorDestroy(&matA);
-        cusparseLtMatDescriptorDestroy(&matB);
-        cusparseLtMatDescriptorDestroy(&matC);
+        cusparseLtMatDescriptorDestroy(&matR);
         set_error("Failed to get max algorithm ID");
         return -1;
     }
@@ -411,7 +411,7 @@ int cusparselt_search_single_m(
                     // 调用官方搜索 API
                     cusparseStatus_t search_st = cusparseLtMatmulSearch(
                         &g_handle, &plan_api, &alpha, W_comp_api, A_ptr,
-                        &beta, C_ptr, C_ptr, shared_workspace, &cu_stream, 1);
+                        &beta, R_ptr, R_ptr, shared_workspace, &cu_stream, 1);
                     
                     if (search_st == CUSPARSE_STATUS_SUCCESS) {
                         // 提取选中的算法参数
@@ -435,7 +435,7 @@ int cusparselt_search_single_m(
                         for (int i = 0; i < warmup && success; ++i) {
                             cusparseStatus_t st = cusparseLtMatmul(
                                 &g_handle, &plan_api, &alpha, W_comp_api, A_ptr,
-                                &beta, C_ptr, C_ptr, shared_workspace, &cu_stream, 1);
+                                &beta, R_ptr, R_ptr, shared_workspace, &cu_stream, 1);
                             if (st != CUSPARSE_STATUS_SUCCESS) success = false;
                         }
                         cudaStreamSynchronize(cu_stream);
@@ -449,7 +449,7 @@ int cusparselt_search_single_m(
                             for (int r = 0; r < repeat && success; ++r) {
                                 cusparseStatus_t st = cusparseLtMatmul(
                                     &g_handle, &plan_api, &alpha, W_comp_api, A_ptr,
-                                    &beta, C_ptr, C_ptr, shared_workspace, &cu_stream, 1);
+                                    &beta, R_ptr, R_ptr, shared_workspace, &cu_stream, 1);
                                 if (st != CUSPARSE_STATUS_SUCCESS) success = false;
                             }
                             
@@ -613,7 +613,7 @@ int cusparselt_search_single_m(
             for (int i = 0; i < warmup && success; ++i) {
                 cusparseStatus_t st = cusparseLtMatmul(
                     &g_handle, &plan, &alpha, W_compressed, A_ptr,
-                    &beta, C_ptr, C_ptr, workspace, &cu_stream, 1);
+                    &beta, R_ptr, R_ptr, workspace, &cu_stream, 1);
                 if (st != CUSPARSE_STATUS_SUCCESS) success = false;
             }
             cudaStreamSynchronize(cu_stream);
@@ -630,7 +630,7 @@ int cusparselt_search_single_m(
                 for (int r = 0; r < repeat && success; ++r) {
                     cusparseStatus_t st = cusparseLtMatmul(
                         &g_handle, &plan, &alpha, W_compressed, A_ptr,
-                        &beta, C_ptr, C_ptr, workspace, &cu_stream, 1);
+                        &beta, R_ptr, R_ptr, workspace, &cu_stream, 1);
                     if (st != CUSPARSE_STATUS_SUCCESS) success = false;
                 }
                 
@@ -719,9 +719,9 @@ int cusparselt_search_single_m(
     
     // 清理
     cudaFree(shared_workspace);
+    cusparseLtMatDescriptorDestroy(&matW);
     cusparseLtMatDescriptorDestroy(&matA);
-    cusparseLtMatDescriptorDestroy(&matB);
-    cusparseLtMatDescriptorDestroy(&matC);
+    cusparseLtMatDescriptorDestroy(&matR);
     
     return 0;
 }
@@ -761,9 +761,9 @@ int64_t cusparselt_compress(
     cudaStream_t cu_stream = stream ? (cudaStream_t)stream : nullptr;
     cusparseOrder_t order = CUSPARSE_ORDER_COL;
     
-    cusparseLtMatDescriptor_t matA;
+    cusparseLtMatDescriptor_t matW;
     cusparseStatus_t status = cusparseLtStructuredDescriptorInit(
-        &g_handle, &matA,
+        &g_handle, &matW,
         rows, cols, rows,
         16, info.cuda_type, order,
         CUSPARSELT_SPARSITY_50_PERCENT);
@@ -774,19 +774,19 @@ int64_t cusparselt_compress(
     }
     
     size_t compressed_size = 0;
-    status = cusparseLtSpMMACompressedSize(&g_handle, &matA, &compressed_size, nullptr);
+    status = cusparseLtSpMMACompressedSize(&g_handle, &matW, &compressed_size, nullptr);
     if (status != CUSPARSE_STATUS_SUCCESS) {
-        cusparseLtMatDescriptorDestroy(&matA);
+        cusparseLtMatDescriptorDestroy(&matW);
         set_error("Failed to get compressed size");
         return -1;
     }
     
     status = cusparseLtSpMMACompress(
-        &g_handle, &matA,
+        &g_handle, &matW,
         input, output,
         cu_stream);
     
-    cusparseLtMatDescriptorDestroy(&matA);
+    cusparseLtMatDescriptorDestroy(&matW);
     
     return (status == CUSPARSE_STATUS_SUCCESS) ? (int64_t)compressed_size : -1;
 }
@@ -833,9 +833,9 @@ int64_t cusparselt_get_compressed_size(
     
     cusparseOrder_t order = CUSPARSE_ORDER_COL;
     
-    cusparseLtMatDescriptor_t matA;
+    cusparseLtMatDescriptor_t matW;
     cusparseStatus_t status = cusparseLtStructuredDescriptorInit(
-        &g_handle, &matA,
+        &g_handle, &matW,
         rows, cols, rows,
         16, info.cuda_type, order,
         CUSPARSELT_SPARSITY_50_PERCENT);
@@ -843,9 +843,9 @@ int64_t cusparselt_get_compressed_size(
     if (status != CUSPARSE_STATUS_SUCCESS) return -1;
     
     size_t compressed_size = 0;
-    status = cusparseLtSpMMACompressedSize(&g_handle, &matA, &compressed_size, nullptr);
+    status = cusparseLtSpMMACompressedSize(&g_handle, &matW, &compressed_size, nullptr);
     
-    cusparseLtMatDescriptorDestroy(&matA);
+    cusparseLtMatDescriptorDestroy(&matW);
     
     return (status == CUSPARSE_STATUS_SUCCESS) ? (int64_t)compressed_size : -1;
 }
