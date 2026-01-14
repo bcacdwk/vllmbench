@@ -308,6 +308,15 @@ static PlanContext& get_or_create_plan(cusparseLtHandle_t handle,
     const int ldD = N;
     const unsigned alignment = 16;
     
+    // 维度检查：INT8/FP8 稀疏矩阵需要 32 对齐
+    if (N % 32 != 0 || K % 32 != 0) {
+        std::ostringstream oss;
+        oss << "Dimension alignment error: N=" << N << ", K=" << K 
+            << ". For INT8/FP8 sparse matrices, N and K must be multiples of 32. "
+            << "Use slide.py with align_to=32.";
+        throw std::invalid_argument(oss.str());
+    }
+    
     bool matW_ok = false, matA_ok = false, matD_ok = false;
     bool alg_ok = false, plan_ok = false;
     

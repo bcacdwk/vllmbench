@@ -272,8 +272,17 @@ def compress_tensor(
     
     N, K = weight.shape
     
-    if K % 4 != 0:
-        raise ValueError(f"K must be multiple of 4 for 2:4 sparsity, got K={K}")
+    # cuSPARSELt 对 INT8/FP8 稀疏矩阵要求 N 和 K 必须是 32 的倍数
+    if N % 32 != 0:
+        raise ValueError(
+            f"N must be multiple of 32 for cuSPARSELt sparse matrices, got N={N}. "
+            f"Use slide.py with align_to=32 to ensure proper alignment."
+        )
+    if K % 32 != 0:
+        raise ValueError(
+            f"K must be multiple of 32 for cuSPARSELt sparse matrices, got K={K}. "
+            f"Use slide.py with align_to=32 to ensure proper alignment."
+        )
     
     # 验证 2:4 稀疏性（转为 float 进行检查）
     weight_float = weight.float()
@@ -612,12 +621,11 @@ def main():
   TN-CC 格式（W^T * A，全列主序）
 
 示例：
-  # 压缩 INT8 checkpoint
-  python compress.py -i checkpoints_slidesparse/BitNet-2B_mag_Z2L8_INT8_slided \\
-                     -o checkpoints_slidesparse/BitNet-2B_mag_Z2L8_INT8_compressed
+  # 压缩 INT8 checkpoint（自动推导输出路径）
+  python compress.py -i checkpoints_slidesparse/BitNet-2B_mag_Z2L8_INT8_slided_2_8
   
-  # 压缩 FP8 checkpoint
-  python compress.py -i checkpoints_slidesparse/BitNet-2B_mag_Z2L6_FP8E4M3_slided \\
+  # 压缩 FP8 checkpoint（指定输出路径）
+  python compress.py -i checkpoints_slidesparse/BitNet-2B_mag_Z2L6_FP8E4M3_slided_2_6 \\
                      -o checkpoints_slidesparse/BitNet-2B_mag_Z2L6_FP8E4M3_compressed
 
 使用 --fake 可以跳过真实压缩进行测试
@@ -662,10 +670,14 @@ def main():
         output_path = Path(args.output)
     else:
         if input_path.is_dir():
-            # 替换 _slided 为 _compressed
+            # 替换 _slided 后缀为 _compressed
+            # 支持两种格式: xxx_slided 或 xxx_slided_Z_L
             name = input_path.name
-            if name.endswith("_slided"):
-                new_name = name[:-7] + "_compressed"
+            import re
+            # 匹配 _slided 或 _slided_数字_数字
+            slided_match = re.search(r"_slided(_\d+_\d+)?$", name)
+            if slided_match:
+                new_name = name[:slided_match.start()] + "_compressed"
             else:
                 new_name = name + "_compressed"
             output_path = input_path.parent / new_name
