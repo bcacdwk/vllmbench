@@ -16,6 +16,13 @@ from pathlib import Path
 
 import torch
 
+# 添加项目路径
+PROJECT_ROOT = Path(__file__).parent.parent.parent.parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
+
+# 导入统一的库加载函数
+from slidesparse.utils import ensure_cusparselt_loaded as _ensure_cusparselt_loaded
+
 # === 超时信号处理 ===
 class TimeoutError(Exception):
     pass
@@ -25,27 +32,14 @@ def timeout_handler(signum, frame):
 
 # === 加载 cuSPARSELt ===
 def ensure_cusparselt_loaded():
-    preferred_paths = [
-        "/usr/lib/x86_64-linux-gnu/libcusparseLt.so.0",
-        "/usr/local/cuda/lib64/libcusparseLt.so.0",
-    ]
-    found = ctypes.util.find_library("cusparseLt")
-    if found:
-        preferred_paths.append(found)
-    
-    for path in preferred_paths:
-        if not path:
-            continue
-        try:
-            lib = ctypes.CDLL(path, mode=ctypes.RTLD_GLOBAL)
-            getattr(lib, "cusparseLtMatmulAlgSelectionDestroy")
-            print(f"  Loaded cuSPARSELt from: {path}")
-            return True
-        except (OSError, AttributeError):
-            continue
-    
-    print("  ERROR: Cannot find libcusparseLt.so")
-    return False
+    """封装顶层函数，返回 True/False 而不是 raise"""
+    try:
+        _ensure_cusparselt_loaded()
+        print("  Loaded cuSPARSELt successfully")
+        return True
+    except OSError as e:
+        print(f"  ERROR: {e}")
+        return False
 
 # === 加载扩展 ===
 def load_ext():

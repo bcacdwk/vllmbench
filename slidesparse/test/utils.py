@@ -145,115 +145,49 @@ def get_normalize_dtype(dtype: str) -> str:
 
 
 # ============================================================================
-# CUDA 库加载工具
+# CUDA 库加载工具（从顶层 utils 导入）
 # ============================================================================
 
-# cuBLASLt 加载状态
-_CUBLASLT_LOADED = False
+# 延迟导入，避免循环依赖
+_ensure_cublaslt_loaded = None
+_ensure_cusparselt_loaded = None
+_load_cuda_extension = None
+_SUPPORTED_BACKENDS = None
+_BACKEND_LDFLAGS = None
+_BACKEND_LOADERS = None
+
+
+def _import_cuda_utils():
+    """延迟导入 slidesparse.utils 中的 CUDA 工具"""
+    global _ensure_cublaslt_loaded, _ensure_cusparselt_loaded, _load_cuda_extension
+    global _SUPPORTED_BACKENDS, _BACKEND_LDFLAGS, _BACKEND_LOADERS
+    if _ensure_cublaslt_loaded is None:
+        from slidesparse.utils import (
+            ensure_cublaslt_loaded as _ecl,
+            ensure_cusparselt_loaded as _ecspl,
+            load_cuda_extension as _lce,
+            SUPPORTED_BACKENDS as _sb,
+            BACKEND_LDFLAGS as _blf,
+            BACKEND_LOADERS as _bl,
+        )
+        _ensure_cublaslt_loaded = _ecl
+        _ensure_cusparselt_loaded = _ecspl
+        _load_cuda_extension = _lce
+        _SUPPORTED_BACKENDS = _sb
+        _BACKEND_LDFLAGS = _blf
+        _BACKEND_LOADERS = _bl
+
 
 def ensure_cublaslt_loaded() -> None:
-    """
-    优先加载系统或环境变量指定的 cuBLASLt，避免符号冲突。
-    
-    必须在加载自定义 .so 之前完成。
-    """
-    global _CUBLASLT_LOADED
-    if _CUBLASLT_LOADED:
-        return
+    """优先加载系统或环境变量指定的 cuBLASLt（代理函数）"""
+    _import_cuda_utils()
+    return _ensure_cublaslt_loaded()
 
-    preferred_paths = []
-    env_path = os.environ.get("CUBLASLT_PATH")
-    if env_path:
-        preferred_paths.append(env_path)
-
-    preferred_paths.extend([
-        "/usr/lib/aarch64-linux-gnu/libcublasLt.so",
-        "/usr/lib/x86_64-linux-gnu/libcublasLt.so",
-        "/usr/local/cuda/lib64/libcublasLt.so",
-    ])
-    found = ctypes.util.find_library("cublasLt")
-    if found:
-        preferred_paths.append(found)
-
-    for path in dict.fromkeys(preferred_paths):  # 去重但保持优先级
-        if not path:
-            continue
-        try:
-            lib = ctypes.CDLL(path, mode=ctypes.RTLD_GLOBAL)
-            getattr(lib, "cublasLtCreate")
-            _CUBLASLT_LOADED = True
-            return
-        except (OSError, AttributeError):
-            continue
-
-    raise OSError(
-        "无法找到兼容的 libcublasLt，请设置 CUBLASLT_PATH 或确保 CUDA 已正确安装。"
-    )
-
-
-# cuSPARSELt 加载状态
-_CUSPARSELT_LOADED = False
 
 def ensure_cusparselt_loaded() -> None:
-    """
-    优先加载系统或环境变量指定的 cuSPARSELt，避免符号冲突。
-    
-    必须在加载自定义 .so 之前完成。
-    """
-    global _CUSPARSELT_LOADED
-    if _CUSPARSELT_LOADED:
-        return
-
-    preferred_paths = []
-    env_path = os.environ.get("CUSPARSELT_PATH")
-    if env_path:
-        preferred_paths.append(env_path)
-
-    preferred_paths.extend([
-        "/usr/lib/aarch64-linux-gnu/libcusparseLt.so.0",
-        "/usr/lib/aarch64-linux-gnu/libcusparseLt/13/libcusparseLt.so.0",
-        "/usr/lib/x86_64-linux-gnu/libcusparseLt.so.0",
-        "/usr/lib/x86_64-linux-gnu/libcusparseLt/13/libcusparseLt.so.0",
-        "/usr/local/cuda/lib64/libcusparseLt.so.0",
-    ])
-    found = ctypes.util.find_library("cusparseLt")
-    if found:
-        preferred_paths.append(found)
-
-    for path in dict.fromkeys(preferred_paths):  # 去重但保持优先级
-        if not path:
-            continue
-        try:
-            lib = ctypes.CDLL(path, mode=ctypes.RTLD_GLOBAL)
-            getattr(lib, "cusparseLtMatmulAlgSelectionDestroy")
-            _CUSPARSELT_LOADED = True
-            return
-        except (OSError, AttributeError):
-            continue
-
-    raise OSError(
-        "无法找到兼容的 libcusparseLt，请设置 CUSPARSELT_PATH 或安装 CUDA 12.9+。"
-    )
-
-
-# ============================================================================
-# CUDA 扩展编译/加载工具
-# ============================================================================
-
-# 支持的后端类型
-SUPPORTED_BACKENDS = ["cublaslt", "cusparselt"]
-
-# 后端对应的链接库
-BACKEND_LDFLAGS = {
-    "cublaslt": ["-lcublasLt", "-lcublas"],
-    "cusparselt": ["-lcusparseLt", "-lnvrtc", "-ldl"],
-}
-
-# 后端对应的库加载函数
-BACKEND_LOADERS = {
-    "cublaslt": ensure_cublaslt_loaded,
-    "cusparselt": ensure_cusparselt_loaded,
-}
+    """优先加载系统或环境变量指定的 cuSPARSELt（代理函数）"""
+    _import_cuda_utils()
+    return _ensure_cusparselt_loaded()
 
 
 def load_cuda_extension(
@@ -265,110 +199,29 @@ def load_cuda_extension(
     verbose: bool = True,
     force_compile: bool = False,
 ) -> object:
-    """
-    加载或编译 CUDA 扩展。
-    
-    根据当前 GPU 设备加载或编译对应的 .so 文件，使用统一的命名规范。
-    
-    命名规范示例:
-    - alg_search_cublaslt_H100_cc90_py312_cu129_x86_64.so
-    - layout_search_cusparselt_B200_cc100_py312_cu129_x86_64.so
-    
-    Args:
-        script_type: 脚本类型 ("alg_search" 或 "layout_search")
-        backend: 后端类型 ("cublaslt" 或 "cusparselt")
-        source_file: CUDA 源文件路径 (.cu)
-        build_dir: 构建目录，默认为源文件所在目录的 build 子目录
-        verbose: 是否显示进度信息
-        force_compile: 是否强制重新编译
-    
-    Returns:
-        编译好的扩展模块
-        
-    Raises:
-        ValueError: 无效的后端类型
-        FileNotFoundError: 源文件不存在
-        RuntimeError: 编译失败
-    """
-    import torch
-    from torch.utils.cpp_extension import load
-    
-    if backend not in SUPPORTED_BACKENDS:
-        raise ValueError(f"无效的后端类型: {backend}，支持的类型: {SUPPORTED_BACKENDS}")
-    
-    if not source_file.exists():
-        raise FileNotFoundError(f"源文件不存在: {source_file}")
-    
-    # 加载对应的 CUDA 库
-    if verbose:
-        lib_name = "cuBLASLt" if backend == "cublaslt" else "cuSPARSELt"
-        print(f"[1/4] 加载 {lib_name} 库...", end=" ", flush=True)
-    
-    BACKEND_LOADERS[backend]()
-    
-    if verbose:
-        print("✓", flush=True)
-    
-    # 获取硬件信息
-    hw = get_hw_info()
-    
-    # 构建扩展名称（不含 dtype，因为 so 同时支持 INT8 和 FP8）
-    # 格式: {script_type}_{backend}_{GPU}_{CC}_{PyVer}_{CUDAVer}_{Arch}
-    ext_name = get_build_stem(f"{script_type}_{backend}")
-    so_pattern = f"{ext_name}*.so"
-    
-    # 确定构建目录
-    if build_dir is None:
-        build_dir = source_file.parent / "build"
-    build_dir.mkdir(parents=True, exist_ok=True)
-    
-    # 检查已有的 .so 文件
-    existing_so = list(build_dir.glob(so_pattern))
-    need_compile = force_compile
-    
-    if not need_compile:
-        if not existing_so:
-            need_compile = True
-        else:
-            # 源文件比 .so 新则需要重编译
-            need_compile = source_file.stat().st_mtime > existing_so[0].stat().st_mtime
-    
-    if not need_compile and existing_so:
-        # 直接加载已有的 .so
-        if verbose:
-            print(f"[2/4] 加载 {hw.gpu_name} 扩展...", end=" ", flush=True)
-        
-        spec = importlib.util.spec_from_file_location(ext_name, str(existing_so[0]))
-        ext = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(ext)
-        
-        if verbose:
-            print(f"✓ ({existing_so[0].name})", flush=True)
-        return ext
-    else:
-        # 编译新的 .so
-        if verbose:
-            reason = "强制" if force_compile else ("首次" if not existing_so else "源文件已更新")
-            print(f"[2/4] 编译 {hw.gpu_name} 扩展（{reason}）...", end=" ", flush=True)
-        
-        ext = load(
-            name=ext_name,
-            sources=[str(source_file)],
-            extra_cuda_cflags=["-O3", f"-arch={hw.sm_code}"],
-            extra_ldflags=BACKEND_LDFLAGS[backend],
-            verbose=False,
-            build_directory=str(build_dir),
-            with_cuda=True,
-        )
-        
-        # 清理编译中间文件，只保留 .so
-        for pattern in [".ninja_deps", ".ninja_log", "build.ninja", "*.o"]:
-            for f in build_dir.glob(pattern):
-                f.unlink(missing_ok=True)
-        
-        if verbose:
-            print("✓", flush=True)
-        return ext
+    """加载或编译 CUDA 扩展（代理函数）"""
+    _import_cuda_utils()
+    return _load_cuda_extension(
+        script_type, backend, source_file, build_dir,
+        verbose=verbose, force_compile=force_compile
+    )
+
+
+# 导出常量（直接从顶层导入）
+def get_supported_backends():
+    """获取支持的后端列表"""
+    _import_cuda_utils()
+    return _SUPPORTED_BACKENDS
+
+def get_backend_ldflags():
+    """获取后端链接标志"""
+    _import_cuda_utils()
+    return _BACKEND_LDFLAGS
+
+def get_backend_loaders():
+    """获取后端加载函数映射"""
+    _import_cuda_utils()
+    return _BACKEND_LOADERS
 
 
 def build_output_dir_name(

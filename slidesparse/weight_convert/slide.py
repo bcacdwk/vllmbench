@@ -172,7 +172,7 @@ def _slide_greedy_allocation_python(
 def slide_tensor(
     weight: torch.Tensor,
     config: SlideSparseConfig,
-    align_to: int = 16,
+    align_to: int = 32,
     verbose: bool = False,
 ) -> Tuple[torch.Tensor, Dict[str, Any]]:
     """

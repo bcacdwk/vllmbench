@@ -11,7 +11,7 @@
  * 
  * 计算流程：
  * =========
- * D[M,N] = A[M,K] @ W[N,K]^T
+ * D[M,N] = W[N,K]^T @ A[M,K]
  * 
  * cuBLASLt 配置：
  * ==============
@@ -22,7 +22,7 @@
  * 
  * 支持的数据类型组合：
  * ===================
- * - input_dtype: "fp8e4m3" (FP8E4M3FN) 或 "int8" (INT8)
+ * - input_dtype: "fp8e4m3" (FP8E4M3) 或 "int8" (INT8)
  * - inner_dtype: "bf16" (BFloat16) 或 "fp32" (Float32)
  */
 

@@ -157,6 +157,252 @@ def normalize_dtype(dtype: str) -> str:
 
 
 # =============================================================================
+# CUDA 库加载工具
+# =============================================================================
+
+import ctypes
+import ctypes.util
+import os
+
+# cuBLASLt 加载状态
+_CUBLASLT_LOADED = False
+
+def ensure_cublaslt_loaded() -> None:
+    """
+    优先加载系统或环境变量指定的 cuBLASLt，避免符号冲突。
+    
+    必须在加载自定义 .so 之前完成。
+    
+    环境变量:
+        CUBLASLT_PATH: 指定 libcublasLt.so 的完整路径
+        
+    Raises:
+        OSError: 无法找到兼容的 libcublasLt
+    """
+    global _CUBLASLT_LOADED
+    if _CUBLASLT_LOADED:
+        return
+
+    preferred_paths = []
+    env_path = os.environ.get("CUBLASLT_PATH")
+    if env_path:
+        preferred_paths.append(env_path)
+
+    preferred_paths.extend([
+        "/usr/lib/aarch64-linux-gnu/libcublasLt.so",
+        "/usr/lib/x86_64-linux-gnu/libcublasLt.so",
+        "/usr/local/cuda/lib64/libcublasLt.so",
+    ])
+    found = ctypes.util.find_library("cublasLt")
+    if found:
+        preferred_paths.append(found)
+
+    for path in dict.fromkeys(preferred_paths):  # 去重但保持优先级
+        if not path:
+            continue
+        try:
+            lib = ctypes.CDLL(path, mode=ctypes.RTLD_GLOBAL)
+            getattr(lib, "cublasLtCreate")
+            _CUBLASLT_LOADED = True
+            return
+        except (OSError, AttributeError):
+            continue
+
+    raise OSError(
+        "无法找到兼容的 libcublasLt，请设置 CUBLASLT_PATH 或确保 CUDA 已正确安装。"
+    )
+
+
+# cuSPARSELt 加载状态
+_CUSPARSELT_LOADED = False
+
+def ensure_cusparselt_loaded() -> None:
+    """
+    优先加载系统或环境变量指定的 cuSPARSELt，避免符号冲突。
+    
+    必须在加载自定义 .so 之前完成。
+    
+    环境变量:
+        CUSPARSELT_PATH: 指定 libcusparseLt.so.0 的完整路径
+        
+    Raises:
+        OSError: 无法找到兼容的 libcusparseLt
+    """
+    global _CUSPARSELT_LOADED
+    if _CUSPARSELT_LOADED:
+        return
+
+    preferred_paths = []
+    env_path = os.environ.get("CUSPARSELT_PATH")
+    if env_path:
+        preferred_paths.append(env_path)
+
+    preferred_paths.extend([
+        "/usr/lib/aarch64-linux-gnu/libcusparseLt.so.0",
+        "/usr/lib/aarch64-linux-gnu/libcusparseLt/13/libcusparseLt.so.0",
+        "/usr/lib/x86_64-linux-gnu/libcusparseLt.so.0",
+        "/usr/lib/x86_64-linux-gnu/libcusparseLt/13/libcusparseLt.so.0",
+        "/usr/local/cuda/lib64/libcusparseLt.so.0",
+    ])
+    found = ctypes.util.find_library("cusparseLt")
+    if found:
+        preferred_paths.append(found)
+
+    for path in dict.fromkeys(preferred_paths):  # 去重但保持优先级
+        if not path:
+            continue
+        try:
+            lib = ctypes.CDLL(path, mode=ctypes.RTLD_GLOBAL)
+            getattr(lib, "cusparseLtMatmulAlgSelectionDestroy")
+            _CUSPARSELT_LOADED = True
+            return
+        except (OSError, AttributeError):
+            continue
+
+    raise OSError(
+        "无法找到兼容的 libcusparseLt，请设置 CUSPARSELT_PATH 或安装 CUDA 12.9+。"
+    )
+
+
+# =============================================================================
+# CUDA 扩展编译/加载工具
+# =============================================================================
+
+# 支持的后端类型
+SUPPORTED_BACKENDS = ["cublaslt", "cusparselt"]
+
+# 后端对应的链接库
+BACKEND_LDFLAGS = {
+    "cublaslt": ["-lcublasLt", "-lcublas"],
+    "cusparselt": ["-lcusparseLt", "-lnvrtc", "-ldl"],
+}
+
+# 后端对应的库加载函数
+BACKEND_LOADERS = {
+    "cublaslt": ensure_cublaslt_loaded,
+    "cusparselt": ensure_cusparselt_loaded,
+}
+
+
+def load_cuda_extension(
+    script_type: str,
+    backend: str,
+    source_file: "Path",
+    build_dir: "Optional[Path]" = None,
+    *,
+    verbose: bool = True,
+    force_compile: bool = False,
+) -> object:
+    """
+    加载或编译 CUDA 扩展。
+    
+    根据当前 GPU 设备加载或编译对应的 .so 文件，使用统一的命名规范。
+    
+    命名规范示例:
+    - alg_search_cublaslt_H100_cc90_py312_cu129_x86_64.so
+    - layout_search_cusparselt_B200_cc100_py312_cu129_x86_64.so
+    
+    Args:
+        script_type: 脚本类型 ("alg_search" 或 "layout_search")
+        backend: 后端类型 ("cublaslt" 或 "cusparselt")
+        source_file: CUDA 源文件路径 (.cu)
+        build_dir: 构建目录，默认为源文件所在目录的 build 子目录
+        verbose: 是否显示进度信息
+        force_compile: 是否强制重新编译
+    
+    Returns:
+        编译好的扩展模块
+        
+    Raises:
+        ValueError: 无效的后端类型
+        FileNotFoundError: 源文件不存在
+        RuntimeError: 编译失败
+    """
+    torch = _get_torch()
+    from torch.utils.cpp_extension import load
+    
+    if backend not in SUPPORTED_BACKENDS:
+        raise ValueError(f"无效的后端类型: {backend}，支持的类型: {SUPPORTED_BACKENDS}")
+    
+    source_file = Path(source_file)
+    if not source_file.exists():
+        raise FileNotFoundError(f"源文件不存在: {source_file}")
+    
+    # 加载对应的 CUDA 库
+    if verbose:
+        lib_name = "cuBLASLt" if backend == "cublaslt" else "cuSPARSELt"
+        print(f"[1/4] 加载 {lib_name} 库...", end=" ", flush=True)
+    
+    BACKEND_LOADERS[backend]()
+    
+    if verbose:
+        print("✓", flush=True)
+    
+    # 获取硬件信息
+    hw = hw_info
+    
+    # 构建扩展名称（不含 dtype，因为 so 同时支持 INT8 和 FP8）
+    # 格式: {script_type}_{backend}_{GPU}_{CC}_{PyVer}_{CUDAVer}_{Arch}
+    ext_name = build_stem(f"{script_type}_{backend}")
+    so_pattern = f"{ext_name}*.so"
+    
+    # 确定构建目录
+    if build_dir is None:
+        build_dir = source_file.parent / "build"
+    else:
+        build_dir = Path(build_dir)
+    build_dir.mkdir(parents=True, exist_ok=True)
+    
+    # 检查已有的 .so 文件
+    existing_so = list(build_dir.glob(so_pattern))
+    need_compile = force_compile
+    
+    if not need_compile:
+        if not existing_so:
+            need_compile = True
+        else:
+            # 源文件比 .so 新则需要重编译
+            need_compile = source_file.stat().st_mtime > existing_so[0].stat().st_mtime
+    
+    if not need_compile and existing_so:
+        # 直接加载已有的 .so
+        if verbose:
+            print(f"[2/4] 加载 {hw.gpu_name} 扩展...", end=" ", flush=True)
+        
+        spec = importlib.util.spec_from_file_location(ext_name, str(existing_so[0]))
+        ext = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(ext)
+        
+        if verbose:
+            print(f"✓ ({existing_so[0].name})", flush=True)
+        return ext
+    else:
+        # 编译新的 .so
+        if verbose:
+            reason = "强制" if force_compile else ("首次" if not existing_so else "源文件已更新")
+            print(f"[2/4] 编译 {hw.gpu_name} 扩展（{reason}）...", end=" ", flush=True)
+        
+        ext = load(
+            name=ext_name,
+            sources=[str(source_file)],
+            extra_cuda_cflags=["-O3", f"-arch={hw.sm_code}"],
+            extra_ldflags=BACKEND_LDFLAGS[backend],
+            verbose=False,
+            build_directory=str(build_dir),
+            with_cuda=True,
+        )
+        
+        # 清理编译中间文件，只保留 .so
+        for pattern in [".ninja_deps", ".ninja_log", "build.ninja", "*.o"]:
+            for f in build_dir.glob(pattern):
+                f.unlink(missing_ok=True)
+        
+        if verbose:
+            print("✓", flush=True)
+        return ext
+
+
+# =============================================================================
 # 硬件信息类
 # =============================================================================
 
@@ -1813,6 +2059,347 @@ def check_model_downloaded(
 
 
 # =============================================================================
+# SlideSparse 配置和维度计算
+# =============================================================================
+
+@dataclass
+class SlideSparseConfig:
+    """
+    SlideSparse 转换配置
+    
+    稀疏格式说明：
+        Z:L 表示每 L 个连续元素中至少有 Z 个零
+        例如 2:8 表示每 8 个元素至少 2 个零（稀疏度 ≥ 25%）
+    
+    Attributes:
+        Z: 每组中至少的零元素数量（当前固定为 2）
+        L: 稀疏组的大小（如 6, 8, 10）
+        N: 内部参数，N = L // 2
+        window_size: 滑动窗口大小，固定为 4（对应 2:4 硬件）
+        stride: 滑动步长，固定为 2
+        num_windows: 每组内的窗口数量，= N - 1
+        expand_ratio: K 维度的扩展比例
+    """
+    Z: int = 2
+    L: int = 8
+    
+    # 派生参数（在 __post_init__ 中计算）
+    N: int = field(init=False)
+    window_size: int = field(init=False)
+    stride: int = field(init=False)
+    num_windows: int = field(init=False)
+    expand_ratio: float = field(init=False)
+    in_group_size: int = field(init=False)
+    out_group_size: int = field(init=False)
+    
+    def __post_init__(self):
+        if self.Z != 2:
+            raise ValueError(f"当前仅支持 Z=2 的稀疏格式，收到 Z={self.Z}")
+        if self.L % 2 != 0:
+            raise ValueError(f"L 必须为偶数，收到 L={self.L}")
+        if self.L < 4:
+            raise ValueError(f"L 必须 >= 4，收到 L={self.L}")
+        
+        self.N = self.L // 2
+        self.window_size = 4
+        self.stride = 2
+        self.num_windows = self.N - 1
+        self.expand_ratio = (self.num_windows * self.window_size) / self.L
+        self.in_group_size = self.L
+        self.out_group_size = self.num_windows * self.window_size
+    
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "Z": self.Z, "L": self.L, "N": self.N,
+            "window_size": self.window_size, "stride": self.stride,
+            "num_windows": self.num_windows, "expand_ratio": self.expand_ratio,
+            "in_group_size": self.in_group_size, "out_group_size": self.out_group_size,
+        }
+    
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "SlideSparseConfig":
+        return cls(Z=d["Z"], L=d["L"])
+    
+    def __repr__(self):
+        return (f"SlideSparseConfig(Z={self.Z}, L={self.L}, N={self.N}, "
+                f"expand={self.expand_ratio:.3f})")
+
+
+def compute_output_k(k_in: int, config: SlideSparseConfig, align_to: int = 16) -> Tuple[int, int]:
+    """
+    计算滑动扩展后的 K 维度
+    
+    Args:
+        k_in: 原始输入维度 K
+        config: SlideSparse 配置
+        align_to: 输出对齐要求（默认 16）
+    
+    Returns:
+        (k_padded, k_out):
+            - k_padded: padding 后的输入 K（L 的倍数）
+            - k_out: 滑动扩展后的输出 K（对齐到 align_to）
+    """
+    L = config.L
+    k_padded = ((k_in + L - 1) // L) * L
+    num_groups = k_padded // L
+    k_out_raw = num_groups * config.out_group_size
+    k_out = ((k_out_raw + align_to - 1) // align_to) * align_to
+    return k_padded, k_out
+
+
+def compute_compressed_k(k_slided: int) -> int:
+    """
+    计算 2:4 压缩后的 K 维度
+    
+    2:4 压缩将 K 减半（每 4 个元素压缩为 2 个值 + metadata）
+    """
+    return k_slided // 2
+
+
+# =============================================================================
+# 模型 NK Size 提取工具
+# =============================================================================
+
+# 线性层类型映射（标准 HuggingFace 格式）
+LINEAR_LAYER_TYPES = {
+    # Attention 层 - 映射到统一的键名
+    "q_proj": "qkv",       # Q projection -> qkv（合并报告）
+    "k_proj": "qkv",       # K projection -> qkv
+    "v_proj": "qkv",       # V projection -> qkv
+    "qkv_proj": "qkv",     # QKV 融合
+    "o_proj": "wo",        # Output projection
+    # MLP 层
+    "gate_proj": "w13",    # Gate projection (w1) -> w13（合并报告）
+    "up_proj": "w13",      # Up projection (w3) -> w13
+    "gate_up_proj": "w13", # Gate+Up 融合
+    "down_proj": "w2",     # Down projection (w2)
+}
+
+
+def get_model_nk_sizes(
+    model_path: Union[str, Path],
+    *,
+    layer_index: int = 0,
+) -> Dict[str, Tuple[int, int]]:
+    """
+    从 safetensor 文件提取模型线性层的 N,K 尺寸
+    
+    Args:
+        model_path: 模型目录或 safetensor 文件路径
+        layer_index: 使用哪一层的尺寸（默认第 0 层，因为所有层尺寸相同）
+    
+    Returns:
+        Dict[str, Tuple[int, int]]: 层类型 -> (N, K) 尺寸
+        键为: "qkv", "wo", "w13", "w2"
+        
+    Example:
+        >>> sizes = get_model_nk_sizes("checkpoints/Qwen2.5-7B-INT8")
+        >>> sizes
+        {
+            'qkv': (4608, 3584),   # Q+K+V 合并后的 N, 共同的 K
+            'wo': (3584, 3584),    # Output projection
+            'w13': (18944, 3584),  # Gate+Up 合并后的 N
+            'w2': (3584, 9472),    # Down projection
+        }
+    """
+    try:
+        from safetensors import safe_open
+    except ImportError:
+        raise ImportError("safetensors is required: pip install safetensors")
+    
+    model_path = Path(model_path)
+    
+    # 找到 safetensor 文件
+    if model_path.is_file() and model_path.suffix == ".safetensors":
+        safetensor_files = [model_path]
+    elif model_path.is_dir():
+        safetensor_files = list(model_path.glob("*.safetensors"))
+        if not safetensor_files:
+            raise FileNotFoundError(f"No safetensors files in {model_path}")
+    else:
+        raise FileNotFoundError(f"Path not found: {model_path}")
+    
+    # 收集尺寸
+    # 格式: { "qkv": {"q": (N,K), "k": (N,K), "v": (N,K)}, "wo": (N,K), ... }
+    raw_sizes: Dict[str, Dict[str, Tuple[int, int]]] = {
+        "qkv": {}, "wo": {}, "w13": {}, "w2": {}
+    }
+    
+    target_layer_prefix = f".{layer_index}."  # e.g., ".0."
+    
+    for sf_path in safetensor_files:
+        with safe_open(sf_path, framework="pt") as f:
+            for key in f.keys():
+                # 只处理目标层
+                if target_layer_prefix not in key:
+                    continue
+                if "weight" not in key.lower() or "scale" in key.lower():
+                    continue
+                
+                tensor = f.get_tensor(key)
+                if tensor.dim() != 2:
+                    continue
+                
+                N, K = tensor.shape
+                
+                # 识别层类型
+                key_lower = key.lower()
+                for pattern, group in LINEAR_LAYER_TYPES.items():
+                    if pattern in key_lower:
+                        if group == "qkv":
+                            # 分别记录 q/k/v
+                            if "q_proj" in key_lower or "qkv_proj" in key_lower:
+                                raw_sizes["qkv"]["q"] = (N, K)
+                            if "k_proj" in key_lower:
+                                raw_sizes["qkv"]["k"] = (N, K)
+                            if "v_proj" in key_lower:
+                                raw_sizes["qkv"]["v"] = (N, K)
+                            if "qkv_proj" in key_lower:
+                                # 融合的 QKV
+                                raw_sizes["qkv"]["qkv"] = (N, K)
+                        elif group == "w13":
+                            if "gate_proj" in key_lower or "gate_up_proj" in key_lower:
+                                raw_sizes["w13"]["gate"] = (N, K)
+                            if "up_proj" in key_lower:
+                                raw_sizes["w13"]["up"] = (N, K)
+                            if "gate_up_proj" in key_lower:
+                                raw_sizes["w13"]["gate_up"] = (N, K)
+                        else:
+                            raw_sizes[group] = (N, K)
+                        break
+    
+    # 合并尺寸
+    result: Dict[str, Tuple[int, int]] = {}
+    
+    # QKV 处理
+    qkv_data = raw_sizes["qkv"]
+    if "qkv" in qkv_data:
+        # 融合的 QKV
+        result["qkv"] = qkv_data["qkv"]
+    elif qkv_data:
+        # 分离的 Q, K, V - 合并 N, K 应该相同
+        q_size = qkv_data.get("q", (0, 0))
+        k_size = qkv_data.get("k", (0, 0))
+        v_size = qkv_data.get("v", (0, 0))
+        total_n = q_size[0] + k_size[0] + v_size[0]
+        common_k = q_size[1] or k_size[1] or v_size[1]
+        result["qkv"] = (total_n, common_k)
+    
+    # W13 处理
+    w13_data = raw_sizes["w13"]
+    if "gate_up" in w13_data:
+        result["w13"] = w13_data["gate_up"]
+    elif w13_data:
+        gate_size = w13_data.get("gate", (0, 0))
+        up_size = w13_data.get("up", (0, 0))
+        total_n = gate_size[0] + up_size[0]
+        common_k = gate_size[1] or up_size[1]
+        result["w13"] = (total_n, common_k)
+    
+    # WO 和 W2 直接使用
+    if isinstance(raw_sizes["wo"], tuple):
+        result["wo"] = raw_sizes["wo"]
+    if isinstance(raw_sizes["w2"], tuple):
+        result["w2"] = raw_sizes["w2"]
+    
+    return result
+
+
+def get_model_nk_sizes_slided(
+    nk_sizes: Dict[str, Tuple[int, int]],
+    Z: int,
+    L: int,
+    align_to: int = 16,
+) -> Dict[str, Tuple[int, int]]:
+    """
+    计算 slide 后的 N,K 尺寸
+    
+    Args:
+        nk_sizes: 原始 N,K 尺寸（来自 get_model_nk_sizes）
+        Z: 稀疏度分子
+        L: 稀疏度分母
+        align_to: 对齐要求
+    
+    Returns:
+        Dict[str, Tuple[int, int]]: 层类型 -> slide 后的 (N, K_out)
+        
+    Example:
+        >>> sizes = get_model_nk_sizes("checkpoints/Qwen2.5-7B-INT8")
+        >>> slided = get_model_nk_sizes_slided(sizes, Z=2, L=8)
+        >>> slided
+        {
+            'qkv': (4608, 5376),   # K 扩展 1.5x
+            'wo': (3584, 5376),
+            'w13': (18944, 5376),
+            'w2': (3584, 14208),
+        }
+    """
+    config = SlideSparseConfig(Z=Z, L=L)
+    result = {}
+    
+    for layer_type, (N, K) in nk_sizes.items():
+        _, k_out = compute_output_k(K, config, align_to)
+        result[layer_type] = (N, k_out)
+    
+    return result
+
+
+def get_model_nk_sizes_compressed(
+    nk_sizes_slided: Dict[str, Tuple[int, int]],
+) -> Dict[str, Tuple[int, int]]:
+    """
+    计算 2:4 压缩后的 N,K 尺寸
+    
+    Args:
+        nk_sizes_slided: slide 后的 N,K 尺寸
+    
+    Returns:
+        Dict[str, Tuple[int, int]]: 层类型 -> 压缩后的 (N, K_compressed)
+    """
+    result = {}
+    for layer_type, (N, K) in nk_sizes_slided.items():
+        result[layer_type] = (N, compute_compressed_k(K))
+    return result
+
+
+def print_model_nk_summary(
+    model_path: Union[str, Path],
+    Z: int = 2,
+    L: int = 8,
+    align_to: int = 16,
+) -> None:
+    """
+    打印模型的 NK 尺寸摘要（原始、slide、压缩）
+    
+    Args:
+        model_path: 模型路径
+        Z, L: 稀疏参数
+        align_to: 对齐要求
+    """
+    print(f"Model NK Size Summary: {model_path}")
+    print(f"SlideSparse Config: Z={Z}, L={L}, align={align_to}")
+    print("=" * 70)
+    
+    config = SlideSparseConfig(Z=Z, L=L)
+    print(f"Expand ratio: {config.expand_ratio:.4f}")
+    print()
+    
+    original = get_model_nk_sizes(model_path)
+    slided = get_model_nk_sizes_slided(original, Z, L, align_to)
+    compressed = get_model_nk_sizes_compressed(slided)
+    
+    print(f"{'Layer':<8} {'Original N,K':<18} {'Slided N,K':<18} {'Compressed N,K':<18}")
+    print("-" * 70)
+    
+    for layer in ["qkv", "wo", "w13", "w2"]:
+        if layer in original:
+            orig = original[layer]
+            slid = slided[layer]
+            comp = compressed[layer]
+            print(f"{layer:<8} {str(orig):<18} {str(slid):<18} {str(comp):<18}")
+
+
+# =============================================================================
 # 导出
 # =============================================================================
 
@@ -1820,6 +2407,14 @@ __all__ = [
     # 数据类型
     "normalize_dtype",
     "DTYPE_ALIASES",
+    
+    # CUDA 库加载
+    "ensure_cublaslt_loaded",
+    "ensure_cusparselt_loaded",
+    "load_cuda_extension",
+    "SUPPORTED_BACKENDS",
+    "BACKEND_LDFLAGS",
+    "BACKEND_LOADERS",
     
     # 硬件信息
     "HardwareInfo",
@@ -1874,6 +2469,18 @@ __all__ = [
     "check_quant_support",
     "get_model_local_path",
     "check_model_downloaded",
+    
+    # SlideSparse 配置和维度计算
+    "SlideSparseConfig",
+    "compute_output_k",
+    "compute_compressed_k",
+    
+    # 模型 NK Size 工具
+    "LINEAR_LAYER_TYPES",
+    "get_model_nk_sizes",
+    "get_model_nk_sizes_slided",
+    "get_model_nk_sizes_compressed",
+    "print_model_nk_summary",
 ]
 
 

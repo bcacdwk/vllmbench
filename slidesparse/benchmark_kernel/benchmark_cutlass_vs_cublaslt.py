@@ -26,32 +26,9 @@ from torch.utils.cpp_extension import load
 SCRIPT_DIR = Path(__file__).parent
 PROJECT_ROOT = SCRIPT_DIR.parent.parent
 
-
-# ============== cuBLASLt 库预加载 ==============
-_CUBLASLT_LOADED = False
-
-def ensure_cublaslt_loaded():
-    """预加载 cuBLASLt 库避免符号冲突"""
-    global _CUBLASLT_LOADED
-    if _CUBLASLT_LOADED:
-        return
-    
-    paths = [
-        os.environ.get("CUBLASLT_PATH"),
-        "/usr/lib/x86_64-linux-gnu/libcublasLt.so",
-        "/usr/local/cuda/lib64/libcublasLt.so",
-        ctypes.util.find_library("cublasLt"),
-    ]
-    
-    for p in filter(None, paths):
-        try:
-            ctypes.CDLL(p, mode=ctypes.RTLD_GLOBAL)
-            _CUBLASLT_LOADED = True
-            return
-        except OSError:
-            continue
-    
-    raise OSError("Cannot find libcublasLt.so")
+# 导入统一的库加载函数
+sys.path.insert(0, str(PROJECT_ROOT))
+from slidesparse.utils import ensure_cublaslt_loaded
 
 
 # ============== CUDA 扩展加载 ==============

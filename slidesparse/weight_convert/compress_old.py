@@ -7,13 +7,10 @@ SlideSparse cuSPARSELt 压缩脚本
 
 压缩原理：
 - cuSPARSELt 的 2:4 结构化稀疏将每 4 个元素压缩为 2 个非零值 + 元数据
-- K 维度减半：[N, K] -> [N, K/2] (压缩数据) + 元数据
+- K 维度减半：[N, K] -> [N, K/2] (压缩数据) + [N, K/8] (元数据)
 
-布局约定（TN-CC 格式）：
-- D = W × A
-- W: 稀疏权重 [N, K]，列主序，转置 (opW = T)
-- A: 稠密激活 [K, M]，列主序，不转置 (opA = N)  
-- D: 输出 [N, M]，列主序
+依赖：
+- build/libbitnet_compress.so - 编译好的 cuSPARSELt 压缩库
 
 Usage:
     python compress.py --input /path/to/slided --output /path/to/compressed
@@ -21,27 +18,13 @@ Usage:
 
 import argparse
 import ctypes
+import os
 import sys
 from pathlib import Path
 from typing import Dict, Any, Tuple, Optional
 
 import torch
-
-# 添加项目路径
-_SCRIPT_DIR = Path(__file__).parent
-_SLIDESPARSE_ROOT = _SCRIPT_DIR.parent
-_PROJECT_ROOT = _SLIDESPARSE_ROOT.parent
-
-if str(_PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(_PROJECT_ROOT))
-
-# 使用顶层 utils 获取硬件信息和文件命名
-from slidesparse.utils import (
-    hw_info,
-    build_filename,
-    find_file,
-    ensure_cusparselt_loaded,
-)
+import numpy as np
 
 # 导入本地工具
 from utils import (
@@ -58,99 +41,87 @@ from utils import (
     print_success,
     print_warning,
     print_error,
+    BUILD_DIR,
 )
 
 
 # =============================================================================
-# 压缩扩展管理
+# libbitnet_compress.so 加载（自定义压缩库）
 # =============================================================================
 
-# 压缩扩展前缀
-COMPRESS_EXTENSION_PREFIX = "cusparselt_compress"
-
-# 全局扩展模块缓存
-_compress_module = None
+_compress_lib = None
 
 
-def get_compress_module():
+def get_compress_lib():
     """
-    获取压缩扩展模块
+    加载 BitNet 压缩库 (libbitnet_compress.so)
     
-    自动编译（如果需要）并加载 .so 文件。
+    这是一个自定义编译的库，封装了 cuSPARSELt 的压缩功能。
     
     Returns:
-        ctypes 加载的模块
+        ctypes library object
     """
-    global _compress_module
+    global _compress_lib
     
-    if _compress_module is not None:
-        return _compress_module
+    if _compress_lib is not None:
+        return _compress_lib
     
-    # 确保 cuSPARSELt 库已加载
-    ensure_cusparselt_loaded()
+    # 查找 SO 文件
+    so_paths = [
+        BUILD_DIR / "libbitnet_compress.so",
+        Path(__file__).parent / "build" / "libbitnet_compress.so",
+        Path("/usr/local/lib/libbitnet_compress.so"),
+    ]
     
-    # 查找已编译的 .so
-    build_dir = _SCRIPT_DIR / "build"
-    
-    so_path = find_file(
-        COMPRESS_EXTENSION_PREFIX,
-        search_dir=build_dir,
-        ext=".so",
-    )
+    so_path = None
+    for p in so_paths:
+        if p.exists():
+            so_path = p
+            break
     
     if so_path is None:
-        # 尝试编译
-        print_info("Compress extension not found, building...")
-        try:
-            from build_compress import build_extension
-            so_path = build_extension(force=False, verbose=True)
-        except Exception as e:
-            raise RuntimeError(
-                f"Failed to build compress extension: {e}\n"
-                f"Please run: python3 {_SCRIPT_DIR}/build_compress.py build"
-            ) from e
+        raise FileNotFoundError(
+            f"BitNet compress library not found. "
+            f"Expected locations: {[str(p) for p in so_paths]}"
+        )
     
-    print_info(f"Loading compress extension: {so_path.name}")
+    print_info(f"Loading compress library: {so_path}")
     
-    # 加载 .so
-    lib = ctypes.CDLL(str(so_path))
+    _compress_lib = ctypes.CDLL(str(so_path))
     
     # 设置函数签名
-    # void cusparselt_get_compress_sizes(int N, int K, size_t* compressed_size, size_t* temp_buffer_size)
-    lib.cusparselt_get_compress_sizes.argtypes = [
-        ctypes.c_int,                      # N
-        ctypes.c_int,                      # K
-        ctypes.POINTER(ctypes.c_size_t),   # compressed_size
-        ctypes.POINTER(ctypes.c_size_t),   # temp_buffer_size
+    # bitlinear_get_compress_sizes(int M, int N, int K, size_t* compressed_size, size_t* temp_buffer_size)
+    _compress_lib.bitlinear_get_compress_sizes.argtypes = [
+        ctypes.c_int,  # M
+        ctypes.c_int,  # N
+        ctypes.c_int,  # K
+        ctypes.POINTER(ctypes.c_size_t),  # compressed_size
+        ctypes.POINTER(ctypes.c_size_t),  # temp_buffer_size
     ]
-    lib.cusparselt_get_compress_sizes.restype = None
+    _compress_lib.bitlinear_get_compress_sizes.restype = None
     
-    # void cusparselt_compress_weight(const int8_t* input, void* compressed, void* temp, int N, int K, cudaStream_t stream)
-    lib.cusparselt_compress_weight.argtypes = [
+    # bitlinear_compress_weight(int8_t* input, void* compressed, void* temp, int M, int N, int K, cudaStream_t stream)
+    _compress_lib.bitlinear_compress_weight.argtypes = [
         ctypes.c_void_p,  # input_weight
         ctypes.c_void_p,  # compressed_weight
         ctypes.c_void_p,  # temp_buffer
+        ctypes.c_int,     # M
         ctypes.c_int,     # N
         ctypes.c_int,     # K
         ctypes.c_void_p,  # stream (可以是 None)
     ]
-    lib.cusparselt_compress_weight.restype = None
+    _compress_lib.bitlinear_compress_weight.restype = None
     
-    # int cusparselt_is_available()
-    lib.cusparselt_is_available.argtypes = []
-    lib.cusparselt_is_available.restype = ctypes.c_int
-    
-    _compress_module = lib
-    return lib
+    return _compress_lib
 
 
-def check_compress_available() -> bool:
-    """检查压缩功能是否可用"""
+def check_compress_lib_available() -> bool:
+    """检查压缩库是否可用"""
     try:
-        lib = get_compress_module()
-        return lib.cusparselt_is_available() == 1
-    except Exception as e:
-        print_warning(f"Compress not available: {e}")
+        get_compress_lib()
+        return True
+    except (FileNotFoundError, OSError) as e:
+        print_warning(f"Compress library not available: {e}")
         return False
 
 
@@ -158,24 +129,25 @@ def check_compress_available() -> bool:
 # 压缩核心函数
 # =============================================================================
 
-def get_compress_sizes(N: int, K: int) -> Tuple[int, int]:
+def get_compress_sizes(M: int, N: int, K: int) -> Tuple[int, int]:
     """
     查询压缩后的大小和临时缓冲区大小
     
     Args:
+        M: 激活矩阵行数（用于构建计划，可以是 1）
         N: 权重行数（out_features）
         K: 权重列数（in_features，必须满足 2:4）
     
     Returns:
         (compressed_size, temp_buffer_size) in bytes
     """
-    lib = get_compress_module()
+    lib = get_compress_lib()
     
     compressed_size = ctypes.c_size_t()
     temp_buffer_size = ctypes.c_size_t()
     
-    lib.cusparselt_get_compress_sizes(
-        N, K,
+    lib.bitlinear_get_compress_sizes(
+        M, N, K,
         ctypes.byref(compressed_size),
         ctypes.byref(temp_buffer_size),
     )
@@ -185,6 +157,7 @@ def get_compress_sizes(N: int, K: int) -> Tuple[int, int]:
 
 def compress_tensor(
     weight: torch.Tensor,
+    M: int = 1,
     verbose: bool = False,
 ) -> Tuple[torch.Tensor, Dict[str, Any]]:
     """
@@ -192,18 +165,16 @@ def compress_tensor(
     
     Args:
         weight: 满足 2:4 稀疏的权重 [N, K]，必须是 INT8
+        M: 用于构建计划的激活行数
         verbose: 是否打印详细信息
     
     Returns:
         (compressed_weight, metadata)
-        - compressed_weight: 压缩后的数据，uint8 tensor
+        - compressed_weight: 压缩后的数据，伪装为 [N, K/2] 的 uint8 tensor
         - metadata: 压缩元数据
     """
     if weight.dtype != torch.int8:
         raise ValueError(f"cuSPARSELt compress requires INT8 weight, got {weight.dtype}")
-    
-    if weight.dim() != 2:
-        raise ValueError(f"Weight must be 2D, got {weight.dim()}D")
     
     N, K = weight.shape
     
@@ -216,7 +187,7 @@ def compress_tensor(
         raise ValueError(f"Weight does not satisfy 2:4 sparsity (violation: {violation_ratio:.2%})")
     
     # 查询压缩大小
-    compressed_size, temp_buffer_size = get_compress_sizes(N, K)
+    compressed_size, temp_buffer_size = get_compress_sizes(M, N, K)
     
     if verbose:
         print_info(f"  Compress sizes: compressed={compressed_size}, temp={temp_buffer_size}")
@@ -232,13 +203,13 @@ def compress_tensor(
         temp_ptr = None
     
     # 执行压缩
-    lib = get_compress_module()
+    lib = get_compress_lib()
     
-    lib.cusparselt_compress_weight(
+    lib.bitlinear_compress_weight(
         ctypes.c_void_p(weight_gpu.data_ptr()),
         ctypes.c_void_p(compressed_gpu.data_ptr()),
         ctypes.c_void_p(temp_ptr) if temp_ptr else None,
-        N, K,
+        M, N, K,
         None,  # stream
     )
     
@@ -254,7 +225,6 @@ def compress_tensor(
         "compressed_size_bytes": compressed_size,
         "temp_buffer_size_bytes": temp_buffer_size,
         "sparsity_pattern": "2:4",
-        "layout": "TN-CC",  # W^T * A, all column-major
     }
     
     return compressed_cpu, metadata
@@ -276,7 +246,7 @@ def compress_tensor_fake(
     Returns:
         (values, metadata_tensor, info)
         - values: [N, K/2] 非零值
-        - metadata_tensor: [N, K/4] 稀疏位置元数据 (2 bits per element)
+        - metadata_tensor: [N, K/8] 稀疏位置元数据 (2 bits per element)
         - info: 压缩信息字典
     """
     N, K = weight.shape
@@ -287,22 +257,35 @@ def compress_tensor_fake(
     # 重塑为 [N, K/4, 4]
     grouped = weight.view(N, K // 4, 4)
     
-    # 找到每组的非零位置（每组 4 个元素中选 2 个非零值）
+    # 找到每组的非零位置
+    nonzero_mask = (grouped != 0)
+    
+    # 提取非零值（每组 2 个）
     values = torch.zeros(N, K // 2, dtype=weight.dtype)
     metadata_bits = torch.zeros(N, K // 4, dtype=torch.uint8)
     
     for i in range(N):
         for j in range(K // 4):
             group = grouped[i, j]
-            # 找到非零位置
-            nonzero_mask = (group != 0)
-            nonzero_indices = torch.where(nonzero_mask)[0]
+            mask = nonzero_mask[i, j]
             
-            # 取前 2 个非零值（或补零）
-            for idx, pos in enumerate(nonzero_indices[:2]):
-                values[i, j * 2 + idx] = group[pos]
-                # 编码位置到 metadata（简化：直接存储索引）
-                metadata_bits[i, j] |= (pos.item() << (idx * 2))
+            # 获取非零位置
+            nz_indices = torch.where(mask)[0]
+            
+            # 取前 2 个非零值
+            num_nz = min(len(nz_indices), 2)
+            for k in range(num_nz):
+                values[i, j * 2 + k] = group[nz_indices[k]]
+            
+            # 编码位置（简化版：用 2 bits 表示每个非零位置）
+            if len(nz_indices) >= 1:
+                metadata_bits[i, j] |= nz_indices[0].item()
+            if len(nz_indices) >= 2:
+                metadata_bits[i, j] |= (nz_indices[1].item() << 2)
+    
+    # 将 metadata 打包为 [N, K/8]（每字节存储 4 个组的元数据）
+    metadata_tensor = metadata_bits.view(N, -1, 4)
+    # 简化：直接保留原始形状
     
     info = {
         "original_shape": [N, K],
@@ -364,44 +347,66 @@ def compress_safetensors(
             report["skipped_layers"].append(key)
             continue
         
-        # 检查数据类型
-        if tensor.dtype != torch.int8:
-            if verbose:
-                print_warning(f"  Skipping {key}: not INT8 (got {tensor.dtype})")
-            output_weights[key] = tensor
-            report["skipped_layers"].append(key)
-            continue
-        
-        N, K = tensor.shape
+        original_shape = list(tensor.shape)
+        dtype_str = detect_weight_dtype(tensor)
         
         if verbose:
-            print_info(f"  Compressing {key}: [{N}, {K}]")
+            print_info(f"Processing {key}: shape={original_shape}, dtype={dtype_str}")
         
-        try:
-            if use_real_cusparselt:
-                compressed, metadata = compress_tensor(tensor, verbose=verbose)
-                # 保存压缩数据
-                output_weights[key] = compressed
-                # 保存元数据（作为额外的 tensor 或属性）
-                output_weights[f"{key}_metadata"] = torch.tensor(
-                    [N, K, metadata["compressed_size_bytes"]], dtype=torch.int64
-                )
-            else:
-                values, meta_bits, info = compress_tensor_fake(tensor, verbose=verbose)
-                output_weights[key] = values
-                output_weights[f"{key}_metadata"] = meta_bits
-            
-            report["processed_layers"].append({
-                "key": key,
-                "original_shape": [N, K],
-                "compressed_shape": list(compressed.shape) if use_real_cusparselt else list(values.shape),
-            })
-            
-        except Exception as e:
+        # 需要转换为 INT8 进行压缩
+        if tensor.dtype != torch.int8:
             if verbose:
-                print_error(f"  Failed to compress {key}: {e}")
-            output_weights[key] = tensor
-            report["skipped_layers"].append(key)
+                print_warning(f"  Converting {dtype_str} to INT8 for compression")
+            
+            # FP8/INT8 都可以表示 ternary 值，直接转换
+            if tensor.dtype in (torch.float8_e4m3fn, torch.float8_e5m2):
+                tensor_int8 = tensor.float().round().clamp(-127, 127).to(torch.int8)
+            elif tensor.dtype in (torch.bfloat16, torch.float16, torch.float32):
+                tensor_int8 = tensor.round().clamp(-127, 127).to(torch.int8)
+            else:
+                tensor_int8 = tensor.to(torch.int8)
+        else:
+            tensor_int8 = tensor
+        
+        # 执行压缩
+        if use_real_cusparselt:
+            compressed, metadata = compress_tensor(tensor_int8, verbose=verbose)
+            output_weights[key] = compressed
+            
+            # 保存压缩元数据
+            meta_key = key.replace(".weight", ".weight_compressed_meta")
+            # 将元数据信息编码（实际中可能需要单独存储）
+            
+            layer_info = {
+                "key": key,
+                "original_shape": original_shape,
+                "compressed_size": compressed.shape[0],
+                "metadata": metadata,
+            }
+        else:
+            # 使用模拟压缩
+            values, meta_tensor, info = compress_tensor_fake(tensor_int8, verbose=verbose)
+            output_weights[key] = values
+            
+            # 保存元数据张量
+            meta_key = key.replace(".weight", ".weight_meta")
+            output_weights[meta_key] = meta_tensor
+            
+            layer_info = {
+                "key": key,
+                "original_shape": original_shape,
+                "values_shape": list(values.shape),
+                "meta_shape": list(meta_tensor.shape),
+                "info": info,
+            }
+        
+        report["processed_layers"].append(layer_info)
+        
+        if verbose:
+            if use_real_cusparselt:
+                print_info(f"  Compressed: {compressed.shape[0]} bytes")
+            else:
+                print_info(f"  Values: {list(values.shape)}, Meta: {list(meta_tensor.shape)}")
     
     # 保存
     if verbose:
@@ -424,13 +429,12 @@ def main():
 压缩说明：
   2:4 结构化稀疏压缩将 K 维度减半
   
-  输入：[N, K] 满足 2:4 稀疏的 INT8 权重
-  输出：压缩后的数据 + 元数据
+  输入：[N, K] 满足 2:4 稀疏的权重
+  输出：[N, K/2] 压缩数据 + 元数据
 
-布局约定：
-  TN-CC 格式（W^T * A，全列主序）
-
-使用 --fake 可以跳过真实压缩进行测试
+依赖：
+  需要 build/libbitnet_compress.so
+  使用 --fake 可以跳过真实压缩进行测试
         """
     )
     
@@ -463,8 +467,8 @@ def main():
     
     # 检查压缩库可用性
     use_real = not args.fake
-    if use_real and not check_compress_available():
-        print_warning("cuSPARSELt compress not available, using fake compression")
+    if use_real and not check_compress_lib_available():
+        print_warning("Compress library not available, falling back to fake compression")
         use_real = False
     
     # 确定输入文件
@@ -483,25 +487,21 @@ def main():
         if input_path.is_dir():
             output_base = input_path.parent / f"{input_path.name}_compressed"
         else:
-            output_base = input_path.parent / f"{input_path.stem}_compressed"
+            output_base = input_path.parent / f"{input_path.stem}_compressed.safetensors"
     
     if not args.quiet:
-        print_header("SlideSparse Compress")
-        print_info(f"Input: {input_path}")
-        print_info(f"Output: {output_base}")
+        print_header("SlideSparse cuSPARSELt Compression")
+        print_info(f"Mode: {'real cuSPARSELt' if use_real else 'fake compression'}")
+        print()
     
     # 处理每个文件
     for sf_path in safetensors_files:
-        if input_path.is_dir():
-            rel_path = sf_path.relative_to(input_path)
-            out_path = output_base / rel_path
+        if len(safetensors_files) == 1 and not input_path.is_dir():
+            out_path = output_base
         else:
-            out_path = output_base.with_suffix(".safetensors")
+            out_path = output_base / sf_path.name if output_base.suffix != ".safetensors" else output_base
         
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        
-        if not args.quiet:
-            print_info(f"Processing: {sf_path.name}")
         
         try:
             report = compress_safetensors(
@@ -512,15 +512,16 @@ def main():
             )
             
             if not args.quiet:
-                print_success(f"  Processed {len(report['processed_layers'])} layers")
-                print_info(f"  Skipped {len(report['skipped_layers'])} layers")
-                
+                processed = len(report["processed_layers"])
+                skipped = len(report["skipped_layers"])
+                print_success(f"Processed: {processed}, Skipped: {skipped}")
+                print()
+        
         except Exception as e:
-            print_error(f"  Error: {e}")
+            print_error(f"Failed to compress {sf_path}: {e}")
+            import traceback
+            traceback.print_exc()
             return 1
-    
-    if not args.quiet:
-        print_success("Done!")
     
     return 0
 
