@@ -125,9 +125,9 @@ def search_single_nk(
 ) -> Dict[str, Any]:
     """搜索单个 (N, K, M) 组合的所有布局"""
     # 分配输出缓冲
-    C_torch_dtype = get_output_torch_dtype(outdtype)
+    R_torch_dtype = get_output_torch_dtype(outdtype)
     # 输出 R[N, M]，Column Major 在 PyTorch Row Major 中存储为 [M, N]
-    R_out = torch.zeros(M, N, dtype=C_torch_dtype, device=W_q.device)
+    R_out = torch.zeros(M, N, dtype=R_torch_dtype, device=W_q.device)
     
     # 分配输出数组
     out_layout_ids = (ctypes.c_int * NUM_LAYOUTS)()
@@ -244,7 +244,9 @@ def run_search(
             valid_layouts = [r for r in first_result["results"] if r["valid"]]
             if valid_layouts:
                 best = max(valid_layouts, key=lambda x: x["tops"])
-                print(f"      → 最优布局: {best['layout_name']}, {best['tops']:.2f} TOPS")
+                print(f"      → 最优布局: {best['layout_name']}, {best['tops']:.2f} TOPS, alg={best['best_alg_id']}")
+            else:
+                print(f"      → 无有效布局")
         
         results.append(nk_results)
         

@@ -27,12 +27,6 @@
  * nvcc -std=c++17 -O3 -Xcompiler -fPIC --shared \
  *      layout_search_cusparselt.cu -lcusparseLt -lcusparse -lcublas \
  *      -o layout_search_cusparselt.so
- *
- * API 注意事项 (新版 cuSPARSELt):
- * - cusparseLtSpMMAPrune() 第二参数是 cusparseLtMatmulDescriptor_t*
- * - cusparseLtMatmulPlanInit() 只有 4 个参数 (移除了 workspace size)
- * - cusparseLtSpMMACompressedSize() 需要 cusparseLtMatmulPlan_t*
- * - cusparseLtSpMMACompress() 需要 cusparseLtMatmulPlan_t*
  */
 
 #include <cstdint>
@@ -40,7 +34,6 @@
 #include <cstring>
 #include <algorithm>
 #include <chrono>
-#include <future>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -149,36 +142,6 @@ static int ensure_handle() {
 }
 
 // =============================================================================
-// 带超时的 planInit 包装函数
-// =============================================================================
-
-struct PlanInitResult {
-    cusparseStatus_t status;
-    bool timed_out;
-};
-
-static PlanInitResult planInitWithTimeout(
-    cusparseLtHandle_t* handle,
-    cusparseLtMatmulPlan_t* plan,
-    cusparseLtMatmulDescriptor_t* matmul,
-    cusparseLtMatmulAlgSelection_t* alg_sel,
-    int timeout_seconds = 5) {
-    
-    auto future = std::async(std::launch::async, [&]() {
-        // 新版 API: 只有 4 个参数
-        return cusparseLtMatmulPlanInit(handle, plan, matmul, alg_sel);
-    });
-    
-    auto wait_status = future.wait_for(std::chrono::seconds(timeout_seconds));
-    
-    if (wait_status == std::future_status::timeout) {
-        return PlanInitResult{CUSPARSE_STATUS_EXECUTION_FAILED, true};
-    }
-    
-    return PlanInitResult{future.get(), false};
-}
-
-// =============================================================================
 // 数据类型辅助
 // =============================================================================
 
@@ -241,11 +204,27 @@ struct LayoutResult {
 };
 
 // =============================================================================
-// 单个布局测试
+// 单个布局测试 (接收外部数据，与 AlgSearch 策略对齐)
 // =============================================================================
 
 /**
  * @brief 测试单个布局配置
+ * 
+ * @param W_pruned_ptr  已剪枝的权重矩阵 (K x N, 列主序)
+ * @param A_ptr         激活矩阵 (K x M, 列主序)
+ * @param layout        布局配置
+ * @param layout_id     布局 ID
+ * @param N, K, M       矩阵维度
+ * @param dtype         输入数据类型
+ * @param outdtype      输出数据类型
+ * @param warmup, repeat 预热和计时参数
+ * @param test_segment_k 是否测试 segment-k
+ * @param shared_workspace 共享 workspace
+ * @param workspace_size  workspace 大小
+ * @param stream          CUDA 流
+ * @param result          输出结果
+ * 
+ * @return 1 表示有效，0 表示无效
  */
 static int test_single_layout(
     void* W_pruned_ptr,  // 已剪枝的权重 (K x N, 列主序)
@@ -279,9 +258,12 @@ static int test_single_layout(
     result->config_count = 0;
     
     // =========================================================================
-    // 根据布局配置，计算矩阵维度
+    // 根据布局配置，从标准格式 (K x N 列主序 W, K x M 列主序 A) 转换数据
+    // 标准输入: W[K,N] ColMajor, A[K,M] ColMajor
+    // 输出: R[N,M]
     // =========================================================================
     
+    // 计算目标布局需要的矩阵维度
     bool isW_transposed = (layout.transA == CUSPARSE_OPERATION_TRANSPOSE);
     bool isA_transposed = (layout.transB == CUSPARSE_OPERATION_TRANSPOSE);
     bool isW_rowmajor = (layout.orderA == CUSPARSE_ORDER_ROW);
@@ -316,7 +298,7 @@ static int test_single_layout(
     size_t A_size = A_elems * info.elem_size;
     size_t R_size = R_elems * out_elem_size;
     
-    // 分配设备内存
+    // 分配设备内存 (转换后的数据)
     void *dW = nullptr, *dA = nullptr, *dR = nullptr;
     int *d_valid = nullptr;
     
@@ -325,11 +307,18 @@ static int test_single_layout(
     if (cudaMalloc(&dR, R_size) != cudaSuccess) { cudaFree(dW); cudaFree(dA); return 0; }
     if (cudaMalloc(&d_valid, sizeof(int)) != cudaSuccess) { cudaFree(dW); cudaFree(dA); cudaFree(dR); return 0; }
     
-    // 从标准格式复制数据
+    // =========================================================================
+    // 从标准格式复制数据到目标布局格式
+    // 注意：简化处理，直接复制（假设 Python 已按正确格式准备数据）
+    // 对于不同布局，这里使用相同的输入数据进行性能测试
+    // 实际性能只与矩阵尺寸和布局配置相关，与数据内容无关
+    // =========================================================================
     size_t src_W_size = (size_t)K * N * info.elem_size;
     size_t src_A_size = (size_t)K * M * info.elem_size;
     
+    // 复制 W (如果目标布局需要不同格式，这里只是复制原始数据用于性能测试)
     cudaMemcpy(dW, W_pruned_ptr, std::min(W_size, src_W_size), cudaMemcpyDeviceToDevice);
+    // 复制 A
     cudaMemcpy(dA, A_ptr, std::min(A_size, src_A_size), cudaMemcpyDeviceToDevice);
     cudaMemset(dR, 0, R_size);
     
@@ -379,7 +368,18 @@ static int test_single_layout(
         return 0;
     }
     
-    // 剪枝 (使用 matmulDescriptor，新版 API)
+    // 设置稀疏矩阵指针
+    status = cusparseLtMatmulDescSetAttribute(
+        &g_handle, &matmul, CUSPARSELT_MATMUL_SPARSE_MAT_POINTER, &dW, sizeof(dW));
+    if (status != CUSPARSE_STATUS_SUCCESS) {
+        cusparseLtMatDescriptorDestroy(&matW);
+        cusparseLtMatDescriptorDestroy(&matA);
+        cusparseLtMatDescriptorDestroy(&matR);
+        cudaFree(dW); cudaFree(dA); cudaFree(dR); cudaFree(d_valid);
+        return 0;
+    }
+    
+    // 剪枝 (使用 TILE 模式与旧代码一致)
     status = cusparseLtSpMMAPrune(&g_handle, &matmul, dW, dW, CUSPARSELT_PRUNE_SPMMA_TILE, stream);
     if (status != CUSPARSE_STATUS_SUCCESS) {
         cusparseLtMatDescriptorDestroy(&matW);
@@ -411,7 +411,7 @@ static int test_single_layout(
         return 0;
     }
     
-    // 获取最大算法 ID
+    // 获取最大算法 ID (使用与旧代码一致的 API)
     int max_alg_id = -1;
     {
         cusparseLtMatmulAlgSelection_t alg_sel_tmp;
@@ -490,19 +490,15 @@ static int test_single_layout(
             }
             
             cusparseLtMatmulPlan_t plan;
-            // 使用带超时的 planInit (新版 API: 4 参数)
-            auto plan_result = planInitWithTimeout(&g_handle, &plan, &matmul, &alg_sel, 5);
-            if (plan_result.timed_out) {
-                cusparseLtMatmulAlgSelectionDestroy(&alg_sel);
-                continue;
-            }
-            if (plan_result.status != CUSPARSE_STATUS_SUCCESS) {
+            cusparseStatus_t plan_status = cusparseLtMatmulPlanInit(
+                &g_handle, &plan, &matmul, &alg_sel, workspace_size);
+            if (plan_status != CUSPARSE_STATUS_SUCCESS) {
                 cusparseLtMatmulAlgSelectionDestroy(&alg_sel);
                 if (split_k_val > 1) stop_doubling = true;
                 continue;
             }
             
-            // 压缩 (新版 API: 使用 plan)
+            // 压缩
             size_t compressed_size = 0, compressed_buffer_size = 0;
             cusparseLtSpMMACompressedSize(&g_handle, &plan, &compressed_size, &compressed_buffer_size);
             
@@ -623,77 +619,103 @@ static int test_single_layout(
 }
 
 // =============================================================================
+// Prune 和 Compress 辅助函数
+// =============================================================================
+
+static int prune_24_for_layout(
+    void* input, void* output,
+    int64_t rows, int64_t cols,
+    const char* dtype,
+    cusparseOrder_t order,
+    cudaStream_t stream)
+{
+    DtypeInfo info = get_dtype_info(dtype);
+    if (!info.is_valid) return -1;
+    
+    int64_t ld = (order == CUSPARSE_ORDER_COL) ? rows : cols;
+    
+    cusparseLtMatDescriptor_t matA;
+    cusparseStatus_t status = cusparseLtStructuredDescriptorInit(
+        &g_handle, &matA,
+        rows, cols, ld,
+        16, info.cuda_type, order,
+        CUSPARSELT_SPARSITY_50_PERCENT);
+    
+    if (status != CUSPARSE_STATUS_SUCCESS) return -1;
+    
+    // 使用 TILE 模式与旧代码一致
+    status = cusparseLtSpMMAPrune(
+        &g_handle, &matA,
+        input, output,
+        CUSPARSELT_PRUNE_SPMMA_TILE,
+        stream);
+    
+    cusparseLtMatDescriptorDestroy(&matA);
+    
+    return (status == CUSPARSE_STATUS_SUCCESS) ? 0 : -1;
+}
+
+static int64_t compress_for_layout(
+    void* input, void* output,
+    int64_t rows, int64_t cols,
+    const char* dtype,
+    cusparseOrder_t order,
+    cudaStream_t stream)
+{
+    DtypeInfo info = get_dtype_info(dtype);
+    if (!info.is_valid) return -1;
+    
+    int64_t ld = (order == CUSPARSE_ORDER_COL) ? rows : cols;
+    
+    cusparseLtMatDescriptor_t matA;
+    cusparseStatus_t status = cusparseLtStructuredDescriptorInit(
+        &g_handle, &matA,
+        rows, cols, ld,
+        16, info.cuda_type, order,
+        CUSPARSELT_SPARSITY_50_PERCENT);
+    
+    if (status != CUSPARSE_STATUS_SUCCESS) return -1;
+    
+    size_t compressed_size = 0;
+    status = cusparseLtSpMMACompressedSize(&g_handle, &matA, &compressed_size, nullptr);
+    if (status != CUSPARSE_STATUS_SUCCESS) {
+        cusparseLtMatDescriptorDestroy(&matA);
+        return -1;
+    }
+    
+    status = cusparseLtSpMMACompress(
+        &g_handle, &matA,
+        input, output,
+        stream);
+    
+    cusparseLtMatDescriptorDestroy(&matA);
+    
+    return (status == CUSPARSE_STATUS_SUCCESS) ? (int64_t)compressed_size : -1;
+}
+
+// =============================================================================
 // 导出函数
 // =============================================================================
 
 extern "C" {
 
 /**
- * @brief 对矩阵进行 2:4 剪枝 (支持指定 order)
- * 
- * 新版 API: 使用 matmulDescriptor
- */
-int cusparselt_layout_prune_24(
-    void* input, void* output,
-    int64_t rows, int64_t cols,
-    const char* dtype,
-    int order,  // 0=COL, 1=ROW
-    void* stream)
-{
-    if (ensure_handle() < 0) return -1;
-    
-    DtypeInfo info = get_dtype_info(dtype);
-    if (!info.is_valid) {
-        set_error("Invalid dtype");
-        return -1;
-    }
-    
-    cudaStream_t cu_stream = stream ? (cudaStream_t)stream : nullptr;
-    cusparseOrder_t sp_order = (order == 0) ? CUSPARSE_ORDER_COL : CUSPARSE_ORDER_ROW;
-    cusparseComputeType compute_type = get_compute_type(dtype);
-    
-    int64_t ld = (sp_order == CUSPARSE_ORDER_COL) ? rows : cols;
-    int64_t dummy_M = 16;
-    
-    // 创建描述符
-    cusparseLtMatDescriptor_t matA, matB, matC;
-    
-    CHECK_CUSPARSELT(cusparseLtStructuredDescriptorInit(
-        &g_handle, &matA, rows, cols, ld, 16,
-        info.cuda_type, sp_order, CUSPARSELT_SPARSITY_50_PERCENT));
-    
-    CHECK_CUSPARSELT(cusparseLtDenseDescriptorInit(
-        &g_handle, &matB, rows, dummy_M, rows, 16, info.cuda_type, CUSPARSE_ORDER_COL));
-    
-    CHECK_CUSPARSELT(cusparseLtDenseDescriptorInit(
-        &g_handle, &matC, cols, dummy_M, cols, 16, CUDA_R_16BF, CUSPARSE_ORDER_COL));
-    
-    cusparseLtMatmulDescriptor_t matmul;
-    CHECK_CUSPARSELT(cusparseLtMatmulDescriptorInit(
-        &g_handle, &matmul,
-        CUSPARSE_OPERATION_TRANSPOSE, CUSPARSE_OPERATION_NON_TRANSPOSE,
-        &matA, &matB, &matC, &matC, compute_type));
-    
-    // Prune (新版 API: 使用 matmul)
-    cusparseStatus_t prune_status = cusparseLtSpMMAPrune(
-        &g_handle, &matmul, input, output,
-        CUSPARSELT_PRUNE_SPMMA_TILE, cu_stream);
-    
-    cusparseLtMatDescriptorDestroy(&matA);
-    cusparseLtMatDescriptorDestroy(&matB);
-    cusparseLtMatDescriptorDestroy(&matC);
-    
-    if (prune_status != CUSPARSE_STATUS_SUCCESS) {
-        set_error("cusparseLtSpMMAPrune failed");
-        return -1;
-    }
-    
-    cudaStreamSynchronize(cu_stream);
-    return 0;
-}
-
-/**
  * @brief 测试单个 (N,K,M) 的 16 种布局配置
+ * 
+ * 数据准备策略 (与 AlgSearch 对齐):
+ * - Python 端生成数据、量化、调用 prune
+ * - CUDA 端接收 W_pruned 和 A_q，测试各种布局
+ * 
+ * @param W_pruned_ptr  已剪枝的权重矩阵 (K x N, 列主序)
+ * @param A_ptr         激活矩阵 (K x M, 列主序)
+ * @param M, N, K       矩阵维度
+ * @param dtype         输入数据类型
+ * @param outdtype      输出数据类型
+ * @param warmup        预热次数
+ * @param repeat        计时重复次数
+ * @param test_segment_k 是否测试 segment-k
+ * @param out_*         输出数组
+ * @param stream        CUDA 流
  */
 int cusparselt_layout_search_single(
     void* W_pruned_ptr,  // 已剪枝的权重 (K x N, 列主序)
@@ -763,6 +785,75 @@ int cusparselt_layout_search_single(
     cudaFree(workspace);
     
     return 0;
+}
+
+/**
+ * @brief 对矩阵进行 2:4 剪枝 (支持指定 order)
+ */
+int cusparselt_layout_prune_24(
+    void* input, void* output,
+    int64_t rows, int64_t cols,
+    const char* dtype,
+    int order,  // 0=COL, 1=ROW
+    void* stream)
+{
+    if (ensure_handle() < 0) return -1;
+    
+    cudaStream_t cu_stream = stream ? (cudaStream_t)stream : nullptr;
+    cusparseOrder_t sp_order = (order == 0) ? CUSPARSE_ORDER_COL : CUSPARSE_ORDER_ROW;
+    
+    return prune_24_for_layout(input, output, rows, cols, dtype, sp_order, cu_stream);
+}
+
+/**
+ * @brief 压缩稀疏矩阵 (支持指定 order)
+ */
+int64_t cusparselt_layout_compress(
+    void* input, void* output,
+    int64_t rows, int64_t cols,
+    const char* dtype,
+    int order,  // 0=COL, 1=ROW
+    void* stream)
+{
+    if (ensure_handle() < 0) return -1;
+    
+    cudaStream_t cu_stream = stream ? (cudaStream_t)stream : nullptr;
+    cusparseOrder_t sp_order = (order == 0) ? CUSPARSE_ORDER_COL : CUSPARSE_ORDER_ROW;
+    
+    return compress_for_layout(input, output, rows, cols, dtype, sp_order, cu_stream);
+}
+
+/**
+ * @brief 获取压缩后大小
+ */
+int64_t cusparselt_layout_get_compressed_size(
+    int64_t rows, int64_t cols,
+    const char* dtype,
+    int order)
+{
+    if (ensure_handle() < 0) return -1;
+    
+    DtypeInfo info = get_dtype_info(dtype);
+    if (!info.is_valid) return -1;
+    
+    cusparseOrder_t sp_order = (order == 0) ? CUSPARSE_ORDER_COL : CUSPARSE_ORDER_ROW;
+    int64_t ld = (sp_order == CUSPARSE_ORDER_COL) ? rows : cols;
+    
+    cusparseLtMatDescriptor_t matA;
+    cusparseStatus_t status = cusparseLtStructuredDescriptorInit(
+        &g_handle, &matA,
+        rows, cols, ld,
+        16, info.cuda_type, sp_order,
+        CUSPARSELT_SPARSITY_50_PERCENT);
+    
+    if (status != CUSPARSE_STATUS_SUCCESS) return -1;
+    
+    size_t compressed_size = 0;
+    status = cusparseLtSpMMACompressedSize(&g_handle, &matA, &compressed_size, nullptr);
+    
+    cusparseLtMatDescriptorDestroy(&matA);
+    
+    return (status == CUSPARSE_STATUS_SUCCESS) ? (int64_t)compressed_size : -1;
 }
 
 /**
