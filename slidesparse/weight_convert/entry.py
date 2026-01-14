@@ -58,7 +58,7 @@ from utils import (
 
 from prune import prune_tensor, quant_and_prune_tensor_bitnet
 from slide import slide_tensor
-from compress import compress_tensor, compress_tensor_fake, check_cusparselt_available
+from compress import compress_tensor, compress_tensor_fake, check_compress_available
 
 # 添加项目路径以导入 slidesparse.utils
 _SCRIPT_DIR = Path(__file__).parent
@@ -88,6 +88,8 @@ def process_single_tensor(
     skip_slide: bool = False,
     skip_compress: bool = False,
     use_real_cusparselt: bool = True,
+    bitnet_mode: bool = False,
+    output_dtype: str = "int8",
     verbose: bool = True,
 ) -> Dict[str, Any]:
     """
@@ -101,6 +103,8 @@ def process_single_tensor(
         skip_slide: 跳过滑动
         skip_compress: 跳过压缩
         use_real_cusparselt: 使用真实 cuSPARSELt
+        bitnet_mode: 是否使用 BitNet 量化+剪枝融合模式（用于 BF16 输入）
+        output_dtype: BitNet 模式下的输出数据类型 ("int8", "fp8_e4m3")
         verbose: 详细输出
     
     Returns:
@@ -120,30 +124,58 @@ def process_single_tensor(
     }
     
     current_tensor = tensor
+    scale_tensor = None  # BitNet 模式会产生 scale
     
-    # Stage 1: Prune
+    # Stage 1: Prune (或 BitNet 模式下的 Quant+Prune)
     if not skip_prune:
-        if verbose:
-            print_info(f"  Stage 1: Pruning ({config.Z}:{config.L}, mode={mode})")
-        
-        current_tensor = prune_tensor(
-            current_tensor, config.Z, config.L, mode
-        )
-        
-        # 验证剪枝结果
-        tensor_for_verify = current_tensor.float() if current_tensor.dtype in (torch.float8_e4m3fn, torch.float8_e5m2, torch.int8) else current_tensor
-        is_valid, valid_ratio = verify_ZL_sparsity(tensor_for_verify, config.Z, config.L)
-        
-        result["stages"].append({
-            "name": "prune",
-            "shape": list(current_tensor.shape),
-            "ZL_valid": is_valid,
-            "ZL_valid_ratio": valid_ratio,
-        })
-        
-        if verbose:
-            status = "✓" if is_valid else f"✗ ({valid_ratio:.2%})"
-            print_info(f"    {config.Z}:{config.L} validation: {status}")
+        if bitnet_mode or original_dtype in ("bf16", "fp16", "fp32"):
+            # BitNet 模式：量化 + 剪枝融合
+            if verbose:
+                print_info(f"  Stage 1: Quant+Pruning (BitNet {config.Z}:{config.L}, mode={mode})")
+            
+            current_tensor, scale_tensor = quant_and_prune_tensor_bitnet(
+                tensor, config.Z, config.L, mode, output_dtype
+            )
+            
+            # 验证剪枝结果
+            tensor_for_verify = current_tensor.float()
+            is_valid, valid_ratio = verify_ZL_sparsity(tensor_for_verify, config.Z, config.L)
+            
+            result["stages"].append({
+                "name": "quant_prune",
+                "shape": list(current_tensor.shape),
+                "output_dtype": output_dtype,
+                "ZL_valid": is_valid,
+                "ZL_valid_ratio": valid_ratio,
+            })
+            
+            if verbose:
+                status = "✓" if is_valid else f"✗ ({valid_ratio:.2%})"
+                print_info(f"    Output dtype: {output_dtype}")
+                print_info(f"    {config.Z}:{config.L} validation: {status}")
+        else:
+            # 标准剪枝模式（FP8/INT8 输入）
+            if verbose:
+                print_info(f"  Stage 1: Pruning ({config.Z}:{config.L}, mode={mode})")
+            
+            current_tensor = prune_tensor(
+                current_tensor, config.Z, config.L, mode
+            )
+            
+            # 验证剪枝结果
+            tensor_for_verify = current_tensor.float() if current_tensor.dtype in (torch.float8_e4m3fn, torch.float8_e5m2, torch.int8) else current_tensor
+            is_valid, valid_ratio = verify_ZL_sparsity(tensor_for_verify, config.Z, config.L)
+            
+            result["stages"].append({
+                "name": "prune",
+                "shape": list(current_tensor.shape),
+                "ZL_valid": is_valid,
+                "ZL_valid_ratio": valid_ratio,
+            })
+            
+            if verbose:
+                status = "✓" if is_valid else f"✗ ({valid_ratio:.2%})"
+                print_info(f"    {config.Z}:{config.L} validation: {status}")
     
     # Stage 2: Slide
     if not skip_slide:
@@ -211,6 +243,7 @@ def process_single_tensor(
     
     result["tensor"] = current_tensor
     result["metadata_tensor"] = metadata_tensor
+    result["scale_tensor"] = scale_tensor  # BitNet 模式产生的 scale
     result["final_shape"] = list(current_tensor.shape)
     
     return result
@@ -225,6 +258,8 @@ def process_model(
     skip_slide: bool = False,
     skip_compress: bool = False,
     use_real_cusparselt: bool = True,
+    bitnet_mode: bool = False,
+    output_dtype: str = "int8",
     verbose: bool = True,
 ) -> Dict[str, Any]:
     """
@@ -237,6 +272,8 @@ def process_model(
         mode: 剪枝模式
         skip_*: 跳过对应阶段
         use_real_cusparselt: 使用真实 cuSPARSELt
+        bitnet_mode: 是否使用 BitNet 模式（用于 BF16/FP16 模型）
+        output_dtype: BitNet 模式输出数据类型
         verbose: 详细输出
     
     Returns:
@@ -248,6 +285,8 @@ def process_model(
         print_header(f"Processing: {input_dir.name}")
         print_info(f"Config: {config}")
         print_info(f"Mode: {mode}")
+        if bitnet_mode:
+            print_info(f"BitNet Mode: enabled (output_dtype={output_dtype})")
         print_info(f"Output: {output_dir}")
         print()
     
@@ -323,6 +362,8 @@ def process_model(
                 skip_slide=skip_slide,
                 skip_compress=skip_compress,
                 use_real_cusparselt=use_real_cusparselt,
+                bitnet_mode=bitnet_mode,
+                output_dtype=output_dtype,
                 verbose=verbose,
             )
             
@@ -333,6 +374,11 @@ def process_model(
             if result["metadata_tensor"] is not None:
                 meta_key = key.replace(".weight", ".weight_meta")
                 output_weights[meta_key] = result["metadata_tensor"]
+            
+            # 如果有 scale 张量（BitNet 模式），也保存
+            if result.get("scale_tensor") is not None:
+                scale_key = key.replace(".weight", ".weight_scale")
+                output_weights[scale_key] = result["scale_tensor"]
             
             file_report["layers"].append({
                 "key": key,
@@ -576,6 +622,20 @@ def main():
         help="使用模拟压缩（不调用 cuSPARSELt）",
     )
     
+    # BitNet 选项
+    parser.add_argument(
+        "--bitnet",
+        action="store_true",
+        help="启用 BitNet 模式（量化+剪枝融合，用于 BF16/FP16 模型）",
+    )
+    parser.add_argument(
+        "--output-dtype",
+        type=str,
+        choices=["int8", "fp8_e4m3"],
+        default="int8",
+        help="BitNet 模式输出数据类型（默认: int8）",
+    )
+    
     # 其他选项
     parser.add_argument(
         "--quiet", "-q",
@@ -633,7 +693,7 @@ def main():
     # 检查 cuSPARSELt
     use_real_cusparselt = not args.fake_compress
     if use_real_cusparselt and not args.skip_compress:
-        if not check_cusparselt_available():
+        if not check_compress_available():
             print_warning("cuSPARSELt not available, using fake compression")
             use_real_cusparselt = False
     
@@ -658,6 +718,8 @@ def main():
                 skip_slide=args.skip_slide,
                 skip_compress=args.skip_compress,
                 use_real_cusparselt=use_real_cusparselt,
+                bitnet_mode=args.bitnet,
+                output_dtype=args.output_dtype,
                 verbose=not args.quiet,
             )
             

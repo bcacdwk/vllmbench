@@ -195,8 +195,15 @@ def prune_tensor(
         raise ValueError(f"Unknown prune mode: {mode}")
     
     # 应用剪枝
-    pruned_weight = weight.clone()
-    pruned_weight[prune_mask] = 0
+    original_dtype = weight.dtype
+    if original_dtype in (torch.float8_e4m3fn, torch.float8_e5m2):
+        # FP8 不支持直接的布尔索引赋值，需要先转为 float
+        pruned_weight = weight.float()
+        pruned_weight[prune_mask] = 0
+        pruned_weight = pruned_weight.to(original_dtype)
+    else:
+        pruned_weight = weight.clone()
+        pruned_weight[prune_mask] = 0
     
     return pruned_weight
 
