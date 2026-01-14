@@ -413,8 +413,17 @@ def search_single_nk(
     )
     
     if ret != 0:
-        error = lib.cusparselt_alg_search_get_last_error()
-        raise RuntimeError(f"搜索失败: {error.decode() if error else 'unknown error'}")
+        # 处理不支持的数据类型组合（如 INT8+FP32）
+        # 返回空结果而不是抛异常
+        return {
+            "results": [],
+            "num_valid": 0,
+            "alg_count": 0,
+            "config_count": 0,
+            "api_result": None,
+            "verify_result": None,
+            "error": lib.cusparselt_alg_search_get_last_error().decode() if lib.cusparselt_alg_search_get_last_error() else "unknown error",
+        }
     
     # 转换结果
     results = []

@@ -171,9 +171,10 @@ static cudaDataType_t get_out_dtype(const char* outdtype) {
 }
 
 static cublasComputeType_t get_compute_type(const char* dtype) {
-    if (strcmp(dtype, "int8") == 0 || strcmp(dtype, "INT8") == 0) {
-        return CUBLAS_COMPUTE_32I;
-    }
+    // INT8 使用 CUBLAS_COMPUTE_32F 以支持 BF16/FP32 输出
+    // (CUBLAS_COMPUTE_32I 只支持 INT32 输出，不常用)
+    // FP8 也使用 CUBLAS_COMPUTE_32F
+    (void)dtype;  // 忽略参数，统一使用 32F
     return CUBLAS_COMPUTE_32F;
 }
 

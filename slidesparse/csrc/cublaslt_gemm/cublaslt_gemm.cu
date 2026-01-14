@@ -189,12 +189,15 @@ static cudaDataType_t get_cuda_inner_dtype(const std::string& inner_dtype) {
 
 /**
  * 根据 input_dtype 获取计算类型
+ * 
+ * 注意：INT8 也使用 CUBLAS_COMPUTE_32F 以支持 BF16/FP32 输出
+ * (CUBLAS_COMPUTE_32I 只支持 INT32 输出，不常用)
  */
 static cublasComputeType_t get_compute_type(const std::string& input_dtype) {
   if (input_dtype == "fp8e4m3" || input_dtype == "fp8") {
     return CUBLAS_COMPUTE_32F;
   } else if (input_dtype == "int8") {
-    return CUBLAS_COMPUTE_32I;
+    return CUBLAS_COMPUTE_32F;  // 使用 32F 以支持 BF16/FP32 输出
   } else {
     throw std::invalid_argument(
         "Unsupported input_dtype: " + input_dtype);
