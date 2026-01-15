@@ -55,6 +55,8 @@ from vllm.platforms import current_platform
 # 使用统一的 slidesparse 工具库
 from slidesparse.utils import load_module, normalize_dtype, find_file
 
+import subprocess
+
 logger = init_logger(__name__)
 
 
@@ -70,6 +72,46 @@ def get_inner_dtype_str() -> str:
 def get_inner_dtype_torch() -> torch.dtype:
     """获取 GEMM 输出精度的 PyTorch dtype"""
     return torch.float32 if is_inner_dtype_fp32() else torch.bfloat16
+
+
+# ============================================================================
+# 自动编译/搜索函数
+# ============================================================================
+
+# kernel 类型 -> (脚本名, 额外参数)
+_KERNEL_BUILD_CONFIG = {
+    "cublaslt":     ("build_cublaslt.py",              ["build"]),
+    "cusparselt":   ("build_cusparselt.py",            ["build"]),
+    "dequant_bias": ("autotune_autogen_dequant_bias.py", ["--quick"]),
+    "quant_fp8":    ("autotune_autogen_quant_only.py", ["--quick", "--dtype", "fp8"]),
+    "quant_int8":   ("autotune_autogen_quant_only.py", ["--quick", "--dtype", "int8"]),
+}
+
+
+def _build_search_kernel(kernel_dir: Path, kernel_type: str) -> None:
+    """
+    在找不到 kernel 时，自动编译或进行 autotune 搜索生成 kernel
+    
+    Args:
+        kernel_dir: kernel 源代码所在目录（build 目录的父目录）
+        kernel_type: "cublaslt", "cusparselt", "dequant_bias", "quant_fp8", "quant_int8"
+    """
+    if kernel_type not in _KERNEL_BUILD_CONFIG:
+        raise ValueError(f"Unknown kernel type: {kernel_type}")
+    
+    script_name, args = _KERNEL_BUILD_CONFIG[kernel_type]
+    script_path = Path(kernel_dir) / script_name
+    
+    if not script_path.exists():
+        raise FileNotFoundError(f"Build script not found: {script_path}")
+    
+    cmd = ["python3", str(script_path)] + args
+    logger.info(f"Kernel not found, building: {' '.join(cmd)}")
+    
+    result = subprocess.run(cmd, cwd=str(kernel_dir), capture_output=True, text=True, timeout=300)
+    
+    if result.returncode != 0:
+        raise RuntimeError(f"Kernel build failed:\n{result.stderr or result.stdout}")
 
 
 # ============================================================================
@@ -135,6 +177,8 @@ def _get_gemm_extension(backend: str):
     Note:
         GEMM extension 运行时支持多种数据类型（FP8E4M3, INT8），
         文件名不包含 dtype，格式为: {backend}_gemm_{GPU}_{CC}_{PyVer}_{CUDAVer}_{Arch}.so
+        
+        如果找不到预编译的 .so 文件，会自动调用编译脚本进行编译。
     """
     global _gemm_extensions
     
@@ -150,11 +194,19 @@ def _get_gemm_extension(backend: str):
     
     # 查找 .so 文件
     so_path = find_file(prefix, search_dir=build_dir, ext=".so")
+    
     if so_path is None:
-        raise FileNotFoundError(
-            f"GEMM extension not found: {prefix}\n"
-            f"Please run: python3 {build_dir.parent}/build_{backend}.py build"
-        )
+        # 找不到，尝试自动编译
+        kernel_dir = build_dir.parent
+        _build_search_kernel(kernel_dir, kernel_type=backend)
+        
+        # 重新查找
+        so_path = find_file(prefix, search_dir=build_dir, ext=".so")
+        if so_path is None:
+            raise FileNotFoundError(
+                f"GEMM extension not found after build: {prefix}\n"
+                f"Build may have failed. Please check the logs."
+            )
     
     # 根据后端创建包装器
     if backend == "cublaslt":
@@ -176,14 +228,33 @@ _dequant_bias_fn = None  # 缓存加载的 kernel 函数
 
 
 def _load_dequant_bias_kernel():
-    """加载 Triton dequant+bias kernel（懒加载，仅调用一次）"""
+    """
+    加载 Triton dequant+bias kernel（懒加载，仅调用一次）
+    
+    如果找不到预生成的 kernel，会自动运行 autotune 脚本生成。
+    """
     global _dequant_bias_fn
     if _dequant_bias_fn is not None:
         return _dequant_bias_fn
     
     # dequant kernel 支持 BF16 和 FP32 输入，不需要 dtype 区分
-    build_dir = _CSRC_DIR / "fused_dequant_bias_triton" / "build"
-    module = load_module("dequant_bias_tuned", search_dir=build_dir, ext=".py")
+    kernel_dir = _CSRC_DIR / "fused_dequant_bias_triton"
+    build_dir = kernel_dir / "build"
+    
+    try:
+        module = load_module("dequant_bias_tuned", search_dir=build_dir, ext=".py")
+    except FileNotFoundError:
+        # 找不到，尝试自动 autotune
+        _build_search_kernel(kernel_dir, kernel_type="dequant_bias")
+        
+        # 重新加载
+        try:
+            module = load_module("dequant_bias_tuned", search_dir=build_dir, ext=".py")
+        except FileNotFoundError:
+            raise FileNotFoundError(
+                f"Dequant+bias kernel not found after autotune.\n"
+                f"Autotune may have failed. Please check the logs."
+            )
     
     _dequant_bias_fn = module.dequant_bias_triton
     logger.info_once("Dequant+bias kernel loaded")
@@ -226,14 +297,33 @@ _quant_only_fp8_fn = None  # 缓存加载的 kernel 函数
 
 
 def _load_quant_only_fp8_kernel():
-    """加载 Triton FP8 quant kernel（懒加载，仅调用一次）"""
+    """
+    加载 Triton FP8 quant kernel（懒加载，仅调用一次）
+    
+    如果找不到预生成的 kernel，会自动运行 autotune 脚本生成。
+    """
     global _quant_only_fp8_fn
     if _quant_only_fp8_fn is not None:
         return _quant_only_fp8_fn
     
     # FP8 quant kernel，dtype 为 FP8E4M3
-    build_dir = _CSRC_DIR / "quant_only_triton" / "build"
-    module = load_module("quant_only_tuned", dtype="FP8E4M3", search_dir=build_dir, ext=".py")
+    kernel_dir = _CSRC_DIR / "quant_only_triton"
+    build_dir = kernel_dir / "build"
+    
+    try:
+        module = load_module("quant_only_tuned", dtype="FP8E4M3", search_dir=build_dir, ext=".py")
+    except FileNotFoundError:
+        # 找不到，尝试自动 autotune
+        _build_search_kernel(kernel_dir, kernel_type="quant_fp8")
+        
+        # 重新加载
+        try:
+            module = load_module("quant_only_tuned", dtype="FP8E4M3", search_dir=build_dir, ext=".py")
+        except FileNotFoundError:
+            raise FileNotFoundError(
+                f"FP8 quant kernel not found after autotune.\n"
+                f"Autotune may have failed. Please check the logs."
+            )
     
     _quant_only_fp8_fn = module.quant_triton
     logger.info_once("FP8 quant kernel loaded")
