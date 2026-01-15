@@ -37,6 +37,16 @@ SlideSparse 测试工具库
 """
 
 import os
+
+# ============================================================================
+# Triton ptxas 兼容性设置（必须在 import triton 之前）
+# ============================================================================
+# 优先使用系统 CUDA ptxas（支持更新的 GPU 架构如 sm_121）
+# Triton 内置的 ptxas 版本可能较旧，不支持最新架构
+_CUDA_PTXAS = "/usr/local/cuda/bin/ptxas"
+if os.path.exists(_CUDA_PTXAS) and "TRITON_PTXAS_PATH" not in os.environ:
+    os.environ["TRITON_PTXAS_PATH"] = _CUDA_PTXAS
+
 import sys
 import time
 import ctypes
@@ -944,6 +954,21 @@ class EnvironmentChecker:
         """检查是否支持 FP8 (sm_89+)"""
         cc = cls.cuda_compute_capability()
         return cc >= (8, 9)
+    
+    @classmethod
+    def supports_cutlass_fp8(cls) -> bool:
+        """
+        检查 vLLM CUTLASS FP8 kernel 是否支持当前 GPU
+        
+        vLLM 的 CUTLASS kernel 目前只支持到 sm_90 (H100)，
+        更新的架构如 sm_120/sm_121 (Blackwell) 会报 "Error Internal"
+        """
+        if "supports_cutlass_fp8" not in cls._cache:
+            cc = cls.cuda_compute_capability()
+            # CUTLASS FP8 支持: sm_89 <= cc <= sm_120
+            # sm_121+ (Blackwell) 目前不支持
+            cls._cache["supports_cutlass_fp8"] = (8, 9) <= cc <= (12, 0)
+        return cls._cache["supports_cutlass_fp8"]
     
     @classmethod
     def is_slidesparse_enabled(cls) -> bool:

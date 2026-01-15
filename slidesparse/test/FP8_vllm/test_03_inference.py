@@ -81,11 +81,15 @@ def run_comparison_inference(
     
     Returns:
         List of (prompt, baseline_output, test_output)
+        如果 baseline 不可用，baseline_output 为 None
     """
     from vllm import LLM, SamplingParams
     
     results = []
     backend_name = get_backend_name(use_cublaslt, use_cusparselt, inner_fp32)
+    
+    # 检测 CUTLASS 是否支持当前 GPU
+    cutlass_supported = EnvironmentChecker.supports_cutlass_fp8()
     
     sampling_params = SamplingParams(
         temperature=0.0,  # 贪婪采样确保可复现
@@ -94,39 +98,59 @@ def run_comparison_inference(
     
     if verbose:
         print("\n" + "=" * 80)
-        print(Colors.bold("vLLM 原生路径 vs SlideSparse 推理输出对比"))
+        if cutlass_supported:
+            print(Colors.bold("vLLM 原生路径 vs SlideSparse 推理输出对比"))
+        else:
+            print(Colors.bold(f"{backend_name} 推理测试"))
         print("=" * 80)
         print(f"模型: {model_path.name}")
-        print(f"基准: vLLM 原生路径 (DISABLE_SLIDESPARSE=1)")
+        if cutlass_supported:
+            print(f"基准: vLLM 原生路径 (DISABLE_SLIDESPARSE=1)")
+        else:
+            cc = EnvironmentChecker.cuda_compute_capability()
+            print(Colors.yellow(f"注意: CUTLASS 不支持当前 GPU (sm_{cc[0]}{cc[1]})，跳过 baseline"))
         print(f"测试: {backend_name}")
         print(f"采样: temperature=0.0, max_tokens={max_tokens}")
         print("=" * 80)
     
-    # 1. 运行 vLLM 原生路径 (基准)
-    if verbose:
-        print(f"\n{Colors.cyan('[1/2] 运行 vLLM 原生路径 (基准)...')}")
+    baseline_texts = None
     
-    saved_env = set_env_for_baseline()
-    
-    with cuda_memory_manager():
-        llm_baseline = LLM(
-            model=str(model_path),
-            max_model_len=256,
-            gpu_memory_utilization=0.45,
-            disable_log_stats=True,
-            enforce_eager=True,
-        )
+    # 1. 运行 vLLM 原生路径 (基准) - 仅当 CUTLASS 支持时
+    if cutlass_supported:
+        if verbose:
+            print(f"\n{Colors.cyan('[1/2] 运行 vLLM 原生路径 (基准)...')}")
         
-        outputs_baseline = llm_baseline.generate(prompts, sampling_params)
-        baseline_texts = [o.outputs[0].text.strip() for o in outputs_baseline]
+        saved_env = set_env_for_baseline()
         
-        del llm_baseline
-    
-    restore_env(saved_env)
+        try:
+            with cuda_memory_manager():
+                llm_baseline = LLM(
+                    model=str(model_path),
+                    max_model_len=256,
+                    gpu_memory_utilization=0.45,
+                    disable_log_stats=True,
+                    enforce_eager=True,
+                )
+                
+                outputs_baseline = llm_baseline.generate(prompts, sampling_params)
+                baseline_texts = [o.outputs[0].text.strip() for o in outputs_baseline]
+                
+                del llm_baseline
+        except RuntimeError as e:
+            if "Error Internal" in str(e) or "cutlass" in str(e).lower():
+                if verbose:
+                    print(Colors.yellow(f"  CUTLASS 运行失败: {e}"))
+                    print(Colors.yellow("  跳过 baseline 对比"))
+                baseline_texts = None
+            else:
+                raise
+        
+        restore_env(saved_env)
     
     # 2. 运行 SlideSparse 后端 (测试)
     if verbose:
-        print(f"\n{Colors.cyan(f'[2/2] 运行 {backend_name}...')}")
+        step = "[1/1]" if not cutlass_supported else "[2/2]"
+        print(f"\n{Colors.cyan(f'{step} 运行 {backend_name}...')}")
     
     saved_env = set_env_for_test(use_cublaslt, use_cusparselt, inner_fp32)
     
@@ -149,31 +173,44 @@ def run_comparison_inference(
     # 3. 打印对比结果
     if verbose:
         print("\n" + "=" * 80)
-        print(Colors.bold("输出对比"))
+        if baseline_texts is not None:
+            print(Colors.bold("输出对比"))
+        else:
+            print(Colors.bold(f"{backend_name} 输出"))
         print("=" * 80)
         
-        for i, (prompt, baseline_out, test_out) in enumerate(
-            zip(prompts, baseline_texts, test_texts)
-        ):
+        for i, prompt in enumerate(prompts):
+            test_out = test_texts[i]
+            baseline_out = baseline_texts[i] if baseline_texts else None
+            
             print(f"\n{Colors.bold(f'[Prompt {i+1}]')} {prompt}")
             print("-" * 80)
-            print(f"{Colors.blue('vLLM 原生:')} {baseline_out}")
-            print()
-            print(f"{Colors.green(f'{backend_name}:')} {test_out}")
             
-            # 比较是否完全相同
-            if baseline_out == test_out:
-                print(f"\n  {Colors.green('✓ 输出完全一致')}")
+            if baseline_out is not None:
+                print(f"{Colors.blue('vLLM 原生:')} {baseline_out}")
+                print()
+                print(f"{Colors.green(f'{backend_name}:')} {test_out}")
+                
+                # 比较是否完全相同
+                if baseline_out == test_out:
+                    print(f"\n  {Colors.green('✓ 输出完全一致')}")
+                else:
+                    print(f"\n  {Colors.yellow('⚠ 输出有差异（FP8 精度正常）')}")
+                
+                results.append((prompt, baseline_out, test_out))
             else:
-                print(f"\n  {Colors.yellow('⚠ 输出有差异（FP8 精度正常）')}")
-            
-            results.append((prompt, baseline_out, test_out))
+                # 无 baseline，只显示 test 输出
+                print(f"{Colors.green(f'{backend_name}:')} {test_out}")
+                results.append((prompt, None, test_out))
         
         print("\n" + "=" * 80)
         
         # 统计
-        identical = sum(1 for _, b, t in results if b == t)
-        print(f"统计: {identical}/{len(results)} 个输出完全一致")
+        if baseline_texts is not None:
+            identical = sum(1 for _, b, t in results if b == t)
+            print(f"统计: {identical}/{len(results)} 个输出完全一致")
+        else:
+            print(f"已完成 {len(results)} 个推理测试 (无 baseline 对比)")
         print("=" * 80)
     
     return results

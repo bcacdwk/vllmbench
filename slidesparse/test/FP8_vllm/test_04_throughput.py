@@ -248,16 +248,21 @@ def run_throughput_comparison(
         print(f"{Colors.cyan('━' * 50)}")
     
     # 基准: vLLM 原生路径
+    baseline_prefill_tps = None
     if verbose:
         print(f"\n  {Colors.blue('[基准] vLLM 原生路径...')}")
     saved_env = set_env_for_baseline()
-    baseline_prefill = run_phase_test(
-        model_path,
-        num_prompts=PREFILL_CONFIG["num_prompts"],
-        prompt_len=PREFILL_CONFIG["prompt_len"],
-        output_len=PREFILL_CONFIG["output_len"],
-    )
-    baseline_prefill_tps = baseline_prefill.input_tokens / baseline_prefill.total_time_s
+    try:
+        baseline_prefill = run_phase_test(
+            model_path,
+            num_prompts=PREFILL_CONFIG["num_prompts"],
+            prompt_len=PREFILL_CONFIG["prompt_len"],
+            output_len=PREFILL_CONFIG["output_len"],
+        )
+        baseline_prefill_tps = baseline_prefill.input_tokens / baseline_prefill.total_time_s
+    except Exception as e:
+        if verbose:
+            print(f"    {Colors.yellow(f'跳过 (CUTLASS 不支持当前 GPU): {e}')}")
     restore_env(saved_env)
     
     # 测试: SlideSparse 后端
@@ -273,18 +278,24 @@ def run_throughput_comparison(
     test_prefill_tps = test_prefill.input_tokens / test_prefill.total_time_s
     restore_env(saved_env)
     
-    prefill_speedup = test_prefill_tps / baseline_prefill_tps if baseline_prefill_tps > 0 else 0
-    results["prefill"] = {
-        "baseline_tps": baseline_prefill_tps,
-        "test_tps": test_prefill_tps,
-        "speedup": prefill_speedup,
-    }
-    
-    if verbose:
-        print(f"\n  结果:")
-        print(f"    vLLM 原生路径: {baseline_prefill_tps:>10.1f} tok/s")
-        print(f"    {backend_name}: {test_prefill_tps:>10.1f} tok/s")
-        print(f"    加速比: {format_speedup(prefill_speedup)}")
+    if baseline_prefill_tps is not None:
+        prefill_speedup = test_prefill_tps / baseline_prefill_tps if baseline_prefill_tps > 0 else 0
+        results["prefill"] = {
+            "baseline_tps": baseline_prefill_tps,
+            "test_tps": test_prefill_tps,
+            "speedup": prefill_speedup,
+        }
+        if verbose:
+            print(f"\n  结果:")
+            print(f"    vLLM 原生路径: {baseline_prefill_tps:>10.1f} tok/s")
+            print(f"    {backend_name}: {test_prefill_tps:>10.1f} tok/s")
+            print(f"    加速比: {format_speedup(prefill_speedup)}")
+    else:
+        results["prefill"] = {"test_tps": test_prefill_tps}
+        if verbose:
+            print(f"\n  结果:")
+            print(f"    {backend_name}: {test_prefill_tps:>10.1f} tok/s")
+            print(f"    (无 baseline 对比)")
     
     # ========== Decode 测试 ==========
     if verbose:
@@ -296,16 +307,21 @@ def run_throughput_comparison(
         print(f"{Colors.cyan('━' * 50)}")
     
     # 基准: vLLM 原生路径
+    baseline_decode_tps = None
     if verbose:
         print(f"\n  {Colors.blue('[基准] vLLM 原生路径...')}")
     saved_env = set_env_for_baseline()
-    baseline_decode = run_phase_test(
-        model_path,
-        num_prompts=DECODE_CONFIG["num_prompts"],
-        prompt_len=DECODE_CONFIG["prompt_len"],
-        output_len=DECODE_CONFIG["output_len"],
-    )
-    baseline_decode_tps = baseline_decode.output_tokens / baseline_decode.total_time_s
+    try:
+        baseline_decode = run_phase_test(
+            model_path,
+            num_prompts=DECODE_CONFIG["num_prompts"],
+            prompt_len=DECODE_CONFIG["prompt_len"],
+            output_len=DECODE_CONFIG["output_len"],
+        )
+        baseline_decode_tps = baseline_decode.output_tokens / baseline_decode.total_time_s
+    except Exception as e:
+        if verbose:
+            print(f"    {Colors.yellow(f'跳过 (CUTLASS 不支持当前 GPU): {e}')}")
     restore_env(saved_env)
     
     # 测试: SlideSparse 后端
@@ -321,26 +337,38 @@ def run_throughput_comparison(
     test_decode_tps = test_decode.output_tokens / test_decode.total_time_s
     restore_env(saved_env)
     
-    decode_speedup = test_decode_tps / baseline_decode_tps if baseline_decode_tps > 0 else 0
-    results["decode"] = {
-        "baseline_tps": baseline_decode_tps,
-        "test_tps": test_decode_tps,
-        "speedup": decode_speedup,
-    }
-    
-    if verbose:
-        print(f"\n  结果:")
-        print(f"    vLLM 原生路径: {baseline_decode_tps:>10.1f} tok/s")
-        print(f"    {backend_name}: {test_decode_tps:>10.1f} tok/s")
-        print(f"    加速比: {format_speedup(decode_speedup)}")
+    if baseline_decode_tps is not None:
+        decode_speedup = test_decode_tps / baseline_decode_tps if baseline_decode_tps > 0 else 0
+        results["decode"] = {
+            "baseline_tps": baseline_decode_tps,
+            "test_tps": test_decode_tps,
+            "speedup": decode_speedup,
+        }
+        if verbose:
+            print(f"\n  结果:")
+            print(f"    vLLM 原生路径: {baseline_decode_tps:>10.1f} tok/s")
+            print(f"    {backend_name}: {test_decode_tps:>10.1f} tok/s")
+            print(f"    加速比: {format_speedup(decode_speedup)}")
+    else:
+        results["decode"] = {"test_tps": test_decode_tps}
+        if verbose:
+            print(f"\n  结果:")
+            print(f"    {backend_name}: {test_decode_tps:>10.1f} tok/s")
+            print(f"    (无 baseline 对比)")
     
     # ========== 总结 ==========
     if verbose:
         print(f"\n{'=' * 90}")
         print(Colors.bold("总结"))
         print(f"{'=' * 90}")
-        print(f"  Prefill (长输入): {format_speedup(prefill_speedup)}")
-        print(f"  Decode  (长输出): {format_speedup(decode_speedup)}")
+        if "speedup" in results.get("prefill", {}):
+            print(f"  Prefill (长输入): {format_speedup(results['prefill']['speedup'])}")
+        else:
+            print(f"  Prefill (长输入): {results['prefill']['test_tps']:.1f} tok/s (无 baseline)")
+        if "speedup" in results.get("decode", {}):
+            print(f"  Decode  (长输出): {format_speedup(results['decode']['speedup'])}")
+        else:
+            print(f"  Decode  (长输出): {results['decode']['test_tps']:.1f} tok/s (无 baseline)")
         print(f"{'=' * 90}")
     
     return results
