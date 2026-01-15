@@ -245,6 +245,8 @@ def test_op_basic():
     """测试 Op 基本运行"""
     from slidesparse.core.SlideSparseLinearMethod_FP8 import SlideSparseFp8LinearOp
     from vllm.model_executor.layers.quantization.utils.quant_utils import GroupShape
+
+    print(f"如果quant和dequant Triton kernel没有提前搜索, 会有首次运行的搜索开销")
     
     with cuda_memory_manager():
         M, N, K = 64, 512, 256
