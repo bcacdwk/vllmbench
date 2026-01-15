@@ -20,6 +20,12 @@ import argparse
 from pathlib import Path
 from typing import Optional
 
+# 优先使用系统 CUDA ptxas（支持更新的 GPU 架构如 sm_121）
+# Triton 内置的 ptxas 版本可能较旧，不支持最新架构
+_CUDA_PTXAS = "/usr/local/cuda/bin/ptxas"
+if os.path.exists(_CUDA_PTXAS) and "TRITON_PTXAS_PATH" not in os.environ:
+    os.environ["TRITON_PTXAS_PATH"] = _CUDA_PTXAS
+
 import torch
 import triton
 import triton.language as tl
