@@ -317,7 +317,7 @@ def test_real_compress_int8():
     print("=" * 60)
     
     try:
-        from compress import compress_tensor, check_compress_available
+        from compress import compress_tensor_offline, check_compress_available
         
         if not check_compress_available():
             print("  cuSPARSELt compress not available, skipping")
@@ -340,7 +340,7 @@ def test_real_compress_int8():
             weight = create_2to4_sparse_tensor(N, K, dtype=torch.int8)
             
             try:
-                compressed, metadata = compress_tensor(weight, dtype="int8")
+                compressed, metadata = compress_tensor_offline(weight, dtype="int8")
                 
                 # 验证元数据
                 assert metadata["original_shape"] == [N, K]
@@ -372,7 +372,7 @@ def test_real_compress_fp8():
     print("=" * 60)
     
     try:
-        from compress import compress_tensor, check_compress_available
+        from compress import compress_tensor_offline, check_compress_available
         
         if not check_compress_available():
             print("  cuSPARSELt compress not available, skipping")
@@ -395,7 +395,7 @@ def test_real_compress_fp8():
             weight = create_2to4_sparse_tensor(N, K, dtype=torch.float8_e4m3fn)
             
             try:
-                compressed, metadata = compress_tensor(weight, dtype="fp8e4m3")
+                compressed, metadata = compress_tensor_offline(weight, dtype="fp8e4m3")
                 
                 # 验证元数据
                 assert metadata["original_shape"] == [N, K]
@@ -427,7 +427,7 @@ def test_auto_dtype_detection():
     print("=" * 60)
     
     try:
-        from compress import compress_tensor, check_compress_available, is_supported_dtype
+        from compress import compress_tensor_offline, check_compress_available, is_supported_dtype
         
         if not check_compress_available():
             print("  cuSPARSELt compress not available, skipping")
@@ -445,7 +445,7 @@ def test_auto_dtype_detection():
         assert is_supported_dtype(weight_int8.dtype), "INT8 should be supported"
         
         try:
-            compressed, metadata = compress_tensor(weight_int8)  # 不指定 dtype
+            compressed, metadata = compress_tensor_offline(weight_int8)  # 不指定 dtype
             assert metadata["dtype"] == "int8", f"Expected int8, got {metadata['dtype']}"
             print(f"  ✓ INT8 auto-detected: {metadata['dtype']}")
         except Exception as e:
@@ -457,7 +457,7 @@ def test_auto_dtype_detection():
         assert is_supported_dtype(weight_fp8.dtype), "FP8E4M3 should be supported"
         
         try:
-            compressed, metadata = compress_tensor(weight_fp8)  # 不指定 dtype
+            compressed, metadata = compress_tensor_offline(weight_fp8)  # 不指定 dtype
             assert metadata["dtype"] == "fp8e4m3", f"Expected fp8e4m3, got {metadata['dtype']}"
             print(f"  ✓ FP8E4M3 auto-detected: {metadata['dtype']}")
         except Exception as e:
@@ -494,7 +494,7 @@ def test_real_checkpoint_int8():
         return True
     
     try:
-        from compress import compress_tensor, check_compress_available
+        from compress import compress_tensor_offline, check_compress_available
         from safetensors import safe_open
         
         if not check_compress_available():
@@ -527,7 +527,7 @@ def test_real_checkpoint_int8():
                     continue
                 
                 try:
-                    compressed, metadata = compress_tensor(tensor)
+                    compressed, metadata = compress_tensor_offline(tensor)
                     print(f"  ✓ {key}: [{N}, {K}] -> {len(compressed)} bytes (dtype={metadata['dtype']})")
                     compressed_count += 1
                 except Exception as e:
@@ -563,7 +563,7 @@ def test_real_checkpoint_fp8():
         return True
     
     try:
-        from compress import compress_tensor, check_compress_available
+        from compress import compress_tensor_offline, check_compress_available
         from safetensors import safe_open
         
         if not check_compress_available():
@@ -596,7 +596,7 @@ def test_real_checkpoint_fp8():
                     continue
                 
                 try:
-                    compressed, metadata = compress_tensor(tensor)
+                    compressed, metadata = compress_tensor_offline(tensor)
                     print(f"  ✓ {key}: [{N}, {K}] -> {len(compressed)} bytes (dtype={metadata['dtype']})")
                     compressed_count += 1
                 except Exception as e:
@@ -624,7 +624,7 @@ def test_compress_sparsity_verification():
     print("=" * 60)
     
     try:
-        from compress import compress_tensor, check_compress_available
+        from compress import compress_tensor_offline, check_compress_available
         
         if not check_compress_available():
             print("  cuSPARSELt compress not available, skipping")
@@ -639,7 +639,7 @@ def test_compress_sparsity_verification():
         weight_invalid = torch.randint(-127, 127, (N, K), dtype=torch.int8)
         
         try:
-            compressed, metadata = compress_tensor(weight_invalid)
+            compressed, metadata = compress_tensor_offline(weight_invalid)
             print("  ✗ Should have rejected non-sparse weight")
             return False
         except ValueError as e:
@@ -653,7 +653,7 @@ def test_compress_sparsity_verification():
         weight_valid = create_2to4_sparse_tensor(N, K, dtype=torch.int8)
         
         try:
-            compressed, metadata = compress_tensor(weight_valid)
+            compressed, metadata = compress_tensor_offline(weight_valid)
             print(f"  ✓ Accepted valid sparse weight")
         except Exception as e:
             print(f"  ✗ Rejected valid sparse weight: {e}")

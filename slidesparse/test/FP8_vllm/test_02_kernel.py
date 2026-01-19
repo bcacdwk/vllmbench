@@ -193,8 +193,15 @@ def run_slidesparse(
     weight_scale: torch.Tensor,
     bias: torch.Tensor,
 ) -> torch.Tensor:
-    """运行 SlideSparse 路径（根据环境变量选择 kernel）"""
+    """
+    运行 SlideSparse 路径（根据环境变量选择 kernel）
+    
+    注意：weight_fp8_t 是 [K, N] 格式（vLLM 转置后的格式）
+    - CUTLASS 路径：直接使用 [K, N]
+    - cuBLASLt 路径：需要转置回 [N, K]（模拟 process_weights_after_loading 的行为）
+    """
     from slidesparse.core.SlideSparseLinearMethod_FP8 import SlideSparseFp8LinearOp
+    from slidesparse.core.config import is_cublaslt_enabled, is_cusparselt_enabled
     from vllm.model_executor.layers.quantization.utils.quant_utils import GroupShape
     
     op = SlideSparseFp8LinearOp(
@@ -202,9 +209,18 @@ def run_slidesparse(
         act_quant_group_shape=GroupShape.PER_TOKEN,
     )
     
+    # 根据 kernel 路径选择权重格式
+    # 这模拟了 process_weights_after_loading 的行为：
+    # - CUTLASS: 使用 vLLM 转置后的 [K, N]
+    # - cuBLASLt/cuSPARSELt: 转置回 [N, K]
+    if is_cublaslt_enabled() or is_cusparselt_enabled():
+        weight = weight_fp8_t.t().contiguous()  # [K, N] -> [N, K]
+    else:
+        weight = weight_fp8_t  # [K, N]
+    
     return op.apply(
         input=input_bf16,
-        weight=weight_fp8_t,
+        weight=weight,
         weight_scale=weight_scale,
         out_dtype=torch.bfloat16,
         input_scale=None,
@@ -259,6 +275,7 @@ def test_fp8_support():
 def test_op_basic():
     """测试 Op 基本运行"""
     from slidesparse.core.SlideSparseLinearMethod_FP8 import SlideSparseFp8LinearOp
+    from slidesparse.core.config import is_cublaslt_enabled, is_cusparselt_enabled
     from vllm.model_executor.layers.quantization.utils.quant_utils import GroupShape
 
     print(f"如果quant和dequant Triton kernel没有提前搜索, 会有首次运行的搜索开销")
@@ -267,6 +284,12 @@ def test_op_basic():
         M, N, K = 64, 512, 256
         input_bf16, weight_fp8_t, weight_scale, bias = generate_test_data(M, N, K)
         
+        # 根据 kernel 路径选择权重格式（模拟 process_weights_after_loading）
+        if is_cublaslt_enabled() or is_cusparselt_enabled():
+            weight = weight_fp8_t.t().contiguous()  # [K, N] -> [N, K]
+        else:
+            weight = weight_fp8_t  # [K, N]
+        
         op = SlideSparseFp8LinearOp(
             act_quant_static=False,
             act_quant_group_shape=GroupShape.PER_TOKEN,
@@ -274,7 +297,7 @@ def test_op_basic():
         
         output = op.apply(
             input=input_bf16,
-            weight=weight_fp8_t,
+            weight=weight,
             weight_scale=weight_scale,
             out_dtype=torch.bfloat16,
             input_scale=None,

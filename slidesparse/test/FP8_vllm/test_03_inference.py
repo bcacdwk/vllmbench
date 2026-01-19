@@ -64,6 +64,7 @@ def run_comparison_inference(
     use_cublaslt: bool = False,
     use_cusparselt: bool = False,
     inner_fp32: bool = False,
+    sparsity: str = "2_8",
     max_tokens: int = 48,
     verbose: bool = True,
 ) -> List[Tuple[str, str, str]]:
@@ -76,6 +77,7 @@ def run_comparison_inference(
         use_cublaslt: SlideSparse 后端是否使用 cuBLASLt
         use_cusparselt: SlideSparse 后端是否使用 cuSPARSELt
         inner_fp32: 是否使用 FP32 中间累加
+        sparsity: 稀疏格式（仅 cuSPARSELt 时生效）
         max_tokens: 最大生成 token 数
         verbose: 是否打印详细信息
     
@@ -86,7 +88,7 @@ def run_comparison_inference(
     from vllm import LLM, SamplingParams
     
     results = []
-    backend_name = get_backend_name(use_cublaslt, use_cusparselt, inner_fp32)
+    backend_name = get_backend_name(use_cublaslt, use_cusparselt, inner_fp32, sparsity)
     
     # 检测 CUTLASS 是否支持当前 GPU
     cutlass_supported = EnvironmentChecker.supports_cutlass_fp8()
@@ -98,14 +100,16 @@ def run_comparison_inference(
     
     if verbose:
         print("\n" + "=" * 80)
-        if cutlass_supported:
+        if cutlass_supported and not use_cusparselt:
             print(Colors.bold("vLLM 原生路径 vs SlideSparse 推理输出对比"))
         else:
             print(Colors.bold(f"{backend_name} 推理测试"))
         print("=" * 80)
         print(f"模型: {model_path.name}")
-        if cutlass_supported:
+        if cutlass_supported and not use_cusparselt:
             print(f"基准: vLLM 原生路径 (DISABLE_SLIDESPARSE=1)")
+        elif use_cusparselt:
+            print(Colors.yellow(f"注意: cuSPARSELt 使用 SlideSparse checkpoint，跳过 baseline"))
         else:
             cc = EnvironmentChecker.cuda_compute_capability()
             print(Colors.yellow(f"注意: CUTLASS 不支持当前 GPU (sm_{cc[0]}{cc[1]})，跳过 baseline"))
@@ -115,8 +119,9 @@ def run_comparison_inference(
     
     baseline_texts = None
     
-    # 1. 运行 vLLM 原生路径 (基准) - 仅当 CUTLASS 支持时
-    if cutlass_supported:
+    # 1. 运行 vLLM 原生路径 (基准)
+    # 仅当 CUTLASS 支持且不是 cuSPARSELt 测试时（因为 cuSPARSELt 使用不同的 checkpoint）
+    if cutlass_supported and not use_cusparselt:
         if verbose:
             print(f"\n{Colors.cyan('[1/2] 运行 vLLM 原生路径 (基准)...')}")
         
@@ -149,10 +154,10 @@ def run_comparison_inference(
     
     # 2. 运行 SlideSparse 后端 (测试)
     if verbose:
-        step = "[1/1]" if not cutlass_supported else "[2/2]"
+        step = "[1/1]" if baseline_texts is None else "[2/2]"
         print(f"\n{Colors.cyan(f'{step} 运行 {backend_name}...')}")
     
-    saved_env = set_env_for_test(use_cublaslt, use_cusparselt, inner_fp32)
+    saved_env = set_env_for_test(use_cublaslt, use_cusparselt, inner_fp32, sparsity)
     
     with cuda_memory_manager():
         llm_test = LLM(
@@ -230,16 +235,34 @@ if __name__ == "__main__":
     # 打印环境信息
     EnvironmentChecker.print_env_info()
     
-    # 查找模型
-    model_path = ModelFinder.find_small_model("FP8")
-    if model_path is None:
-        print(Colors.red("错误: 未找到 FP8 模型"))
-        sys.exit(1)
-    
     # 根据参数决定测试的 SlideSparse 后端
     use_cublaslt = getattr(args, 'use_cublaslt', False)
     use_cusparselt = getattr(args, 'use_cusparselt', False)
     inner_fp32 = getattr(args, 'inner_fp32', False)
+    sparsity = getattr(args, 'sparsity', '2_8')
+    
+    # 查找模型
+    # 对于 cuSPARSELt 路径，需要查找 SlideSparse 转换后的 checkpoint
+    if use_cusparselt:
+        model_path = ModelFinder.find_slidesparse_model("FP8", sparsity)
+        if model_path is None:
+            # fallback: 尝试找普通模型
+            base_model = ModelFinder.find_small_model("FP8")
+            if base_model is not None:
+                # 尝试解析 SlideSparse 路径
+                model_path = ModelFinder.resolve_slidesparse_model_path(
+                    base_model, sparsity, "FP8"
+                )
+        if model_path is None:
+            print(Colors.red(f"错误: 未找到 FP8 SlideSparse-{sparsity} 模型"))
+            print(Colors.yellow(f"请确保 checkpoints_slidesparse/ 目录下存在对应的 checkpoint"))
+            sys.exit(1)
+        print(Colors.cyan(f"使用 SlideSparse checkpoint: {model_path.name}"))
+    else:
+        model_path = ModelFinder.find_small_model("FP8")
+        if model_path is None:
+            print(Colors.red("错误: 未找到 FP8 模型"))
+            sys.exit(1)
     
     # 运行输出对比
     run_comparison_inference(

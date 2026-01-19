@@ -26,19 +26,32 @@ SlideSparse 配置模块
    - 默认：0（使用 BF16）
    - 前提：USE_CUBLASLT=1 或 USE_CUSPARSELT=1 时生效
 
+5. SPARSITY=2_8
+   - 作用：指定稀疏格式 Z:L（如 2:8, 2:6, 2:10）
+   - 默认：2_8
+   - 前提：USE_CUSPARSELT=1 时生效（在线压缩需要知道稀疏格式）
+   - 格式：Z_L（如 "2_8" 表示 2:8 稀疏）
+
 调度逻辑:
 =========
 1. DISABLE_SLIDESPARSE=1 → vLLM 原生路径（与 SlideSparse 无关）
 2. DISABLE_SLIDESPARSE=0（默认）→ SlideSparse hook 路径
    2-1. USE_CUBLASLT=0 且 USE_CUSPARSELT=0（默认）→ 外挂 CUTLASS kernel（fallback）
    2-2. USE_CUBLASLT=1 → cuBLASLt kernel
-   2-3. USE_CUSPARSELT=1 → cuSPARSELt kernel
+   2-3. USE_CUSPARSELT=1 → cuSPARSELt kernel（需要 SPARSITY 配置）
    2-4. 两者同时为 1 → 报错（互斥）
 """
 
 import os
 
 from vllm.logger import init_logger
+
+# 从顶层 utils 导入稀疏配置解析函数
+from slidesparse.utils import (
+    get_sparsity_config_cached,
+    get_sparsity_str,
+    clear_sparsity_cache,
+)
 
 logger = init_logger(__name__)
 
@@ -124,6 +137,22 @@ def is_inner_dtype_fp32() -> bool:
 
 
 # ============================================================================
+# 稀疏格式配置（委托给顶层 utils）
+# ============================================================================
+
+def get_sparsity_config() -> tuple:
+    """
+    获取稀疏格式配置
+    
+    委托给 slidesparse.utils.get_sparsity_config_cached()
+    
+    Returns:
+        (Z, L, expand_ratio) 元组
+    """
+    return get_sparsity_config_cached()
+
+
+# ============================================================================
 # 状态信息
 # ============================================================================
 
@@ -138,6 +167,8 @@ def get_slidesparse_status() -> str:
         return f"SlideSparse ENABLED, cuBLASLt kernel (inner_dtype={inner})"
     elif is_cusparselt_enabled():
         inner = "FP32" if is_inner_dtype_fp32() else "BF16"
-        return f"SlideSparse ENABLED, cuSPARSELt kernel (inner_dtype={inner})"
+        Z, L, expand_ratio = get_sparsity_config()
+        return (f"SlideSparse ENABLED, cuSPARSELt kernel "
+                f"(inner_dtype={inner}, sparsity={Z}:{L}, expand_ratio={expand_ratio:.3f})")
     else:
         return "SlideSparse ENABLED, CUTLASS kernel (fallback)"

@@ -38,6 +38,8 @@ _PROJECT_ROOT = _SLIDESPARSE_ROOT.parent
 
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
+if str(_SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPT_DIR))
 
 # 使用顶层 utils 获取硬件信息和文件命名
 from slidesparse.utils import (
@@ -47,8 +49,8 @@ from slidesparse.utils import (
     ensure_cusparselt_loaded,
 )
 
-# 导入本地工具
-from utils import (
+# 导入 weight_convert 目录下的本地工具
+from slidesparse.weight_convert.utils import (
     SlideSparseConfig,
     is_target_layer,
     load_safetensors,
@@ -256,13 +258,13 @@ def get_compress_sizes(N: int, K: int, dtype: Union[torch.dtype, str] = "int8") 
     return compressed_size.value, temp_buffer_size.value
 
 
-def compress_tensor(
+def compress_tensor_offline(
     weight: torch.Tensor,
     dtype: Optional[str] = None,
     verbose: bool = False,
 ) -> Tuple[torch.Tensor, Dict[str, Any]]:
     """
-    使用 cuSPARSELt 压缩 2:4 稀疏权重
+    使用 cuSPARSELt 离线压缩 2:4 稀疏权重（用于权重转换脚本）
     
     Args:
         weight: 满足 2:4 稀疏的权重 [N, K]，INT8 或 FP8E4M3
@@ -271,8 +273,12 @@ def compress_tensor(
     
     Returns:
         (compressed_weight, metadata)
-        - compressed_weight: 压缩后的数据，uint8 tensor
+        - compressed_weight: 压缩后的数据，uint8 tensor（在 CPU 上）
         - metadata: 压缩元数据
+    
+    Note:
+        这个函数用于离线转换场景，会将压缩后的数据移回 CPU 以便保存。
+        对于模型加载时的在线压缩，请使用 compress_tensor_online。
     """
     # 自动检测数据类型
     if dtype is None:
@@ -352,6 +358,94 @@ def compress_tensor(
     }
     
     return compressed_cpu, metadata
+
+
+def compress_tensor_online(
+    weight: torch.Tensor,
+    dtype: Optional[str] = None,
+    verbose: bool = False,
+) -> torch.Tensor:
+    """
+    使用 cuSPARSELt 在线压缩 2:4 稀疏权重（保持数据在 GPU 上）
+    
+    与 compress_tensor 的区别：
+    - 不返回元数据，只返回压缩后的 tensor
+    - 压缩后的数据保持在 GPU 上，避免 GPU<->CPU 拷贝
+    - 用于模型加载时的在线压缩场景
+    
+    Args:
+        weight: 满足 2:4 稀疏的权重 [N, K]，INT8 或 FP8E4M3，应在 GPU 上
+        dtype: 数据类型字符串（自动检测如果为 None）
+        verbose: 是否打印详细信息
+    
+    Returns:
+        compressed_weight: 压缩后的 1D uint8 tensor，在 GPU 上
+    """
+    # 自动检测数据类型
+    if dtype is None:
+        if not is_supported_dtype(weight.dtype):
+            raise ValueError(
+                f"Unsupported weight dtype: {weight.dtype}. "
+                f"Supported: {', '.join(str(d) for d in SUPPORTED_DTYPES)}"
+            )
+        dtype = get_dtype_str(weight.dtype)
+    
+    if weight.dim() != 2:
+        raise ValueError(f"Weight must be 2D, got {weight.dim()}D")
+    
+    N, K = weight.shape
+    
+    # cuSPARSELt 对 INT8/FP8 稀疏矩阵要求 N 和 K 必须是 32 的倍数
+    if N % 32 != 0:
+        raise ValueError(
+            f"N must be multiple of 32 for cuSPARSELt sparse matrices, got N={N}. "
+            f"Use slide.py with align_to=32 to ensure proper alignment."
+        )
+    if K % 32 != 0:
+        raise ValueError(
+            f"K must be multiple of 32 for cuSPARSELt sparse matrices, got K={K}. "
+            f"Use slide.py with align_to=32 to ensure proper alignment."
+        )
+    
+    # 查询压缩大小
+    compressed_size, temp_buffer_size = get_compress_sizes(N, K, dtype)
+    
+    if verbose:
+        print_info(f"  [N={N}, K={K}] dtype={dtype}, compressed={compressed_size} bytes")
+    
+    # 确保 weight 在 GPU 上且 contiguous
+    if not weight.is_cuda:
+        weight = weight.cuda()
+    if not weight.is_contiguous():
+        weight = weight.contiguous()
+    
+    # 分配 GPU 内存
+    compressed_gpu = torch.empty(compressed_size, dtype=torch.uint8, device=weight.device)
+    
+    if temp_buffer_size > 0:
+        temp_buffer_gpu = torch.empty(temp_buffer_size, dtype=torch.uint8, device=weight.device)
+        temp_ptr = temp_buffer_gpu.data_ptr()
+    else:
+        temp_ptr = None
+    
+    # 执行压缩
+    lib = get_compress_module()
+    
+    ret = lib.cusparselt_compress_weight(
+        ctypes.c_void_p(weight.data_ptr()),
+        ctypes.c_void_p(compressed_gpu.data_ptr()),
+        ctypes.c_void_p(temp_ptr) if temp_ptr else None,
+        N, K,
+        dtype.encode("utf-8"),
+        None,  # stream
+    )
+    _check_error(lib, ret, "cusparselt_compress_weight")
+    
+    # 同步
+    torch.cuda.synchronize()
+    
+    # 直接返回 GPU 上的压缩数据
+    return compressed_gpu
 
 
 def compress_tensor_fake(
@@ -486,7 +580,7 @@ def compress_safetensors(
         
         try:
             if use_real_cusparselt:
-                compressed, metadata = compress_tensor(tensor, dtype=dtype_str, verbose=verbose)
+                compressed, metadata = compress_tensor_offline(tensor, dtype=dtype_str, verbose=verbose)
                 # 保存压缩数据
                 output_weights[key] = compressed
                 # 保存元数据（作为额外的 tensor）

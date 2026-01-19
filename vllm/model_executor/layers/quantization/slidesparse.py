@@ -58,6 +58,9 @@ try:
         is_cusparselt_enabled,
         is_inner_dtype_fp32,
         get_slidesparse_status,
+        get_sparsity_config,
+        get_sparsity_str,
+        clear_sparsity_cache,
     )
     from slidesparse.core.SlideSparseLinearMethod_FP8 import (
         SlideSparseFp8LinearMethod,
@@ -97,6 +100,15 @@ except ImportError as e:
     def get_slidesparse_status():
         return "SlideSparse backend UNAVAILABLE (import failed)"
     
+    def get_sparsity_config():
+        return (2, 8, 8/6)
+    
+    def get_sparsity_str():
+        return "2_8"
+    
+    def clear_sparsity_cache():
+        pass
+    
     def wrap_scheme_fp8(scheme):
         return scheme
     
@@ -127,6 +139,9 @@ __all__ = [
     "is_cusparselt_enabled",
     "is_inner_dtype_fp32",
     "get_slidesparse_status",
+    "get_sparsity_config",
+    "get_sparsity_str",
+    "clear_sparsity_cache",
     # 线性层方法
     "SlideSparseFp8LinearMethod",
     "SlideSparseFp8LinearOp",

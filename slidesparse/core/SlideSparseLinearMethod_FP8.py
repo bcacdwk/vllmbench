@@ -7,21 +7,34 @@ SlideSparse FP8 Linear Method
 架构说明
 ========
 SlideSparse 通过包装 vLLM 原有的 CompressedTensorsW8A8Fp8 scheme 实现外挂：
-- create_weights / process_weights_after_loading: 完全委托给原始 scheme
+- create_weights: 委托给原始 scheme（cuSPARSELt 需要修改 K 维度）
+- process_weights_after_loading: 委托给原始 scheme + 可选在线压缩
 - apply_weights: 替换为 SlideSparse 的 kernel 路径
 
 三条 Kernel 路径（通过环境变量选择）
 ====================================
 1. CUTLASS (默认 fallback)
    - 直接调用 vLLM 的 cutlass_scaled_mm，融合 GEMM + dequant + bias
+   - 权重形状: [K, N]（vLLM 转置后）
    
 2. cuBLASLt (USE_CUBLASLT=1)
    - GEMM: cuBLASLt FP8 矩阵乘法（无 scale/bias 融合）
    - Dequant+Bias: 外挂 Triton kernel
+   - 权重形状: [N, K]（跳过 vLLM 转置，保持原始行主序）
    
 3. cuSPARSELt (USE_CUSPARSELT=1)
    - GEMM: cuSPARSELt 2:4 稀疏 FP8 矩阵乘法（无 scale/bias 融合）
    - Dequant+Bias: 外挂 Triton kernel
+   - 权重形状: slide_weight_compressed [compressed_size] uint8 1D（在线压缩后）
+   - 激活形状: slide_qinput [M, K'] FP8（slide 扩展后）
+   - 需要配置 SPARSITY 环境变量（默认 2_8）
+   
+   cuSPARSELt 命名约定:
+   - slide_weight [N, K']: slide 后的 2D FP8 权重（压缩前）
+   - slide_weight_compressed [bytes]: cuSPARSELt 压缩后的 1D uint8
+   - slide_weight_N: 原始 N 维度（压缩前保存）
+   - slide_weight_K: slide 后的 K' 维度（K' = K * expand_ratio）
+   - slide_qinput [M, K']: slide + quant 后的激活
 
 数据类型
 ========
@@ -35,9 +48,17 @@ SlideSparse 通过包装 vLLM 原有的 CompressedTensorsW8A8Fp8 scheme 实现�
 - USE_CUBLASLT=1          : 使用 cuBLASLt kernel
 - USE_CUSPARSELT=1        : 使用 cuSPARSELt kernel（与 USE_CUBLASLT 互斥）
 - INNER_DTYPE_FP32=1      : GEMM 输出用 FP32（仅 cuBLASLt/cuSPARSELt 生效）
+- SPARSITY=2_8            : 稀疏格式（仅 cuSPARSELt 时生效，默认 2_8）
 """
 
-from .config import is_slidesparse_enabled, is_cublaslt_enabled, is_cusparselt_enabled, is_inner_dtype_fp32, get_slidesparse_status
+from .config import (
+    is_slidesparse_enabled, 
+    is_cublaslt_enabled, 
+    is_cusparselt_enabled, 
+    is_inner_dtype_fp32, 
+    get_slidesparse_status,
+    get_sparsity_config,
+)
 
 from pathlib import Path
 from typing import Optional
@@ -53,7 +74,13 @@ from vllm.model_executor.layers.quantization.utils.quant_utils import GroupShape
 from vllm.platforms import current_platform
 
 # 使用统一的 slidesparse 工具库
-from slidesparse.utils import load_module, normalize_dtype, find_file
+from slidesparse.utils import (
+    load_module, 
+    normalize_dtype, 
+    find_file,
+    SlideSparseConfig,
+    compute_output_k,
+)
 
 import subprocess
 
@@ -400,14 +427,9 @@ def cuBLASLt_FP8_linear(
     else:
         qinput, scale_a = input, input_scale
     
-    # 转换 weight view: [K,N] stride=(1,K) → [N,K] stride=(K,1)
-    weight_nk = weight.t()
-    if not weight_nk.is_contiguous():
-        logger.warning_once("weight.t() not contiguous, making copy")
-        weight_nk = weight_nk.contiguous()
-    
+    # cuBLASLt 路径：权重已经是 [N, K] 行主序    
     try:
-        gemm_output = ext.cublaslt_fp8_mm(weight_nk, qinput, get_inner_dtype_str())
+        gemm_output = ext.cublaslt_fp8_mm(weight, qinput, get_inner_dtype_str())
         output = dequant_bias_kernel(gemm_output, scale_a, scale_b, bias, out_dtype)
         return output.view(*output_shape)
     except Exception as e:
@@ -417,7 +439,7 @@ def cuBLASLt_FP8_linear(
 def cuSPARSELt_FP8_linear(
     *,
     input: torch.Tensor,
-    weight: torch.Tensor,
+    slide_weight_compressed: torch.Tensor,
     out_dtype: torch.dtype,
     scale_b: torch.Tensor,
     bias: Optional[torch.Tensor],
@@ -425,26 +447,63 @@ def cuSPARSELt_FP8_linear(
     quant_fn: Optional[QuantFP8] = None,
     input_scale: Optional[torch.Tensor] = None,
     input_scale_ub: Optional[torch.Tensor] = None,
+    # cuSPARSELt 特有参数
+    slide_weight_N: Optional[int] = None,
+    slide_weight_K: Optional[int] = None,
     **kwargs,
 ) -> torch.Tensor:
-    """cuSPARSELt 2:4 sparse FP8 GEMM + Triton dequant"""
+    """
+    cuSPARSELt 2:4 sparse FP8 GEMM + Triton dequant
+    
+    数据流:
+    ===========
+    input [M, K] BF16
+        ↓ fused_quant_slide_fp8_kernel (TODO: 待实现)
+    slide_qinput [M, K'] FP8, scale_a [M] FP32
+        ↓ cusparselt_fp8_mm_compressed
+    gemm_output [M, N]
+        ↓ dequant_bias_kernel
+    output [M, N]
+    
+    参数说明:
+    - input: 原始激活 [M, K] BF16
+    - slide_weight_compressed: 1D uint8 tensor（cuSPARSELt 压缩后的格式）
+    - slide_weight_N: slide 后权重的 N 维度（与原始 N 相同）
+    - slide_weight_K: slide 后权重的 K' 维度（K' = K * expand_ratio）
+    
+    注意:
+    - scale_a 是 per-token 的 [M]，与 K 无关，slide 不影响
+    """
     ext = _get_gemm_extension("cusparselt")
     
-    # TODO: 使用 Triton 实现的 quant kernel
-    # 目前暂时使用 vLLM 原生的 QuantFP8
+    # slide 操作会把 input [M, K] 扩展为 slide_qinput [M, K']
     if input.dtype != current_platform.fp8_dtype():
-        assert quant_fn is not None, "quant_fn required for non-FP8 input"
-        qinput, scale_a = quant_fn(input, input_scale, input_scale_ub)
+        # 动态量化 + slide: input [M, K] BF16 -> slide_qinput [M, K'] FP8
+        slide_qinput, scale_a = fused_quant_slide_fp8_kernel(input, slide_weight_K)
     else:
-        qinput, scale_a = input, input_scale
+        # 静态量化场景：input 已经是 FP8 且已做 slide（由上层保证）
+        # TODO: 静态量化时上层需要提前做 slide，目前假设不支持静态量化
+        raise NotImplementedError(
+            "cuSPARSELt with static quantization is not supported yet. "
+            "Input must be BF16/FP16 for dynamic quantization."
+        )
     
-    weight_nk = weight.t()
-    if not weight_nk.is_contiguous():
-        logger.warning_once("weight.t() not contiguous, making copy")
-        weight_nk = weight_nk.contiguous()
+    # 检查维度信息
+    if slide_weight_N is None or slide_weight_K is None:
+        raise ValueError(
+            "cuSPARSELt requires slide_weight_N and slide_weight_K parameters. "
+            "These should be stored during process_weights_after_loading."
+        )
     
     try:
-        gemm_output = ext.cusparselt_fp8_mm(weight_nk, qinput, get_inner_dtype_str())
+        # cuSPARSELt GEMM: slide_qinput [M, K'] @ slide_weight_compressed -> [M, N]
+        gemm_output = ext.cusparselt_fp8_mm_compressed(
+            slide_weight_compressed,  # 压缩后的 1D uint8 tensor
+            slide_qinput,             # [M, K'] FP8（slide 后的激活）
+            slide_weight_N,           # N 维度
+            slide_weight_K,           # K' 维度（slide 扩展后）
+            get_inner_dtype_str()
+        )
         output = dequant_bias_kernel(gemm_output, scale_a, scale_b, bias, out_dtype)
         return output.view(*output_shape)
     except Exception as e:
@@ -551,6 +610,9 @@ class SlideSparseFp8LinearOp:
         input_scale: torch.Tensor | None = None,
         input_scale_ub: torch.Tensor | None = None,
         bias: torch.Tensor | None = None,
+        # cuSPARSELt 特有参数
+        slide_weight_N: int | None = None,
+        slide_weight_K: int | None = None,
     ) -> torch.Tensor:
         """
         执行 FP8 Linear 操作
@@ -562,35 +624,75 @@ class SlideSparseFp8LinearOp:
         
         Args:
             input: 输入张量 [..., K]，BF16/FP16
-            weight: 权重张量 [K, N]（已转置，column-major），FP8
+            weight: 权重张量，形状取决于 kernel 路径:
+                    - CUTLASS: [K, N]（vLLM 转置后）
+                    - cuBLASLt: [N, K]（跳过转置）
+                    - cuSPARSELt: [compressed_size] uint8 1D（压缩后）
             weight_scale: 权重 scale [N, 1] 或 [1]
             out_dtype: 输出数据类型（由 vLLM 上层指定）
             input_scale: 输入 scale（静态量化时使用）
             input_scale_ub: 输入 scale 上界
             bias: 偏置 [N]
+            slide_weight_N: cuSPARSELt 专用，slide 后权重的 N 维度
+            slide_weight_K: cuSPARSELt 专用，slide 后权重的 K' 维度
             
         Returns:
             输出张量 [..., N]，out_dtype
         """
         # View input as 2D matrix
         input_2d = input.view(-1, input.shape[-1])
-        output_shape = [*input.shape[:-1], weight.shape[1]]
+        
+        # 计算 output_shape（需要知道输出的 N 维度）
+        if weight.dim() == 1:
+            # cuSPARSELt 压缩权重是 1D tensor，无法从 shape 推断 N
+            # slide_weight_N 是压缩前保存的原始 2D 权重 [N, K'] 的 N 维度
+            if slide_weight_N is None:
+                raise ValueError("slide_weight_N required for cuSPARSELt compressed weight")
+            output_N = slide_weight_N
+        elif weight.dim() == 2:
+            # CUTLASS 路径: [K, N]，N 在 dim=1
+            # cuBLASLt 路径: [N, K]，N 在 dim=0
+            if is_cublaslt_enabled():
+                output_N = weight.shape[0]  # [N, K]
+            else:
+                output_N = weight.shape[1]  # [K, N]
+        else:
+            raise ValueError(f"Unexpected weight dimension: {weight.dim()}")
+        
+        output_shape = [*input.shape[:-1], output_N]
         
         if out_dtype is None:
             out_dtype = input.dtype
         
-        # 调用选定的 kernel 路径（quant 在各 linear 函数内部进行）
-        return self._linear_fn(
-            input=input_2d,
-            weight=weight,
-            out_dtype=out_dtype,
-            scale_b=weight_scale,
-            bias=bias,
-            output_shape=output_shape,
-            quant_fn=self.quant_fp8,
-            input_scale=input_scale,
-            input_scale_ub=input_scale_ub,
-        )
+        # 调用选定的 kernel 路径（quant/slide 在各 linear 函数内部进行）
+        if is_cusparselt_enabled():
+            # cuSPARSELt 路径：weight 是 slide_weight_compressed (1D)
+            return self._linear_fn(
+                input=input_2d,
+                slide_weight_compressed=weight,
+                out_dtype=out_dtype,
+                scale_b=weight_scale,
+                bias=bias,
+                output_shape=output_shape,
+                quant_fn=self.quant_fp8,
+                input_scale=input_scale,
+                input_scale_ub=input_scale_ub,
+                slide_weight_N=slide_weight_N,
+                slide_weight_K=slide_weight_K,
+            )
+        else:
+            # CUTLASS / cuBLASLt 路径：weight 是 2D tensor
+            return self._linear_fn(
+                input=input_2d,
+                weight=weight,
+                out_dtype=out_dtype,
+                scale_b=weight_scale,
+                bias=bias,
+                output_shape=output_shape,
+                quant_fn=self.quant_fp8,
+                input_scale=input_scale,
+                input_scale_ub=input_scale_ub,
+            )
 
 
 # ============================================================================
@@ -606,8 +708,24 @@ class SlideSparseFp8LinearMethod:
     关键设计:
     1. 不继承任何 vllm 的类，避免依赖问题
     2. 所有方法签名与 LinearMethodBase 兼容
-    3. 内部复用 CompressedTensorsW8A8Fp8 的 create_weights 和 process_weights_after_loading
-    4. 通过 SlideSparseFp8LinearOp 选择 cuBLASLt/cuSPARSELt/CUTLASS 路径
+    3. create_weights: 委托给原始 scheme
+    4. process_weights_after_loading: 
+       - CUTLASS 路径：委托给原始 scheme（需要转置）
+       - cuBLASLt 路径：修改后的处理（跳过转置）
+       - cuSPARSELt 路径：修改后的处理（跳过转置 + 在线压缩）
+    5. 通过 SlideSparseFp8LinearOp 选择 cuBLASLt/cuSPARSELt/CUTLASS 路径
+    
+    权重形状变化:
+    ==============
+    原始 checkpoint 权重: [N, K]
+    vLLM 加载后 (无转置): [N, K]
+    
+    CUTLASS 路径 (vLLM 转置): weight = weight.t() -> [K, N]
+    cuBLASLt 路径 (跳过转置): weight = [N, K] 保持不变
+    cuSPARSELt 路径 (跳过转置 + 压缩): 
+        1. 原始: [N, K'] (K' = K * expand_ratio，来自 slidesparse checkpoint)
+        2. 在线压缩: [compressed_size] uint8 1D tensor
+        3. 存储原始 N, K' 维度信息供 GEMM 使用
     """
     
     def __init__(self, original_scheme):
@@ -621,12 +739,26 @@ class SlideSparseFp8LinearMethod:
         self.out_dtype = original_scheme.out_dtype
         self.is_static_input_scheme = original_scheme.is_static_input_scheme
         self.act_q_group_shape = original_scheme.act_q_group_shape
+        self.strategy = original_scheme.strategy
+        
+        # 缓存 kernel 选择结果
+        self._use_cublaslt = is_cublaslt_enabled()
+        self._use_cusparselt = is_cusparselt_enabled()
         
         # 创建 SlideSparse Op（内部根据环境变量选择 kernel）
         self.slidesparse_fp8_linear = SlideSparseFp8LinearOp(
             act_quant_static=self.is_static_input_scheme,
             act_quant_group_shape=self.act_q_group_shape,
         )
+        
+        # 如果使用 cuSPARSELt，获取稀疏配置
+        if self._use_cusparselt:
+            Z, L, self._expand_ratio = get_sparsity_config()
+            self._sparsity_config = SlideSparseConfig(Z=Z, L=L)
+            logger.info_once(
+                f"SlideSparseFp8LinearMethod using cuSPARSELt "
+                f"with sparsity={Z}:{L}, expand_ratio={self._expand_ratio:.3f}"
+            )
         
         logger.info_once(
             f"SlideSparseFp8LinearMethod initialized, "
@@ -645,7 +777,15 @@ class SlideSparseFp8LinearMethod:
         weight_loader,
         **kwargs,
     ):
-        """创建权重参数，完全委托给原始 scheme"""
+        """
+        创建权重参数
+        
+        完全委托给原始 scheme。
+        
+        注意：对于 cuSPARSELt 路径，用户需要传入正确的 checkpoint 路径
+        （即 slidesparse 转换后的 checkpoint，K' = K * expand_ratio）。
+        vLLM 的 weight_loader 会从实际的 safetensor 文件加载正确维度的权重。
+        """
         return self.original_scheme.create_weights(
             layer=layer,
             input_size_per_partition=input_size_per_partition,
@@ -658,8 +798,98 @@ class SlideSparseFp8LinearMethod:
         )
     
     def process_weights_after_loading(self, layer: Module) -> None:
-        """权重加载后处理，完全委托给原始 scheme"""
-        return self.original_scheme.process_weights_after_loading(layer)
+        """
+        权重加载后处理
+        
+        调用链:
+            vLLM model loading
+              → layer.weight_loader(...)  # 加载权重到 layer.weight
+              → layer.quant_method.process_weights_after_loading(layer)  # 后处理
+        
+        处理逻辑（根据 kernel 路径）:
+        ================================
+        1. CUTLASS 路径（默认）：
+           - 完全委托给原始 scheme
+           - 原始 scheme 会执行 weight = weight.t()
+           - 最终 layer.weight 形状: [K, N]
+        
+        2. cuBLASLt 路径：
+           - 先调用原始 scheme（得到转置后的 [K, N]）
+           - 再转置回来得到 [N, K]
+        
+        3. cuSPARSELt 路径：
+           - 先调用原始 scheme（得到转置后的 [K, N]）
+           - 再转置回来得到 [N, K]（此时是 slide_weight [N, K']）
+           - 再执行在线压缩得到 slide_weight_compressed (1D uint8)
+        """
+        # 第一步：所有路径都先调用原始 scheme
+        self.original_scheme.process_weights_after_loading(layer)
+        
+        if not self._use_cublaslt and not self._use_cusparselt:
+            # CUTLASS 路径：直接返回，原始 scheme 已处理完毕
+            return
+        
+        # cuBLASLt 或 cuSPARSELt 路径：需要把权重转置回 [N, K] 或 [N, K']
+        # vLLM 原始 scheme 执行了 weight.t()（只改 stride），我们再 .t() 回来，无需 .contiguous()
+        from torch.nn import Parameter
+        weight_transposed = layer.weight.data.t()  # [K, N] -> [N, K]，只改 stride
+        layer.weight = Parameter(weight_transposed, requires_grad=False)
+        
+        if self._use_cusparselt:
+            # cuSPARSELt 路径：额外执行在线压缩
+            self._compress_weight_online(layer)
+    
+    def _compress_weight_online(self, layer: Module) -> None:
+        """
+        在线压缩权重（cuSPARSELt）
+        
+        将 2D FP8 slide 权重压缩为 1D uint8 tensor，并存储 slide 后的维度信息。
+        
+        输入:
+            layer.weight: [N, K'] FP8 2D tensor（slide_weight，K' = K * expand_ratio）
+        
+        输出:
+            layer.weight: [compressed_size] uint8 1D tensor（slide_weight_compressed）
+            layer.slide_weight_N: N 维度
+            layer.slide_weight_K: K' 维度（slide 后）
+        
+        注意:
+            layer.weight 是 vLLM LinearMethod 接口要求的标准属性名，
+            apply_weights 会通过 layer.weight 访问权重，所以这个名字不能改。
+            虽然压缩后的数据本质上是 slide_weight_compressed，
+            但为了兼容 vLLM 接口，仍然存储在 layer.weight 中。
+        """
+        from torch.nn import Parameter
+        
+        # 导入在线压缩函数
+        try:
+            from slidesparse.weight_convert.compress import compress_tensor_online
+        except ImportError as e:
+            raise RuntimeError(
+                f"Failed to import compress_tensor_online: {e}\n"
+                "cuSPARSELt in-line compression requires the slidesparse weight_convert module."
+            ) from e
+        
+        # 此时 layer.weight 是 slide_weight [N, K'] FP8
+        slide_weight = layer.weight.data
+        N, K_slide = slide_weight.shape  # K' = K * expand_ratio
+        
+        logger.info_once(
+            f"cuSPARSELt online compression: slide_weight [{N}, {K_slide}] -> slide_weight_compressed (1D)"
+        )
+        
+        # 执行在线压缩（数据保持在 GPU 上）
+        slide_weight_compressed = compress_tensor_online(slide_weight, verbose=False)
+        
+        # 存储压缩后的权重（仍用 layer.weight 是因为 vLLM 接口要求）
+        # 同时存储 slide 后的维度信息供 GEMM 使用
+        layer.weight = Parameter(slide_weight_compressed, requires_grad=False)
+        layer.slide_weight_N = N
+        layer.slide_weight_K = K_slide
+        
+        logger.info_once(
+            f"cuSPARSELt online compression done: compressed_size={slide_weight_compressed.numel()} bytes"
+        )
     
     def apply_weights(
         self,
@@ -667,15 +897,48 @@ class SlideSparseFp8LinearMethod:
         x: torch.Tensor,
         bias: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        """应用权重（执行线性变换），使用选定的 kernel 路径"""
-        return self.slidesparse_fp8_linear.apply(
-            input=x,
-            weight=layer.weight,
-            weight_scale=layer.weight_scale,
-            out_dtype=self.out_dtype,
-            input_scale=getattr(layer, "input_scale", None),
-            bias=bias,
-        )
+        """
+        应用权重（执行线性变换）
+        
+        根据 kernel 路径调用不同的处理逻辑:
+        
+        1. CUTLASS 路径:
+           - layer.weight 形状: [K, N]
+           - 直接调用 SlideSparseFp8LinearOp.apply
+        
+        2. cuBLASLt 路径:
+           - layer.weight 形状: [N, K]
+           - 直接调用 SlideSparseFp8LinearOp.apply
+        
+        3. cuSPARSELt 路径:
+           - layer.weight (slide_weight_compressed): [compressed_size] uint8 1D
+           - 额外传入 layer.slide_weight_N, layer.slide_weight_K
+           - 内部会执行 fused_quant_slide_fp8_kernel 对激活做 slide
+        """
+        if self._use_cusparselt:
+            # cuSPARSELt 路径：layer.weight 实际是 slide_weight_compressed (1D)
+            # 需要额外传入 slide_weight_N, slide_weight_K 供 GEMM 使用
+            return self.slidesparse_fp8_linear.apply(
+                input=x,
+                weight=layer.weight,  # slide_weight_compressed (1D uint8)
+                weight_scale=layer.weight_scale,
+                out_dtype=self.out_dtype,
+                input_scale=getattr(layer, "input_scale", None),
+                bias=bias,
+                # cuSPARSELt 特有参数
+                slide_weight_N=layer.slide_weight_N,
+                slide_weight_K=layer.slide_weight_K,
+            )
+        else:
+            # CUTLASS 或 cuBLASLt 路径
+            return self.slidesparse_fp8_linear.apply(
+                input=x,
+                weight=layer.weight,
+                weight_scale=layer.weight_scale,
+                out_dtype=self.out_dtype,
+                input_scale=getattr(layer, "input_scale", None),
+                bias=bias,
+            )
 
 
 # ============================================================================

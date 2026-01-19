@@ -2907,6 +2907,205 @@ def print_model_nk_summary(
 
 
 # =============================================================================
+# 稀疏配置解析（环境变量 SPARSITY）
+# =============================================================================
+
+# 缓存解析结果
+_sparsity_config_cache = None
+
+
+def parse_sparsity_env(sparsity_str: str = None) -> Tuple[int, int, float]:
+    """
+    解析稀疏格式配置
+    
+    Args:
+        sparsity_str: 稀疏格式字符串（如 "2_8"），如果为 None 则读取环境变量 SPARSITY
+    
+    Returns:
+        (Z, L, expand_ratio) 元组:
+            - Z: 每组中的零元素数量（固定为 2）
+            - L: 稀疏组的大小（如 6, 8, 10）
+            - expand_ratio: K 维度扩展比例 = L / (L - Z)
+        
+        如果未设置或格式错误，返回默认值 (2, 8, 1.333...)
+    """
+    if sparsity_str is None:
+        sparsity_str = os.environ.get("SPARSITY", "2_8")
+    
+    try:
+        parts = sparsity_str.split("_")
+        if len(parts) != 2:
+            raise ValueError(f"Invalid SPARSITY format: {sparsity_str}")
+        
+        Z = int(parts[0])
+        L = int(parts[1])
+        
+        if Z != 2:
+            Z = 2  # 仅支持 Z=2
+        
+        if L < 4 or L % 2 != 0:
+            L = 8  # 必须 >= 4 且为偶数
+        
+        expand_ratio = L / (L - Z)
+        return (Z, L, expand_ratio)
+        
+    except (ValueError, AttributeError):
+        return (2, 8, 8 / 6)
+
+
+def get_sparsity_config_cached() -> Tuple[int, int, float]:
+    """
+    获取稀疏格式配置（带缓存）
+    
+    从环境变量 SPARSITY 解析，结果会被缓存
+    """
+    global _sparsity_config_cache
+    
+    if _sparsity_config_cache is None:
+        _sparsity_config_cache = parse_sparsity_env()
+    
+    return _sparsity_config_cache
+
+
+def clear_sparsity_cache() -> None:
+    """清除稀疏配置缓存（用于测试时重新读取环境变量）"""
+    global _sparsity_config_cache
+    _sparsity_config_cache = None
+
+
+def get_sparsity_str(Z: int = None, L: int = None) -> str:
+    """
+    获取稀疏格式字符串
+    
+    Args:
+        Z, L: 如果提供则直接使用，否则从缓存/环境变量获取
+    
+    Returns:
+        格式如 "2_8"、"2_6" 等
+    """
+    if Z is None or L is None:
+        Z, L, _ = get_sparsity_config_cached()
+    return f"{Z}_{L}"
+
+
+# =============================================================================
+# SlideSparse 模型路径解析
+# =============================================================================
+
+def get_slidesparse_checkpoints_dir() -> Path:
+    """
+    获取 SlideSparse checkpoints 目录
+    
+    Returns:
+        checkpoints_slidesparse 目录的绝对路径
+    """
+    # 从项目根目录寻找
+    project_root = Path(__file__).parent.parent
+    slidesparse_dir = project_root / "checkpoints_slidesparse"
+    
+    if slidesparse_dir.exists():
+        return slidesparse_dir
+    
+    # 尝试从当前工作目录
+    cwd_dir = Path.cwd() / "checkpoints_slidesparse"
+    if cwd_dir.exists():
+        return cwd_dir
+    
+    # 返回默认路径（即使不存在）
+    return slidesparse_dir
+
+
+def resolve_slidesparse_model_path(
+    base_model_path: Union[str, Path],
+    sparsity: str = None,
+) -> Optional[Path]:
+    """
+    根据基础模型路径和稀疏配置，解析对应的 SlideSparse 模型路径
+    
+    命名约定:
+        基础模型: checkpoints/Qwen2.5-0.5B-FP8/
+        SlideSparse: checkpoints_slidesparse/Qwen2.5-0.5B-FP8-SlideSparse-2_8/
+    
+    Args:
+        base_model_path: 基础模型路径（如 checkpoints/Qwen2.5-0.5B-FP8）
+        sparsity: 稀疏配置（如 "2_8"），默认从环境变量读取
+    
+    Returns:
+        SlideSparse 模型路径，如果不存在返回 None
+    """
+    base_path = Path(base_model_path)
+    model_name = base_path.name  # e.g., "Qwen2.5-0.5B-FP8"
+    
+    if sparsity is None:
+        sparsity = get_sparsity_str()
+    
+    # 构建 SlideSparse 模型名称
+    slidesparse_name = f"{model_name}-SlideSparse-{sparsity}"
+    slidesparse_path = get_slidesparse_checkpoints_dir() / slidesparse_name
+    
+    if slidesparse_path.exists() and slidesparse_path.is_dir():
+        return slidesparse_path
+    
+    return None
+
+
+def find_slidesparse_model(
+    dtype: str = "FP8",
+    sparsity: str = None,
+) -> Optional[Path]:
+    """
+    查找 SlideSparse 模型（优先选择较小的模型）
+    
+    搜索顺序: Qwen2.5-0.5B > Llama3.2-1B > Qwen2.5-1.5B > ...
+    
+    Args:
+        dtype: 数据类型（"FP8" 或 "INT8"）
+        sparsity: 稀疏配置（如 "2_8"），默认从环境变量读取
+    
+    Returns:
+        找到的 SlideSparse 模型路径，如果未找到返回 None
+    """
+    if sparsity is None:
+        sparsity = get_sparsity_str()
+    
+    slidesparse_dir = get_slidesparse_checkpoints_dir()
+    if not slidesparse_dir.exists():
+        return None
+    
+    # 搜索优先级（较小的模型优先）
+    priority_patterns = [
+        "Qwen2.5-0.5B",
+        "Llama3.2-1B",
+        "Qwen2.5-1.5B",
+        "BitNet-2B",
+        "Qwen2.5-3B",
+        "Llama3.2-3B",
+        "Qwen2.5-7B",
+        "Qwen2.5-14B",
+    ]
+    
+    dtype_upper = dtype.upper()
+    
+    for pattern in priority_patterns:
+        # 构建预期的目录名
+        expected_name = f"{pattern}-{dtype_upper}-SlideSparse-{sparsity}"
+        model_path = slidesparse_dir / expected_name
+        
+        if model_path.exists() and model_path.is_dir():
+            return model_path
+    
+    # 如果按优先级未找到，尝试模糊匹配
+    for model_dir in slidesparse_dir.iterdir():
+        if not model_dir.is_dir():
+            continue
+        name = model_dir.name
+        if dtype_upper in name and f"SlideSparse-{sparsity}" in name:
+            return model_dir
+    
+    return None
+
+
+# =============================================================================
 # 导出
 # =============================================================================
 
@@ -3018,6 +3217,15 @@ __all__ = [
     "get_model_nk_sizes_slided",
     "get_model_nk_sizes_compressed",
     "print_model_nk_summary",
+    # 稀疏配置解析
+    "parse_sparsity_env",
+    "get_sparsity_config_cached",
+    "clear_sparsity_cache",
+    "get_sparsity_str",
+    # SlideSparse 模型路径解析
+    "get_slidesparse_checkpoints_dir",
+    "resolve_slidesparse_model_path",
+    "find_slidesparse_model",
 ]
 
 

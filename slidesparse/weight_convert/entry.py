@@ -9,14 +9,14 @@ SlideSparse 离线权重转换入口脚本
 支持 cuSPARSELt 2:4 稀疏加速的格式。
 
 Usage:
-    # 处理单个模型
+    # 处理单个模型（默认只做 prune+slide，用于在线压缩）
     python entry.py --model qwen2.5-0.5b-fp8 --Z 2 --L 8
     
     # 处理指定目录
     python entry.py --input /path/to/model --Z 2 --L 8
     
-    # 仅执行 prune+slide（跳过压缩）
-    python entry.py --model qwen2.5-0.5b-fp8 --Z 2 --L 8 --skip-compress
+    # 完整流程：prune+slide+compress（离线压缩，输出目录加 -compressed 后缀）
+    python entry.py --model qwen2.5-0.5b-fp8 --Z 2 --L 8 --compress
     
     # 处理所有已下载的 FP8 模型
     python entry.py --all --quant fp8 --Z 2 --L 8
@@ -58,7 +58,7 @@ from utils import (
 
 from prune import prune_tensor, quant_and_prune_tensor_bitnet
 from slide import slide_tensor
-from compress import compress_tensor, compress_tensor_fake, check_compress_available
+from compress import compress_tensor_offline, compress_tensor_fake, check_compress_available
 
 # 添加项目路径以导入 slidesparse.utils
 _SCRIPT_DIR = Path(__file__).parent
@@ -69,7 +69,12 @@ if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
 try:
-    from slidesparse.utils import model_registry, check_model_downloaded
+    from slidesparse.utils import (
+        model_registry,
+        check_model_downloaded,
+        get_model_local_path,
+        list_models,
+    )
     HAS_MODEL_REGISTRY = True
 except ImportError:
     HAS_MODEL_REGISTRY = False
@@ -217,7 +222,7 @@ def process_single_tensor(
             tensor_int8 = current_tensor
         
         if use_real_cusparselt:
-            compressed, compress_meta = compress_tensor(tensor_int8, verbose=False)
+            compressed, compress_meta = compress_tensor_offline(tensor_int8, verbose=False)
             result["stages"].append({
                 "name": "compress",
                 "compressed_size": compressed.shape[0],
@@ -429,12 +434,17 @@ def process_model(
 
 
 # =============================================================================
-# 模型查找
+# 模型查找（基于顶层 utils 的 model_registry）
 # =============================================================================
 
 def find_model_dir(model_key: str) -> Optional[Path]:
     """
     根据模型 key 查找本地目录
+    
+    使用顶层 model_registry 进行查找，支持：
+    - 直接目录名：checkpoints/Qwen2.5-0.5B-FP8
+    - 模型 key：qwen2.5-0.5b-fp8
+    - 模糊匹配：qwen2.5-0.5b
     
     Args:
         model_key: 模型 key（如 "qwen2.5-0.5b-fp8"）或本地目录名
@@ -450,18 +460,18 @@ def find_model_dir(model_key: str) -> Optional[Path]:
     # 尝试通过 model_registry 查找
     if HAS_MODEL_REGISTRY:
         try:
-            entry = model_registry.get(model_key)
-            if entry:
-                local_path = CHECKPOINT_DIR / entry.local_name
-                if local_path.is_dir():
-                    return local_path
+            # 使用顶层的 get_model_local_path
+            local_path = get_model_local_path(model_key, CHECKPOINT_DIR)
+            if local_path.is_dir():
+                return local_path
         except (KeyError, AttributeError):
             pass
     
     # 尝试模糊匹配
-    for d in CHECKPOINT_DIR.iterdir():
-        if d.is_dir() and model_key.lower() in d.name.lower():
-            return d
+    if CHECKPOINT_DIR.exists():
+        for d in CHECKPOINT_DIR.iterdir():
+            if d.is_dir() and model_key.lower() in d.name.lower():
+                return d
     
     return None
 
@@ -469,6 +479,8 @@ def find_model_dir(model_key: str) -> Optional[Path]:
 def list_available_models(quant_filter: Optional[str] = None) -> List[Path]:
     """
     列出所有已下载的模型
+    
+    使用顶层 model_registry 列出模型，然后检查本地是否存在。
     
     Args:
         quant_filter: 量化类型过滤（"fp8", "int8"）
@@ -481,6 +493,25 @@ def list_available_models(quant_filter: Optional[str] = None) -> List[Path]:
     if not CHECKPOINT_DIR.exists():
         return models
     
+    # 如果有 model_registry，优先使用它
+    if HAS_MODEL_REGISTRY:
+        try:
+            # 使用顶层的 list_models 获取所有已注册模型
+            registered_keys = list_models(quant=quant_filter) if quant_filter else list_models()
+            for key in registered_keys:
+                try:
+                    local_path = get_model_local_path(key, CHECKPOINT_DIR)
+                    if local_path.is_dir() and (local_path / "config.json").exists():
+                        if get_all_safetensors_files(local_path):
+                            models.append(local_path)
+                except (KeyError, AttributeError):
+                    pass
+            if models:
+                return sorted(models)
+        except Exception:
+            pass
+    
+    # 回退：直接扫描目录
     for d in sorted(CHECKPOINT_DIR.iterdir()):
         if not d.is_dir():
             continue
@@ -521,14 +552,14 @@ def main():
   3. Compress: cuSPARSELt 2:4 压缩 (K 减半)
 
 示例:
-  # 处理单个模型（通过 key）
+  # 处理单个模型（默认只做 prune+slide，用于在线压缩）
   python entry.py --model qwen2.5-0.5b-fp8 --Z 2 --L 8
   
   # 处理单个模型（通过路径）
   python entry.py --input /path/to/model --Z 2 --L 8
   
-  # 跳过压缩（用于测试）
-  python entry.py --model qwen2.5-0.5b-fp8 --Z 2 --L 8 --skip-compress
+  # 完整流程（含压缩，输出目录加 -compressed 后缀）
+  python entry.py --model qwen2.5-0.5b-fp8 --Z 2 --L 8 --compress
   
   # 处理所有 FP8 模型
   python entry.py --all --quant fp8 --Z 2 --L 8
@@ -612,9 +643,9 @@ def main():
         help="跳过滑动阶段",
     )
     parser.add_argument(
-        "--skip-compress",
+        "--compress",
         action="store_true",
-        help="跳过压缩阶段",
+        help="启用压缩阶段（默认跳过，输出目录加 -compressed 后缀）",
     )
     parser.add_argument(
         "--fake-compress",
@@ -690,9 +721,10 @@ def main():
         print_error("No input specified")
         return 1
     
-    # 检查 cuSPARSELt
+    # 检查 cuSPARSELt（仅在启用压缩时需要）
     use_real_cusparselt = not args.fake_compress
-    if use_real_cusparselt and not args.skip_compress:
+    skip_compress = not args.compress  # 默认跳过压缩
+    if use_real_cusparselt and args.compress:
         if not check_compress_available():
             print_warning("cuSPARSELt not available, using fake compression")
             use_real_cusparselt = False
@@ -703,11 +735,14 @@ def main():
     
     for model_dir in models:
         try:
-            # 确定输出目录
+            # 确定输出目录（如果启用压缩，加上 -compressed 后缀）
+            suffix = f"-SlideSparse-{args.Z}_{args.L}"
+            if args.compress:
+                suffix += "-compressed"
             if args.output:
-                output_dir = Path(args.output) / f"{model_dir.name}-SlideSparse-{args.Z}_{args.L}"
+                output_dir = Path(args.output) / f"{model_dir.name}{suffix}"
             else:
-                output_dir = get_output_model_dir(model_dir, suffix=f"-SlideSparse-{args.Z}_{args.L}")
+                output_dir = get_output_model_dir(model_dir, suffix=suffix)
             
             report = process_model(
                 model_dir,
@@ -716,7 +751,7 @@ def main():
                 mode=args.mode,
                 skip_prune=args.skip_prune,
                 skip_slide=args.skip_slide,
-                skip_compress=args.skip_compress,
+                skip_compress=skip_compress,
                 use_real_cusparselt=use_real_cusparselt,
                 bitnet_mode=args.bitnet,
                 output_dtype=args.output_dtype,

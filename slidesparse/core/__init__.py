@@ -13,6 +13,7 @@ SlideSparse 核心逻辑模块
 2. USE_CUBLASLT=1         → 使用 cuBLASLt kernel
 3. USE_CUSPARSELT=1       → 使用 cuSPARSELt kernel
 4. INNER_DTYPE_FP32=1     → GEMM 输出用 FP32（仅 cuBLASLt/cuSPARSELt 时生效）
+5. SPARSITY=2_8           → 稀疏格式（仅 cuSPARSELt 时生效，默认 2_8）
 
 架构说明:
 =========
@@ -28,6 +29,9 @@ from slidesparse.core.config import (
     is_cusparselt_enabled,
     is_inner_dtype_fp32,
     get_slidesparse_status,
+    get_sparsity_config,
+    get_sparsity_str,
+    clear_sparsity_cache,
 )
 from slidesparse.core.SlideSparseLinearMethod_FP8 import (
     SlideSparseFp8LinearMethod,
@@ -49,6 +53,9 @@ __all__ = [
     "is_cusparselt_enabled",
     "is_inner_dtype_fp32",
     "get_slidesparse_status",
+    "get_sparsity_config",
+    "get_sparsity_str",
+    "clear_sparsity_cache",
     # 线性层方法
     "SlideSparseFp8LinearMethod",
     "SlideSparseFp8LinearOp",

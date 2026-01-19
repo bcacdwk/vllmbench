@@ -4,13 +4,15 @@
 SlideSparse Weight Convert 共享工具函数
 
 提供 safetensor 读写、配置管理、目标层检测等通用功能。
+
+注意: SlideSparseConfig、LINEAR_LAYER_TYPES 等核心定义已移至顶层 utils.py，
+      本模块从顶层导入并复用。
 """
 
 import json
 import os
 import shutil
 import sys
-from dataclasses import dataclass, asdict, field
 from pathlib import Path
 from typing import Dict, Any, Tuple, Optional, List, Union
 
@@ -24,6 +26,14 @@ _PROJECT_ROOT = _SLIDESPARSE_ROOT.parent
 
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
+
+# 从顶层 utils 导入核心定义（避免重复）
+from slidesparse.utils import (
+    SlideSparseConfig,
+    LINEAR_LAYER_TYPES,
+    compute_output_k,
+    compute_compressed_k,
+)
 
 # 尝试导入 safetensors
 try:
@@ -53,113 +63,29 @@ BUILD_DIR = _SCRIPT_DIR / "build"
 
 
 # =============================================================================
-# SlideSparse 配置
+# 目标层检测（基于顶层 LINEAR_LAYER_TYPES）
 # =============================================================================
 
-@dataclass
-class SlideSparseConfig:
-    """
-    SlideSparse 转换配置
-    
-    稀疏格式说明：
-        Z:L 表示每 L 个连续元素中至少有 Z 个零
-        例如 2:8 表示每 8 个元素至少 2 个零（稀疏度 ≥ 25%）
-    
-    Attributes:
-        Z: 每组中至少的零元素数量（当前固定为 2）
-        L: 稀疏组的大小（如 6, 8, 10）
-        N: 内部参数，N = L // 2
-        window_size: 滑动窗口大小，固定为 4（对应 2:4 硬件）
-        stride: 滑动步长，固定为 2
-        num_windows: 每组内的窗口数量，= N - 1
-        expand_ratio: K 维度的扩展比例
-    """
-    Z: int = 2
-    L: int = 8
-    
-    # 派生参数（在 __post_init__ 中计算）
-    N: int = field(init=False)
-    window_size: int = field(init=False)
-    stride: int = field(init=False)
-    num_windows: int = field(init=False)
-    expand_ratio: float = field(init=False)
-    in_group_size: int = field(init=False)
-    out_group_size: int = field(init=False)
-    
-    def __post_init__(self):
-        # 参数验证
-        if self.Z != 2:
-            raise ValueError(f"当前仅支持 Z=2 的稀疏格式，收到 Z={self.Z}")
-        if self.L % 2 != 0:
-            raise ValueError(f"L 必须为偶数，收到 L={self.L}")
-        if self.L < 4:
-            raise ValueError(f"L 必须 >= 4，收到 L={self.L}")
-        
-        # 派生参数计算
-        self.N = self.L // 2                           # 2:8 → N=4
-        self.window_size = 4                           # 目标 2:4 硬件
-        self.stride = 2                                # 滑动步长
-        self.num_windows = self.N - 1                  # 每组窗口数
-        self.expand_ratio = (self.num_windows * self.window_size) / self.L
-        self.in_group_size = self.L
-        self.out_group_size = self.num_windows * self.window_size
-    
-    def to_dict(self) -> Dict[str, Any]:
-        """转换为字典（用于 JSON 序列化）"""
-        return {
-            "Z": self.Z,
-            "L": self.L,
-            "N": self.N,
-            "window_size": self.window_size,
-            "stride": self.stride,
-            "num_windows": self.num_windows,
-            "expand_ratio": self.expand_ratio,
-            "in_group_size": self.in_group_size,
-            "out_group_size": self.out_group_size,
-        }
-    
-    @classmethod
-    def from_dict(cls, d: Dict[str, Any]) -> "SlideSparseConfig":
-        """从字典创建"""
-        return cls(Z=d["Z"], L=d["L"])
-    
-    def __repr__(self):
-        return (f"SlideSparseConfig(Z={self.Z}, L={self.L}, N={self.N}, "
-                f"windows={self.num_windows}, expand_ratio={self.expand_ratio:.3f})")
-
-
-# =============================================================================
-# 目标层检测
-# =============================================================================
-
-# vLLM compressed-tensor 格式的目标层名称模式
-# 这些是 Attention 和 MLP 中需要处理的投影层
-TARGET_LAYER_PATTERNS = [
-    # Attention 层
-    "q_proj",      # Query 投影
-    "k_proj",      # Key 投影
-    "v_proj",      # Value 投影
-    "o_proj",      # Output 投影
-    "qkv_proj",    # QKV 融合投影
-    # MLP 层
-    "gate_proj",   # Gate 投影 (w1)
-    "up_proj",     # Up 投影 (w3)
-    "down_proj",   # Down 投影 (w2)
-    "gate_up_proj", # Gate+Up 融合投影 (w13)
-]
-
-# 旧版 BitNet 格式的目标层名称
-BITNET_TARGET_PATTERNS = ["wqkv", "w13", "w2", "wo"]
+# 旧版 BitNet 格式的目标层名称（补充到 LINEAR_LAYER_TYPES 的映射）
+# 这些是 BitNet 特有的命名，与标准 HuggingFace 格式不同
+_BITNET_LAYER_MAP = {
+    "wqkv": "qkv",
+    "wo": "wo",
+    "w13": "w13",
+    "w2": "w2",
+}
 
 
 def is_target_layer(key: str, format_type: str = "auto") -> bool:
     """
     判断 key 是否为目标层（需要进行 SlideSparse 转换）
     
+    使用顶层 LINEAR_LAYER_TYPES 定义，统一管理层类型映射。
+    
     Args:
         key: 权重名称
         format_type: 格式类型
-            - "auto": 自动检测
+            - "auto": 自动检测（vLLM + BitNet）
             - "vllm": vLLM compressed-tensor 格式
             - "bitnet": 旧版 BitNet 格式
     
@@ -174,14 +100,15 @@ def is_target_layer(key: str, format_type: str = "auto") -> bool:
     if "scale" in key_lower or "zero" in key_lower:
         return False
     
-    # 检查 vLLM 格式
-    for pattern in TARGET_LAYER_PATTERNS:
-        if pattern in key_lower:
-            return True
+    # 检查 vLLM 格式（使用顶层 LINEAR_LAYER_TYPES）
+    if format_type in ("auto", "vllm"):
+        for pattern in LINEAR_LAYER_TYPES.keys():
+            if pattern in key_lower:
+                return True
     
     # 检查 BitNet 格式
     if format_type in ("auto", "bitnet"):
-        for pattern in BITNET_TARGET_PATTERNS:
+        for pattern in _BITNET_LAYER_MAP.keys():
             if pattern in key_lower:
                 return True
     
@@ -192,34 +119,28 @@ def get_layer_type(key: str) -> Optional[str]:
     """
     获取层类型
     
+    使用顶层 LINEAR_LAYER_TYPES 定义，返回统一的层类型标识。
+    
     Returns:
-        层类型: "qkv", "gate_up", "down", "output", None
+        层类型: "qkv", "wo", "w13", "w2", None
     """
     key_lower = key.lower()
     
-    # QKV 融合层
-    if any(p in key_lower for p in ["qkv_proj", "wqkv"]):
+    # 优先检查融合层（更具体的模式）
+    if "qkv_proj" in key_lower or "wqkv" in key_lower:
         return "qkv"
+    if "gate_up_proj" in key_lower or "w13" in key_lower:
+        return "w13"
     
-    # Gate+Up 融合层
-    if any(p in key_lower for p in ["gate_up_proj", "w13"]):
-        return "gate_up"
+    # 检查标准 vLLM 格式
+    for pattern, layer_type in LINEAR_LAYER_TYPES.items():
+        if pattern in key_lower:
+            return layer_type
     
-    # Query/Key/Value 单独层
-    if any(p in key_lower for p in ["q_proj", "k_proj", "v_proj"]):
-        return "attention"
-    
-    # Output 投影
-    if any(p in key_lower for p in ["o_proj", "wo"]):
-        return "output"
-    
-    # Gate/Up 单独层
-    if any(p in key_lower for p in ["gate_proj", "up_proj"]):
-        return "gate_up_single"
-    
-    # Down 投影
-    if any(p in key_lower for p in ["down_proj", "w2"]):
-        return "down"
+    # 检查 BitNet 格式
+    for pattern, layer_type in _BITNET_LAYER_MAP.items():
+        if pattern in key_lower:
+            return layer_type
     
     return None
 
@@ -528,50 +449,6 @@ def get_torch_dtype(dtype_str: str) -> torch.dtype:
 
 
 # =============================================================================
-# 维度计算工具
-# =============================================================================
-
-def compute_output_k(k_in: int, config: SlideSparseConfig, align_to: int = 32) -> Tuple[int, int]:
-    """
-    计算滑动扩展后的 K 维度
-    
-    Args:
-        k_in: 原始输入维度 K
-        config: SlideSparse 配置
-        align_to: 输出对齐要求（默认 16）
-    
-    Returns:
-        (k_padded, k_out):
-            - k_padded: padding 后的输入 K（L 的倍数）
-            - k_out: 滑动扩展后的输出 K（对齐到 align_to）
-    """
-    L = config.L
-    
-    # Step 1: 将输入 K padding 到 L 的倍数
-    k_padded = ((k_in + L - 1) // L) * L
-    
-    # Step 2: 计算组数
-    num_groups = k_padded // L
-    
-    # Step 3: 计算原始输出大小
-    k_out_raw = num_groups * config.out_group_size
-    
-    # Step 4: 对齐到 align_to
-    k_out = ((k_out_raw + align_to - 1) // align_to) * align_to
-    
-    return k_padded, k_out
-
-
-def compute_compressed_k(k_slided: int) -> int:
-    """
-    计算压缩后的 K 维度
-    
-    2:4 压缩将 K 减半
-    """
-    return k_slided // 2
-
-
-# =============================================================================
 # 稀疏验证工具
 # =============================================================================
 
@@ -696,13 +573,15 @@ __all__ = [
     "HAS_SAFETENSORS",
     "HAS_NUMBA",
     
-    # 配置类
+    # 配置类（从顶层 utils 重导出）
     "SlideSparseConfig",
+    
+    # 层类型定义（从顶层 utils 重导出）
+    "LINEAR_LAYER_TYPES",
     
     # 目标层检测
     "is_target_layer",
     "get_layer_type",
-    "TARGET_LAYER_PATTERNS",
     
     # Safetensor 工具
     "load_safetensors",
@@ -728,7 +607,7 @@ __all__ = [
     "can_represent_ternary",
     "get_torch_dtype",
     
-    # 维度计算
+    # 维度计算（从顶层 utils 重导出）
     "compute_output_k",
     "compute_compressed_k",
     

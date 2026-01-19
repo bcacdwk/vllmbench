@@ -85,20 +85,35 @@ _build_filename = None
 _build_stem = None
 _build_dir_name = None
 _normalize_dtype = None
+# 新增：从顶层 utils 导入的模型路径工具
+_get_slidesparse_checkpoints_dir = None
+_resolve_slidesparse_model_path = None
+_find_slidesparse_model = None
+_get_sparsity_str = None
+_clear_sparsity_cache = None
 
 
 def _import_slidesparse_utils():
     """延迟导入 slidesparse.utils"""
     global _hw_info, _build_filename, _build_stem, _build_dir_name, _normalize_dtype
+    global _get_slidesparse_checkpoints_dir, _resolve_slidesparse_model_path
+    global _find_slidesparse_model, _get_sparsity_str, _clear_sparsity_cache
     if _hw_info is None:
         from slidesparse.utils import (
-            hw_info, build_filename, build_stem, build_dir_name, normalize_dtype
+            hw_info, build_filename, build_stem, build_dir_name, normalize_dtype,
+            get_slidesparse_checkpoints_dir, resolve_slidesparse_model_path,
+            find_slidesparse_model, get_sparsity_str, clear_sparsity_cache,
         )
         _hw_info = hw_info
         _build_filename = build_filename
         _build_stem = build_stem
         _build_dir_name = build_dir_name
         _normalize_dtype = normalize_dtype
+        _get_slidesparse_checkpoints_dir = get_slidesparse_checkpoints_dir
+        _resolve_slidesparse_model_path = resolve_slidesparse_model_path
+        _find_slidesparse_model = find_slidesparse_model
+        _get_sparsity_str = get_sparsity_str
+        _clear_sparsity_cache = clear_sparsity_cache
 
 
 def get_hw_info() -> "HardwareInfo":
@@ -1133,6 +1148,11 @@ class ModelFinder:
         return PROJECT_ROOT / "checkpoints"
     
     @classmethod
+    def get_slidesparse_checkpoints_dir(cls) -> Path:
+        """获取 SlideSparse 转换后的 checkpoints 目录路径"""
+        return PROJECT_ROOT / "checkpoints_slidesparse"
+    
+    @classmethod
     def find_models(cls, model_type: str = None) -> List[Path]:
         """
         查找可用模型
@@ -1220,6 +1240,58 @@ class ModelFinder:
                 break
         
         return result
+    
+    @classmethod
+    def get_slidesparse_checkpoints_dir(cls) -> Path:
+        """
+        获取 SlideSparse checkpoints 目录
+        
+        委托给顶层 slidesparse.utils.get_slidesparse_checkpoints_dir
+        """
+        _import_slidesparse_utils()
+        return _get_slidesparse_checkpoints_dir()
+    
+    @classmethod
+    def resolve_slidesparse_model_path(
+        cls, 
+        base_model_path: Path,
+        sparsity: str = None,
+    ) -> Optional[Path]:
+        """
+        智能解析 SlideSparse 模型路径
+        
+        委托给顶层 slidesparse.utils.resolve_slidesparse_model_path
+        
+        Args:
+            base_model_path: 基础模型路径
+            sparsity: 稀疏格式（如果为 None，从环境变量获取）
+        
+        Returns:
+            SlideSparse checkpoint 路径
+        """
+        _import_slidesparse_utils()
+        return _resolve_slidesparse_model_path(base_model_path, sparsity)
+    
+    @classmethod
+    def find_slidesparse_model(
+        cls, 
+        model_type: str = "FP8",
+        sparsity: str = None,
+    ) -> Optional[Path]:
+        """
+        查找适合测试的 SlideSparse 模型
+        
+        委托给顶层 slidesparse.utils.find_slidesparse_model
+        
+        Args:
+            model_type: 模型类型
+            sparsity: 稀疏格式（如果为 None，从环境变量获取）
+        
+        Returns:
+            SlideSparse checkpoint 路径
+        """
+        _import_slidesparse_utils()
+        return _find_slidesparse_model(model_type, sparsity)
 
 
 # ============================================================================
@@ -1420,6 +1492,7 @@ def parse_common_args(description: str) -> argparse.ArgumentParser:
     
     附加选项：
         --inner-fp32     →  INNER_DTYPE_FP32=1
+        --sparsity 2_8   →  SPARSITY=2_8（仅 cuSPARSELt 时生效）
     """
     parser = argparse.ArgumentParser(
         description=description,
@@ -1430,7 +1503,7 @@ def parse_common_args(description: str) -> argparse.ArgumentParser:
   %(prog)s --disable-slidesparse    # vLLM 原生路径 (baseline)
   %(prog)s --use-cublaslt           # SlideSparse + cuBLASLt
   %(prog)s --use-cublaslt --inner-fp32  # cuBLASLt + FP32 累加
-  %(prog)s --use-cusparselt         # SlideSparse + cuSPARSELt (TODO)
+  %(prog)s --use-cusparselt --sparsity 2_8  # SlideSparse + cuSPARSELt (2:8 稀疏)
         """
     )
     
@@ -1456,7 +1529,7 @@ def parse_common_args(description: str) -> argparse.ArgumentParser:
     kernel_group.add_argument(
         "--use-cusparselt", 
         action="store_true",
-        help="使用 cuSPARSELt kernel (TODO)"
+        help="使用 cuSPARSELt kernel"
     )
     
     # 附加选项
@@ -1464,6 +1537,14 @@ def parse_common_args(description: str) -> argparse.ArgumentParser:
         "--inner-fp32", 
         action="store_true", 
         help="GEMM 输出使用 FP32（仅 cuBLASLt/cuSPARSELt 时生效）"
+    )
+    
+    # cuSPARSELt 专用选项
+    parser.add_argument(
+        "--sparsity",
+        type=str,
+        default="2_8",
+        help="稀疏格式，如 2_8, 2_6, 2_10（仅 cuSPARSELt 时生效，默认 2_8）"
     )
     
     return parser
@@ -1508,7 +1589,7 @@ def apply_env_args(args: argparse.Namespace) -> None:
 
 
 def get_backend_name(use_cublaslt: bool = False, use_cusparselt: bool = False, 
-                     inner_fp32: bool = False) -> str:
+                     inner_fp32: bool = False, sparsity: str = "2_8") -> str:
     """
     根据参数获取后端名称
     
@@ -1519,7 +1600,7 @@ def get_backend_name(use_cublaslt: bool = False, use_cusparselt: bool = False,
         return f"SlideSparse + cuBLASLt{suffix}"
     elif use_cusparselt:
         suffix = " (FP32累加)" if inner_fp32 else ""
-        return f"SlideSparse + cuSPARSELt{suffix}"
+        return f"SlideSparse + cuSPARSELt ({sparsity.replace('_', ':')}){suffix}"
     else:
         return "SlideSparse + CUTLASS"
 
@@ -1536,19 +1617,27 @@ def set_env_for_baseline() -> Dict[str, Optional[str]]:
         "USE_CUBLASLT": os.environ.get("USE_CUBLASLT"),
         "USE_CUSPARSELT": os.environ.get("USE_CUSPARSELT"),
         "INNER_DTYPE_FP32": os.environ.get("INNER_DTYPE_FP32"),
+        "SPARSITY": os.environ.get("SPARSITY"),
     }
     
     os.environ["DISABLE_SLIDESPARSE"] = "1"
     os.environ.pop("USE_CUBLASLT", None)
     os.environ.pop("USE_CUSPARSELT", None)
     os.environ.pop("INNER_DTYPE_FP32", None)
+    os.environ.pop("SPARSITY", None)
     
     EnvironmentChecker.clear_cache()
+    # 清除 sparsity 缓存
+    try:
+        from slidesparse.core.config import clear_sparsity_cache
+        clear_sparsity_cache()
+    except ImportError:
+        pass
     return saved
 
 
 def set_env_for_test(use_cublaslt: bool = False, use_cusparselt: bool = False,
-                     inner_fp32: bool = False) -> Dict[str, Optional[str]]:
+                     inner_fp32: bool = False, sparsity: str = None) -> Dict[str, Optional[str]]:
     """
     设置环境变量为测试配置
     
@@ -1556,6 +1645,7 @@ def set_env_for_test(use_cublaslt: bool = False, use_cusparselt: bool = False,
         use_cublaslt: 使用 cuBLASLt kernel
         use_cusparselt: 使用 cuSPARSELt kernel
         inner_fp32: 使用 FP32 累加
+        sparsity: 稀疏格式（仅 cuSPARSELt 时生效），默认 "2_8"
     
     Returns:
         保存的原环境变量，用于恢复
@@ -1565,6 +1655,7 @@ def set_env_for_test(use_cublaslt: bool = False, use_cusparselt: bool = False,
         "USE_CUBLASLT": os.environ.get("USE_CUBLASLT"),
         "USE_CUSPARSELT": os.environ.get("USE_CUSPARSELT"),
         "INNER_DTYPE_FP32": os.environ.get("INNER_DTYPE_FP32"),
+        "SPARSITY": os.environ.get("SPARSITY"),
     }
     
     os.environ["DISABLE_SLIDESPARSE"] = "0"
@@ -1572,12 +1663,15 @@ def set_env_for_test(use_cublaslt: bool = False, use_cusparselt: bool = False,
     if use_cublaslt:
         os.environ["USE_CUBLASLT"] = "1"
         os.environ.pop("USE_CUSPARSELT", None)
+        os.environ.pop("SPARSITY", None)
     elif use_cusparselt:
         os.environ["USE_CUSPARSELT"] = "1"
         os.environ.pop("USE_CUBLASLT", None)
+        os.environ["SPARSITY"] = sparsity or "2_8"
     else:
         os.environ.pop("USE_CUBLASLT", None)
         os.environ.pop("USE_CUSPARSELT", None)
+        os.environ.pop("SPARSITY", None)
     
     if inner_fp32:
         os.environ["INNER_DTYPE_FP32"] = "1"
@@ -1585,6 +1679,12 @@ def set_env_for_test(use_cublaslt: bool = False, use_cusparselt: bool = False,
         os.environ.pop("INNER_DTYPE_FP32", None)
     
     EnvironmentChecker.clear_cache()
+    # 清除 sparsity 缓存
+    try:
+        from slidesparse.core.config import clear_sparsity_cache
+        clear_sparsity_cache()
+    except ImportError:
+        pass
     return saved
 
 
@@ -1602,3 +1702,9 @@ def restore_env(saved: Dict[str, Optional[str]]) -> None:
             os.environ.pop(key, None)
     
     EnvironmentChecker.clear_cache()
+    # 清除 sparsity 缓存
+    try:
+        from slidesparse.core.config import clear_sparsity_cache
+        clear_sparsity_cache()
+    except ImportError:
+        pass

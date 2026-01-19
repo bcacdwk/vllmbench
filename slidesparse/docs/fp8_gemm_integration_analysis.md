@@ -21,102 +21,348 @@
 
 ---
 
-## 1. Compressed-Tensors 转发架构分析
+## 1. Compressed-Tensors 架构分析与 SlideSparse 集成
 
-### 1.1 为什么使用 Compressed-Tensors 而不是原生 FP8/INT8
+### 1.1 Compressed-Tensors 是什么？为什么需要它？
 
-**核心原因：Compressed-Tensors 是一个元格式（Meta-Format）**
+#### 1.1.1 核心定位：元格式（Meta-Format）而非具体量化方法
 
-HuggingFace 上的量化模型（如 RedHat 的 W8A8、FP8-dynamic 模型）使用 `compressed-tensors` 作为量化配置格式。这不是一个具体的量化实现，而是一个**配置解析层**，它会：
+**Compressed-Tensors 不是一种具体的量化方法，而是一个「配置解析层」或「量化分发框架」。**
 
-1. **读取模型的 `config.json`** 中的量化配置
-2. **自动检测量化类型**（FP8、INT8、W4A16 等）
-3. **选择对应的 Scheme**（`CompressedTensorsW8A8Fp8`、`CompressedTensorsW8A8Int8` 等）
+HuggingFace 上大量的量化模型（如 RedHat、NeuralMagic、AMD 发布的模型）使用 `compressed-tensors` 作为统一的量化配置格式。它解决的核心问题是：
 
-```python
-# vllm/model_executor/layers/quantization/compressed_tensors/compressed_tensors.py
-class CompressedTensorsConfig(QuantizationConfig):
-    def get_scheme(self, layer, layer_name):
-        # 根据 layer 类型和配置选择 scheme
-        scheme = self._get_scheme_from_parts(...)
-        
-        # ✅ 我们的 cuBLASLt 包装点
-        scheme = wrap_scheme_with_cublaslt(scheme)
-        return scheme
-```
+| 问题 | Compressed-Tensors 的解决方案 |
+|------|------------------------------|
+| 量化格式碎片化 | 统一的配置格式，存储在 `config.json` |
+| 不同层不同精度 | 通过 `config_groups` + `targets` 支持混合精度 |
+| 稀疏性与量化组合 | 同时支持 2:4 sparsity + 量化 |
+| 自动检测与分发 | 根据配置自动选择对应的 Scheme |
 
-**典型的模型配置示例**（`config.json`）：
+#### 1.1.2 配置格式示例
+
+模型的 `config.json` 中的 `quantization_config` 字段：
+
 ```json
 {
   "quantization_config": {
     "quant_method": "compressed-tensors",
+    "format": "float-quantized",
     "config_groups": {
       "group_0": {
         "weights": {
           "num_bits": 8,
-          "type": "float",
-          "strategy": "channel"
+          "type": "float",           // FP8 量化
+          "strategy": "channel",     // per-channel 权重量化
+          "symmetric": true
         },
         "input_activations": {
           "num_bits": 8,
-          "type": "float",
-          "strategy": "token"
-        }
+          "type": "float",           // FP8 激活量化
+          "strategy": "token",       // per-token 动态量化
+          "dynamic": true
+        },
+        "targets": ["Linear"]        // 应用于所有 Linear 层
       }
-    }
+    },
+    "ignore": ["lm_head"]            // 忽略某些层
   }
 }
 ```
 
-### 1.2 当前 SlideSparse cuBLASLt 转发架构
+#### 1.1.3 支持的量化方案（Scheme）
+
+Compressed-Tensors 根据配置自动分发到以下具体实现：
+
+| Scheme 类名 | Weight | Activation | 说明 |
+|-------------|--------|------------|------|
+| `CompressedTensorsW8A8Fp8` | FP8 8-bit | FP8 8-bit | FP8 对称量化 |
+| `CompressedTensorsW8A8Int8` | INT8 8-bit | INT8 8-bit | INT8 对称/非对称 |
+| `CompressedTensorsW8A16Fp8` | FP8 8-bit | FP16/BF16 | 仅权重量化 |
+| `CompressedTensorsWNA16` | INT 4/8-bit | FP16/BF16 | GPTQ-like |
+| `CompressedTensors24` | - | - | 2:4 稀疏 (可选量化) |
+| `CompressedTensorsW4A16Sparse24` | INT4 | FP16 | 2:4 稀疏 + INT4 |
+| `CompressedTensorsW4A4Fp4` | FP4 | FP4 | NVFP4 格式 |
+
+### 1.2 vLLM 对 Compressed-Tensors 的处理框架
+
+#### 1.2.1 两层架构设计
+
+vLLM 采用**两层架构**处理 compressed-tensors：
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                    用户加载 FP8 量化模型                             │
-└─────────────────────────────────────────────────────────────────────┘
-                                  │
-                                  ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│              CompressedTensorsConfig.get_scheme()                   │
-│                                                                     │
-│   1. 解析 config_groups 配置                                         │
-│   2. 调用 _get_scheme_from_parts() → CompressedTensorsW8A8Fp8       │
-│   3. ✅ wrap_scheme_with_cublaslt(scheme) 包装                       │
-└─────────────────────────────────────────────────────────────────────┘
-                                  │
-                                  ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│                    CuBLASLtSchemeWrapper                            │
-│                                                                     │
-│   - _original_scheme: CompressedTensorsW8A8Fp8                      │
-│   - create_weights()      → 委托给原始 scheme                        │
-│   - process_weights_after_loading() → 委托给原始 scheme              │
-│   - apply_weights()       → 调用 CuBLASLtFp8LinearOp                │
-└─────────────────────────────────────────────────────────────────────┘
-                                  │
-                                  ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│                    CuBLASLtFp8LinearOp.apply()                      │
-│                                                                     │
-│   当前实现（USE_REAL_CUBLASLT=False）:                               │
-│   - 调用 vLLM 原生 Fp8LinearOp（使用 CUTLASS）                       │
-│                                                                     │
-│   目标实现（USE_REAL_CUBLASLT=True）:                                │
-│   - 调用 cuBLASLt FP8 matmul API                                    │
-└─────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                    第一层: Config + LinearMethod（胶水层）                    │
+│                      负责配置解析和调用委托，不涉及计算                         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  CompressedTensorsConfig (配置存储与分发)                                     │
+│    ├── from_config()          : 解析 config.json → target_scheme_map        │
+│    ├── get_quant_method()     : 返回 CompressedTensorsLinearMethod          │
+│    ├── get_scheme()           : ★ 核心分发逻辑，选择具体 Scheme              │
+│    └── _get_scheme_from_parts(): 根据 weight_quant/input_quant 创建 Scheme  │
+│                                                                              │
+│  CompressedTensorsLinearMethod (胶水层，实现 LinearMethodBase 接口)           │
+│    ├── create_weights()                → 委托 layer.scheme.create_weights() │
+│    ├── process_weights_after_loading() → 委托 layer.scheme.process_...()    │
+│    └── apply()                         → 委托 layer.scheme.apply_weights()  │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                                      │ 所有方法都委托给 scheme
+                                      ▼
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                    第二层: Scheme（具体量化实现）                              │
+│                     负责权重管理和实际计算，包含 kernel 选择                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  CompressedTensorsScheme (抽象基类)                                           │
+│    ├── get_min_capability()          : GPU 最低算力要求                       │
+│    ├── create_weights()              : 创建量化参数 (weight, scale, zp 等)   │
+│    ├── process_weights_after_loading(): 权重后处理 (转置、重排、打包等)       │
+│    └── apply_weights()               : ★ 执行线性计算 (含量化/反量化)         │
+│                                                                              │
+│  具体实现示例 - CompressedTensorsW8A8Fp8:                                     │
+│    ├── __init__()              : 初始化 Fp8LinearOp (封装 CUTLASS kernel)     │
+│    ├── create_weights()        : 创建 weight(FP8), weight_scale, input_scale │
+│    ├── process_weights_after_loading(): 处理 scale 合并、weight 转置          │
+│    └── apply_weights()         : 调用 self.fp8_linear.apply() 执行 GEMM      │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 1.3 转发架构验证
+#### 1.2.2 名词解释与区分
 
-**当前架构已确认正确：**
+| 名词 | 层级 | 职责 | 示例 |
+|------|------|------|------|
+| **Config** | 第一层 | 配置解析、存储、分发 | `CompressedTensorsConfig` |
+| **LinearMethod** | 第一层 | vLLM 接口适配，纯委托 | `CompressedTensorsLinearMethod` |
+| **Scheme** | 第二层 | 具体量化方案实现 | `CompressedTensorsW8A8Fp8` |
+| **LinearOp** | 第二层内部 | Kernel 调用封装 | `Fp8LinearOp`, `W8A8BlockFp8LinearOp` |
+
+#### 1.2.3 关键方法的作用
+
+**`create_weights()` 的作用**：
+- 在模型初始化阶段调用
+- 创建该量化方案需要的所有参数（weight, scale, zero_point 等）
+- 将参数注册到 layer 上，供后续 weight_loader 加载
+
+```python
+# CompressedTensorsW8A8Fp8.create_weights() 示例
+def create_weights(self, layer, ...):
+    # 创建 FP8 权重
+    weight = create_fp8_weight_parameter(output_size, input_size, weight_loader)
+    layer.register_parameter("weight", weight)
+    
+    # 创建权重 scale
+    weight_scale = create_fp8_scale_parameter(...)
+    layer.register_parameter("weight_scale", weight_scale)
+    
+    # 创建输入 scale（静态量化时）
+    if self.is_static_input_scheme:
+        input_scale = create_fp8_input_scale(...)
+        layer.register_parameter("input_scale", input_scale)
+```
+
+**`process_weights_after_loading()` 的作用**：
+- 在权重加载完成后调用
+- 执行权重后处理：转置、scale 合并、格式转换等
+- 为推理阶段做准备
+
+```python
+# CompressedTensorsW8A8Fp8.process_weights_after_loading() 示例
+def process_weights_after_loading(self, layer):
+    # 处理权重和 scale
+    weight, weight_scale, input_scale = process_fp8_weight_tensor_strategy(...)
+    
+    # 转置权重 [out, in] -> [in, out].T
+    weight = weight.t()
+    
+    # 更新为 Parameter
+    layer.weight = Parameter(weight.data, requires_grad=False)
+    layer.weight_scale = Parameter(weight_scale.data, requires_grad=False)
+```
+
+**`apply_weights()` 的作用**：
+- 在推理阶段的每次前向传播调用
+- 执行实际的线性计算（含量化/反量化）
+- 内部调用 LinearOp 选择具体的 kernel
+
+```python
+# CompressedTensorsW8A8Fp8.apply_weights() 示例
+def apply_weights(self, layer, x, bias=None):
+    # 通过 Fp8LinearOp 调用 CUTLASS kernel
+    return self.fp8_linear.apply(
+        input=x,
+        weight=layer.weight,
+        weight_scale=layer.weight_scale,
+        input_scale=layer.input_scale,
+        bias=bias,
+    )
+```
+
+#### 1.2.4 分发逻辑详解
+
+`CompressedTensorsConfig.get_scheme()` 是核心分发逻辑：
+
+```python
+def get_scheme(self, layer, layer_name):
+    # 1. 从配置中提取量化参数
+    scheme_dict = self.get_scheme_dict(layer, layer_name)
+    weight_quant = scheme_dict.get("weights")        # QuantizationArgs
+    input_quant = scheme_dict.get("input_activations")  # QuantizationArgs | None
+    
+    # 2. 检查是否支持 2:4 稀疏
+    if self.supports_cutlass_24(weight_quant, input_quant, sparsity_scheme):
+        return CompressedTensors24(...)
+    
+    # 3. 根据 weight_quant 和 input_quant 选择 Scheme
+    return self._get_scheme_from_parts(weight_quant, input_quant, format)
+```
+
+`_get_scheme_from_parts()` 的分发规则：
+
+```python
+def _get_scheme_from_parts(self, weight_quant, input_quant, format):
+    # FP8 W8A8
+    if self._is_fp8_w8a8(weight_quant, input_quant):
+        return CompressedTensorsW8A8Fp8(weight_quant, is_static=...)
+    
+    # INT8 W8A8
+    if self._is_static_tensor_w8a8(weight_quant, input_quant):
+        return CompressedTensorsW8A8Int8(strategy=..., is_static=True)
+    
+    if self._is_dynamic_token_w8a8(weight_quant, input_quant):
+        return CompressedTensorsW8A8Int8(strategy=..., is_static=False)
+    
+    # WNA16 (仅权重量化)
+    if self._is_wNa16_group_channel(weight_quant, input_quant):
+        return CompressedTensorsWNA16(num_bits=..., group_size=...)
+    
+    # ... 其他方案
+```
+
+### 1.3 SlideSparse 的 Hook 方式
+
+#### 1.3.1 Hook 点位置
+
+SlideSparse 在 `get_scheme()` 返回前进行 hook：
+
+```python
+# compressed_tensors.py 中的 get_scheme() 末尾
+def get_scheme(self, layer, layer_name):
+    # ... 选择 scheme 的逻辑 ...
+    scheme = self._get_scheme_from_parts(weight_quant, input_quant, format)
+    
+    # ★ SlideSparse Hook 点
+    if is_slidesparse_enabled() and scheme is not None:
+        scheme = wrap_scheme_fp8(scheme)  # 包装原始 scheme
+    
+    return scheme
+```
+
+#### 1.3.2 wrap_scheme_fp8 的工作原理
+
+```python
+def wrap_scheme_fp8(original_scheme):
+    """
+    包装 W8A8Fp8 scheme，替换 apply_weights 为 SlideSparse kernel
+    """
+    scheme_name = type(original_scheme).__name__
+    
+    # 只处理 W8A8Fp8
+    if "W8A8Fp8" not in scheme_name:
+        return original_scheme  # 其他 scheme 不处理
+    
+    # 返回包装后的 Method
+    return SlideSparseFp8LinearMethod(original_scheme)
+```
+
+#### 1.3.3 SlideSparseFp8LinearMethod 的委托模式
+
+```python
+class SlideSparseFp8LinearMethod:
+    def __init__(self, original_scheme):
+        self.original_scheme = original_scheme
+        # 创建 SlideSparse Op（根据环境变量选择 kernel）
+        self.slidesparse_fp8_linear = SlideSparseFp8LinearOp(...)
+    
+    def create_weights(self, layer, ...):
+        # ★ 完全委托给原始 scheme（保持权重格式兼容）
+        return self.original_scheme.create_weights(layer, ...)
+    
+    def process_weights_after_loading(self, layer):
+        # ★ 完全委托给原始 scheme
+        return self.original_scheme.process_weights_after_loading(layer)
+    
+    def apply_weights(self, layer, x, bias=None):
+        # ★ 替换为 SlideSparse kernel
+        return self.slidesparse_fp8_linear.apply(
+            input=x,
+            weight=layer.weight,
+            weight_scale=layer.weight_scale,
+            input_scale=layer.input_scale,
+            bias=bias,
+        )
+```
+
+#### 1.3.4 完整的调用流程图
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         用户加载 FP8 量化模型                                │
+│                   vllm serve model --quantization compressed-tensors        │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                       │
+                                       ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    CompressedTensorsConfig.get_scheme()                     │
+│                                                                             │
+│   1. 解析 config.json → weight_quant: FP8/channel, input_quant: FP8/token  │
+│   2. _get_scheme_from_parts() → CompressedTensorsW8A8Fp8                   │
+│   3. ★ if is_slidesparse_enabled(): wrap_scheme_fp8(scheme)                │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                       │
+                   ┌───────────────────┴───────────────────┐
+                   │ SlideSparse 禁用                       │ SlideSparse 启用
+                   ▼                                       ▼
+┌──────────────────────────────┐    ┌──────────────────────────────────────────┐
+│  CompressedTensorsW8A8Fp8    │    │        SlideSparseFp8LinearMethod        │
+│                              │    │                                          │
+│  apply_weights() →           │    │  create_weights()      → 委托原始 scheme │
+│    Fp8LinearOp.apply()       │    │  process_weights_...() → 委托原始 scheme │
+│      → CUTLASS kernel        │    │  apply_weights()       → SlideSparse Op  │
+└──────────────────────────────┘    └──────────────────────────────────────────┘
+                                                   │
+                                                   ▼
+                   ┌─────────────────────────────────────────────────────────┐
+                   │              SlideSparseFp8LinearOp.apply()             │
+                   │                                                         │
+                   │  根据环境变量选择 kernel:                                │
+                   │  ├─ USE_CUBLASLT=1   → cuBLASLt_FP8_linear()           │
+                   │  ├─ USE_CUSPARSELT=1 → cuSPARSELt_FP8_linear()         │
+                   │  └─ 默认              → cutlass_FP8_linear() (fallback)│
+                   └─────────────────────────────────────────────────────────┘
+```
+
+### 1.4 环境变量控制
+
+| 环境变量 | 默认值 | 作用 |
+|---------|--------|------|
+| `DISABLE_SLIDESPARSE=1` | 未设置 | 完全禁用 SlideSparse，使用 vLLM 原生路径 |
+| `USE_CUBLASLT=1` | 未设置 | 启用 cuBLASLt kernel |
+| `USE_CUSPARSELT=1` | 未设置 | 启用 cuSPARSELt 2:4 稀疏 kernel |
+| `INNER_DTYPE_FP32=1` | 未设置 | GEMM 输出使用 FP32（仅 cuBLASLt/cuSPARSELt） |
+
+### 1.5 架构验证状态
 
 | 检查项 | 状态 | 说明 |
 |--------|------|------|
-| 环境变量检测 | ✅ | `VLLM_USE_CUBLASLT=1` 或 `SLIDESPARSE_USE_CUBLASLT=1` |
-| Scheme 包装 | ✅ | `wrap_scheme_with_cublaslt()` 在 `get_scheme()` 中调用 |
-| 权重创建 | ✅ | 委托给原始 scheme，保持兼容性 |
-| 权重加载 | ✅ | 委托给原始 scheme，safetensor 格式正常加载 |
-| 推理路径 | ✅ | `apply_weights()` 正确调用 `CuBLASLtFp8LinearOp` |
+| 环境变量检测 | ✅ | `is_slidesparse_enabled()` 正常工作 |
+| Scheme 包装 | ✅ | `wrap_scheme_fp8()` 在 `get_scheme()` 中正确调用 |
+| 权重创建 | ✅ | 委托给原始 scheme，保持 safetensor 格式兼容 |
+| 权重加载 | ✅ | 委托给原始 scheme，scale/weight 正常加载 |
+| 推理路径 | ✅ | `apply_weights()` 正确调用 `SlideSparseFp8LinearOp` |
+| Kernel 选择 | ✅ | 根据环境变量正确选择 cuBLASLt/cuSPARSELt/CUTLASS |
 
 ---
 
