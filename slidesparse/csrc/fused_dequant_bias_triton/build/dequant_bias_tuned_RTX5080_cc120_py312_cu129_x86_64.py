@@ -7,36 +7,47 @@ import torch
 import triton
 import triton.language as tl
 
+
+def _prepare_scale(scale: torch.Tensor, size: int) -> torch.Tensor:
+    """Prepare scale tensor: view as 1D, ensure float32, contiguous."""
+    if scale.numel() == 1:
+        scale = scale.view(1).expand(size)
+    else:
+        scale = scale.view(-1)
+    # Only convert if not already float32 and contiguous
+    if scale.dtype != torch.float32:
+        return scale.contiguous().float()
+    return scale.contiguous() if not scale.is_contiguous() else scale
+
+
 def _get_config(M: int, N: int) -> tuple:
     """Returns (BLOCK_M, BLOCK_N, num_warps, num_stages)"""
     if N == 2560:
         if M < 128:
-            return 32, 128, 8, 3
+            return 16, 128, 4, 3
         elif M < 1024:
-            return 32, 64, 8, 2
+            return 32, 32, 4, 2
         elif M < 4096:
-            return 64, 256, 16, 3
-        elif M < 16384:
-            return 128, 128, 8, 2
+            return 128, 128, 8, 3
         return 64, 256, 8, 3
     elif N == 3840:
         if M < 128:
-            return 32, 32, 4, 3
+            return 128, 64, 4, 3
         elif M < 1024:
-            return 128, 32, 8, 4
+            return 32, 128, 8, 2
         elif M < 4096:
-            return 32, 128, 2, 2
+            return 128, 128, 8, 2
         return 64, 256, 8, 3
     elif N == 13824:
         if M < 128:
-            return 64, 64, 4, 3
+            return 32, 256, 8, 4
         elif M < 1024:
-            return 16, 256, 4, 3
+            return 32, 128, 8, 2
         elif M < 4096:
             return 64, 128, 4, 4
         elif M < 16384:
-            return 32, 256, 8, 4
-        return 32, 256, 8, 3
+            return 64, 256, 8, 3
+        return 32, 256, 8, 4
     if M <= 128:
         return 32, 64, 4, 4
     elif M <= 4096:
@@ -80,9 +91,14 @@ def dequant_bias_triton(
     assert gemm_output.is_cuda and gemm_output.is_contiguous()
     M, N = gemm_output.shape
     
-    scale_a = scale_a.view(-1).contiguous().float() if scale_a.numel() > 1 else scale_a.expand(M).contiguous().float()
-    scale_b = scale_b.view(-1).contiguous().float() if scale_b.numel() > 1 else scale_b.expand(N).contiguous().float()
-    bias = bias.view(-1).contiguous().to(torch.bfloat16)
+    scale_a = _prepare_scale(scale_a, M)
+    scale_b = _prepare_scale(scale_b, N)
+    
+    bias = bias.view(-1)
+    if bias.dtype != torch.bfloat16:
+        bias = bias.to(torch.bfloat16)
+    bias = bias.contiguous() if not bias.is_contiguous() else bias
+    
     output = torch.empty((M, N), dtype=torch.bfloat16, device=gemm_output.device)
     
     BLOCK_M, BLOCK_N, num_warps, num_stages = _get_config(M, N)

@@ -369,19 +369,29 @@ def test_wrap_scheme_fp8():
 
 @test_case("cuBLASLt Extension 加载状态")
 def test_cublaslt_extension_load():
-    """测试 cuBLASLt extension 加载状态"""
-    from slidesparse.core.SlideSparseLinearMethod_FP8 import _get_gemm_extension
+    """测试 cuBLASLt extension 加载状态
+    
+    注意：_get_gemm_extension 返回的是 ctypes Wrapper 类实例（cuBLASLtGemmWrapper），
+    而不是 Python 扩展模块。Wrapper 实例有 cublaslt_fp8_mm 方法。
+    """
+    from slidesparse.core.SlideSparseLinearMethod_FP8 import (
+        _get_gemm_extension,
+        cuBLASLtGemmWrapper,
+    )
     
     try:
         ext = _get_gemm_extension("cublaslt")
-        # 验证导出的函数
-        has_fp8_mm = hasattr(ext, "cublaslt_fp8_mm")
+        # 验证返回类型是 Wrapper 实例
+        if not isinstance(ext, cuBLASLtGemmWrapper):
+            return False, f"Extension 类型错误: 期望 cuBLASLtGemmWrapper，实际 {type(ext).__name__}"
+        # 验证 Wrapper 实例有 cublaslt_fp8_mm 方法
+        has_fp8_mm = callable(getattr(ext, "cublaslt_fp8_mm", None))
         if has_fp8_mm:
-            return True, f"Extension 已加载，cublaslt_fp8_mm 可用"
+            return True, f"Wrapper 已加载，cublaslt_fp8_mm 方法可用"
         else:
-            return True, f"Extension 已加载，但缺少 cublaslt_fp8_mm"
-    except ModuleNotFoundError as e:
-        # 未编译不是错误，只是状态报告
+            return True, f"Wrapper 已加载，但缺少 cublaslt_fp8_mm 方法"
+    except FileNotFoundError as e:
+        # .so 文件未编译不是错误，只是状态报告
         return True, f"Extension 未编译: {e}"
     except Exception as e:
         return True, f"Extension 加载异常: {e}"
@@ -389,12 +399,19 @@ def test_cublaslt_extension_load():
 
 @test_case("cuBLASLt Extension 函数签名")
 def test_cublaslt_extension_signatures():
-    """测试 cuBLASLt extension 导出函数的签名"""
-    from slidesparse.core.SlideSparseLinearMethod_FP8 import _get_gemm_extension
+    """测试 cuBLASLt extension Wrapper 方法签名
+    
+    注意：现在返回的是 ctypes Wrapper 类实例，不是 Python 扩展模块。
+    需要检查 Wrapper 实例的方法，而不是模块的函数属性。
+    """
+    from slidesparse.core.SlideSparseLinearMethod_FP8 import (
+        _get_gemm_extension,
+        cuBLASLtGemmWrapper,
+    )
     
     try:
         ext = _get_gemm_extension("cublaslt")
-    except ModuleNotFoundError:
+    except FileNotFoundError:
         return TestResult(
             name="cuBLASLt Extension 函数签名",
             status=TestStatus.SKIPPED,
@@ -407,36 +424,54 @@ def test_cublaslt_extension_signatures():
             message=f"Extension 加载异常: {e}"
         )
     
-    # 检查必要的函数
+    # 检查是否是正确的 Wrapper 类型
+    if not isinstance(ext, cuBLASLtGemmWrapper):
+        return TestResult(
+            name="cuBLASLt Extension 函数签名",
+            status=TestStatus.FAILED,
+            message=f"类型错误: 期望 cuBLASLtGemmWrapper，实际 {type(ext).__name__}"
+        )
+    
+    # 检查必要的方法
     missing = []
-    if not hasattr(ext, "cublaslt_fp8_mm"):
+    if not callable(getattr(ext, "cublaslt_fp8_mm", None)):
         missing.append("cublaslt_fp8_mm")
     
     if missing:
         return TestResult(
             name="cuBLASLt Extension 函数签名",
             status=TestStatus.WARNING,
-            message=f"缺少函数: {', '.join(missing)}"
+            message=f"缺少方法: {', '.join(missing)}"
         )
     
-    return True, "函数签名正确"
+    return True, "Wrapper 方法签名正确"
 
 
 @test_case("cuSPARSELt Extension 加载状态")
 def test_cusparselt_extension_load():
-    """测试 cuSPARSELt extension 加载状态"""
-    from slidesparse.core.SlideSparseLinearMethod_FP8 import _get_gemm_extension
+    """测试 cuSPARSELt extension 加载状态
+    
+    注意：_get_gemm_extension 返回的是 ctypes Wrapper 类实例（cuSPARSELtGemmWrapper），
+    而不是 Python 扩展模块。Wrapper 实例有 cusparselt_fp8_mm 方法。
+    """
+    from slidesparse.core.SlideSparseLinearMethod_FP8 import (
+        _get_gemm_extension,
+        cuSPARSELtGemmWrapper,
+    )
     
     try:
         ext = _get_gemm_extension("cusparselt")
-        # 验证导出的函数
-        has_fp8_mm = hasattr(ext, "cusparselt_fp8_mm")
+        # 验证返回类型是 Wrapper 实例
+        if not isinstance(ext, cuSPARSELtGemmWrapper):
+            return False, f"Extension 类型错误: 期望 cuSPARSELtGemmWrapper，实际 {type(ext).__name__}"
+        # 验证 Wrapper 实例有 cusparselt_fp8_mm 方法
+        has_fp8_mm = callable(getattr(ext, "cusparselt_fp8_mm", None))
         if has_fp8_mm:
-            return True, f"Extension 已加载，cusparselt_fp8_mm 可用"
+            return True, f"Wrapper 已加载，cusparselt_fp8_mm 方法可用"
         else:
-            return True, f"Extension 已加载，但缺少 cusparselt_fp8_mm"
-    except ModuleNotFoundError as e:
-        # 未编译不是错误，只是状态报告
+            return True, f"Wrapper 已加载，但缺少 cusparselt_fp8_mm 方法"
+    except FileNotFoundError as e:
+        # .so 文件未编译不是错误，只是状态报告
         return True, f"Extension 未编译: {e}"
     except Exception as e:
         return True, f"Extension 加载异常: {e}"
@@ -444,12 +479,19 @@ def test_cusparselt_extension_load():
 
 @test_case("cuSPARSELt Extension 函数签名")
 def test_cusparselt_extension_signatures():
-    """测试 cuSPARSELt extension 导出函数的签名"""
-    from slidesparse.core.SlideSparseLinearMethod_FP8 import _get_gemm_extension
+    """测试 cuSPARSELt extension Wrapper 方法签名
+    
+    注意：现在返回的是 ctypes Wrapper 类实例，不是 Python 扩展模块。
+    需要检查 Wrapper 实例的方法，而不是模块的函数属性。
+    """
+    from slidesparse.core.SlideSparseLinearMethod_FP8 import (
+        _get_gemm_extension,
+        cuSPARSELtGemmWrapper,
+    )
     
     try:
         ext = _get_gemm_extension("cusparselt")
-    except ModuleNotFoundError:
+    except FileNotFoundError:
         return TestResult(
             name="cuSPARSELt Extension 函数签名",
             status=TestStatus.SKIPPED,
@@ -462,19 +504,27 @@ def test_cusparselt_extension_signatures():
             message=f"Extension 加载异常: {e}"
         )
     
-    # 检查必要的函数
+    # 检查是否是正确的 Wrapper 类型
+    if not isinstance(ext, cuSPARSELtGemmWrapper):
+        return TestResult(
+            name="cuSPARSELt Extension 函数签名",
+            status=TestStatus.FAILED,
+            message=f"类型错误: 期望 cuSPARSELtGemmWrapper，实际 {type(ext).__name__}"
+        )
+    
+    # 检查必要的方法
     missing = []
-    if not hasattr(ext, "cusparselt_fp8_mm"):
+    if not callable(getattr(ext, "cusparselt_fp8_mm", None)):
         missing.append("cusparselt_fp8_mm")
     
     if missing:
         return TestResult(
             name="cuSPARSELt Extension 函数签名",
             status=TestStatus.WARNING,
-            message=f"缺少函数: {', '.join(missing)}"
+            message=f"缺少方法: {', '.join(missing)}"
         )
     
-    return True, "函数签名正确"
+    return True, "Wrapper 方法签名正确"
 
 
 # ============================================================================

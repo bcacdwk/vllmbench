@@ -136,6 +136,18 @@ def _get_best_config(M: int, N: int) -> tuple:
             return 128, 128, 8
 
 
+def _prepare_scale(scale: torch.Tensor, size: int) -> torch.Tensor:
+    """Prepare scale tensor: view as 1D, ensure float32, contiguous."""
+    if scale.numel() == 1:
+        scale = scale.view(1).expand(size)
+    else:
+        scale = scale.view(-1)
+    # Only convert if not already float32 and contiguous
+    if scale.dtype != torch.float32:
+        return scale.contiguous().float()
+    return scale.contiguous() if not scale.is_contiguous() else scale
+
+
 # =============================================================================
 # 主接口函数
 # =============================================================================
@@ -178,22 +190,19 @@ def dequant_bias_triton(
     input_fp32 = gemm_output.dtype == torch.float32
     input_int32 = gemm_output.dtype == torch.int32
     
-    # 准备 scale_a: 确保是 [M] 的连续FP32张量
-    if scale_a.numel() == 1:
-        scale_a = scale_a.view(1).expand(M).contiguous().float()
-    else:
-        scale_a = scale_a.view(-1).contiguous().float()
+    # 准备 scale_a: 确保是 [M] 的连续FP32张量 (使用优化后的函数)
+    scale_a = _prepare_scale(scale_a, M)
     assert scale_a.shape[0] == M, f"scale_a shape mismatch: {scale_a.shape[0]} vs {M}"
     
-    # 准备 scale_b: 确保是 [N] 的连续FP32张量
-    if scale_b.numel() == 1:
-        scale_b = scale_b.view(1).expand(N).contiguous().float()
-    else:
-        scale_b = scale_b.view(-1).contiguous().float()
+    # 准备 scale_b: 确保是 [N] 的连续FP32张量 (使用优化后的函数)
+    scale_b = _prepare_scale(scale_b, N)
     assert scale_b.shape[0] == N, f"scale_b shape mismatch: {scale_b.shape[0]} vs {N}"
     
-    # 准备 bias: 确保是 [N] 的连续BF16张量
-    bias = bias.view(-1).contiguous().to(torch.bfloat16)
+    # 准备 bias: 确保是 [N] 的连续BF16张量 (只在需要时转换)
+    bias = bias.view(-1)
+    if bias.dtype != torch.bfloat16:
+        bias = bias.to(torch.bfloat16)
+    bias = bias.contiguous() if not bias.is_contiguous() else bias
     assert bias.shape[0] == N, f"bias shape mismatch: {bias.shape[0]} vs {N}"
     
     # 分配输出

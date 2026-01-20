@@ -130,6 +130,18 @@ def _dequant_bias_kernel_autotune(
     tl.store(out_ptr + out_offs, val.to(tl.bfloat16), mask=mask_2d)
 
 
+def _prepare_scale(scale: torch.Tensor, size: int) -> torch.Tensor:
+    """Prepare scale tensor: view as 1D, ensure float32, contiguous."""
+    if scale.numel() == 1:
+        scale = scale.view(1).expand(size)
+    else:
+        scale = scale.view(-1)
+    # Only convert if not already float32 and contiguous
+    if scale.dtype != torch.float32:
+        return scale.contiguous().float()
+    return scale.contiguous() if not scale.is_contiguous() else scale
+
+
 def dequant_bias_autotune(
     gemm_output: torch.Tensor,
     scale_a: torch.Tensor,
@@ -140,9 +152,14 @@ def dequant_bias_autotune(
     input_fp32 = gemm_output.dtype == torch.float32
     input_int32 = gemm_output.dtype == torch.int32
     
-    scale_a = scale_a.view(-1).contiguous().float() if scale_a.numel() > 1 else scale_a.view(1).expand(M).contiguous().float()
-    scale_b = scale_b.view(-1).contiguous().float() if scale_b.numel() > 1 else scale_b.view(1).expand(N).contiguous().float()
-    bias = bias.view(-1).contiguous().to(torch.bfloat16)
+    scale_a = _prepare_scale(scale_a, M)
+    scale_b = _prepare_scale(scale_b, N)
+    
+    bias = bias.view(-1)
+    if bias.dtype != torch.bfloat16:
+        bias = bias.to(torch.bfloat16)
+    bias = bias.contiguous() if not bias.is_contiguous() else bias
+    
     output = torch.empty((M, N), dtype=torch.bfloat16, device=gemm_output.device)
     
     grid = lambda meta: (triton.cdiv(M, meta['BLOCK_M']), triton.cdiv(N, meta['BLOCK_N']))
@@ -311,6 +328,19 @@ import torch
 import triton
 import triton.language as tl
 
+
+def _prepare_scale(scale: torch.Tensor, size: int) -> torch.Tensor:
+    """Prepare scale tensor: view as 1D, ensure float32, contiguous."""
+    if scale.numel() == 1:
+        scale = scale.view(1).expand(size)
+    else:
+        scale = scale.view(-1)
+    # Only convert if not already float32 and contiguous
+    if scale.dtype != torch.float32:
+        return scale.contiguous().float()
+    return scale.contiguous() if not scale.is_contiguous() else scale
+
+
 {config_selector}
 
 
@@ -350,9 +380,14 @@ def dequant_bias_triton(
     assert gemm_output.is_cuda and gemm_output.is_contiguous()
     M, N = gemm_output.shape
     
-    scale_a = scale_a.view(-1).contiguous().float() if scale_a.numel() > 1 else scale_a.expand(M).contiguous().float()
-    scale_b = scale_b.view(-1).contiguous().float() if scale_b.numel() > 1 else scale_b.expand(N).contiguous().float()
-    bias = bias.view(-1).contiguous().to(torch.bfloat16)
+    scale_a = _prepare_scale(scale_a, M)
+    scale_b = _prepare_scale(scale_b, N)
+    
+    bias = bias.view(-1)
+    if bias.dtype != torch.bfloat16:
+        bias = bias.to(torch.bfloat16)
+    bias = bias.contiguous() if not bias.is_contiguous() else bias
+    
     output = torch.empty((M, N), dtype=torch.bfloat16, device=gemm_output.device)
     
     BLOCK_M, BLOCK_N, num_warps, num_stages = _get_config(M, N)

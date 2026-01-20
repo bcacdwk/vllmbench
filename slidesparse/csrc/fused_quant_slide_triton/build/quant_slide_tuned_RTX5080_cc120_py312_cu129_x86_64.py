@@ -8,30 +8,64 @@ import triton
 import triton.language as tl
 from typing import Tuple
 
+# Tensor Cache for output allocation
+
+_fp8_slide_out_cache: dict = {}
+_fp8_slide_scale_cache: dict = {}
+_int8_slide_out_cache: dict = {}
+_int8_slide_scale_cache: dict = {}
+
+
+def _get_cached_fp8_slide_tensors(M_padded: int, K_out_padded: int, device: torch.device):
+    """Get or create cached FP8 output tensors for quant_slide."""
+    key = (M_padded, K_out_padded, device.index if device.index is not None else 0)
+    if key not in _fp8_slide_out_cache:
+        _fp8_slide_out_cache[key] = torch.empty(M_padded, K_out_padded, dtype=torch.float8_e4m3fn, device=device)
+        _fp8_slide_scale_cache[key] = torch.empty(M_padded, dtype=torch.float32, device=device)
+    # Must zero/fill every call since kernel only writes valid M rows
+    out, scale = _fp8_slide_out_cache[key], _fp8_slide_scale_cache[key]
+    out.zero_()
+    scale.fill_(1.0)
+    return out, scale
+
+
+def _get_cached_int8_slide_tensors(M_padded: int, K_out_padded: int, device: torch.device):
+    """Get or create cached INT8 output tensors for quant_slide."""
+    key = (M_padded, K_out_padded, device.index if device.index is not None else 0)
+    if key not in _int8_slide_out_cache:
+        _int8_slide_out_cache[key] = torch.empty(M_padded, K_out_padded, dtype=torch.int8, device=device)
+        _int8_slide_scale_cache[key] = torch.empty(M_padded, dtype=torch.float32, device=device)
+    # Must zero/fill every call since kernel only writes valid M rows
+    out, scale = _int8_slide_out_cache[key], _int8_slide_scale_cache[key]
+    out.zero_()
+    scale.fill_(1.0)
+    return out, scale
+
+
 def _get_config(M: int, K: int) -> tuple:
     """Returns (BLOCK_GROUPS, num_warps, num_stages)"""
     if K == 2560:
         if M <= 16:
-            return 256, 8, 1
-        elif M <= 128:
             return 1024, 16, 2
+        elif M <= 128:
+            return 512, 16, 2
         elif M <= 1024:
             return 1024, 8, 2
         elif M <= 4096:
             return 256, 8, 3
         else:
-            return 256, 8, 2
+            return 512, 8, 2
     elif K == 6912:
         if M <= 16:
-            return 128, 4, 1
+            return 512, 16, 2
         elif M <= 128:
-            return 128, 4, 3
+            return 256, 8, 1
         elif M <= 1024:
             return 512, 16, 3
         elif M <= 4096:
             return 1024, 16, 3
         else:
-            return 256, 8, 2
+            return 256, 8, 3
     # Default fallback
     if K <= 4096:
         return 256, 8, 2
@@ -136,27 +170,18 @@ def quant_slide_fp8_triton(
     x: torch.Tensor,
     L: int = 8,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
-    """
-    Per-token FP8 Quant + Slide using tuned kernel
-    
-    Args:
-        x: Input tensor [M, K], BF16/FP16/FP32, must be contiguous
-        L: Group size for slide (must be even, >= 4), default 8
-        
-    Returns:
-        out: Quantized and slid tensor [M, K_out], FP8E4M3
-        scale: Per-token scale [M], FP32
-    """
+
     assert x.is_cuda and x.is_contiguous()
     assert L >= 4 and L % 2 == 0
     
     M, K_in_orig = x.shape
     K_in_padded, K_out, num_groups = _compute_output_k(K_in_orig, L)
     num_windows = _get_num_windows(L)
-    K_out_padded = ((K_out + 15) // 16) * 16
     
-    out = torch.empty(M, K_out_padded, dtype=torch.float8_e4m3fn, device=x.device)
-    scale = torch.empty(M, dtype=torch.float32, device=x.device)
+    K_out_padded = ((K_out + 31) // 32) * 32
+    M_padded = ((M + 15) // 16) * 16
+    
+    out, scale = _get_cached_fp8_slide_tensors(M_padded, K_out_padded, x.device)
     
     BLOCK_GROUPS, num_warps, num_stages = _get_config(M, K_in_orig)
     block_k = _get_block_k(K_in_orig)
@@ -164,7 +189,7 @@ def quant_slide_fp8_triton(
     _quant_slide_fp8_kernel[(M,)](
         x, out, scale,
         M, K_in_orig, K_in_padded, K_out, num_groups,
-        x.stride(0), out.stride(0),
+        x.stride(0), K_out_padded,  # output stride 使用 K_out_padded
         L=L,
         NUM_WINDOWS=num_windows,
         BLOCK_GROUPS=BLOCK_GROUPS,
@@ -244,27 +269,18 @@ def quant_slide_int8_triton(
     x: torch.Tensor,
     L: int = 8,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
-    """
-    Per-token INT8 Quant + Slide using tuned kernel
-    
-    Args:
-        x: Input tensor [M, K], BF16/FP16/FP32, must be contiguous
-        L: Group size for slide (must be even, >= 4), default 8
-        
-    Returns:
-        out: Quantized and slid tensor [M, K_out], INT8
-        scale: Per-token scale [M], FP32
-    """
+
     assert x.is_cuda and x.is_contiguous()
     assert L >= 4 and L % 2 == 0
     
     M, K_in_orig = x.shape
     K_in_padded, K_out, num_groups = _compute_output_k(K_in_orig, L)
     num_windows = _get_num_windows(L)
-    K_out_padded = ((K_out + 15) // 16) * 16
     
-    out = torch.empty(M, K_out_padded, dtype=torch.int8, device=x.device)
-    scale = torch.empty(M, dtype=torch.float32, device=x.device)
+    K_out_padded = ((K_out + 31) // 32) * 32
+    M_padded = ((M + 15) // 16) * 16
+    
+    out, scale = _get_cached_int8_slide_tensors(M_padded, K_out_padded, x.device)
     
     BLOCK_GROUPS, num_warps, num_stages = _get_config(M, K_in_orig)
     block_k = _get_block_k(K_in_orig)
@@ -272,7 +288,7 @@ def quant_slide_int8_triton(
     _quant_slide_int8_kernel[(M,)](
         x, out, scale,
         M, K_in_orig, K_in_padded, K_out, num_groups,
-        x.stride(0), out.stride(0),
+        x.stride(0), K_out_padded,  # output stride 使用 K_out_padded
         L=L,
         NUM_WINDOWS=num_windows,
         BLOCK_GROUPS=BLOCK_GROUPS,

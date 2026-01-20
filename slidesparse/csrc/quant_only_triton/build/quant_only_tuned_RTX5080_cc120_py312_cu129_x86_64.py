@@ -7,28 +7,60 @@ import torch
 import triton
 import triton.language as tl
 
+# Tensor Cache for output allocation
+
+_fp8_out_cache: dict = {}
+_fp8_scale_cache: dict = {}
+_int8_out_cache: dict = {}
+_int8_scale_cache: dict = {}
+
+
+def _get_cached_fp8_tensors(M_padded: int, K_padded: int, device: torch.device):
+    """Get or create cached FP8 output tensors."""
+    key = (M_padded, K_padded, device.index if device.index is not None else 0)
+    if key not in _fp8_out_cache:
+        _fp8_out_cache[key] = torch.empty(M_padded, K_padded, dtype=torch.float8_e4m3fn, device=device)
+        _fp8_scale_cache[key] = torch.empty(M_padded, dtype=torch.float32, device=device)
+    # Must zero/fill every call since kernel only writes valid M rows
+    out, scale = _fp8_out_cache[key], _fp8_scale_cache[key]
+    out.zero_()
+    scale.fill_(1.0)
+    return out, scale
+
+
+def _get_cached_int8_tensors(M_padded: int, K_padded: int, device: torch.device):
+    """Get or create cached INT8 output tensors."""
+    key = (M_padded, K_padded, device.index if device.index is not None else 0)
+    if key not in _int8_out_cache:
+        _int8_out_cache[key] = torch.empty(M_padded, K_padded, dtype=torch.int8, device=device)
+        _int8_scale_cache[key] = torch.empty(M_padded, dtype=torch.float32, device=device)
+    # Must zero/fill every call since kernel only writes valid M rows
+    out, scale = _int8_out_cache[key], _int8_scale_cache[key]
+    out.zero_()
+    scale.fill_(1.0)
+    return out, scale
+
+
 def _get_config(M: int, K: int) -> tuple:
     """Returns (BLOCK_K, num_warps, num_stages)"""
     if K == 2560:
         if M <= 16:
-            return 4096, 16, 4
+            return 8192, 16, 2
         elif M <= 128:
-            return 4096, 8, 2
+            return 4096, 4, 4
         elif M <= 1024:
-            return 4096, 8, 3
-        elif M <= 4096:
-            return 8192, 16, 3
+            return 4096, 1, 2
         else:
             return 4096, 1, 3
     elif K == 6912:
         if M <= 16:
-            return 8192, 16, 1
+            return 8192, 8, 1
         elif M <= 128:
-            return 8192, 4, 1
+            return 8192, 8, 3
         elif M <= 1024:
-            return 8192, 2, 1
+            return 8192, 16, 1
         elif M <= 4096:
-            return 8192, 4, 1
+            return 8192, 16, 3
         else:
             return 8192, 16, 1
     # Default fallback
@@ -85,29 +117,23 @@ def _quant_only_fp8_kernel(
 def quant_only_fp8_triton(
     x: torch.Tensor,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """
-    Per-token FP8 quantization using tuned kernel
-    
-    Args:
-        x: Input tensor [M, K], BF16/FP16/FP32, must be contiguous
-        
-    Returns:
-        out: Quantized tensor [M, K], FP8E4M3
-        scale: Per-token scale [M], FP32
-    """
+
     assert x.is_cuda and x.is_contiguous()
     M, K = x.shape
     
-    out = torch.empty(M, K, dtype=torch.float8_e4m3fn, device=x.device)
-    scale = torch.empty(M, dtype=torch.float32, device=x.device)
+    # Padding: K -> 32 aligned, M -> 16 aligned
+    K_padded = ((K + 31) // 32) * 32
+    M_padded = ((M + 15) // 16) * 16
+    
+    out, scale = _get_cached_fp8_tensors(M_padded, K_padded, x.device)
     
     BLOCK_K, num_warps, num_stages = _get_config(M, K)
     
-    # Per-row: grid = (M,)
+    # Per-row: grid = (M,) - 只处理有效的 M 行
     _quant_only_fp8_kernel[(M,)](
         x, out, scale,
         M, K,
-        x.stride(0), out.stride(0),
+        x.stride(0), K_padded,  # output stride 使用 K_padded
         BLOCK_K=BLOCK_K,
         num_warps=num_warps,
         num_stages=num_stages,
@@ -163,29 +189,23 @@ def _quant_only_int8_kernel(
 def quant_only_int8_triton(
     x: torch.Tensor,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """
-    Per-token INT8 quantization using tuned kernel
-    
-    Args:
-        x: Input tensor [M, K], BF16/FP16/FP32, must be contiguous
-        
-    Returns:
-        out: Quantized tensor [M, K], INT8
-        scale: Per-token scale [M], FP32
-    """
+
     assert x.is_cuda and x.is_contiguous()
     M, K = x.shape
     
-    out = torch.empty(M, K, dtype=torch.int8, device=x.device)
-    scale = torch.empty(M, dtype=torch.float32, device=x.device)
+    # Padding: K -> 32 aligned, M -> 16 aligned
+    K_padded = ((K + 31) // 32) * 32
+    M_padded = ((M + 15) // 16) * 16
+    
+    out, scale = _get_cached_int8_tensors(M_padded, K_padded, x.device)
     
     BLOCK_K, num_warps, num_stages = _get_config(M, K)
     
-    # Per-row: grid = (M,)
+    # Per-row: grid = (M,) - 只处理有效的 M 行
     _quant_only_int8_kernel[(M,)](
         x, out, scale,
         M, K,
-        x.stride(0), out.stride(0),
+        x.stride(0), K_padded,  # output stride 使用 K_padded
         BLOCK_K=BLOCK_K,
         num_warps=num_warps,
         num_stages=num_stages,

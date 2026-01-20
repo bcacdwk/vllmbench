@@ -97,22 +97,38 @@ def _memcpy_slide_int8_kernel(
         tl.store(out_row_ptr + offs_k, val_clamped.to(tl.int8), mask=mask_k)
 
 
+# Tensor Cache for baseline (与 quant_slide kernel 使用相同的分配策略以公平比较)
+_baseline_fp8_out_cache: dict = {}
+_baseline_int8_out_cache: dict = {}
+
+
 def make_theoretical_baseline(get_config_func, compute_output_k_func, dtype: str, L: int):
-    """Create theoretical baseline function that uses tuned config"""
+    """Create theoretical baseline function that uses tuned config
+    
+    Note: 使用 tensor cache + zero_() 与 quant_slide kernel 使用相同的分配策略，确保公平比较
+    """
     
     def theoretical_baseline_fp8(x: torch.Tensor) -> torch.Tensor:
         M, K_in = x.shape
         K_in_padded, K_out, _ = compute_output_k_func(K_in, L)
-        K_out_padded = ((K_out + 15) // 16) * 16
+        # 使用相同的 padding 策略
+        K_out_padded = ((K_out + 31) // 32) * 32
+        M_padded = ((M + 15) // 16) * 16
         
-        output = torch.empty(M, K_out_padded, dtype=torch.float8_e4m3fn, device=x.device)
+        # 使用 tensor cache + zero_()，与 quant_slide kernel 相同
+        key = (M_padded, K_out_padded, x.device.index if x.device.index is not None else 0)
+        if key not in _baseline_fp8_out_cache:
+            _baseline_fp8_out_cache[key] = torch.empty(M_padded, K_out_padded, dtype=torch.float8_e4m3fn, device=x.device)
+        output = _baseline_fp8_out_cache[key]
+        output.zero_()  # 与 quant_slide kernel 相同的初始化开销
         
         BLOCK_GROUPS, num_warps, num_stages = get_config_func(M, K_in)
         BLOCK_K = BLOCK_GROUPS * 8  # Approximate
         
+        # Per-row: grid = (M,) - 只处理有效的 M 行
         _memcpy_slide_fp8_kernel[(M,)](
             x, output, M, K_in, K_out,
-            x.stride(0), output.stride(0),
+            x.stride(0), K_out_padded,  # 使用 K_out_padded 作为 output stride
             BLOCK_K=BLOCK_K,
             num_warps=num_warps, num_stages=num_stages,
         )
@@ -121,16 +137,24 @@ def make_theoretical_baseline(get_config_func, compute_output_k_func, dtype: str
     def theoretical_baseline_int8(x: torch.Tensor) -> torch.Tensor:
         M, K_in = x.shape
         K_in_padded, K_out, _ = compute_output_k_func(K_in, L)
-        K_out_padded = ((K_out + 15) // 16) * 16
+        # 使用相同的 padding 策略
+        K_out_padded = ((K_out + 31) // 32) * 32
+        M_padded = ((M + 15) // 16) * 16
         
-        output = torch.empty(M, K_out_padded, dtype=torch.int8, device=x.device)
+        # 使用 tensor cache + zero_()，与 quant_slide kernel 相同
+        key = (M_padded, K_out_padded, x.device.index if x.device.index is not None else 0)
+        if key not in _baseline_int8_out_cache:
+            _baseline_int8_out_cache[key] = torch.empty(M_padded, K_out_padded, dtype=torch.int8, device=x.device)
+        output = _baseline_int8_out_cache[key]
+        output.zero_()  # 与 quant_slide kernel 相同的初始化开销
         
         BLOCK_GROUPS, num_warps, num_stages = get_config_func(M, K_in)
         BLOCK_K = BLOCK_GROUPS * 8
         
+        # Per-row: grid = (M,) - 只处理有效的 M 行
         _memcpy_slide_int8_kernel[(M,)](
             x, output, M, K_in, K_out,
-            x.stride(0), output.stride(0),
+            x.stride(0), K_out_padded,  # 使用 K_out_padded 作为 output stride
             BLOCK_K=BLOCK_K,
             num_warps=num_warps, num_stages=num_stages,
         )
