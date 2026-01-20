@@ -9,8 +9,8 @@ SlideSparse CSRC Package
 - utils: 编译工具（NVCC flags, build_cuda_extension 等）
 - cublaslt_gemm: cuBLASLt FP8 GEMM 扩展
 - fused_dequant_bias_triton: Triton 融合反量化偏置内核
-- fused_quant_slide_trition: Triton 融合量化滑动内核
-- quant_triton: Triton 量化内核
+- fused_quant_slide_triton: Triton 融合量化滑动内核
+- quant_only_triton: Triton 纯量化内核（无 slide）
 """
 
 from .utils import (

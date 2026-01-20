@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
 """
-Quant Only Kernel Benchmark
+Quant + Slide Kernel Benchmark
 
 Usage:
-    python3 run_benchmark.py --dtype fp8   # Test FP8 quantization
-    python3 run_benchmark.py --dtype int8  # Test INT8 quantization
+    python3 run_benchmark.py --dtype fp8   # Test FP8 quantization + slide
+    python3 run_benchmark.py --dtype int8  # Test INT8 quantization + slide
+    python3 run_benchmark.py --dtype fp8 --L 6  # Test L=6 (2:6 sparsity)
+    python3 run_benchmark.py --dtype fp8 --L 10 # Test L=10 (2:10 sparsity)
 """
 
 import sys
@@ -24,7 +26,6 @@ _SCRIPT_DIR = Path(__file__).parent
 _SLIDESPARSE_ROOT = _SCRIPT_DIR.parent.parent  # slidesparse/
 _PROJECT_ROOT = _SLIDESPARSE_ROOT.parent       # vllmbench/
 
-# 将项目根目录添加到 sys.path以支持 "from slidesparse.utils import ..."
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
@@ -49,63 +50,68 @@ REP = 100
 
 
 # =============================================================================
-# Theoretical Baseline (pure memory copy: BF16 -> FP8/INT8) - Per-row design
+# Theoretical Baseline (pure memory copy: BF16 -> FP8/INT8 with slide ratio)
 # =============================================================================
 
 @triton.jit
-def _memcpy_bf16_to_fp8_kernel(
-    in_ptr, out_ptr, M, K: tl.constexpr,
+def _memcpy_slide_fp8_kernel(
+    in_ptr, out_ptr, M, K_in, K_out,
     stride_im, stride_om,
     BLOCK_K: tl.constexpr,
 ):
-    """Pure memory copy baseline: BF16 input -> FP8 output (per-row)"""
+    """Pure memory copy baseline with slide output ratio"""
     row = tl.program_id(0)
     
     in_row_ptr = in_ptr + row * stride_im
     out_row_ptr = out_ptr + row * stride_om
     
-    for k_start in range(0, K, BLOCK_K):
+    # Only copy K_out elements (slide expands data)
+    for k_start in range(0, K_out, BLOCK_K):
         offs_k = k_start + tl.arange(0, BLOCK_K)
-        mask_k = offs_k < K
-        val = tl.load(in_row_ptr + offs_k, mask=mask_k, other=0.0)
+        mask_k = offs_k < K_out
+        # Read from input (cycling through input data)
+        in_offs = offs_k % K_in
+        val = tl.load(in_row_ptr + in_offs, mask=mask_k, other=0.0)
         tl.store(out_row_ptr + offs_k, val.to(tl.float8e4nv), mask=mask_k)
 
 
 @triton.jit
-def _memcpy_bf16_to_int8_kernel(
-    in_ptr, out_ptr, M, K: tl.constexpr,
+def _memcpy_slide_int8_kernel(
+    in_ptr, out_ptr, M, K_in, K_out,
     stride_im, stride_om,
     BLOCK_K: tl.constexpr,
 ):
-    """Pure memory copy baseline: BF16 input -> INT8 output (per-row)"""
+    """Pure memory copy baseline with slide output ratio"""
     row = tl.program_id(0)
     
     in_row_ptr = in_ptr + row * stride_im
     out_row_ptr = out_ptr + row * stride_om
     
-    for k_start in range(0, K, BLOCK_K):
+    for k_start in range(0, K_out, BLOCK_K):
         offs_k = k_start + tl.arange(0, BLOCK_K)
-        mask_k = offs_k < K
-        val = tl.load(in_row_ptr + offs_k, mask=mask_k, other=0.0)
-        # Truncate to INT8 range without actual quantization
+        mask_k = offs_k < K_out
+        in_offs = offs_k % K_in
+        val = tl.load(in_row_ptr + in_offs, mask=mask_k, other=0.0)
         val_f32 = val.to(tl.float32)
-        val_clamped = tl.clamp(val_f32 * 100.0, -128.0, 127.0)  # dummy scale
+        val_clamped = tl.clamp(val_f32 * 100.0, -128.0, 127.0)
         tl.store(out_row_ptr + offs_k, val_clamped.to(tl.int8), mask=mask_k)
 
 
-def make_theoretical_baseline(get_config_func, dtype: str):
-    """Create theoretical baseline function that uses tuned config (per-row design)"""
+def make_theoretical_baseline(get_config_func, compute_output_k_func, dtype: str, L: int):
+    """Create theoretical baseline function that uses tuned config"""
     
     def theoretical_baseline_fp8(x: torch.Tensor) -> torch.Tensor:
-        """Pure memory copy baseline: BF16 -> FP8"""
-        M, K = x.shape
-        output = torch.empty(M, K, dtype=torch.float8_e4m3fn, device=x.device)
+        M, K_in = x.shape
+        K_in_padded, K_out, _ = compute_output_k_func(K_in, L)
+        K_out_padded = ((K_out + 15) // 16) * 16
         
-        BLOCK_K, num_warps, num_stages = get_config_func(M, K)
+        output = torch.empty(M, K_out_padded, dtype=torch.float8_e4m3fn, device=x.device)
         
-        # Per-row: grid = (M,)
-        _memcpy_bf16_to_fp8_kernel[(M,)](
-            x, output, M, K,
+        BLOCK_GROUPS, num_warps, num_stages = get_config_func(M, K_in)
+        BLOCK_K = BLOCK_GROUPS * 8  # Approximate
+        
+        _memcpy_slide_fp8_kernel[(M,)](
+            x, output, M, K_in, K_out,
             x.stride(0), output.stride(0),
             BLOCK_K=BLOCK_K,
             num_warps=num_warps, num_stages=num_stages,
@@ -113,15 +119,17 @@ def make_theoretical_baseline(get_config_func, dtype: str):
         return output
     
     def theoretical_baseline_int8(x: torch.Tensor) -> torch.Tensor:
-        """Pure memory copy baseline: BF16 -> INT8"""
-        M, K = x.shape
-        output = torch.empty(M, K, dtype=torch.int8, device=x.device)
+        M, K_in = x.shape
+        K_in_padded, K_out, _ = compute_output_k_func(K_in, L)
+        K_out_padded = ((K_out + 15) // 16) * 16
         
-        BLOCK_K, num_warps, num_stages = get_config_func(M, K)
+        output = torch.empty(M, K_out_padded, dtype=torch.int8, device=x.device)
         
-        # Per-row: grid = (M,)
-        _memcpy_bf16_to_int8_kernel[(M,)](
-            x, output, M, K,
+        BLOCK_GROUPS, num_warps, num_stages = get_config_func(M, K_in)
+        BLOCK_K = BLOCK_GROUPS * 8
+        
+        _memcpy_slide_int8_kernel[(M,)](
+            x, output, M, K_in, K_out,
             x.stride(0), output.stride(0),
             BLOCK_K=BLOCK_K,
             num_warps=num_warps, num_stages=num_stages,
@@ -141,18 +149,18 @@ def load_tuned_module(dtype: str) -> ModuleType | None:
     
     try:
         # 统一文件，不包含 dtype 后缀
-        module = load_module("quant_only_tuned", search_dir=build_dir, ext=".py")
+        module = load_module("quant_slide_tuned", search_dir=build_dir, ext=".py")
         return module
     except FileNotFoundError:
-        filename = build_filename("quant_only_tuned", ext=".py")
+        filename = build_filename("quant_slide_tuned", ext=".py")
         print(f"ERROR: Tuned kernel not found: {build_dir / filename}")
-        print(f"Please run: python3 autotune_autogen_quant_only.py")
+        print(f"Please run: python3 autotune_autogen_quant_slide.py")
         return None
 
 
 def load_basic_module() -> ModuleType | None:
-    """Load the basic kernel module (contains untuned kernel and pytorch reference)"""
-    module_path = Path(__file__).parent / "basic_quant_only_triton.py"
+    """Load the basic kernel module"""
+    module_path = Path(__file__).parent / "basic_quant_slide_triton.py"
     
     if not module_path.exists():
         print(f"ERROR: Basic kernel not found: {module_path}")
@@ -171,7 +179,7 @@ def load_basic_module() -> ModuleType | None:
 # Correctness Test
 # =============================================================================
 
-def test_correctness(tuned_func, untuned_func, pytorch_ref_func, dtype: str):
+def test_correctness(tuned_func, untuned_func, pytorch_ref_func, dtype: str, L: int):
     """Test correctness against PyTorch reference"""
     print("\n" + "=" * 70)
     print("Correctness Test")
@@ -180,39 +188,35 @@ def test_correctness(tuned_func, untuned_func, pytorch_ref_func, dtype: str):
     torch.manual_seed(42)
     all_passed = True
     
-    # Sample shapes to avoid OOM (skip large M * K combinations)
+    # Sample shapes to avoid OOM
     test_shapes = [(M, K) for M in M_VALUES for K in K_VALUES if M * K <= 64 * 1024 * 1024]
     
     for M, K in test_shapes:
         x = torch.randn(M, K, dtype=torch.bfloat16, device='cuda')
         
-        ref_out, ref_scale = pytorch_ref_func(x)
-        tuned_out, tuned_scale = tuned_func(x)
-        untuned_out, untuned_scale = untuned_func(x)
+        ref_out, ref_scale = pytorch_ref_func(x, L)
+        tuned_out, tuned_scale = tuned_func(x, L)
+        untuned_out, untuned_scale = untuned_func(x, L)
         
         # Compare outputs (convert to float for comparison)
-        # Note: Triton functions return padded output, extract valid region [:M, :K]
-        ref_float = ref_out.float()
-        tuned_float = tuned_out[:M, :K].float()
-        untuned_float = untuned_out[:M, :K].float()
+        # Note: Triton functions return padded output, extract valid region [:M, :K_out]
+        from basic_quant_slide_triton import _compute_output_k
+        _, K_out, _ = _compute_output_k(K, L)
+        
+        ref_float = ref_out[:, :K_out].float()
+        tuned_float = tuned_out[:M, :K_out].float()
+        untuned_float = untuned_out[:M, :K_out].float()
         
         diff_tuned_out = (ref_float - tuned_float).abs().max().item()
         diff_untuned_out = (ref_float - untuned_float).abs().max().item()
         diff_tuned_scale = (ref_scale - tuned_scale[:M]).abs().max().item()
         diff_untuned_scale = (ref_scale - untuned_scale[:M]).abs().max().item()
         
-        # FP8 has limited precision. Due to floating-point rounding differences
-        # in GPU division (1 ULP error in inv_scale), values very close to FP8 
-        # quantization boundaries may round to adjacent representable values.
-        # FP8E4M3 step sizes: 8 (64-128 range), 16 (128-256), 32 (256-448).
-        # We allow up to 2x the step size to account for boundary cases.
+        # Tolerance
         if dtype == "fp8":
-            # Max step size in FP8E4M3 is 32 (for values near 448)
-            # Allow 2x this for boundary rounding differences
-            tol = 64.0
+            tol = 64.0  # FP8 has limited precision
         else:
-            # INT8 has uniform step size, smaller tolerance needed
-            tol = 2.0
+            tol = 2.0   # INT8 has uniform step size
         scale_tol = 1e-5
         
         passed = (diff_tuned_out <= tol and diff_untuned_out <= tol and 
@@ -237,28 +241,36 @@ def test_correctness(tuned_func, untuned_func, pytorch_ref_func, dtype: str):
 # Throughput Benchmark
 # =============================================================================
 
-def run_benchmark(tuned_func, untuned_func, baseline_func, dtype: str):
-    """Run throughput benchmark: theoretical vs untuned vs tuned"""
+def run_benchmark(tuned_func, untuned_func, baseline_func, dtype: str, L: int):
+    """Run throughput benchmark"""
     print("\n" + "=" * 70)
     print("Throughput Benchmark")
     print("=" * 70)
     dtype_name = dtype.upper()
-    print(f"Input: BF16, Output: {dtype_name}, Warmup: {WARMUP}, Rep: {REP}")
-    print(f"Baseline: memcpy kernel (BF16 -> {dtype_name}) using same tuned config")
+    num_windows = L // 2 - 1
+    expand_ratio = (num_windows * 4) / L
+    print(f"Input: BF16, Output: {dtype_name}, L={L} (2:{L} sparsity, expand={expand_ratio:.2f}x)")
+    print(f"Warmup: {WARMUP}, Rep: {REP}")
+    print(f"Baseline: memcpy kernel (BF16 -> {dtype_name}) with slide output size")
     print()
     
     # Header
-    print(f"{'M':<7} {'K':<6} | {'Baseline(us)':<12} {'Untuned(us)':<12} {'Tuned(us)':<11} | {'vs Base':<10} {'vs Untuned':<10}")
-    print("-" * 90)
+    print(f"{'M':<7} {'K':<6} {'K_out':<7} | {'Baseline(us)':<12} {'Untuned(us)':<12} {'Tuned(us)':<11} | {'vs Base':<10} {'vs Untuned':<10}")
+    print("-" * 100)
     
     results: list[dict] = []
     
+    # Import compute function
+    from basic_quant_slide_triton import _compute_output_k
+    
     for M in M_VALUES:
         for K in K_VALUES:
+            _, K_out, _ = _compute_output_k(K, L)
+            
             # Generate data
             x = torch.randn(M, K, dtype=torch.bfloat16, device='cuda')
             
-            # Benchmark baseline (pure memory copy with tuned config)
+            # Benchmark baseline
             t_baseline: float = testing.do_bench(
                 lambda: baseline_func(x),
                 warmup=WARMUP, rep=REP, return_mode="min"
@@ -266,22 +278,22 @@ def run_benchmark(tuned_func, untuned_func, baseline_func, dtype: str):
             
             # Benchmark untuned kernel
             t_untuned: float = testing.do_bench(
-                lambda: untuned_func(x),
+                lambda: untuned_func(x, L),
                 warmup=WARMUP, rep=REP, return_mode="min"
-            ) * 1000  # ms -> us
+            ) * 1000
             
             # Benchmark tuned kernel
             t_tuned: float = testing.do_bench(
-                lambda: tuned_func(x),
+                lambda: tuned_func(x, L),
                 warmup=WARMUP, rep=REP, return_mode="min"
-            ) * 1000  # ms -> us
+            ) * 1000
             
             # Speedup ratios
-            speedup_vs_baseline = t_baseline / t_tuned  # <1 expected (quant slower than memcpy)
-            speedup_vs_untuned = t_untuned / t_tuned    # >1 means tuned is faster
+            speedup_vs_baseline = t_baseline / t_tuned
+            speedup_vs_untuned = t_untuned / t_tuned
             
             results.append({
-                'M': M, 'K': K,
+                'M': M, 'K': K, 'K_out': K_out,
                 'baseline': t_baseline,
                 'untuned': t_untuned,
                 'tuned': t_tuned,
@@ -289,20 +301,20 @@ def run_benchmark(tuned_func, untuned_func, baseline_func, dtype: str):
                 'speedup_untuned': speedup_vs_untuned,
             })
             
-            print(f"{M:<7} {K:<6} | {t_baseline:<12.2f} {t_untuned:<12.2f} {t_tuned:<11.2f} | {speedup_vs_baseline:<10.2f} {speedup_vs_untuned:<10.2f}")
+            print(f"{M:<7} {K:<6} {K_out:<7} | {t_baseline:<12.2f} {t_untuned:<12.2f} {t_tuned:<11.2f} | {speedup_vs_baseline:<10.2f} {speedup_vs_untuned:<10.2f}")
             
             # Free memory
             del x
             torch.cuda.empty_cache()
     
     # Summary
-    print("\n" + "-" * 90)
+    print("\n" + "-" * 100)
     print("Summary:")
     avg_baseline = sum(r['speedup_baseline'] for r in results) / len(results)
     avg_untuned = sum(r['speedup_untuned'] for r in results) / len(results)
     max_untuned = max(r['speedup_untuned'] for r in results)
     min_untuned = min(r['speedup_untuned'] for r in results)
-    print(f"  vs Baseline: Avg {avg_baseline:.2f}x  (expected <1, quant does compute, baseline only memcpy)")
+    print(f"  vs Baseline: Avg {avg_baseline:.2f}x  (expected <1, quant+slide does compute, baseline only memcpy)")
     print(f"  vs Untuned:  Avg {avg_untuned:.2f}x  Min {min_untuned:.2f}x  Max {max_untuned:.2f}x")
     
     return results
@@ -313,9 +325,11 @@ def run_benchmark(tuned_func, untuned_func, baseline_func, dtype: str):
 # =============================================================================
 
 def main():
-    parser = argparse.ArgumentParser(description="Quant Only Kernel Benchmark")
+    parser = argparse.ArgumentParser(description="Quant + Slide Kernel Benchmark")
     parser.add_argument('--dtype', type=str, required=True, choices=['fp8', 'int8'],
                         help='Output dtype: fp8 or int8')
+    parser.add_argument('--L', type=int, default=8, choices=[6, 8, 10],
+                        help='Group size L (default: 8)')
     args = parser.parse_args()
     
     if not torch.cuda.is_available():
@@ -323,52 +337,62 @@ def main():
         return 1
     
     dtype = args.dtype
+    L = args.L
     dtype_tag = dtype.upper()
     
     print("=" * 70)
-    print("Quant Only Kernel Benchmark")
+    print("Quant + Slide Kernel Benchmark")
     print("=" * 70)
     print(f"GPU:     {torch.cuda.get_device_name()} ({get_gpu_cc()})")
     print(f"PyTorch: {torch.__version__}")
     print(f"Triton:  {triton.__version__}")
     print(f"Output dtype: {dtype_tag}")
-    print(f"Kernel:  {build_filename('quant_only_tuned', ext='.py')}")
+    print(f"L (sparsity): {L} (2:{L})")
+    print(f"Kernel:  {build_filename('quant_slide_tuned', ext='.py')}")
     
-    # Load tuned module (unified file with both FP8 and INT8)
-    tuned_module = load_tuned_module(dtype)
-    if tuned_module is None:
-        return 1
-    
-    # Select tuned function based on dtype
-    if dtype == "fp8":
-        tuned_func = tuned_module.quant_only_fp8_triton
-    else:
-        tuned_func = tuned_module.quant_only_int8_triton
-    get_config_func = tuned_module._get_config
-    
-    # Create baseline using tuned config
-    baseline_func = make_theoretical_baseline(get_config_func, dtype)
-    
-    # Load basic module
+    # Load basic module first (needed for compute_output_k)
     basic_module = load_basic_module()
     if basic_module is None:
         return 1
     
-    # Select appropriate functions based on dtype
-    if dtype == "fp8":
-        untuned_func = basic_module.quant_only_fp8_triton
-        pytorch_ref_func = basic_module.quant_only_fp8_pytorch
+    # Load tuned module (unified file with both FP8 and INT8)
+    tuned_module = load_tuned_module(dtype)
+    if tuned_module is None:
+        print("\nFalling back to basic kernel for benchmark...")
+        # Use basic kernel as "tuned" for comparison
+        if dtype == "fp8":
+            tuned_func = basic_module.quant_slide_fp8_triton
+        else:
+            tuned_func = basic_module.quant_slide_int8_triton
+        get_config_func = basic_module._get_config
     else:
-        untuned_func = basic_module.quant_only_int8_triton
-        pytorch_ref_func = basic_module.quant_only_int8_pytorch
+        # Select tuned function based on dtype
+        if dtype == "fp8":
+            tuned_func = tuned_module.quant_slide_fp8_triton
+        else:
+            tuned_func = tuned_module.quant_slide_int8_triton
+        get_config_func = tuned_module._get_config
+    
+    compute_output_k_func = basic_module._compute_output_k
+    
+    # Create baseline
+    baseline_func = make_theoretical_baseline(get_config_func, compute_output_k_func, dtype, L)
+    
+    # Select untuned functions
+    if dtype == "fp8":
+        untuned_func = basic_module.quant_slide_fp8_triton
+        pytorch_ref_func = basic_module.quant_slide_fp8_pytorch
+    else:
+        untuned_func = basic_module.quant_slide_int8_triton
+        pytorch_ref_func = basic_module.quant_slide_int8_pytorch
     
     # Correctness test
-    if not test_correctness(tuned_func, untuned_func, pytorch_ref_func, dtype):
+    if not test_correctness(tuned_func, untuned_func, pytorch_ref_func, dtype, L):
         print("\nERROR: Correctness test failed!")
         return 1
     
     # Throughput benchmark
-    run_benchmark(tuned_func, untuned_func, baseline_func, dtype)
+    run_benchmark(tuned_func, untuned_func, baseline_func, dtype, L)
     
     print("\n" + "=" * 70)
     print("Done!")

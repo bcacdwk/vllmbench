@@ -111,7 +111,6 @@ _KERNEL_BUILD_CONFIG = {
     "cusparselt":   ("build_cusparselt.py",            ["build"]),
     "dequant_bias": ("autotune_autogen_dequant_bias.py", ["--quick"]),
     "quant_fp8":    ("autotune_autogen_quant_only.py", ["--quick", "--dtype", "fp8"]),
-    "quant_int8":   ("autotune_autogen_quant_only.py", ["--quick", "--dtype", "int8"]),
 }
 
 
@@ -121,7 +120,7 @@ def _build_search_kernel(kernel_dir: Path, kernel_type: str) -> None:
     
     Args:
         kernel_dir: kernel 源代码所在目录（build 目录的父目录）
-        kernel_type: "cublaslt", "cusparselt", "dequant_bias", "quant_fp8", "quant_int8"
+        kernel_type: "cublaslt", "cusparselt", "dequant_bias", "quant_fp8"
     """
     if kernel_type not in _KERNEL_BUILD_CONFIG:
         raise ValueError(f"Unknown kernel type: {kernel_type}")
@@ -400,26 +399,26 @@ def _load_quant_only_fp8_kernel():
     if _quant_only_fp8_fn is not None:
         return _quant_only_fp8_fn
     
-    # FP8 quant kernel，dtype 为 FP8E4M3
+    # FP8 quant kernel（统一文件，不含 dtype 后缀）
     kernel_dir = _CSRC_DIR / "quant_only_triton"
     build_dir = kernel_dir / "build"
     
     try:
-        module = load_module("quant_only_tuned", dtype="FP8E4M3", search_dir=build_dir, ext=".py")
+        module = load_module("quant_only_tuned", search_dir=build_dir, ext=".py")
     except FileNotFoundError:
         # 找不到，尝试自动 autotune
         _build_search_kernel(kernel_dir, kernel_type="quant_fp8")
         
         # 重新加载
         try:
-            module = load_module("quant_only_tuned", dtype="FP8E4M3", search_dir=build_dir, ext=".py")
+            module = load_module("quant_only_tuned", search_dir=build_dir, ext=".py")
         except FileNotFoundError:
             raise FileNotFoundError(
                 f"FP8 quant kernel not found after autotune.\n"
                 f"Autotune may have failed. Please check the logs."
             )
     
-    _quant_only_fp8_fn = module.quant_triton
+    _quant_only_fp8_fn = module.quant_only_fp8_triton
     logger.info_once("FP8 quant kernel loaded")
     return _quant_only_fp8_fn
 

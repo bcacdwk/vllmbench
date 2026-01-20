@@ -51,7 +51,7 @@ INT8_MIN_SCALING_FACTOR = 1.0 / (INT8_MAX * 512.0)
 # =============================================================================
 
 @triton.jit
-def _quant_fp8_kernel(
+def _quant_only_fp8_kernel(
     x_ptr, out_ptr, scale_ptr,
     M, K: tl.constexpr,
     stride_xm, stride_om,
@@ -104,7 +104,7 @@ def _quant_fp8_kernel(
 
 
 @triton.jit
-def _quant_int8_kernel(
+def _quant_only_int8_kernel(
     x_ptr, out_ptr, scale_ptr,
     M, K: tl.constexpr,
     stride_xm, stride_om,
@@ -197,7 +197,7 @@ def _get_config(M: int, K: int) -> tuple[int, int, int]:
 # 主接口函数
 # =============================================================================
 
-def quant_fp8_triton(
+def quant_only_fp8_triton(
     x: torch.Tensor,
     block_k: int = None,
     num_warps: int = None,
@@ -213,16 +213,22 @@ def quant_fp8_triton(
         num_stages: pipeline stages（可选，自动选择）
         
     Returns:
-        out: 量化输出 [M, K]，FP8E4M3
-        scale: per-token scale [M]，FP32
+        out: 量化输出 [M_padded, K_padded]，FP8E4M3
+        scale: per-token scale [M_padded]，FP32
     """
     assert x.is_cuda and x.is_contiguous(), "Input must be CUDA contiguous tensor"
     assert x.dim() == 2, f"Expected 2D tensor, got {x.dim()}D"
     
     M, K = x.shape
     
-    out = torch.empty(M, K, dtype=torch.float8_e4m3fn, device=x.device)
-    scale = torch.empty(M, dtype=torch.float32, device=x.device)
+    # Padding: K -> 32 aligned, M -> 16 aligned
+    K_padded = ((K + 31) // 32) * 32
+    M_padded = ((M + 15) // 16) * 16
+    
+    # 使用 zeros 分配，padding 区域天然为 0
+    out = torch.zeros(M_padded, K_padded, dtype=torch.float8_e4m3fn, device=x.device)
+    # scale padding 为 1.0，避免 dequant 时除以 0
+    scale = torch.ones(M_padded, dtype=torch.float32, device=x.device)
     
     # 自动选择配置
     if block_k is None or num_warps is None or num_stages is None:
@@ -231,11 +237,11 @@ def quant_fp8_triton(
         num_warps = num_warps or auto_num_warps
         num_stages = num_stages or auto_num_stages
     
-    # 每行一个 program
-    _quant_fp8_kernel[(M,)](
+    # 每行一个 program (只处理有效的 M 行)
+    _quant_only_fp8_kernel[(M,)](
         x, out, scale,
         M, K,
-        x.stride(0), out.stride(0),
+        x.stride(0), K_padded,  # output stride 使用 K_padded
         BLOCK_K=block_k,
         num_warps=num_warps,
         num_stages=num_stages,
@@ -244,7 +250,7 @@ def quant_fp8_triton(
     return out, scale
 
 
-def quant_int8_triton(
+def quant_only_int8_triton(
     x: torch.Tensor,
     block_k: int = None,
     num_warps: int = None,
@@ -260,16 +266,22 @@ def quant_int8_triton(
         num_stages: pipeline stages（可选，自动选择）
         
     Returns:
-        out: 量化输出 [M, K]，INT8
-        scale: per-token scale [M]，FP32
+        out: 量化输出 [M_padded, K_padded]，INT8，padding 区域为 0
+        scale: per-token scale [M_padded]，FP32，padding 区域为 1.0
     """
     assert x.is_cuda and x.is_contiguous(), "Input must be CUDA contiguous tensor"
     assert x.dim() == 2, f"Expected 2D tensor, got {x.dim()}D"
     
     M, K = x.shape
     
-    out = torch.empty(M, K, dtype=torch.int8, device=x.device)
-    scale = torch.empty(M, dtype=torch.float32, device=x.device)
+    # Padding: K -> 32 aligned, M -> 16 aligned
+    K_padded = ((K + 31) // 32) * 32
+    M_padded = ((M + 15) // 16) * 16
+    
+    # 使用 zeros 分配，padding 区域天然为 0
+    out = torch.zeros(M_padded, K_padded, dtype=torch.int8, device=x.device)
+    # scale padding 为 1.0，避免 dequant 时除以 0
+    scale = torch.ones(M_padded, dtype=torch.float32, device=x.device)
     
     # 自动选择配置
     if block_k is None or num_warps is None or num_stages is None:
@@ -278,11 +290,11 @@ def quant_int8_triton(
         num_warps = num_warps or auto_num_warps
         num_stages = num_stages or auto_num_stages
     
-    # 每行一个 program
-    _quant_int8_kernel[(M,)](
+    # 每行一个 program (只处理有效的 M 行)
+    _quant_only_int8_kernel[(M,)](
         x, out, scale,
         M, K,
-        x.stride(0), out.stride(0),
+        x.stride(0), K_padded,  # output stride 使用 K_padded
         BLOCK_K=block_k,
         num_warps=num_warps,
         num_stages=num_stages,
@@ -296,7 +308,7 @@ def quant_int8_triton(
 # PyTorch参考实现 (用于正确性验证)
 # =============================================================================
 
-def quant_fp8_pytorch(x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+def quant_only_fp8_pytorch(x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
     """
     PyTorch参考实现 - FP8E4M3 per-token quantization
     
@@ -319,7 +331,7 @@ def quant_fp8_pytorch(x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
     return out, scale.squeeze(-1)
 
 
-def quant_int8_pytorch(x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+def quant_only_int8_pytorch(x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
     """
     PyTorch参考实现 - INT8 per-token quantization (symmetric)
     
@@ -350,9 +362,9 @@ __all__ = [
     # Config
     '_get_config',
     # Main API
-    'quant_fp8_triton',
-    'quant_int8_triton',
+    'quant_only_fp8_triton',
+    'quant_only_int8_triton',
     # PyTorch reference
-    'quant_fp8_pytorch',
-    'quant_int8_pytorch',
+    'quant_only_fp8_pytorch',
+    'quant_only_int8_pytorch',
 ]

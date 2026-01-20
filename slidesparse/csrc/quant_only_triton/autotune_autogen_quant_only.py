@@ -9,13 +9,18 @@ Quant Only Kernel Autotune & Code Generation Script
 - M 虽然不在 kernel 块参数中，但影响最佳 num_warps/num_stages
 - autotune key = ['M', 'K']
 
+统一 FP8/INT8 设计：
+- 生成单一文件，包含 FP8 和 INT8 两个函数
+- 只用 FP8 进行 autotune（IO-bound kernel，config 通用）
+- 如果 FP8 不支持则 fallback 到 INT8 autotune
+- 输出文件名不含 dtype 后缀
+
 Usage:
-    python3 autotune_autogen_quant_only.py --dtype fp8   # FP8E4M3 output (default)
-    python3 autotune_autogen_quant_only.py --dtype int8  # INT8 output
-    python3 autotune_autogen_quant_only.py --quick --dtype fp8
+    python3 autotune_autogen_quant_only.py           # 默认 FP8 autotune
+    python3 autotune_autogen_quant_only.py --quick   # 快速模式
 
 Output:
-    build/quant_only_tuned_{GPU}_{CC}_{dtype}_{PyVer}_{CUDAVer}_{Arch}.py
+    build/quant_only_tuned_{GPU}_{CC}_{PyVer}_{CUDAVer}_{Arch}.py
 """
 
 import os
@@ -56,10 +61,9 @@ if str(_SCRIPT_DIR.parent) not in sys.path:
 from utils import get_quant_autotune_configs
 
 
-def get_output_filename(dtype: str) -> str:
-    """Generate output filename"""
-    dtype_tag = dtype.upper()
-    return build_filename("quant_only_tuned", dtype=dtype_tag, ext=".py")
+def get_output_filename() -> str:
+    """Generate output filename (unified, no dtype suffix)"""
+    return build_filename("quant_only_tuned", ext=".py")
 
 
 # Get autotune configs
@@ -97,7 +101,7 @@ M_VALUES = [
     rep=30,
 )
 @triton.jit
-def _quant_fp8_kernel_autotune(
+def _quant_only_fp8_kernel_autotune(
     x_ptr, out_ptr, scale_ptr,
     M, K: tl.constexpr,
     stride_xm, stride_om,
@@ -148,7 +152,7 @@ def _quant_fp8_kernel_autotune(
     rep=30,
 )
 @triton.jit
-def _quant_int8_kernel_autotune(
+def _quant_only_int8_kernel_autotune(
     x_ptr, out_ptr, scale_ptr,
     M, K: tl.constexpr,
     stride_xm, stride_om,
@@ -192,34 +196,42 @@ def _quant_int8_kernel_autotune(
 # Autotune Wrapper Functions
 # =============================================================================
 
-def quant_fp8_autotune(x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+def quant_only_fp8_autotune(x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
     """FP8 quantization with autotune - grid = (M,)"""
     M, K = x.shape
     
-    out = torch.empty(M, K, dtype=torch.float8_e4m3fn, device=x.device)
-    scale = torch.empty(M, dtype=torch.float32, device=x.device)
+    # Padding: K -> 32 aligned, M -> 16 aligned
+    K_padded = ((K + 31) // 32) * 32
+    M_padded = ((M + 15) // 16) * 16
     
-    # 每行一个 program
-    _quant_fp8_kernel_autotune[(M,)](
+    out = torch.zeros(M_padded, K_padded, dtype=torch.float8_e4m3fn, device=x.device)
+    scale = torch.ones(M_padded, dtype=torch.float32, device=x.device)
+    
+    # 每行一个 program (只处理有效的 M 行)
+    _quant_only_fp8_kernel_autotune[(M,)](
         x, out, scale,
         M, K,
-        x.stride(0), out.stride(0),
+        x.stride(0), K_padded,  # output stride 使用 K_padded
     )
     return out, scale
 
 
-def quant_int8_autotune(x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+def quant_only_int8_autotune(x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
     """INT8 quantization with autotune - grid = (M,)"""
     M, K = x.shape
     
-    out = torch.empty(M, K, dtype=torch.int8, device=x.device)
-    scale = torch.empty(M, dtype=torch.float32, device=x.device)
+    # Padding: K -> 32 aligned, M -> 16 aligned
+    K_padded = ((K + 31) // 32) * 32
+    M_padded = ((M + 15) // 16) * 16
     
-    # 每行一个 program
-    _quant_int8_kernel_autotune[(M,)](
+    out = torch.zeros(M_padded, K_padded, dtype=torch.int8, device=x.device)
+    scale = torch.ones(M_padded, dtype=torch.float32, device=x.device)
+    
+    # 每行一个 program (只处理有效的 M 行)
+    _quant_only_int8_kernel_autotune[(M,)](
         x, out, scale,
         M, K,
-        x.stride(0), out.stride(0),
+        x.stride(0), K_padded,  # output stride 使用 K_padded
     )
     return out, scale
 
@@ -228,13 +240,35 @@ def quant_int8_autotune(x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
 # Tuning Runner
 # =============================================================================
 
-def run_tuning(dtype: str):
-    """Run autotune and collect best configs for each (M, K)"""
-    dtype_name = dtype.upper()
-    quant_func = quant_fp8_autotune if dtype == "fp8" else quant_int8_autotune
-    kernel_cache = _quant_fp8_kernel_autotune if dtype == "fp8" else _quant_int8_kernel_autotune
+def check_fp8_support():
+    """Check if the GPU supports FP8"""
+    cc = get_gpu_cc()
+    # cc format is "cc90", "cc89", "cc100", etc.
+    # FP8 requires SM89+ (Ada Lovelace) or SM90+ (Hopper)
+    # SM80 (A100) does NOT have native FP8 support
+    cc_num = cc.replace("cc", "")  # "cc90" -> "90"
+    cc_major = int(cc_num)
+    return cc_major >= 89
+
+
+def run_tuning():
+    """
+    Run autotune and collect best configs for each (M, K)
     
-    print(f"\nTuning for {dtype_name} output...")
+    Strategy:
+    - Use FP8 autotune by default (more representative for modern GPUs)
+    - Fallback to INT8 if FP8 is not supported
+    - Config is transferable between FP8 and INT8 (IO-bound kernel)
+    """
+    use_fp8 = check_fp8_support()
+    dtype_name = "FP8" if use_fp8 else "INT8 (fallback)"
+    quant_func = quant_only_fp8_autotune if use_fp8 else quant_only_int8_autotune
+    kernel_cache = _quant_only_fp8_kernel_autotune if use_fp8 else _quant_only_int8_kernel_autotune
+    
+    print(f"\nTuning with {dtype_name}...")
+    if not use_fp8:
+        print("  Note: FP8 not supported on this GPU, using INT8 for tuning.")
+        print("  The config will be applied to both FP8 and INT8 kernels.")
     print(f"K values: {K_VALUES}")
     print(f"M values: {M_VALUES}")
     print(f"Configs: {len(AUTOTUNE_CONFIGS)}")
@@ -318,18 +352,8 @@ def build_branches(results):
 # Code Generator
 # =============================================================================
 
-def generate_kernel_code(branches, results, dtype: str) -> str:
-    """Generate the tuned kernel Python file"""
-    
-    dtype_tag = dtype.upper()
-    is_fp8 = dtype == "fp8"
-    
-    out_dtype_torch = "torch.float8_e4m3fn" if is_fp8 else "torch.int8"
-    out_dtype_triton = "tl.float8e4nv" if is_fp8 else "tl.int8"
-    qmax = "448.0" if is_fp8 else "127.0"
-    qmin = "-448.0" if is_fp8 else "-128.0"
-    min_scale_denom = "448.0" if is_fp8 else "127.0"
-    need_round = "" if is_fp8 else "y_val = tl.math.round(y_val)"
+def generate_kernel_code(branches, results) -> str:
+    """Generate the tuned kernel Python file with both FP8 and INT8 kernels"""
     
     # Generate config selector function
     def gen_config_selector():
@@ -363,8 +387,8 @@ def generate_kernel_code(branches, results, dtype: str) -> str:
     config_selector = gen_config_selector()
     
     code = f'''# Auto-generated by autotune_autogen_quant_only.py
-# Target: {get_gpu_name()} ({get_gpu_cc()}), Output: {dtype_tag}
-# Design: Per-row kernel (grid = M)
+# Target: {get_gpu_name()} ({get_gpu_cc()})
+# Design: Per-row kernel (grid = M), Unified FP8/INT8
 # DO NOT EDIT
 
 import torch
@@ -374,18 +398,22 @@ import triton.language as tl
 {config_selector}
 
 
+# =============================================================================
+# FP8 Kernel
+# =============================================================================
+
 @triton.jit
-def _quant_kernel(
+def _quant_only_fp8_kernel(
     x_ptr, out_ptr, scale_ptr,
     M, K: tl.constexpr,
     stride_xm, stride_om,
     BLOCK_K: tl.constexpr,
 ):
-    """Per-token {dtype_tag} quantization kernel - one program per row"""
+    """Per-token FP8 quantization kernel - one program per row"""
     row = tl.program_id(0)
     
-    QMAX: tl.constexpr = {qmax}
-    MIN_SCALE: tl.constexpr = 1.0 / ({min_scale_denom} * 512.0)
+    FP8_MAX: tl.constexpr = 448.0
+    MIN_SCALE: tl.constexpr = 1.0 / (448.0 * 512.0)
     
     x_row_ptr = x_ptr + row * stride_xm
     out_row_ptr = out_ptr + row * stride_om
@@ -401,8 +429,8 @@ def _quant_kernel(
     
     # 计算 scale
     absmax = tl.maximum(absmax, 1e-12)
-    scale = tl.maximum(absmax / QMAX, MIN_SCALE)
-    inv_scale = QMAX / absmax
+    scale = tl.maximum(absmax / FP8_MAX, MIN_SCALE)
+    inv_scale = FP8_MAX / absmax
     
     tl.store(scale_ptr + row, scale)
     
@@ -411,38 +439,31 @@ def _quant_kernel(
         offs_k = k_start + tl.arange(0, BLOCK_K)
         mask_k = offs_k < K
         x_val = tl.load(x_row_ptr + offs_k, mask=mask_k, other=0.0).to(tl.float32)
-        y_val = x_val * inv_scale
-        {need_round}
-        y_val = tl.clamp(y_val, {qmin}, {qmax})
-        tl.store(out_row_ptr + offs_k, y_val.to({out_dtype_triton}), mask=mask_k)
+        y_val = tl.clamp(x_val * inv_scale, -FP8_MAX, FP8_MAX)
+        tl.store(out_row_ptr + offs_k, y_val.to(tl.float8e4nv), mask=mask_k)
 
 
-def quant_triton(
+def quant_only_fp8_triton(
     x: torch.Tensor,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """
-    Per-token {dtype_tag} quantization using tuned kernel
-    
-    Args:
-        x: Input tensor [M, K], BF16/FP16/FP32, must be contiguous
-        
-    Returns:
-        out: Quantized tensor [M, K], {dtype_tag}
-        scale: Per-token scale [M], FP32
-    """
+
     assert x.is_cuda and x.is_contiguous()
     M, K = x.shape
     
-    out = torch.empty(M, K, dtype={out_dtype_torch}, device=x.device)
-    scale = torch.empty(M, dtype=torch.float32, device=x.device)
+    # Padding: K -> 32 aligned, M -> 16 aligned
+    K_padded = ((K + 31) // 32) * 32
+    M_padded = ((M + 15) // 16) * 16
+    
+    out = torch.zeros(M_padded, K_padded, dtype=torch.float8_e4m3fn, device=x.device)
+    scale = torch.ones(M_padded, dtype=torch.float32, device=x.device)
     
     BLOCK_K, num_warps, num_stages = _get_config(M, K)
     
-    # Per-row: grid = (M,)
-    _quant_kernel[(M,)](
+    # Per-row: grid = (M,) - 只处理有效的 M 行
+    _quant_only_fp8_kernel[(M,)](
         x, out, scale,
         M, K,
-        x.stride(0), out.stride(0),
+        x.stride(0), K_padded,  # output stride 使用 K_padded
         BLOCK_K=BLOCK_K,
         num_warps=num_warps,
         num_stages=num_stages,
@@ -450,7 +471,80 @@ def quant_triton(
     return out, scale
 
 
-__all__ = ['quant_triton', '_get_config']
+# =============================================================================
+# INT8 Kernel
+# =============================================================================
+
+@triton.jit
+def _quant_only_int8_kernel(
+    x_ptr, out_ptr, scale_ptr,
+    M, K: tl.constexpr,
+    stride_xm, stride_om,
+    BLOCK_K: tl.constexpr,
+):
+    """Per-token INT8 quantization kernel - one program per row"""
+    row = tl.program_id(0)
+    
+    INT8_MAX: tl.constexpr = 127.0
+    MIN_SCALE: tl.constexpr = 1.0 / (127.0 * 512.0)
+    
+    x_row_ptr = x_ptr + row * stride_xm
+    out_row_ptr = out_ptr + row * stride_om
+    
+    # Pass 1: 计算 absmax
+    absmax = tl.zeros((), dtype=tl.float32)
+    
+    for k_start in range(0, K, BLOCK_K):
+        offs_k = k_start + tl.arange(0, BLOCK_K)
+        mask_k = offs_k < K
+        x_val = tl.load(x_row_ptr + offs_k, mask=mask_k, other=0.0).to(tl.float32)
+        absmax = tl.maximum(absmax, tl.max(tl.abs(x_val)))
+    
+    # 计算 scale
+    absmax = tl.maximum(absmax, 1e-12)
+    scale = tl.maximum(absmax / INT8_MAX, MIN_SCALE)
+    inv_scale = INT8_MAX / absmax
+    
+    tl.store(scale_ptr + row, scale)
+    
+    # Pass 2: 量化
+    for k_start in range(0, K, BLOCK_K):
+        offs_k = k_start + tl.arange(0, BLOCK_K)
+        mask_k = offs_k < K
+        x_val = tl.load(x_row_ptr + offs_k, mask=mask_k, other=0.0).to(tl.float32)
+        y_val = tl.clamp(tl.extra.cuda.libdevice.rint(x_val * inv_scale), -128.0, 127.0)
+        tl.store(out_row_ptr + offs_k, y_val.to(tl.int8), mask=mask_k)
+
+
+def quant_only_int8_triton(
+    x: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor]:
+
+    assert x.is_cuda and x.is_contiguous()
+    M, K = x.shape
+    
+    # Padding: K -> 32 aligned, M -> 16 aligned
+    K_padded = ((K + 31) // 32) * 32
+    M_padded = ((M + 15) // 16) * 16
+    
+    out = torch.zeros(M_padded, K_padded, dtype=torch.int8, device=x.device)
+    scale = torch.ones(M_padded, dtype=torch.float32, device=x.device)
+    
+    BLOCK_K, num_warps, num_stages = _get_config(M, K)
+    
+    # Per-row: grid = (M,) - 只处理有效的 M 行
+    _quant_only_int8_kernel[(M,)](
+        x, out, scale,
+        M, K,
+        x.stride(0), K_padded,  # output stride 使用 K_padded
+        BLOCK_K=BLOCK_K,
+        num_warps=num_warps,
+        num_stages=num_stages,
+    )
+    return out, scale
+
+
+__all__ = ['quant_only_fp8_triton', 'quant_only_int8_triton', '_get_config']
 '''
     return code
 
@@ -460,9 +554,7 @@ __all__ = ['quant_triton', '_get_config']
 # =============================================================================
 
 def main():
-    parser = argparse.ArgumentParser(description="Quant Only Kernel Autotune & Codegen")
-    parser.add_argument('--dtype', type=str, default='fp8', choices=['fp8', 'int8'],
-                        help='Output dtype: fp8 or int8 (default: fp8)')
+    parser = argparse.ArgumentParser(description="Quant Only Kernel Autotune & Codegen (Unified FP8/INT8)")
     parser.add_argument('--info', action='store_true', help='Show naming info only')
     parser.add_argument('--output-dir', type=str, default=None, help='Output directory')
     parser.add_argument('--quick', action='store_true', 
@@ -478,16 +570,19 @@ def main():
         print("ERROR: CUDA not available")
         return 1
     
+    use_fp8 = check_fp8_support()
+    tune_dtype = "FP8" if use_fp8 else "INT8 (fallback)"
+    
     print("=" * 70)
-    print("Quant Only Kernel Autotune (Per-Row Design)")
+    print("Quant Only Kernel Autotune (Per-Row Design, Unified FP8/INT8)")
     print("=" * 70)
     print(f"GPU:     {get_gpu_name()} ({get_gpu_cc()})")
     print(f"Python:  {get_python_version_tag()}")
     print(f"Arch:    {get_arch_tag()}")
     print(f"PyTorch: {torch.__version__}")
     print(f"Triton:  {triton.__version__}")
-    print(f"Output dtype: {args.dtype.upper()}")
-    print(f"Output file:  {get_output_filename(args.dtype)}")
+    print(f"Tune dtype: {tune_dtype}")
+    print(f"Output file: {get_output_filename()}")
     
     if args.info:
         return 0
@@ -496,7 +591,7 @@ def main():
     print("\n" + "=" * 70)
     print("Step 1: Running autotune...")
     print("=" * 70)
-    results = run_tuning(args.dtype)
+    results = run_tuning()
     
     # Step 2: Build branches
     print("\n" + "=" * 70)
@@ -515,7 +610,7 @@ def main():
     print("Step 3: Generating kernel code...")
     print("=" * 70)
     
-    kernel_code = generate_kernel_code(branches, results, args.dtype)
+    kernel_code = generate_kernel_code(branches, results)
     
     # Determine output path
     if args.output_dir:
@@ -524,7 +619,7 @@ def main():
         output_dir = Path(__file__).parent / "build"
     output_dir.mkdir(parents=True, exist_ok=True)
     
-    output_file = output_dir / get_output_filename(args.dtype)
+    output_file = output_dir / get_output_filename()
     
     with open(output_file, "w") as f:
         f.write(kernel_code)
