@@ -3056,15 +3056,20 @@ def resolve_slidesparse_model_path(
 def find_slidesparse_model(
     dtype: str = "FP8",
     sparsity: str = None,
+    auto_convert: bool = True,
 ) -> Optional[Path]:
     """
     查找 SlideSparse 模型（优先选择较小的模型）
+    
+    如果未找到对应的 SlideSparse checkpoint 且 auto_convert=True，
+    会尝试自动转换基础模型。
     
     搜索顺序: Qwen2.5-0.5B > Llama3.2-1B > Qwen2.5-1.5B > ...
     
     Args:
         dtype: 数据类型（"FP8" 或 "INT8"）
         sparsity: 稀疏配置（如 "2_8"），默认从环境变量读取
+        auto_convert: 是否在找不到时自动转换（默认 True）
     
     Returns:
         找到的 SlideSparse 模型路径，如果未找到返回 None
@@ -3073,8 +3078,6 @@ def find_slidesparse_model(
         sparsity = get_sparsity_str()
     
     slidesparse_dir = get_slidesparse_checkpoints_dir()
-    if not slidesparse_dir.exists():
-        return None
     
     # 搜索优先级（较小的模型优先）
     priority_patterns = [
@@ -3090,23 +3093,145 @@ def find_slidesparse_model(
     
     dtype_upper = dtype.upper()
     
-    for pattern in priority_patterns:
-        # 构建预期的目录名
-        expected_name = f"{pattern}-{dtype_upper}-SlideSparse-{sparsity}"
-        model_path = slidesparse_dir / expected_name
+    # 1. 先尝试查找已有的 SlideSparse checkpoint
+    if slidesparse_dir.exists():
+        for pattern in priority_patterns:
+            # 构建预期的目录名
+            expected_name = f"{pattern}-{dtype_upper}-SlideSparse-{sparsity}"
+            model_path = slidesparse_dir / expected_name
+            
+            if model_path.exists() and model_path.is_dir():
+                return model_path
         
-        if model_path.exists() and model_path.is_dir():
-            return model_path
+        # 如果按优先级未找到，尝试模糊匹配
+        for model_dir in slidesparse_dir.iterdir():
+            if not model_dir.is_dir():
+                continue
+            name = model_dir.name
+            if dtype_upper in name and f"SlideSparse-{sparsity}" in name:
+                return model_dir
     
-    # 如果按优先级未找到，尝试模糊匹配
-    for model_dir in slidesparse_dir.iterdir():
-        if not model_dir.is_dir():
-            continue
-        name = model_dir.name
-        if dtype_upper in name and f"SlideSparse-{sparsity}" in name:
-            return model_dir
+    # 2. 未找到，尝试自动转换
+    if auto_convert:
+        converted = _try_auto_convert_model(dtype, sparsity, priority_patterns)
+        if converted:
+            return converted
     
     return None
+
+
+def _try_auto_convert_model(
+    dtype: str,
+    sparsity: str,
+    priority_patterns: List[str],
+) -> Optional[Path]:
+    """
+    尝试自动转换基础模型为 SlideSparse 格式
+    
+    Args:
+        dtype: 数据类型
+        sparsity: 稀疏配置
+        priority_patterns: 优先搜索的模型模式
+    
+    Returns:
+        转换后的模型路径，失败返回 None
+    """
+    import sys
+    import subprocess
+    
+    # 获取基础 checkpoints 目录
+    project_root = Path(__file__).parent.parent
+    checkpoints_dir = project_root / "checkpoints"
+    
+    if not checkpoints_dir.exists():
+        return None
+    
+    dtype_upper = dtype.upper()
+    
+    # 查找可用的基础模型
+    base_model_path = None
+    base_model_name = None
+    
+    for pattern in priority_patterns:
+        expected_name = f"{pattern}-{dtype_upper}"
+        candidate = checkpoints_dir / expected_name
+        if candidate.exists() and candidate.is_dir():
+            base_model_path = candidate
+            base_model_name = expected_name
+            break
+    
+    if base_model_path is None:
+        # 尝试模糊匹配
+        for model_dir in checkpoints_dir.iterdir():
+            if not model_dir.is_dir():
+                continue
+            name = model_dir.name
+            if dtype_upper in name:
+                base_model_path = model_dir
+                base_model_name = name
+                break
+    
+    if base_model_path is None:
+        return None
+    
+    # 找到基础模型，直接转换
+    print(f"\n{'='*70}")
+    print(f"[SlideSparse] 未找到 {dtype_upper} SlideSparse-{sparsity} checkpoint")
+    print(f"[SlideSparse] 发现基础模型: {base_model_name}")
+    print(f"[SlideSparse] 自动转换中...")
+    
+    # 解析 sparsity
+    parts = sparsity.split("_")
+    if len(parts) != 2:
+        print(f"[SlideSparse] 无效的稀疏配置: {sparsity}")
+        return None
+    
+    Z, L = int(parts[0]), int(parts[1])
+    
+    # 调用 entry.py 进行转换
+    entry_script = project_root / "slidesparse" / "weight_convert" / "entry.py"
+    if not entry_script.exists():
+        print(f"[SlideSparse] 转换脚本不存在: {entry_script}")
+        return None
+    
+    print(f"[SlideSparse] 开始转换: {base_model_name} -> SlideSparse-{sparsity}")
+    print(f"{'='*70}")
+    
+    try:
+        # 使用 subprocess 调用转换脚本
+        cmd = [
+            sys.executable, str(entry_script),
+            "--input", str(base_model_path),
+            "--Z", str(Z),
+            "--L", str(L),
+        ]
+        
+        result = subprocess.run(
+            cmd,
+            cwd=str(entry_script.parent),
+            capture_output=False,  # 显示输出
+        )
+        
+        if result.returncode != 0:
+            print(f"[SlideSparse] 转换失败 (exit code: {result.returncode})")
+            return None
+        
+        # 转换成功，返回新路径
+        slidesparse_dir = get_slidesparse_checkpoints_dir()
+        expected_name = f"{base_model_name}-SlideSparse-{sparsity}"
+        converted_path = slidesparse_dir / expected_name
+        
+        if converted_path.exists():
+            print(f"\n[SlideSparse] 转换成功: {converted_path.name}")
+            print(f"{'='*70}\n")
+            return converted_path
+        else:
+            print(f"[SlideSparse] 转换完成但未找到输出目录: {expected_name}")
+            return None
+            
+    except Exception as e:
+        print(f"[SlideSparse] 转换出错: {e}")
+        return None
 
 
 # =============================================================================

@@ -14,10 +14,19 @@ test_03_inference.py - 端到端推理输出对比
     [SlideSparse 后端]  根据参数选择不同 kernel    ← test
 
 使用方法:
-    python3 test_03_inference.py                          # 默认: vs CUTLASS fallback
-    python3 test_03_inference.py --use-cublaslt           # vs cuBLASLt
+    python3 test_03_inference.py                            # 默认: vs CUTLASS fallback
+    python3 test_03_inference.py --use-cublaslt             # vs cuBLASLt
     python3 test_03_inference.py --use-cublaslt --inner-32  # cuBLASLt + 高精度累加
-    python3 test_03_inference.py --use-cusparselt         # vs cuSPARSELt (TODO)
+
+    python3 test_03_inference.py --use-cusparselt --sparsity 2_4
+    python3 test_03_inference.py --use-cusparselt --sparsity 2_6
+    python3 test_03_inference.py --use-cusparselt --sparsity 2_8
+    python3 test_03_inference.py --use-cusparselt --sparsity 2_10
+
+
+    python3 test_03_inference.py --use-cusparselt --sparsity 2_4 --inner-32
+    python3 test_03_inference.py --use-cusparselt --sparsity 2_6 --inner-32
+    python3 test_03_inference.py --use-cusparselt --sparsity 2_8 --inner-32
 """
 
 import os
@@ -67,12 +76,13 @@ def run_comparison_inference(
     sparsity: str = "2_8",
     max_tokens: int = 48,
     verbose: bool = True,
+    baseline_model_path: Path = None,
 ) -> List[Tuple[str, str, str]]:
     """
     运行 vLLM 原生路径 和 SlideSparse 后端推理并对比输出
     
     Args:
-        model_path: 模型路径
+        model_path: 测试模型路径（SlideSparse 后端使用）
         prompts: 提示词列表
         use_cublaslt: SlideSparse 后端是否使用 cuBLASLt
         use_cusparselt: SlideSparse 后端是否使用 cuSPARSELt
@@ -80,6 +90,7 @@ def run_comparison_inference(
         sparsity: 稀疏格式（仅 cuSPARSELt 时生效）
         max_tokens: 最大生成 token 数
         verbose: 是否打印详细信息
+        baseline_model_path: baseline 模型路径（若不同于 model_path）
     
     Returns:
         List of (prompt, baseline_output, test_output)
@@ -93,6 +104,10 @@ def run_comparison_inference(
     # 检测 CUTLASS 是否支持当前 GPU
     cutlass_supported = EnvironmentChecker.supports_cutlass_fp8()
     
+    # 确定 baseline 模型路径
+    # 对于 cuSPARSELt，baseline 使用原始 FP8 模型；test 使用 SlideSparse checkpoint
+    baseline_path = baseline_model_path if baseline_model_path else model_path
+    
     sampling_params = SamplingParams(
         temperature=0.0,  # 贪婪采样确保可复现
         max_tokens=max_tokens,
@@ -100,16 +115,18 @@ def run_comparison_inference(
     
     if verbose:
         print("\n" + "=" * 80)
-        if cutlass_supported and not use_cusparselt:
+        if cutlass_supported:
             print(Colors.bold("vLLM 原生路径 vs SlideSparse 推理输出对比"))
         else:
             print(Colors.bold(f"{backend_name} 推理测试"))
         print("=" * 80)
-        print(f"模型: {model_path.name}")
-        if cutlass_supported and not use_cusparselt:
+        if use_cusparselt and baseline_model_path:
+            print(f"基准模型: {baseline_path.name}")
+            print(f"测试模型: {model_path.name}")
+        else:
+            print(f"模型: {model_path.name}")
+        if cutlass_supported:
             print(f"基准: vLLM 原生路径 (DISABLE_SLIDESPARSE=1)")
-        elif use_cusparselt:
-            print(Colors.yellow(f"注意: cuSPARSELt 使用 SlideSparse checkpoint，跳过 baseline"))
         else:
             cc = EnvironmentChecker.cuda_compute_capability()
             print(Colors.yellow(f"注意: CUTLASS 不支持当前 GPU (sm_{cc[0]}{cc[1]})，跳过 baseline"))
@@ -120,8 +137,8 @@ def run_comparison_inference(
     baseline_texts = None
     
     # 1. 运行 vLLM 原生路径 (基准)
-    # 仅当 CUTLASS 支持且不是 cuSPARSELt 测试时（因为 cuSPARSELt 使用不同的 checkpoint）
-    if cutlass_supported and not use_cusparselt:
+    # 对于 cuSPARSELt，使用原始 FP8 模型作为 baseline
+    if cutlass_supported:
         if verbose:
             print(f"\n{Colors.cyan('[1/2] 运行 vLLM 原生路径 (基准)...')}")
         
@@ -130,7 +147,7 @@ def run_comparison_inference(
         try:
             with cuda_memory_manager():
                 llm_baseline = LLM(
-                    model=str(model_path),
+                    model=str(baseline_path),
                     max_model_len=256,
                     gpu_memory_utilization=0.45,
                     disable_log_stats=True,
@@ -242,22 +259,29 @@ if __name__ == "__main__":
     sparsity = getattr(args, 'sparsity', '2_8')
     
     # 查找模型
+    baseline_model_path = None
+    
     # 对于 cuSPARSELt 路径，需要查找 SlideSparse 转换后的 checkpoint
     if use_cusparselt:
+        # 先找原始 FP8 模型作为 baseline
+        baseline_model_path = ModelFinder.find_small_model("FP8")
+        if baseline_model_path is None:
+            print(Colors.red("错误: 未找到 FP8 模型 (用于 baseline)"))
+            sys.exit(1)
+        
+        # 再找 SlideSparse checkpoint 作为测试模型
         model_path = ModelFinder.find_slidesparse_model("FP8", sparsity)
         if model_path is None:
-            # fallback: 尝试找普通模型
-            base_model = ModelFinder.find_small_model("FP8")
-            if base_model is not None:
-                # 尝试解析 SlideSparse 路径
-                model_path = ModelFinder.resolve_slidesparse_model_path(
-                    base_model, sparsity, "FP8"
-                )
+            # fallback: 尝试自动转换
+            model_path = ModelFinder.resolve_slidesparse_model_path(
+                baseline_model_path, sparsity
+            )
         if model_path is None:
             print(Colors.red(f"错误: 未找到 FP8 SlideSparse-{sparsity} 模型"))
             print(Colors.yellow(f"请确保 checkpoints_slidesparse/ 目录下存在对应的 checkpoint"))
             sys.exit(1)
-        print(Colors.cyan(f"使用 SlideSparse checkpoint: {model_path.name}"))
+        print(Colors.cyan(f"Baseline: {baseline_model_path.name}"))
+        print(Colors.cyan(f"Test:     {model_path.name}"))
     else:
         model_path = ModelFinder.find_small_model("FP8")
         if model_path is None:
@@ -271,8 +295,10 @@ if __name__ == "__main__":
         use_cublaslt=use_cublaslt,
         use_cusparselt=use_cusparselt,
         inner_32=inner_32,
+        sparsity=sparsity,
         max_tokens=64,
         verbose=True,
+        baseline_model_path=baseline_model_path,
     )
     
     sys.exit(0)

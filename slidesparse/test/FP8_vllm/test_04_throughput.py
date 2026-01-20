@@ -10,19 +10,24 @@ test_04_throughput.py - 吞吐量对比测试
 
 对比路径:
 =========
-                        ┌─────────────────────────────────────┐
-    [vLLM 原生路径]     │  DISABLE_SLIDESPARSE=1              │  ← 基准
-                        └─────────────────────────────────────┘
+    [vLLM 原生路径]     DISABLE_SLIDESPARSE=1     ← baseline
                               vs
-                        ┌─────────────────────────────────────┐
-    [SlideSparse 后端]  │  根据参数选择不同 kernel            │  ← 测试
-                        └─────────────────────────────────────┘
+    [SlideSparse 后端]  根据参数选择不同 kernel    ← test
 
 使用方法:
     python3 test_04_throughput.py                          # 默认: vs CUTLASS fallback
     python3 test_04_throughput.py --use-cublaslt           # vs cuBLASLt
     python3 test_04_throughput.py --use-cublaslt --inner-32  # cuBLASLt + 高精度累加
-    python3 test_04_throughput.py --use-cusparselt         # vs cuSPARSELt (TODO)
+
+
+    python3 test_04_throughput.py --use-cusparselt --sparsity 2_4
+    python3 test_04_throughput.py --use-cusparselt --sparsity 2_6
+    python3 test_04_throughput.py --use-cusparselt --sparsity 2_8
+    
+    python3 test_04_throughput.py --use-cusparselt --sparsity 2_4 --inner-32
+    python3 test_04_throughput.py --use-cusparselt --sparsity 2_6 --inner-32
+    python3 test_04_throughput.py --use-cusparselt --sparsity 2_8 --inner-32
+
 """
 
 import os
@@ -213,17 +218,19 @@ def run_throughput_comparison(
     inner_32: bool = False,
     sparsity: str = None,
     verbose: bool = True,
+    baseline_model_path: Path = None,
 ) -> Dict[str, Any]:
     """
     运行完整的吞吐量对比测试（分离 Prefill 和 Decode）
     
     Args:
-        model_path: 模型路径
+        model_path: 测试模型路径
         use_cublaslt: SlideSparse 后端是否使用 cuBLASLt
         use_cusparselt: SlideSparse 后端是否使用 cuSPARSELt
         inner_32: 是否使用高精度累加（FP8→FP32, INT8→INT32）
         sparsity: 稀疏配置 (如 "2_8", "2_6")，仅 cuSPARSELt 有效
         verbose: 是否打印详细信息
+        baseline_model_path: baseline 模型路径（若不同于 model_path）
     
     Returns:
         对比结果字典
@@ -231,18 +238,22 @@ def run_throughput_comparison(
     backend_name = get_backend_name(use_cublaslt, use_cusparselt, inner_32, sparsity)
     results = {}
     
-    # 对于 cuSPARSELt，跳过 baseline（使用不同 checkpoint）
-    skip_baseline = use_cusparselt
+    # 确定 baseline 模型路径
+    baseline_path = baseline_model_path if baseline_model_path else model_path
+    
+    # 不再跳过 baseline
+    skip_baseline = False
     
     if verbose:
         print("\n" + "=" * 90)
         print(Colors.bold("vLLM 原生路径 vs SlideSparse 吞吐量对比"))
         print("=" * 90)
-        print(f"模型: {model_path.name}")
-        if skip_baseline:
-            print(f"基准: [跳过] cuSPARSELt 使用 SlideSparse checkpoint")
+        if baseline_model_path:
+            print(f"基准模型: {baseline_path.name}")
+            print(f"测试模型: {model_path.name}")
         else:
-            print(f"基准: vLLM 原生路径 (DISABLE_SLIDESPARSE=1)")
+            print(f"模型: {model_path.name}")
+        print(f"基准: vLLM 原生路径 (DISABLE_SLIDESPARSE=1)")
         print(f"测试: {backend_name}")
         print("=" * 90)
     
@@ -257,25 +268,21 @@ def run_throughput_comparison(
     
     # 基准: vLLM 原生路径
     baseline_prefill_tps = None
-    if skip_baseline:
+    if verbose:
+        print(f"\n  {Colors.blue('[基准] vLLM 原生路径...')}")
+    saved_env = set_env_for_baseline()
+    try:
+        baseline_prefill = run_phase_test(
+            baseline_path,
+            num_prompts=PREFILL_CONFIG["num_prompts"],
+            prompt_len=PREFILL_CONFIG["prompt_len"],
+            output_len=PREFILL_CONFIG["output_len"],
+        )
+        baseline_prefill_tps = baseline_prefill.input_tokens / baseline_prefill.total_time_s
+    except Exception as e:
         if verbose:
-            print(f"\n  {Colors.blue('[基准] 跳过 (cuSPARSELt 使用 SlideSparse checkpoint)')}")
-    else:
-        if verbose:
-            print(f"\n  {Colors.blue('[基准] vLLM 原生路径...')}")
-        saved_env = set_env_for_baseline()
-        try:
-            baseline_prefill = run_phase_test(
-                model_path,
-                num_prompts=PREFILL_CONFIG["num_prompts"],
-                prompt_len=PREFILL_CONFIG["prompt_len"],
-                output_len=PREFILL_CONFIG["output_len"],
-            )
-            baseline_prefill_tps = baseline_prefill.input_tokens / baseline_prefill.total_time_s
-        except Exception as e:
-            if verbose:
-                print(f"    {Colors.yellow(f'跳过 (CUTLASS 不支持当前 GPU): {e}')}")
-        restore_env(saved_env)
+            print(f"    {Colors.yellow(f'跳过 (CUTLASS 不支持当前 GPU): {e}')}")
+    restore_env(saved_env)
     
     # 测试: SlideSparse 后端
     if verbose:
@@ -320,25 +327,21 @@ def run_throughput_comparison(
     
     # 基准: vLLM 原生路径
     baseline_decode_tps = None
-    if skip_baseline:
+    if verbose:
+        print(f"\n  {Colors.blue('[基准] vLLM 原生路径...')}")
+    saved_env = set_env_for_baseline()
+    try:
+        baseline_decode = run_phase_test(
+            baseline_path,
+            num_prompts=DECODE_CONFIG["num_prompts"],
+            prompt_len=DECODE_CONFIG["prompt_len"],
+            output_len=DECODE_CONFIG["output_len"],
+        )
+        baseline_decode_tps = baseline_decode.output_tokens / baseline_decode.total_time_s
+    except Exception as e:
         if verbose:
-            print(f"\n  {Colors.blue('[基准] 跳过 (cuSPARSELt 使用 SlideSparse checkpoint)')}")
-    else:
-        if verbose:
-            print(f"\n  {Colors.blue('[基准] vLLM 原生路径...')}")
-        saved_env = set_env_for_baseline()
-        try:
-            baseline_decode = run_phase_test(
-                model_path,
-                num_prompts=DECODE_CONFIG["num_prompts"],
-                prompt_len=DECODE_CONFIG["prompt_len"],
-                output_len=DECODE_CONFIG["output_len"],
-            )
-            baseline_decode_tps = baseline_decode.output_tokens / baseline_decode.total_time_s
-        except Exception as e:
-            if verbose:
-                print(f"    {Colors.yellow(f'跳过 (CUTLASS 不支持当前 GPU): {e}')}")
-        restore_env(saved_env)
+            print(f"    {Colors.yellow(f'跳过 (CUTLASS 不支持当前 GPU): {e}')}")
+    restore_env(saved_env)
     
     # 测试: SlideSparse 后端
     if verbose:
@@ -411,12 +414,22 @@ if __name__ == "__main__":
     sparsity = getattr(args, 'sparsity', None)
     
     # 查找模型
+    baseline_model_path = None
+    
     if use_cusparselt:
+        # 先找原始 FP8 模型作为 baseline
+        baseline_model_path = ModelFinder.find_small_model("FP8")
+        if baseline_model_path is None:
+            print(Colors.red("错误: 未找到 FP8 模型 (用于 baseline)"))
+            sys.exit(1)
+        
         # cuSPARSELt 需要 SlideSparse checkpoint（已预先稀疏化）
         model_path = ModelFinder.find_slidesparse_model("FP8", sparsity)
         if model_path is None:
             print(Colors.red(f"错误: 未找到 SlideSparse checkpoint (sparsity={sparsity or '2_8'})"))
             sys.exit(1)
+        print(Colors.cyan(f"Baseline: {baseline_model_path.name}"))
+        print(Colors.cyan(f"Test:     {model_path.name}"))
     else:
         # 其他后端使用普通 FP8 checkpoint
         model_path = ModelFinder.find_small_model("FP8")
@@ -432,6 +445,7 @@ if __name__ == "__main__":
         inner_32=inner_32,
         sparsity=sparsity,
         verbose=True,
+        baseline_model_path=baseline_model_path,
     )
     
     sys.exit(0)

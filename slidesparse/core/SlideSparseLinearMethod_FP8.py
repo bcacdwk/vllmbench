@@ -886,17 +886,44 @@ class SlideSparseFp8LinearMethod:
         weight_loader,
         **kwargs,
     ):
-        """创建权重参数（委托给原始 scheme）"""
-        return self.original_scheme.create_weights(
-            layer=layer,
-            input_size_per_partition=input_size_per_partition,
-            output_partition_sizes=output_partition_sizes,
-            input_size=input_size,
-            output_size=output_size,
-            params_dtype=params_dtype,
-            weight_loader=weight_loader,
-            **kwargs,
-        )
+        """
+        创建权重参数
+        
+        cuSPARSELt 路径：扩展 input_size 以匹配 slide 后的 checkpoint 权重
+        其他路径：直接委托给原始 scheme
+        """
+        if self._use_cusparselt:
+            # cuSPARSELt: 扩展 input_size 以匹配 slide 后的 K 维度
+            # checkpoint 中的权重已经是 [N, K_slide]，需要匹配
+            _, input_size_per_partition_slide = compute_output_k(
+                input_size_per_partition, self._sparsity_config
+            )
+            _, input_size_slide = compute_output_k(
+                input_size, self._sparsity_config
+            )
+            
+            return self.original_scheme.create_weights(
+                layer=layer,
+                input_size_per_partition=input_size_per_partition_slide,
+                output_partition_sizes=output_partition_sizes,
+                input_size=input_size_slide,
+                output_size=output_size,
+                params_dtype=params_dtype,
+                weight_loader=weight_loader,
+                **kwargs,
+            )
+        else:
+            # CUTLASS / cuBLASLt: 直接委托
+            return self.original_scheme.create_weights(
+                layer=layer,
+                input_size_per_partition=input_size_per_partition,
+                output_partition_sizes=output_partition_sizes,
+                input_size=input_size,
+                output_size=output_size,
+                params_dtype=params_dtype,
+                weight_loader=weight_loader,
+                **kwargs,
+            )
     
     def process_weights_after_loading(self, layer: Module) -> None:
         """

@@ -15,11 +15,16 @@ test_02_kernel.py - SlideSparse Kernel 正确性测试
                     baseline (vLLM 原生) vs test (SlideSparse)
 
 使用方法:
-    python3 test_02_kernel.py                        # 默认: vs CUTLASS fallback
-    python3 test_02_kernel.py --use-cublaslt         # vs cuBLASLt
-    python3 test_02_kernel.py --use-cublaslt --inner-32  # cuBLASLt + 高精度累加
-    python3 test_02_kernel.py --use-cusparselt       # vs cuSPARSELt
-    python3 test_02_kernel.py --use-cusparselt --inner-32  # cuSPARSELt + 高精度累加
+    python3 test_02_kernel.py                               # 默认: vs CUTLASS fallback (2:6 稀疏)
+    python3 test_02_kernel.py --use-cublaslt                # vs cuBLASLt
+    python3 test_02_kernel.py --use-cublaslt --inner-32     # cuBLASLt + 高精度累加
+
+    
+    python3 test_02_kernel.py --use-cusparselt --sparsity 2_4 --inner-32    # cuSPARSELt + 2:4 高精度
+    python3 test_02_kernel.py --use-cusparselt --sparsity 2_6               # cuSPARSELt + 2:6
+    python3 test_02_kernel.py --use-cusparselt --sparsity 2_8               # cuSPARSELt + 2:8
+    python3 test_02_kernel.py --use-cusparselt --sparsity 2_10              # cuSPARSELt + 2:10
+    python3 test_02_kernel.py --use-cusparselt --sparsity 2_12 --inner-32   # cuSPARSELt + 2:12 高精度
 
 对比说明:
     - baseline: vLLM 原生路径 (DISABLE_SLIDESPARSE=1)
@@ -104,11 +109,11 @@ TEST_CASES = [
     GEMMTestCase("Large (M=1024)", M=1024, N=4096, K=4096),
     GEMMTestCase("Large (M=4096)", M=4096, N=4096, K=4096),
     # Qwen2.5-0.5B 典型尺寸
-    GEMMTestCase("Qwen-0.5B QKV", M=64, N=896*3, K=896),
-    GEMMTestCase("Qwen-0.5B FFN", M=64, N=4864, K=896),
+    GEMMTestCase("Qwen-0.5B QKV", M=4096, N=896*3, K=896),
+    GEMMTestCase("Qwen-0.5B FFN", M=8192, N=4864, K=896),
     # Llama3.2-1B 典型尺寸
-    GEMMTestCase("Llama-1B QKV", M=64, N=2048*3, K=2048),
-    GEMMTestCase("Llama-1B FFN", M=64, N=8192, K=2048),
+    GEMMTestCase("Llama-1B QKV", M=8192, N=2048*3, K=2048),
+    GEMMTestCase("Llama-1B FFN", M=16384, N=8192, K=2048),
 ]
 
 # ============================================================================
@@ -127,11 +132,33 @@ UNALIGNED_TEST_CASES = [
 
 
 # ============================================================================
-# 默认稀疏配置
+# 默认稀疏配置（可通过 --sparsity 命令行参数覆盖）
 # ============================================================================
 
 DEFAULT_Z = 2
-DEFAULT_L = 6  # 2:6 稀疏
+DEFAULT_L = 6  # 2:6 稀疏（默认），可通过 set_sparsity_config() 修改
+
+
+def set_sparsity_config(sparsity_str: str) -> None:
+    """
+    设置稀疏配置
+    
+    Args:
+        sparsity_str: 稀疏格式字符串，如 "2_4", "2_6", "2_8", "2_10"
+    """
+    global DEFAULT_Z, DEFAULT_L
+    
+    parts = sparsity_str.split("_")
+    if len(parts) != 2:
+        raise ValueError(f"Invalid sparsity format: {sparsity_str}, expected Z_L (e.g., 2_6)")
+    
+    try:
+        DEFAULT_Z = int(parts[0])
+        DEFAULT_L = int(parts[1])
+    except ValueError:
+        raise ValueError(f"Invalid sparsity format: {sparsity_str}, Z and L must be integers")
+    
+    print(f"Sparsity config set to {DEFAULT_Z}:{DEFAULT_L}")
 
 
 # ============================================================================
@@ -560,7 +587,8 @@ def run_batch_correctness_test(
     Returns:
         (passed, total, results)
     """
-    backend_name = get_backend_name(use_cublaslt, use_cusparselt, inner_32)
+    sparsity_str = f"{DEFAULT_Z}_{DEFAULT_L}"
+    backend_name = get_backend_name(use_cublaslt, use_cusparselt, inner_32, sparsity=sparsity_str)
     results = []
     passed = 0
     
@@ -702,7 +730,8 @@ def test_unaligned_correctness():
     use_cusparselt = EnvironmentChecker.is_cusparselt_enabled()
     inner_32 = EnvironmentChecker.is_inner_dtype_32()
     
-    backend_name = get_backend_name(use_cublaslt, use_cusparselt, inner_32)
+    sparsity_str = f"{DEFAULT_Z}_{DEFAULT_L}"
+    backend_name = get_backend_name(use_cublaslt, use_cusparselt, inner_32, sparsity=sparsity_str)
     
     print(f"\n{Colors.bold('='*80)}")
     print(Colors.bold(f"非对齐尺寸正确性测试 (backend: {backend_name})"))
@@ -740,7 +769,8 @@ def run_performance_comparison(
     verbose: bool = True
 ) -> List[Dict]:
     """运行性能对比"""
-    backend_name = get_backend_name(use_cublaslt, use_cusparselt, inner_32)
+    sparsity_str = f"{DEFAULT_Z}_{DEFAULT_L}"
+    backend_name = get_backend_name(use_cublaslt, use_cusparselt, inner_32, sparsity=sparsity_str)
     results = []
     
     # 检测 CUTLASS 是否支持当前 GPU
@@ -970,6 +1000,10 @@ def run_tests(verbose: bool = True) -> bool:
 if __name__ == "__main__":
     parser = parse_common_args("SlideSparse Kernel 正确性测试")
     args = parser.parse_args()
+    
+    # 设置稀疏配置（优先于环境变量设置）
+    if hasattr(args, 'sparsity') and args.sparsity:
+        set_sparsity_config(args.sparsity)
     
     apply_env_args(args)
     
