@@ -69,11 +69,13 @@ DEFAULT_K = 512
 SPARSITY_BLOCK = 4
 SPARSITY_NONZERO = 2
 
-# FP8/INT8 的误差容忍度 (相对误差)
-FP8_RTOL = 0.1    # FP8 精度较低，容忍 10% 相对误差
-FP8_ATOL = 0.5    # 绝对误差容忍
-INT8_RTOL = 0.05  # INT8 精度稍好
-INT8_ATOL = 2.0   # INT8 量化误差较大
+# 误差容忍度说明:
+# - BF16 输出: 累加后转 BF16 会丢失精度，相对误差约 0.1-0.5%
+# - FP32/INT32 输出: 精度完美，几乎无误差
+FP8_BF16_RTOL = 0.01   # FP8 -> BF16: 相对误差 ~0.4%
+FP8_FP32_RTOL = 0.0001 # FP8 -> FP32: 几乎无误差
+INT8_BF16_RTOL = 0.01  # INT8 -> BF16: 相对误差 ~0.4%
+INT8_INT32_RTOL = 1e-6 # INT8 -> INT32: 完全精确 (允许极小浮点误差)
 
 # 性能测试配置
 WARMUP_ITERS = 10
@@ -313,7 +315,7 @@ def test_correctness(
     Returns:
         测试是否通过
     """
-    print_info(f"Testing {input_dtype.upper()} GEMM (inner={inner_dtype})...")
+    print_info(f"Testing {input_dtype.upper()} GEMM (out={inner_dtype})...")
     print_info(f"  Dimensions: M={M}, N={N}, K={K}")
     
     # 1. 生成 BF16 数据
@@ -330,11 +332,19 @@ def test_correctness(
     if input_dtype == "fp8":
         W_quant, W_scale = quantize_to_fp8(W_bf16.float())
         A_quant, A_scale = quantize_to_fp8(A_bf16.float())
-        rtol, atol = FP8_RTOL, FP8_ATOL
     else:
         W_quant, W_scale = quantize_to_int8(W_bf16.float())
         A_quant, A_scale = quantize_to_int8(A_bf16.float())
-        rtol, atol = INT8_RTOL, INT8_ATOL
+    
+    # 根据输入和输出类型选择误差容忍度
+    if input_dtype == "fp8" and inner_dtype == "bf16":
+        rtol = FP8_BF16_RTOL
+    elif input_dtype == "fp8" and inner_dtype == "fp32":
+        rtol = FP8_FP32_RTOL
+    elif input_dtype == "int8" and inner_dtype == "bf16":
+        rtol = INT8_BF16_RTOL
+    else:  # int8 + int32
+        rtol = INT8_INT32_RTOL
     
     if verbose:
         print_info(f"  W_quant: {W_quant.shape}, dtype={W_quant.dtype}, scale={W_scale.item():.4f}")
@@ -383,15 +393,16 @@ def test_correctness(
     print_info(f"  Max  Error: abs={max_abs_err:.4f}, rel={max_rel_err:.6f}")
     print_info(f"  Mean Error: abs={mean_abs_err:.4f}, rel={mean_rel_err:.6f}")
     
-    # 检查是否通过 - FP8/INT8 GEMM 应该和 float matmul 非常接近
-    # 因为 cuSPARSELt 内部用 FP32 累加
-    passed = (max_rel_err < rtol) or (max_abs_err < atol)
+    # 检查是否通过
+    # - BF16 输出: 有精度损失，用相对误差
+    # - FP32/INT32 输出: 精度完美，几乎无误差
+    passed = max_rel_err < rtol
     
     if passed:
-        print_success(f"{input_dtype.upper()} GEMM (inner={inner_dtype}) PASSED")
+        print_success(f"{input_dtype.upper()} GEMM (out={inner_dtype}) PASSED")
     else:
-        print_error(f"{input_dtype.upper()} GEMM (inner={inner_dtype}) FAILED")
-        print_error(f"  Expected rel_err < {rtol} or abs_err < {atol}")
+        print_error(f"{input_dtype.upper()} GEMM (out={inner_dtype}) FAILED")
+        print_error(f"  Expected rel_err < {rtol}, got {max_rel_err:.6f}")
     
     return passed
 
@@ -424,7 +435,7 @@ def test_performance(
     Returns:
         平均延迟 (ms)
     """
-    print_info(f"Benchmarking {input_dtype.upper()} GEMM (inner={inner_dtype})...")
+    print_info(f"Benchmarking {input_dtype.upper()} GEMM (out={inner_dtype})...")
     print_info(f"  Dimensions: M={M}, N={N}, K={K}")
     print_info(f"  Warmup: {warmup}, Iters: {iters}")
     
@@ -519,13 +530,13 @@ def main():
     
     # 测试配置
     # cuSPARSELt 支持的组合：
-    # - FP8 输入: inner_dtype = bf16 或 fp32
-    # - INT8 输入: inner_dtype = bf16 或 int32（不支持 fp32！）
+    # - FP8 输入: out_dtype = bf16 或 fp32 (内部 FP32 累加)
+    # - INT8 输入: out_dtype = bf16 或 int32 (内部 INT32 累加)
     test_configs = [
-        ("fp8", "bf16"),
-        ("fp8", "fp32"),
-        ("int8", "bf16"),
-        ("int8", "int32"),  # INT8 必须用 int32 而非 fp32
+        ("fp8", "bf16"),   # FP8 GEMM, 输出 BF16
+        ("fp8", "fp32"),   # FP8 GEMM, 输出 FP32
+        ("int8", "bf16"),  # INT8 GEMM, 输出 BF16
+        ("int8", "int32"), # INT8 GEMM, 输出 INT32
     ]
     
     # 正确性测试
@@ -542,7 +553,7 @@ def main():
                 )
                 all_passed = all_passed and passed
             except Exception as e:
-                print_error(f"{input_dtype.upper()} GEMM (inner={inner_dtype}) ERROR: {e}")
+                print_error(f"{input_dtype.upper()} GEMM (out={inner_dtype}) ERROR: {e}")
                 all_passed = False
             print()  # 空行分隔
         
@@ -565,7 +576,7 @@ def main():
                     verbose=args.verbose
                 )
             except Exception as e:
-                print_error(f"{input_dtype.upper()} GEMM (inner={inner_dtype}) ERROR: {e}")
+                print_error(f"{input_dtype.upper()} GEMM (out={inner_dtype}) ERROR: {e}")
             print()  # 空行分隔
     
     print_header("Test Complete")
