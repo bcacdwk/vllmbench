@@ -54,9 +54,11 @@ from utils import (
     save_alg_search_results,
     # 验证
     verify_gemm_result,
-    # 常量
+    # 常量和验证
     SUPPORTED_DTYPES,
     SUPPORTED_OUTDTYPES,
+    validate_dtype_outdtype_combination,
+    get_default_outdtype,
     default_m_list,
 )
 
@@ -632,6 +634,12 @@ def main():
     if not torch.cuda.is_available():
         raise RuntimeError("需要 CUDA 环境")
     
+    # 验证并获取实际使用的 outdtype
+    # cuSPARSELt INT8 支持 bf16 或 int32，不支持 fp32
+    actual_outdtype = validate_dtype_outdtype_combination(
+        args.dtype, args.outdtype, backend="cusparselt"
+    )
+    
     model_name = build_model_name_with_dtype(args.model.split('/')[-1], args.dtype)
     
     test_segment_k = not args.no_segment_k
@@ -642,7 +650,7 @@ def main():
     print("=" * 60)
     print(f"GPU: {hw_info.gpu_full_name} ({hw_info.cc_tag}, {hw_info.arch_name})")
     print(f"模型: {model_name}")
-    print(f"参数: dtype={args.dtype}, outdtype={args.outdtype}")
+    print(f"参数: dtype={args.dtype}, outdtype={actual_outdtype}")
     print(f"Segment-K 测试: {'开启' if test_segment_k else '关闭'}")
     print(f"API 搜索对比: {'开启' if do_api_search else '关闭'}")
     print()
@@ -685,7 +693,7 @@ def main():
     ret = run_search(
         lib,
         args.dtype,
-        args.outdtype,
+        actual_outdtype,  # 使用实际的 outdtype
         nk_list,
         m_list,
         args.warmup,
@@ -701,7 +709,7 @@ def main():
         out_dir,
         model_name,
         args.dtype,
-        args.outdtype,
+        actual_outdtype,  # 使用实际的 outdtype
         ret,
         args.warmup,
         args.repeat,

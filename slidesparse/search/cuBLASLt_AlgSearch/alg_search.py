@@ -49,9 +49,11 @@ from utils import (
     save_alg_search_results,
     # 验证
     verify_gemm_result,
-    # dtype 检测
+    # dtype 检测和验证
     SUPPORTED_DTYPES,
     SUPPORTED_OUTDTYPES,
+    validate_dtype_outdtype_combination,
+    get_default_outdtype,
     # 默认配置
     default_m_list,
 )
@@ -328,6 +330,12 @@ def main():
     if not torch.cuda.is_available():
         raise RuntimeError("需要 CUDA 环境")
     
+    # 验证并获取实际使用的 outdtype
+    # cuBLASLt INT8 只支持 int32 输出，不支持 bf16/fp32
+    actual_outdtype = validate_dtype_outdtype_combination(
+        args.dtype, args.outdtype, backend="cublaslt"
+    )
+    
     # 构建模型名称
     model_name = build_model_name_with_dtype(args.model.split('/')[-1], args.dtype)
     
@@ -337,7 +345,7 @@ def main():
     print("=" * 60)
     print(f"GPU: {hw_info.gpu_full_name} ({hw_info.cc_tag}, {hw_info.arch_name})")
     print(f"模型: {model_name}")
-    print(f"参数: dtype={args.dtype}, outdtype={args.outdtype}, warmup={args.warmup}, repeat={args.repeat}")
+    print(f"参数: dtype={args.dtype}, outdtype={actual_outdtype}, warmup={args.warmup}, repeat={args.repeat}")
     print()
     
     # 输出目录
@@ -379,7 +387,7 @@ def main():
     ret = run_search(
         lib,
         args.dtype,
-        args.outdtype,
+        actual_outdtype,  # 使用实际的 outdtype
         nk_list,
         m_list,
         args.warmup,
@@ -393,7 +401,7 @@ def main():
         out_dir,
         model_name,
         args.dtype,
-        args.outdtype,
+        actual_outdtype,  # 使用实际的 outdtype
         ret,
         args.warmup,
         args.repeat,

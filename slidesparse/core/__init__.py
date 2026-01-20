@@ -12,7 +12,7 @@ SlideSparse 核心逻辑模块
 1. DISABLE_SLIDESPARSE=1  → 完全禁用 SlideSparse，使用 vLLM 原生路径
 2. USE_CUBLASLT=1         → 使用 cuBLASLt kernel
 3. USE_CUSPARSELT=1       → 使用 cuSPARSELt kernel
-4. INNER_DTYPE_FP32=1     → GEMM 输出用 FP32（仅 cuBLASLt/cuSPARSELt 时生效）
+4. INNER_DTYPE_32=1       → GEMM 使用高精度累加（FP8→FP32, INT8→INT32）
 5. SPARSITY=2_8           → 稀疏格式（仅 cuSPARSELt 时生效，默认 2_8）
 
 架构说明:
@@ -27,7 +27,7 @@ from slidesparse.core.config import (
     is_slidesparse_enabled,
     is_cublaslt_enabled,
     is_cusparselt_enabled,
-    is_inner_dtype_fp32,
+    is_inner_dtype_32,
     get_slidesparse_status,
     get_sparsity_config,
     get_sparsity_str,
@@ -51,7 +51,7 @@ __all__ = [
     "is_slidesparse_enabled",
     "is_cublaslt_enabled",
     "is_cusparselt_enabled",
-    "is_inner_dtype_fp32",
+    "is_inner_dtype_32",
     "get_slidesparse_status",
     "get_sparsity_config",
     "get_sparsity_str",

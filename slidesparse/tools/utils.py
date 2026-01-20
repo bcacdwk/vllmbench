@@ -485,8 +485,13 @@ def print_model_status(
     missing = 0
     
     # 按量化类型分组显示
-    for quant in ["int8", "fp8"]:
+    for quant in ["int8", "fp8", "bf16"]:
         if quant_filter and quant != quant_filter.lower():
+            continue
+        
+        # 检查该类型是否有模型
+        models = model_registry.list(quant=quant, family=family_filter)
+        if not models:
             continue
         
         print(f"\n{quant.upper()} 模型:")

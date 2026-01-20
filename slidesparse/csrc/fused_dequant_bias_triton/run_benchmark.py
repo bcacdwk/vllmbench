@@ -6,6 +6,7 @@ Dequant + Bias Kernel Benchmark
 Usage:
     python3 run_benchmark.py --dtype bf16   # Test BF16 input
     python3 run_benchmark.py --dtype fp32   # Test FP32 input
+    python3 run_benchmark.py --dtype int32  # Test INT32 input
 """
 
 import sys
@@ -146,7 +147,11 @@ def test_correctness(tuned_func, untuned_func, pytorch_ref_func, input_dtype: to
     test_shapes = [(M, N) for M in M_VALUES for N in N_VALUES if M * N <= 64 * 1024 * 1024]
     
     for M, N in test_shapes:
-        gemm = torch.randn(M, N, dtype=input_dtype, device='cuda')
+        # Generate test data based on input dtype
+        if input_dtype == torch.int32:
+            gemm = torch.randint(-1000, 1000, (M, N), dtype=torch.int32, device='cuda')
+        else:
+            gemm = torch.randn(M, N, dtype=input_dtype, device='cuda')
         scale_a = torch.rand(M, dtype=torch.float32, device='cuda') * 0.1 + 0.01
         scale_b = torch.rand(N, dtype=torch.float32, device='cuda') * 0.1 + 0.01
         bias = torch.randn(N, dtype=torch.bfloat16, device='cuda')
@@ -158,7 +163,10 @@ def test_correctness(tuned_func, untuned_func, pytorch_ref_func, input_dtype: to
         diff_tuned = (ref.float() - out_tuned.float()).abs().max().item()
         diff_untuned = (ref.float() - out_untuned.float()).abs().max().item()
         
-        passed = diff_tuned < 1e-2 and diff_untuned < 1e-2
+        # INT32 输入 dequant 后值范围大 (~10), BF16 精度限制导致误差较大 (~0.03-0.06)
+        # BF16/FP32 输入值范围小 (~1), 误差小 (~0.001-0.01)
+        tolerance = 0.1 if input_dtype == torch.int32 else 1e-2
+        passed = diff_tuned < tolerance and diff_untuned < tolerance
         all_passed = all_passed and passed
         
         status = "PASS" if passed else "FAIL"
@@ -195,8 +203,12 @@ def run_benchmark(tuned_func, untuned_func, baseline_func, input_dtype: torch.dt
     
     for M in M_VALUES:
         for N in N_VALUES:
-            # Generate data
-            gemm = torch.randn(M, N, dtype=input_dtype, device='cuda')
+            # Generate data based on input dtype
+            # INT32: use randint to simulate cuBLASLt INT8 GEMM output
+            if input_dtype == torch.int32:
+                gemm = torch.randint(-1000, 1000, (M, N), dtype=torch.int32, device='cuda')
+            else:
+                gemm = torch.randn(M, N, dtype=input_dtype, device='cuda')
             scale_a = torch.rand(M, dtype=torch.float32, device='cuda') * 0.1 + 0.01
             scale_b = torch.rand(N, dtype=torch.float32, device='cuda') * 0.1 + 0.01
             bias = torch.randn(N, dtype=torch.bfloat16, device='cuda')
@@ -257,15 +269,16 @@ def run_benchmark(tuned_func, untuned_func, baseline_func, input_dtype: torch.dt
 
 def main():
     parser = argparse.ArgumentParser(description="Dequant + Bias Kernel Benchmark")
-    parser.add_argument('--dtype', type=str, required=True, choices=['bf16', 'fp32'],
-                        help='Input dtype: bf16 or fp32')
+    parser.add_argument('--dtype', type=str, required=True, choices=['bf16', 'fp32', 'int32'],
+                        help='Input dtype: bf16, fp32 or int32')
     args = parser.parse_args()
     
     if not torch.cuda.is_available():
         print("ERROR: CUDA not available")
         return 1
     
-    input_dtype = torch.float32 if args.dtype == 'fp32' else torch.bfloat16
+    dtype_map = {'fp32': torch.float32, 'bf16': torch.bfloat16, 'int32': torch.int32}
+    input_dtype = dtype_map[args.dtype]
     
     print("=" * 70)
     print("Dequant + Bias Kernel Benchmark")
@@ -276,7 +289,7 @@ def main():
     print(f"Input:   {args.dtype.upper()}")
     print(f"Kernel:  {build_filename('dequant_bias_tuned', ext='.py')}")
     
-    # Load tuned module (supports both BF16 and FP32 input)
+    # Load tuned module (supports BF16, FP32 and INT32 input)
     tuned_module = load_tuned_module()
     if tuned_module is None:
         return 1

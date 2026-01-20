@@ -22,13 +22,13 @@ from typing import Optional
 
 
 # =============================================================================
-# Triton Kernel - 支持 BF16 和 FP32 输入
+# Triton Kernel - 支持 BF16, FP32 和 INT32 输入
 # =============================================================================
 
 @triton.jit
 def _dequant_bias_kernel(
     # 输入指针
-    gemm_output_ptr,      # [M, N] BF16 或 FP32
+    gemm_output_ptr,      # [M, N] BF16, FP32 或 INT32
     scale_a_ptr,          # [M] FP32 per-token scale
     scale_b_ptr,          # [N] FP32 per-channel scale
     bias_ptr,             # [N] BF16 bias
@@ -44,12 +44,13 @@ def _dequant_bias_kernel(
     # 块大小
     BLOCK_M: tl.constexpr,
     BLOCK_N: tl.constexpr,
-    # 输入是否为 FP32
-    INPUT_FP32: tl.constexpr,
+    # 输入dtype标志
+    INPUT_FP32: tl.constexpr,   # 输入是否为 FP32
+    INPUT_INT32: tl.constexpr,  # 输入是否为 INT32 (来自 cuBLASLt INT8 GEMM)
 ):
     """
     2D分块的Triton kernel用于dequant+bias融合操作
-    默认有bias，支持BF16和FP32输入
+    默认有bias，支持BF16, FP32和INT32输入
     """
     # 获取当前program的2D索引
     pid_m = tl.program_id(0)
@@ -84,8 +85,13 @@ def _dequant_bias_kernel(
     # 加载 gemm_output [BLOCK_M, BLOCK_N]
     gemm_val = tl.load(gemm_output_ptr + gemm_offs, mask=mask_2d, other=0.0)
     
-    # 如果输入是BF16，转换为FP32；如果已是FP32，直接使用
-    if not INPUT_FP32:
+    # 转换为 FP32:
+    # - INT32: 来自 cuBLASLt INT8 GEMM, 需要转 FP32
+    # - BF16: 来自 cuSPARSELt FP8/INT8 GEMM, 需要转 FP32
+    # - FP32: 直接使用
+    if INPUT_INT32:
+        gemm_val = gemm_val.to(tl.float32)
+    elif not INPUT_FP32:
         gemm_val = gemm_val.to(tl.float32)
     
     # 计算外积: output = gemm_output * scale_a[M,1] * scale_b[1,N]
@@ -149,11 +155,12 @@ def dequant_bias_triton(
     自动检测输入dtype：
     - 如果 gemm_output 是 FP32，直接用 FP32 计算
     - 如果 gemm_output 是 BF16，先转为 FP32 再计算
+    - 如果 gemm_output 是 INT32 (来自 cuBLASLt INT8 GEMM)，先转为 FP32 再计算
     
     根据矩阵大小自动选择最优 (BLOCK_M, BLOCK_N) 配置
     
     Args:
-        gemm_output: GEMM 输出 [M, N]，BF16 或 FP32（行主序）
+        gemm_output: GEMM 输出 [M, N]，BF16, FP32 或 INT32（行主序）
         scale_a: per-token scale [M, 1] 或 [M] FP32
         scale_b: per-channel scale [1, N] 或 [N] FP32
         bias: per-channel 偏置 [N] 或 [1, N] BF16
@@ -164,11 +171,12 @@ def dequant_bias_triton(
     """
     assert gemm_output.is_cuda, "gemm_output must be on CUDA"
     assert gemm_output.is_contiguous(), "gemm_output must be contiguous"
-    assert gemm_output.dtype in [torch.bfloat16, torch.float32], \
-        f"gemm_output must be BF16 or FP32, got {gemm_output.dtype}"
+    assert gemm_output.dtype in [torch.bfloat16, torch.float32, torch.int32], \
+        f"gemm_output must be BF16, FP32 or INT32, got {gemm_output.dtype}"
     
     M, N = gemm_output.shape
     input_fp32 = gemm_output.dtype == torch.float32
+    input_int32 = gemm_output.dtype == torch.int32
     
     # 准备 scale_a: 确保是 [M] 的连续FP32张量
     if scale_a.numel() == 1:
@@ -214,6 +222,7 @@ def dequant_bias_triton(
         BLOCK_M=block_m,
         BLOCK_N=block_n,
         INPUT_FP32=input_fp32,
+        INPUT_INT32=input_int32,
         num_warps=num_warps,
     )
     
@@ -240,7 +249,10 @@ def dequant_bias_pytorch(
     
     计算: output = gemm_output * scale_a[M,1] * scale_b[1,N] + bias[1,N]
     
-    自动检测输入dtype并处理
+    自动检测输入dtype并处理:
+    - FP32: 直接计算
+    - BF16: 转为 FP32 计算
+    - INT32: 转为 FP32 计算
     """
     M, N = gemm_output.shape
     
@@ -254,11 +266,11 @@ def dequant_bias_pytorch(
     else:
         scale_b_broadcast = scale_b.view(1, -1).float()
     
-    # gemm_output 已经是 FP32 则直接用，否则转 FP32
-    if gemm_output.dtype == torch.float32:
-        output = gemm_output * scale_a_broadcast * scale_b_broadcast
-    else:
-        output = gemm_output.float() * scale_a_broadcast * scale_b_broadcast
+    # gemm_output 统一转为 FP32 计算
+    # - FP32: 直接用
+    # - BF16: 转 FP32
+    # - INT32: 转 FP32
+    output = gemm_output.float() * scale_a_broadcast * scale_b_broadcast
     
     # 加 bias
     output = output + bias.float().view(1, -1)

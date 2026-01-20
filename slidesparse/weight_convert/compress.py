@@ -413,12 +413,6 @@ def compress_tensor_online(
     if verbose:
         print_info(f"  [N={N}, K={K}] dtype={dtype}, compressed={compressed_size} bytes")
     
-    # 确保 weight 在 GPU 上且 contiguous
-    if not weight.is_cuda:
-        weight = weight.cuda()
-    if not weight.is_contiguous():
-        weight = weight.contiguous()
-    
     # 分配 GPU 内存
     compressed_gpu = torch.empty(compressed_size, dtype=torch.uint8, device=weight.device)
     
@@ -443,6 +437,13 @@ def compress_tensor_online(
     
     # 同步
     torch.cuda.synchronize()
+    
+    # 验证压缩结果大小
+    if compressed_gpu.numel() != compressed_size:
+        raise RuntimeError(
+            f"Compression size mismatch: allocated {compressed_gpu.numel()} bytes, "
+            f"expected {compressed_size} bytes. This may indicate a cuSPARSELt internal error."
+        )
     
     # 直接返回 GPU 上的压缩数据
     return compressed_gpu

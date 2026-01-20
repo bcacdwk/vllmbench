@@ -113,40 +113,12 @@ static int ensure_handle() {
 }
 
 // =============================================================================
-// 带超时的 planInit 包装函数
+// 全局禁用标志 (跨调用保持)
 // =============================================================================
-// 在 cuSPARSELt 0.8.1 中，对不支持 Segment-K 的架构调用 split_k=-1 会导致
-// planInit 无限期阻塞挂起。这个包装函数添加超时保护。
+// 使用静态变量，当发现硬件不支持某功能时全局禁用，避免后续重复尝试
 
-struct PlanInitResult {
-    cusparseStatus_t status;
-    bool timed_out;
-};
-
-static PlanInitResult planInitWithTimeout(
-    cusparseLtHandle_t* handle,
-    cusparseLtMatmulPlan_t* plan,
-    cusparseLtMatmulDescriptor_t* matmul,
-    cusparseLtMatmulAlgSelection_t* alg_sel,
-    int timeout_seconds = 5) {
-    
-    // 使用 std::async 在另一个线程中运行 planInit
-    auto future = std::async(std::launch::async, [&]() {
-        // 新版 API: 只有 4 个参数
-        return cusparseLtMatmulPlanInit(handle, plan, matmul, alg_sel);
-    });
-    
-    // 等待指定超时时间
-    auto wait_status = future.wait_for(std::chrono::seconds(timeout_seconds));
-    
-    if (wait_status == std::future_status::timeout) {
-        // 超时！返回超时标志
-        return PlanInitResult{CUSPARSE_STATUS_EXECUTION_FAILED, true};
-    }
-    
-    // 正常完成
-    return PlanInitResult{future.get(), false};
-}
+static bool g_disable_segment_k = false;      // Segment-K 全局禁用
+static bool g_disable_split_k_doubling = false;  // Split-K 倍增全局禁用
 
 // =============================================================================
 // 数据类型辅助
@@ -173,6 +145,8 @@ static cudaDataType_t get_out_dtype(const char* outdtype) {
         return CUDA_R_16BF;
     } else if (strcmp(outdtype, "fp32") == 0 || strcmp(outdtype, "FP32") == 0) {
         return CUDA_R_32F;
+    } else if (strcmp(outdtype, "int32") == 0 || strcmp(outdtype, "INT32") == 0) {
+        return CUDA_R_32I;
     }
     return CUDA_R_16BF;
 }
@@ -181,6 +155,8 @@ static int get_out_dtype_size(const char* outdtype) {
     if (strcmp(outdtype, "bf16") == 0 || strcmp(outdtype, "BF16") == 0) {
         return 2;
     } else if (strcmp(outdtype, "fp32") == 0 || strcmp(outdtype, "FP32") == 0) {
+        return 4;
+    } else if (strcmp(outdtype, "int32") == 0 || strcmp(outdtype, "INT32") == 0) {
         return 4;
     }
     return 2;
@@ -894,10 +870,12 @@ int cusparselt_search_single_m(
         // 构建 split_k 候选列表
         std::vector<int> split_k_candidates;
         split_k_candidates.push_back(1);  // 总是先测试不切分
-        for (int sk = 2; sk <= K; sk *= 2) {
-            split_k_candidates.push_back(sk);
+        if (!g_disable_split_k_doubling) {
+            for (int sk = 2; sk <= K; sk *= 2) {
+                split_k_candidates.push_back(sk);
+            }
         }
-        if (test_segment_k) {
+        if (test_segment_k && !g_disable_segment_k) {
             split_k_candidates.push_back(-1);  // Segment-K
         }
         
@@ -911,8 +889,8 @@ int cusparselt_search_single_m(
                 continue;
             }
             
-            // 自适应倍增策略
-            if (stop_doubling && split_k_val > 1) {
+            // 自适应倍增策略：当前 alg_id 内的局部停止
+            if (stop_doubling && split_k_val > 1 && split_k_val != -1) {
                 continue;
             }
             
@@ -941,15 +919,16 @@ int cusparselt_search_single_m(
             }
             
             cusparseLtMatmulPlan_t plan;
-            // 使用带超时的 planInit
-            auto plan_result = planInitWithTimeout(&g_handle, &plan, &matmul, &alg_sel, 5);
-            if (plan_result.timed_out) {
+            cusparseStatus_t plan_status = cusparseLtMatmulPlanInit(&g_handle, &plan, &matmul, &alg_sel);
+            if (plan_status != CUSPARSE_STATUS_SUCCESS) {
                 cusparseLtMatmulAlgSelectionDestroy(&alg_sel);
-                continue;
-            }
-            if (plan_result.status != CUSPARSE_STATUS_SUCCESS) {
-                cusparseLtMatmulAlgSelectionDestroy(&alg_sel);
-                if (split_k_val > 1) stop_doubling = true;
+                // 如果是 segment-k 或 split-k 倍增失败，全局禁用
+                if (split_k_val == -1) {
+                    g_disable_segment_k = true;
+                } else if (split_k_val > 1) {
+                    stop_doubling = true;
+                    g_disable_split_k_doubling = true;
+                }
                 continue;
             }
             
@@ -978,7 +957,13 @@ int cusparselt_search_single_m(
             if (!success) {
                 cusparseLtMatmulPlanDestroy(&plan);
                 cusparseLtMatmulAlgSelectionDestroy(&alg_sel);
-                if (split_k_val > 1) stop_doubling = true;
+                // 预热阶段失败说明硬件不支持此配置，全局禁用
+                if (split_k_val == -1) {
+                    g_disable_segment_k = true;
+                } else if (split_k_val > 1) {
+                    stop_doubling = true;
+                    g_disable_split_k_doubling = true;
+                }
                 continue;
             }
             
@@ -1023,7 +1008,7 @@ int cusparselt_search_single_m(
                 if (split_k_val >= 1) {
                     if (best_lat_us_for_doubling < 0 || rec.lat_us < best_lat_us_for_doubling) {
                         best_lat_us_for_doubling = rec.lat_us;
-                    } else if (rec.lat_us * 1.10f > best_lat_us_for_doubling && split_k_val > 1) {
+                    } else if (rec.lat_us * 1.05f > best_lat_us_for_doubling && split_k_val > 1) {
                         stop_doubling = true;
                     }
                 }

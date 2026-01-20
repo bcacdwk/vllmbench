@@ -55,7 +55,7 @@ def test_import_core():
         is_slidesparse_enabled,
         is_cublaslt_enabled,
         is_cusparselt_enabled,
-        is_inner_dtype_fp32,
+        is_inner_dtype_32,
         get_slidesparse_status,
         # Linear 方法
         SlideSparseFp8LinearMethod,
@@ -74,7 +74,7 @@ def test_import_core():
     assert callable(is_slidesparse_enabled)
     assert callable(is_cublaslt_enabled)
     assert callable(is_cusparselt_enabled)
-    assert callable(is_inner_dtype_fp32)
+    assert callable(is_inner_dtype_32)
     assert callable(get_slidesparse_status)
     assert callable(wrap_scheme_fp8)
     assert callable(_get_gemm_extension)
@@ -89,7 +89,7 @@ def test_import_config():
         is_slidesparse_enabled,
         is_cublaslt_enabled,
         is_cusparselt_enabled,
-        is_inner_dtype_fp32,
+        is_inner_dtype_32,
         get_slidesparse_status,
     )
     
@@ -97,7 +97,7 @@ def test_import_config():
     assert isinstance(is_slidesparse_enabled(), bool)
     assert isinstance(is_cublaslt_enabled(), bool)
     assert isinstance(is_cusparselt_enabled(), bool)
-    assert isinstance(is_inner_dtype_fp32(), bool)
+    assert isinstance(is_inner_dtype_32(), bool)
     assert isinstance(get_slidesparse_status(), str)
     
     return True, "配置解析正常"
@@ -147,15 +147,15 @@ def test_env_vars():
         is_slidesparse_enabled,
         is_cublaslt_enabled,
         is_cusparselt_enabled,
-        is_inner_dtype_fp32,
+        is_inner_dtype_32,
     )
     
     slidesparse_enabled = is_slidesparse_enabled()
     cublaslt_enabled = is_cublaslt_enabled()
     cusparselt_enabled = is_cusparselt_enabled()
-    fp32 = is_inner_dtype_fp32()
+    inner_32 = is_inner_dtype_32()
     
-    return True, f"SlideSparse={slidesparse_enabled}, cuBLASLt={cublaslt_enabled}, cuSPARSELt={cusparselt_enabled}, FP32={fp32}"
+    return True, f"SlideSparse={slidesparse_enabled}, cuBLASLt={cublaslt_enabled}, cuSPARSELt={cusparselt_enabled}, Inner32={inner_32}"
 
 
 @test_case("get_slidesparse_status 格式")
@@ -224,7 +224,7 @@ def test_vllm_bridge_import():
         is_slidesparse_enabled,
         is_cublaslt_enabled,
         is_cusparselt_enabled,
-        is_inner_dtype_fp32,
+        is_inner_dtype_32,
         get_slidesparse_status,
         # Linear 方法
         SlideSparseFp8LinearMethod,
@@ -252,14 +252,14 @@ def test_bridge_reference_consistency():
         is_slidesparse_enabled as vllm_is_slidesparse_enabled,
         is_cublaslt_enabled as vllm_is_cublaslt_enabled,
         is_cusparselt_enabled as vllm_is_cusparselt_enabled,
-        is_inner_dtype_fp32 as vllm_is_fp32,
+        is_inner_dtype_32 as vllm_is_inner_32,
         wrap_scheme_fp8 as vllm_wrap_scheme_fp8,
     )
     from slidesparse.core.config import (
         is_slidesparse_enabled, 
         is_cublaslt_enabled,
         is_cusparselt_enabled,
-        is_inner_dtype_fp32,
+        is_inner_dtype_32,
     )
     from slidesparse.core.SlideSparseLinearMethod_FP8 import wrap_scheme_fp8
     
@@ -267,7 +267,7 @@ def test_bridge_reference_consistency():
     assert vllm_is_slidesparse_enabled is is_slidesparse_enabled, "is_slidesparse_enabled 引用不一致"
     assert vllm_is_cublaslt_enabled is is_cublaslt_enabled, "is_cublaslt_enabled 引用不一致"
     assert vllm_is_cusparselt_enabled is is_cusparselt_enabled, "is_cusparselt_enabled 引用不一致"
-    assert vllm_is_fp32 is is_inner_dtype_fp32, "is_inner_dtype_fp32 引用不一致"
+    assert vllm_is_inner_32 is is_inner_dtype_32, "is_inner_dtype_32 引用不一致"
     assert vllm_wrap_scheme_fp8 is wrap_scheme_fp8, "wrap_scheme_fp8 引用不一致"
     
     return True, "函数引用一致"

@@ -155,36 +155,6 @@ static int ensure_handle() {
 }
 
 // =============================================================================
-// 带超时的 planInit 包装函数
-// =============================================================================
-
-struct PlanInitResult {
-    cusparseStatus_t status;
-    bool timed_out;
-};
-
-static PlanInitResult planInitWithTimeout(
-    cusparseLtHandle_t* handle,
-    cusparseLtMatmulPlan_t* plan,
-    cusparseLtMatmulDescriptor_t* matmul,
-    cusparseLtMatmulAlgSelection_t* alg_sel,
-    int timeout_seconds = 5) {
-    
-    auto future = std::async(std::launch::async, [&]() {
-        // 新版 API: 只有 4 个参数
-        return cusparseLtMatmulPlanInit(handle, plan, matmul, alg_sel);
-    });
-    
-    auto wait_status = future.wait_for(std::chrono::seconds(timeout_seconds));
-    
-    if (wait_status == std::future_status::timeout) {
-        return PlanInitResult{CUSPARSE_STATUS_EXECUTION_FAILED, true};
-    }
-    
-    return PlanInitResult{future.get(), false};
-}
-
-// =============================================================================
 // 数据类型辅助
 // =============================================================================
 
@@ -209,6 +179,8 @@ static cudaDataType_t get_out_dtype(const char* outdtype) {
         return CUDA_R_16BF;
     } else if (strcmp(outdtype, "fp32") == 0 || strcmp(outdtype, "FP32") == 0) {
         return CUDA_R_32F;
+    } else if (strcmp(outdtype, "int32") == 0 || strcmp(outdtype, "INT32") == 0) {
+        return CUDA_R_32I;
     }
     return CUDA_R_16BF;
 }
@@ -224,6 +196,8 @@ static int get_out_dtype_size(const char* outdtype) {
     if (strcmp(outdtype, "bf16") == 0 || strcmp(outdtype, "BF16") == 0) {
         return 2;
     } else if (strcmp(outdtype, "fp32") == 0 || strcmp(outdtype, "FP32") == 0) {
+        return 4;
+    } else if (strcmp(outdtype, "int32") == 0 || strcmp(outdtype, "INT32") == 0) {
         return 4;
     }
     return 2;
@@ -249,6 +223,19 @@ struct LayoutResult {
 // =============================================================================
 // 单个布局测试
 // =============================================================================
+
+// 全局禁用 split-k 倍增标志
+// 当发现硬件完全不支持 split-k 倍增时，设置此标志避免后续布局重复尝试
+static bool g_disable_doubling_globally = false;
+
+// 全局禁用 segment-k 标志
+static bool g_disable_segment_k = false;
+
+// 重置全局禁用标志（在新的搜索开始时调用）
+static void reset_disable_doubling() {
+    g_disable_doubling_globally = false;
+    g_disable_segment_k = false;
+}
 
 /**
  * @brief 测试单个布局配置
@@ -461,17 +448,20 @@ static int test_single_layout(
         // 构建 split_k 候选列表
         std::vector<int> split_k_candidates;
         split_k_candidates.push_back(1);
-        for (int sk = 2; sk <= K; sk *= 2) {
-            split_k_candidates.push_back(sk);
+        if (!g_disable_doubling_globally) {
+            for (int sk = 2; sk <= K; sk *= 2) {
+                split_k_candidates.push_back(sk);
+            }
         }
-        if (test_segment_k) {
+        if (test_segment_k && !g_disable_segment_k) {
             split_k_candidates.push_back(-1);
         }
         
         bool stop_doubling = false;
         
         for (int split_k_val : split_k_candidates) {
-            if (stop_doubling && split_k_val > 1) continue;
+            // 自适应倍增策略：当前 alg_id 内的局部停止（不影响 segment-k）
+            if (stop_doubling && split_k_val > 1 && split_k_val != -1) continue;
             
             cusparseLtMatmulAlgSelection_t alg_sel;
             status = cusparseLtMatmulAlgSelectionInit(
@@ -491,20 +481,21 @@ static int test_single_layout(
                 &split_k_val, sizeof(split_k_val));
             if (split_k_status != CUSPARSE_STATUS_SUCCESS) {
                 cusparseLtMatmulAlgSelectionDestroy(&alg_sel);
-                if (split_k_val > 1) stop_doubling = true;
+                if (split_k_val > 1 && split_k_val != -1) stop_doubling = true;
                 continue;
             }
             
             cusparseLtMatmulPlan_t plan;
-            // 使用带超时的 planInit (新版 API: 4 参数)
-            auto plan_result = planInitWithTimeout(&g_handle, &plan, &matmul, &alg_sel, 5);
-            if (plan_result.timed_out) {
+            cusparseStatus_t plan_status = cusparseLtMatmulPlanInit(&g_handle, &plan, &matmul, &alg_sel);
+            if (plan_status != CUSPARSE_STATUS_SUCCESS) {
                 cusparseLtMatmulAlgSelectionDestroy(&alg_sel);
-                continue;
-            }
-            if (plan_result.status != CUSPARSE_STATUS_SUCCESS) {
-                cusparseLtMatmulAlgSelectionDestroy(&alg_sel);
-                if (split_k_val > 1) stop_doubling = true;
+                // 如果是 segment-k 或 split-k 倍增失败，全局禁用
+                if (split_k_val == -1) {
+                    g_disable_segment_k = true;
+                } else if (split_k_val > 1) {
+                    stop_doubling = true;
+                    g_disable_doubling_globally = true;
+                }
                 continue;
             }
             
@@ -556,7 +547,13 @@ static int test_single_layout(
                 if (dW_compressedBuffer) cudaFree(dW_compressedBuffer);
                 cusparseLtMatmulPlanDestroy(&plan);
                 cusparseLtMatmulAlgSelectionDestroy(&alg_sel);
-                if (split_k_val > 1) stop_doubling = true;
+                // 预热阶段失败说明硬件不支持此配置，全局禁用
+                if (split_k_val == -1) {
+                    g_disable_segment_k = true;
+                } else if (split_k_val > 1) {
+                    stop_doubling = true;
+                    g_disable_doubling_globally = true;
+                }
                 continue;
             }
             
@@ -592,7 +589,7 @@ static int test_single_layout(
             if (split_k_val >= 1) {
                 if (best_lat_us_for_doubling < 0 || avg_us < best_lat_us_for_doubling) {
                     best_lat_us_for_doubling = avg_us;
-                } else if (avg_us * 1.10f > best_lat_us_for_doubling && split_k_val > 1) {
+                } else if (avg_us * 1.05f > best_lat_us_for_doubling && split_k_val > 1) {
                     stop_doubling = true;
                 }
             }
@@ -727,6 +724,9 @@ int cusparselt_layout_search_single(
     if (ensure_handle() < 0) return -1;
     
     cudaStream_t cu_stream = stream ? (cudaStream_t)stream : nullptr;
+    
+    // 重置全局禁用标志（每次新搜索开始时重置）
+    reset_disable_doubling();
     
     // 分配 workspace
     void* workspace = nullptr;

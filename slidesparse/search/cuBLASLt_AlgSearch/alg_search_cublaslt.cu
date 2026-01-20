@@ -2,7 +2,10 @@
 // 固定的 layout: 权重 W 在左，T/N + C/C GEMM，输出矩阵 order 固定为 Column 主序
 // R[N,M]_col = W[N,K]^T_col * A[K,M]_col
 // 支持的数据类型：int8, fp8e4m3
-// 输出类型：bf16 (CUDA_R_16BF) 或 fp32 (CUDA_R_32F)
+//
+// 支持的数据类型组合:
+// - FP8E4M3 输入 → BF16/FP32 输出 (CUBLAS_COMPUTE_32F)
+// - INT8 输入 → INT32 输出 (CUBLAS_COMPUTE_32I，cuBLASLt INT8 不支持 BF16 输出)
 //
 // 导出方式: extern "C"，使用 ctypes 加载
 // 参考: slidesparse/csrc/cublaslt_gemm/cublaslt_gemm.cu
@@ -95,15 +98,23 @@ static cudaDataType to_cuda_dtype(const char* dtype) {
 static cudaDataType cuda_out_dtype(const char* outdtype) {
   if (std::strcmp(outdtype, "bf16") == 0) return CUDA_R_16BF;
   if (std::strcmp(outdtype, "fp32") == 0) return CUDA_R_32F;
-  throw std::invalid_argument("Unsupported outdtype. Supported: bf16, fp32");
+  if (std::strcmp(outdtype, "int32") == 0) return CUDA_R_32I;
+  throw std::invalid_argument("Unsupported outdtype. Supported: bf16, fp32, int32");
 }
 
 static cublasComputeType_t compute_type_from_dtype(const char* dtype) {
-  // INT8 使用 CUBLAS_COMPUTE_32F 以支持 BF16/FP32 输出
-  // (CUBLAS_COMPUTE_32I 只支持 INT32 输出，不常用)
-  if (std::strcmp(dtype, "int8") == 0) return CUBLAS_COMPUTE_32F;
+  // FP8 使用 CUBLAS_COMPUTE_32F 支持 BF16/FP32 输出
+  // INT8 使用 CUBLAS_COMPUTE_32I，只支持 INT32 输出（cuBLASLt 限制）
+  if (std::strcmp(dtype, "int8") == 0) return CUBLAS_COMPUTE_32I;
   if (std::strcmp(dtype, "fp8e4m3") == 0) return CUBLAS_COMPUTE_32F;
   throw std::invalid_argument("Unsupported dtype");
+}
+
+static cudaDataType scale_type_from_dtype(const char* dtype) {
+  // INT8 + COMPUTE_32I 需要 INT32 scale type
+  // FP8 + COMPUTE_32F 需要 FP32 scale type
+  if (std::strcmp(dtype, "int8") == 0) return CUDA_R_32I;
+  return CUDA_R_32F;
 }
 
 static int dtype_elem_size(const char* dtype) {
@@ -114,6 +125,7 @@ static int dtype_elem_size(const char* dtype) {
 static int out_dtype_elem_size(const char* outdtype) {
   if (std::strcmp(outdtype, "bf16") == 0) return 2;
   if (std::strcmp(outdtype, "fp32") == 0) return 4;
+  if (std::strcmp(outdtype, "int32") == 0) return 4;
   return 2;
 }
 
@@ -226,7 +238,7 @@ int cublaslt_search_single_m(
     cudaDataType type_AB = to_cuda_dtype(dtype);
     cudaDataType type_C = cuda_out_dtype(outdtype);
     cublasComputeType_t comp_type = compute_type_from_dtype(dtype);
-    cudaDataType scale_type = CUDA_R_32F;  // alpha/beta 使用 float
+    cudaDataType scale_type = scale_type_from_dtype(dtype);  // INT8 用 INT32, FP8 用 FP32
 
     cublasLtHandle_t handle = get_cublaslt_handle();
 
@@ -309,7 +321,14 @@ int cublaslt_search_single_m(
     size_t current_workspace_size = max_workspace_size;
     CHECK_CUDA(cudaMalloc(&workspace, current_workspace_size));
 
-    float alpha = 1.0f, beta = 0.0f;
+    // alpha/beta 类型需要与 scale_type 匹配
+    // INT8 GEMM: scale_type = CUDA_R_32I, 需要 int32 alpha/beta
+    // FP8 GEMM: scale_type = CUDA_R_32F, 需要 float alpha/beta
+    float alpha_f = 1.0f, beta_f = 0.0f;
+    int32_t alpha_i = 1, beta_i = 0;
+    const void* alpha_ptr = (scale_type == CUDA_R_32I) ? (const void*)&alpha_i : (const void*)&alpha_f;
+    const void* beta_ptr = (scale_type == CUDA_R_32I) ? (const void*)&beta_i : (const void*)&beta_f;
+    
     std::vector<AlgRecord> records;
 
     // 遍历所有算法
@@ -340,8 +359,8 @@ int cublaslt_search_single_m(
       // 预热
       for (int i = 0; i < warmup && success; ++i) {
         cublasStatus_t st = cublasLtMatmul(
-            handle, matmulDesc, &alpha,
-            W_ptr, layoutW, A_ptr, layoutA, &beta,
+            handle, matmulDesc, alpha_ptr,
+            W_ptr, layoutW, A_ptr, layoutA, beta_ptr,
             R_ptr, layoutR, R_ptr, layoutR,
             algo, ws_ptr, ws_size, stream);
         if (st != CUBLAS_STATUS_SUCCESS) success = false;
@@ -359,8 +378,8 @@ int cublaslt_search_single_m(
         
         for (int r = 0; r < repeat && success; ++r) {
           cublasStatus_t st = cublasLtMatmul(
-              handle, matmulDesc, &alpha,
-              W_ptr, layoutW, A_ptr, layoutA, &beta,
+              handle, matmulDesc, alpha_ptr,
+              W_ptr, layoutW, A_ptr, layoutA, beta_ptr,
               R_ptr, layoutR, R_ptr, layoutR,
               algo, ws_ptr, ws_size, stream);
           if (st != CUBLAS_STATUS_SUCCESS) success = false;

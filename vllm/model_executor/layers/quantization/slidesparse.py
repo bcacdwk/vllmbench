@@ -25,7 +25,7 @@ SlideSparse 会在 CompressedTensorsW8A8Fp8 的基础上进行透明 hook。
 - DISABLE_SLIDESPARSE=1: 完全禁用 SlideSparse，使用 vLLM 原生路径
 - USE_CUBLASLT=1: 启用 cuBLASLt kernel
 - USE_CUSPARSELT=1: 启用 cuSPARSELt kernel
-- INNER_DTYPE_FP32=1: GEMM 输出使用 FP32（仅 cuBLASLt/cuSPARSELt 时生效）
+- INNER_DTYPE_32=1: GEMM 使用高精度累加（FP8→FP32, INT8→INT32）
 
 架构说明:
 =========
@@ -56,7 +56,7 @@ try:
         is_slidesparse_enabled,
         is_cublaslt_enabled,
         is_cusparselt_enabled,
-        is_inner_dtype_fp32,
+        is_inner_dtype_32,
         get_slidesparse_status,
         get_sparsity_config,
         get_sparsity_str,
@@ -94,7 +94,7 @@ except ImportError as e:
     def is_cusparselt_enabled():
         return False
     
-    def is_inner_dtype_fp32():
+    def is_inner_dtype_32():
         return False
     
     def get_slidesparse_status():
@@ -137,7 +137,7 @@ __all__ = [
     "is_slidesparse_enabled",
     "is_cublaslt_enabled",
     "is_cusparselt_enabled",
-    "is_inner_dtype_fp32",
+    "is_inner_dtype_32",
     "get_slidesparse_status",
     "get_sparsity_config",
     "get_sparsity_str",

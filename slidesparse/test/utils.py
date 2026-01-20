@@ -25,7 +25,7 @@ SlideSparse 测试工具库
     默认（两者都不设置）   →  CUTLASS fallback
 
 附加选项：
-    INNER_DTYPE_FP32=1     →  GEMM 输出使用 FP32（仅 cuBLASLt/cuSPARSELt 时生效）
+    INNER_DTYPE_32=1       →  GEMM 使用高精度累加（FP8→FP32, INT8→INT32）
 
 命令行参数映射：
 ===============
@@ -33,7 +33,7 @@ SlideSparse 测试工具库
     --use-cutlass          →  USE_CUBLASLT=0, USE_CUSPARSELT=0（默认）
     --use-cublaslt         →  USE_CUBLASLT=1
     --use-cusparselt       →  USE_CUSPARSELT=1
-    --inner-fp32           →  INNER_DTYPE_FP32=1
+    --inner-32             →  INNER_DTYPE_32=1
 """
 
 import os
@@ -1019,15 +1019,15 @@ class EnvironmentChecker:
         return cls._cache["cusparselt_enabled"]
     
     @classmethod
-    def is_inner_dtype_fp32(cls) -> bool:
-        """检查 INNER_DTYPE_FP32 是否启用"""
-        if "inner_dtype_fp32" not in cls._cache:
+    def is_inner_dtype_32(cls) -> bool:
+        """检查 INNER_DTYPE_32 是否启用（高精度累加）"""
+        if "inner_dtype_32" not in cls._cache:
             try:
-                from slidesparse.core.config import is_inner_dtype_fp32
-                cls._cache["inner_dtype_fp32"] = is_inner_dtype_fp32()
+                from slidesparse.core.config import is_inner_dtype_32
+                cls._cache["inner_dtype_32"] = is_inner_dtype_32()
             except ImportError:
-                cls._cache["inner_dtype_fp32"] = False
-        return cls._cache["inner_dtype_fp32"]
+                cls._cache["inner_dtype_32"] = False
+        return cls._cache["inner_dtype_32"]
     
     @classmethod
     def get_kernel_name(cls) -> str:
@@ -1035,10 +1035,10 @@ class EnvironmentChecker:
         if not cls.is_slidesparse_enabled():
             return "vLLM 原生 (CUTLASS)"
         if cls.is_cublaslt_enabled():
-            inner = "FP32" if cls.is_inner_dtype_fp32() else "BF16"
+            inner = "FP32/INT32" if cls.is_inner_dtype_32() else "BF16"
             return f"cuBLASLt ({inner})"
         if cls.is_cusparselt_enabled():
-            inner = "FP32" if cls.is_inner_dtype_fp32() else "BF16"
+            inner = "FP32/INT32" if cls.is_inner_dtype_32() else "BF16"
             return f"cuSPARSELt ({inner})"
         return "CUTLASS (fallback)"
     
@@ -1053,7 +1053,7 @@ class EnvironmentChecker:
             "slidesparse_enabled": cls.is_slidesparse_enabled(),
             "cublaslt_enabled": cls.is_cublaslt_enabled(),
             "cusparselt_enabled": cls.is_cusparselt_enabled(),
-            "inner_dtype_fp32": cls.is_inner_dtype_fp32(),
+            "inner_dtype_32": cls.is_inner_dtype_32(),
             "kernel_name": cls.get_kernel_name(),
         }
         
@@ -1114,7 +1114,7 @@ class EnvironmentChecker:
             
             # Inner dtype（仅 cuBLASLt/cuSPARSELt 时显示）
             if info['cublaslt_enabled'] or info['cusparselt_enabled']:
-                inner_dtype = "FP32" if info['inner_dtype_fp32'] else "BF16"
+                inner_dtype = "FP32/INT32" if info['inner_dtype_32'] else "BF16"
                 print(f"  GEMM Inner Dtype: {inner_dtype}")
         
         print("=" * 70)
@@ -1491,7 +1491,7 @@ def parse_common_args(description: str) -> argparse.ArgumentParser:
         --use-cusparselt →  USE_CUSPARSELT=1
     
     附加选项：
-        --inner-fp32     →  INNER_DTYPE_FP32=1
+        --inner-32       →  INNER_DTYPE_32=1
         --sparsity 2_8   →  SPARSITY=2_8（仅 cuSPARSELt 时生效）
     """
     parser = argparse.ArgumentParser(
@@ -1502,7 +1502,7 @@ def parse_common_args(description: str) -> argparse.ArgumentParser:
   %(prog)s                          # 默认: SlideSparse + CUTLASS fallback
   %(prog)s --disable-slidesparse    # vLLM 原生路径 (baseline)
   %(prog)s --use-cublaslt           # SlideSparse + cuBLASLt
-  %(prog)s --use-cublaslt --inner-fp32  # cuBLASLt + FP32 累加
+  %(prog)s --use-cublaslt --inner-32  # cuBLASLt + 高精度累加
   %(prog)s --use-cusparselt --sparsity 2_8  # SlideSparse + cuSPARSELt (2:8 稀疏)
         """
     )
@@ -1534,9 +1534,9 @@ def parse_common_args(description: str) -> argparse.ArgumentParser:
     
     # 附加选项
     parser.add_argument(
-        "--inner-fp32", 
+        "--inner-32", 
         action="store_true", 
-        help="GEMM 输出使用 FP32（仅 cuBLASLt/cuSPARSELt 时生效）"
+        help="GEMM 使用高精度累加（FP8→FP32, INT8→INT32）"
     )
     
     # cuSPARSELt 专用选项
@@ -1562,7 +1562,7 @@ def apply_env_args(args: argparse.Namespace) -> None:
         # baseline 模式下，清除其他环境变量
         os.environ.pop("USE_CUBLASLT", None)
         os.environ.pop("USE_CUSPARSELT", None)
-        os.environ.pop("INNER_DTYPE_FP32", None)
+        os.environ.pop("INNER_DTYPE_32", None)
     else:
         os.environ["DISABLE_SLIDESPARSE"] = "0"
         
@@ -1578,28 +1578,28 @@ def apply_env_args(args: argparse.Namespace) -> None:
             os.environ.pop("USE_CUBLASLT", None)
             os.environ.pop("USE_CUSPARSELT", None)
         
-        # 附加选项：INNER_DTYPE_FP32
-        if getattr(args, 'inner_fp32', False):
-            os.environ["INNER_DTYPE_FP32"] = "1"
+        # 附加选项：INNER_DTYPE_32
+        if getattr(args, 'inner_32', False):
+            os.environ["INNER_DTYPE_32"] = "1"
         else:
-            os.environ.pop("INNER_DTYPE_FP32", None)
+            os.environ.pop("INNER_DTYPE_32", None)
     
     # 清除缓存以重新读取环境变量
     EnvironmentChecker.clear_cache()
 
 
 def get_backend_name(use_cublaslt: bool = False, use_cusparselt: bool = False, 
-                     inner_fp32: bool = False, sparsity: str = "2_8") -> str:
+                     inner_32: bool = False, sparsity: str = "2_8") -> str:
     """
     根据参数获取后端名称
     
     用于测试输出显示
     """
     if use_cublaslt:
-        suffix = " (FP32累加)" if inner_fp32 else ""
+        suffix = " (高精度累加)" if inner_32 else ""
         return f"SlideSparse + cuBLASLt{suffix}"
     elif use_cusparselt:
-        suffix = " (FP32累加)" if inner_fp32 else ""
+        suffix = " (高精度累加)" if inner_32 else ""
         return f"SlideSparse + cuSPARSELt ({sparsity.replace('_', ':')}){suffix}"
     else:
         return "SlideSparse + CUTLASS"
@@ -1616,14 +1616,14 @@ def set_env_for_baseline() -> Dict[str, Optional[str]]:
         "DISABLE_SLIDESPARSE": os.environ.get("DISABLE_SLIDESPARSE"),
         "USE_CUBLASLT": os.environ.get("USE_CUBLASLT"),
         "USE_CUSPARSELT": os.environ.get("USE_CUSPARSELT"),
-        "INNER_DTYPE_FP32": os.environ.get("INNER_DTYPE_FP32"),
+        "INNER_DTYPE_32": os.environ.get("INNER_DTYPE_32"),
         "SPARSITY": os.environ.get("SPARSITY"),
     }
     
     os.environ["DISABLE_SLIDESPARSE"] = "1"
     os.environ.pop("USE_CUBLASLT", None)
     os.environ.pop("USE_CUSPARSELT", None)
-    os.environ.pop("INNER_DTYPE_FP32", None)
+    os.environ.pop("INNER_DTYPE_32", None)
     os.environ.pop("SPARSITY", None)
     
     EnvironmentChecker.clear_cache()
@@ -1637,14 +1637,14 @@ def set_env_for_baseline() -> Dict[str, Optional[str]]:
 
 
 def set_env_for_test(use_cublaslt: bool = False, use_cusparselt: bool = False,
-                     inner_fp32: bool = False, sparsity: str = None) -> Dict[str, Optional[str]]:
+                     inner_32: bool = False, sparsity: str = None) -> Dict[str, Optional[str]]:
     """
     设置环境变量为测试配置
     
     Args:
         use_cublaslt: 使用 cuBLASLt kernel
         use_cusparselt: 使用 cuSPARSELt kernel
-        inner_fp32: 使用 FP32 累加
+        inner_32: 使用高精度累加（FP8→FP32, INT8→INT32）
         sparsity: 稀疏格式（仅 cuSPARSELt 时生效），默认 "2_8"
     
     Returns:
@@ -1654,7 +1654,7 @@ def set_env_for_test(use_cublaslt: bool = False, use_cusparselt: bool = False,
         "DISABLE_SLIDESPARSE": os.environ.get("DISABLE_SLIDESPARSE"),
         "USE_CUBLASLT": os.environ.get("USE_CUBLASLT"),
         "USE_CUSPARSELT": os.environ.get("USE_CUSPARSELT"),
-        "INNER_DTYPE_FP32": os.environ.get("INNER_DTYPE_FP32"),
+        "INNER_DTYPE_32": os.environ.get("INNER_DTYPE_32"),
         "SPARSITY": os.environ.get("SPARSITY"),
     }
     
@@ -1673,10 +1673,10 @@ def set_env_for_test(use_cublaslt: bool = False, use_cusparselt: bool = False,
         os.environ.pop("USE_CUSPARSELT", None)
         os.environ.pop("SPARSITY", None)
     
-    if inner_fp32:
-        os.environ["INNER_DTYPE_FP32"] = "1"
+    if inner_32:
+        os.environ["INNER_DTYPE_32"] = "1"
     else:
-        os.environ.pop("INNER_DTYPE_FP32", None)
+        os.environ.pop("INNER_DTYPE_32", None)
     
     EnvironmentChecker.clear_cache()
     # 清除 sparsity 缓存

@@ -38,8 +38,8 @@ SlideSparse 通过包装 vLLM 原有的 CompressedTensorsW8A8Fp8 scheme 实现�
 
 数据类型
 ========
-- input_dtype:  输入量化精度，FP8E4M3
-- inner_dtype:  GEMM 输出精度，BF16（默认）或 FP32（INNER_DTYPE_FP32=1）
+- input_dtype:  输入量化精度，FP8E4M3 或 INT8
+- inner_dtype:  GEMM 输出精度，BF16（默认, 但对cuBLASLt+INT8无效）或 FP32/INT32（INNER_DTYPE_32=1）
 - out_dtype:    最终输出精度，由 vLLM 上层指定
 
 环境变量
@@ -47,7 +47,7 @@ SlideSparse 通过包装 vLLM 原有的 CompressedTensorsW8A8Fp8 scheme 实现�
 - DISABLE_SLIDESPARSE=1   : 完全禁用 SlideSparse，使用 vLLM 原生路径
 - USE_CUBLASLT=1          : 使用 cuBLASLt kernel
 - USE_CUSPARSELT=1        : 使用 cuSPARSELt kernel（与 USE_CUBLASLT 互斥）
-- INNER_DTYPE_FP32=1      : GEMM 输出用 FP32（仅 cuBLASLt/cuSPARSELt 生效）
+- INNER_DTYPE_32=1        : GEMM 使用高精度累加（FP8→FP32, INT8→INT32）
 - SPARSITY=2_8            : 稀疏格式（仅 cuSPARSELt 时生效，默认 2_8）
 """
 
@@ -55,7 +55,7 @@ from .config import (
     is_slidesparse_enabled, 
     is_cublaslt_enabled, 
     is_cusparselt_enabled, 
-    is_inner_dtype_fp32, 
+    is_inner_dtype_32, 
     get_slidesparse_status,
     get_sparsity_config,
 )
@@ -92,13 +92,13 @@ logger = init_logger(__name__)
 # ============================================================================
 
 def get_inner_dtype_str() -> str:
-    """获取 GEMM 输出精度字符串"""
-    return "fp32" if is_inner_dtype_fp32() else "bf16"
+    """获取 GEMM 输出精度字符串（默认 bf16，启用时根据输入类型返回 fp32/int32）"""
+    return "fp32" if is_inner_dtype_32() else "bf16"
 
 
 def get_inner_dtype_torch() -> torch.dtype:
-    """获取 GEMM 输出精度的 PyTorch dtype"""
-    return torch.float32 if is_inner_dtype_fp32() else torch.bfloat16
+    """获取 GEMM 输出精度的 PyTorch dtype（默认 bf16，启用时 fp32）"""
+    return torch.float32 if is_inner_dtype_32() else torch.bfloat16
 
 
 # ============================================================================
@@ -153,7 +153,7 @@ _gemm_extensions = {}
 
 
 class cuBLASLtGemmWrapper:
-    """cuBLASLt GEMM ctypes 包装器（简化版）"""
+    """cuBLASLt Dense GEMM ctypes 包装器"""
     
     def __init__(self, lib_path: Path):
         self._lib = ctypes.CDLL(str(lib_path))
@@ -170,10 +170,25 @@ class cuBLASLtGemmWrapper:
             getattr(self._lib, name).restype = ctypes.c_int
     
     def _call_gemm(self, fn_name: str, W: torch.Tensor, A: torch.Tensor, inner_dtype: str) -> torch.Tensor:
-        """通用 GEMM 调用: D[M,N] = W[N,K] @ A[M,K]"""
+        """通用 Dense GEMM 调用: D[N,M]_col = W[K,N]^T_col @ A[K,M]_col
+        
+        Note:
+            对于 INT8 GEMM，cuBLASLt 只支持 INT32 输出，不支持 BF16/FP32。
+            因此 INT8 路径会忽略 inner_dtype 参数，强制使用 INT32 输出。
+            CUDA 层会打印一次性信息提示用户。
+        """
         M, K = A.shape
         N = W.shape[0]
-        D = torch.empty((M, N), dtype=torch.float32 if inner_dtype == "fp32" else torch.bfloat16, device=A.device)
+        
+        # INT8 cuBLASLt 只支持 INT32 输出
+        if fn_name == "cublaslt_int8_mm":
+            out_dtype = torch.int32
+        elif inner_dtype == "fp32":
+            out_dtype = torch.float32
+        else:
+            out_dtype = torch.bfloat16
+            
+        D = torch.empty((M, N), dtype=out_dtype, device=A.device)
         
         ret = getattr(self._lib, fn_name)(
             W.data_ptr(), A.data_ptr(), D.data_ptr(), M, N, K,
@@ -189,6 +204,59 @@ class cuBLASLtGemmWrapper:
     
     def cublaslt_int8_mm(self, W: torch.Tensor, A: torch.Tensor, inner_dtype: str = "bf16") -> torch.Tensor:
         return self._call_gemm("cublaslt_int8_mm", W, A, inner_dtype)
+
+
+class cuSPARSELtGemmWrapper:
+    """cuSPARSELt Sparse GEMM ctypes 包装器"""
+    
+    def __init__(self, lib_path: Path):
+        self._lib = ctypes.CDLL(str(lib_path))
+        
+        # 错误处理函数
+        self._lib.cusparselt_gemm_get_last_error.argtypes = []
+        self._lib.cusparselt_gemm_get_last_error.restype = ctypes.c_char_p
+        
+        # GEMM 签名: int fn(W_compressed, A, D, M, N, K, inner_dtype, stream)
+        # W_compressed 是压缩后的 1D uint8 tensor
+        # A 是 slide 后的激活 [M, K']
+        gemm_sig = [ctypes.c_void_p] * 3 + [ctypes.c_int64] * 3 + [ctypes.c_char_p, ctypes.c_void_p]
+        for name in ["cusparselt_fp8_mm", "cusparselt_int8_mm"]:
+            getattr(self._lib, name).argtypes = gemm_sig
+            getattr(self._lib, name).restype = ctypes.c_int
+    
+    def _call_gemm(self, fn_name: str, W_compressed: torch.Tensor, A: torch.Tensor, N: int, K: int, inner_dtype: str) -> torch.Tensor:
+        """通用 Sparse GEMM 调用: D[N,M]_col = W_slide_compressed[K',N]^T_col @ A_slide[K',M]_col
+        
+        Note:
+            对于 INT8 GEMM，cuSPARSELt 支持 BF16（默认）或 INT32 输出，但不支持 FP32。
+            如果 inner_dtype="fp32" 且为 INT8 路径，CUDA 层会返回错误。
+        """
+        M = A.shape[0]
+        
+        # 确定输出 dtype
+        if fn_name == "cusparselt_int8_mm" and inner_dtype == "int32":
+            out_dtype = torch.int32
+        elif inner_dtype == "fp32":
+            out_dtype = torch.float32
+        else:
+            out_dtype = torch.bfloat16
+            
+        D = torch.empty((M, N), dtype=out_dtype, device=A.device)
+        
+        ret = getattr(self._lib, fn_name)(
+            W_compressed.data_ptr(), A.data_ptr(), D.data_ptr(), M, N, K,
+            inner_dtype.encode(), torch.cuda.current_stream().cuda_stream
+        )
+        if ret != 0:
+            err = self._lib.cusparselt_gemm_get_last_error()
+            raise RuntimeError(f"{fn_name} failed: {err.decode() if err else 'Unknown'}")
+        return D
+    
+    def cusparselt_fp8_mm(self, W_compressed: torch.Tensor, A: torch.Tensor, N: int, K: int, inner_dtype: str = "bf16") -> torch.Tensor:
+        return self._call_gemm("cusparselt_fp8_mm", W_compressed, A, N, K, inner_dtype)
+    
+    def cusparselt_int8_mm(self, W_compressed: torch.Tensor, A: torch.Tensor, N: int, K: int, inner_dtype: str = "bf16") -> torch.Tensor:
+        return self._call_gemm("cusparselt_int8_mm", W_compressed, A, N, K, inner_dtype)
 
 
 def _get_gemm_extension(backend: str):
@@ -239,8 +307,7 @@ def _get_gemm_extension(backend: str):
     if backend == "cublaslt":
         wrapper = cuBLASLtGemmWrapper(so_path)
     elif backend == "cusparselt":
-        # TODO: 为 cusparselt 创建类似的包装器
-        wrapper = load_module(prefix, search_dir=build_dir, ext=".so")
+        wrapper = cuSPARSELtGemmWrapper(so_path)
     
     _gemm_extensions[backend] = wrapper
     logger.info_once(f"{backend} GEMM extension loaded: {so_path.name}")
@@ -460,7 +527,7 @@ def cuSPARSELt_FP8_linear(
     input [M, K] BF16
         ↓ fused_quant_slide_fp8_kernel (TODO: 待实现)
     slide_qinput [M, K'] FP8, scale_a [M] FP32
-        ↓ cusparselt_fp8_mm_compressed
+        ↓ cusparselt_fp8_mm
     gemm_output [M, N]
         ↓ dequant_bias_kernel
     output [M, N]
@@ -497,7 +564,7 @@ def cuSPARSELt_FP8_linear(
     
     try:
         # cuSPARSELt GEMM: slide_qinput [M, K'] @ slide_weight_compressed -> [M, N]
-        gemm_output = ext.cusparselt_fp8_mm_compressed(
+        gemm_output = ext.cusparselt_fp8_mm(
             slide_weight_compressed,  # 压缩后的 1D uint8 tensor
             slide_qinput,             # [M, K'] FP8（slide 后的激活）
             slide_weight_N,           # N 维度
@@ -875,7 +942,7 @@ class SlideSparseFp8LinearMethod:
         N, K_slide = slide_weight.shape  # K' = K * expand_ratio
         
         logger.info_once(
-            f"cuSPARSELt online compression: slide_weight [{N}, {K_slide}] -> slide_weight_compressed (1D)"
+            f"cuSPARSELt online compression: slide_weight [{N}, {K_slide}] dtype={slide_weight.dtype}"
         )
         
         # 执行在线压缩（数据保持在 GPU 上）

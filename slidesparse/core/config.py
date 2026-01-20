@@ -21,8 +21,8 @@ SlideSparse 配置模块
    - 前提：SlideSparse 启用时生效
    - 注意：与 USE_CUBLASLT 互斥
 
-4. INNER_DTYPE_FP32=1
-   - 作用：GEMM 输出使用 FP32 而非 BF16
+4. INNER_DTYPE_32=1
+   - 作用：GEMM 使用高精度累加（FP8→FP32, INT8→INT32）
    - 默认：0（使用 BF16）
    - 前提：USE_CUBLASLT=1 或 USE_CUSPARSELT=1 时生效
 
@@ -127,13 +127,14 @@ def is_cusparselt_enabled() -> bool:
 # GEMM 输出精度控制
 # ============================================================================
 
-def is_inner_dtype_fp32() -> bool:
-    """检查 GEMM 输出是否使用 FP32
+def is_inner_dtype_32() -> bool:
+    """检查 GEMM 是否使用高精度累加
     
-    设置 INNER_DTYPE_FP32=1 启用
-    仅在 USE_CUBLASLT=1 或 USE_CUSPARSELT=1 时生效
+    设置 INNER_DTYPE_32=1 启用
+    FP8 输入时使用 FP32，INT8 输入时使用 INT32
+    仅在 USE_CUBLASLT=1 或 USE_CUSPARSELT=1 时生效, 且 cuBLASLt + INT8输入的情况是开启的, 因为不支持BF16输出
     """
-    return os.environ.get("INNER_DTYPE_FP32", "0") == "1"
+    return os.environ.get("INNER_DTYPE_32", "0") == "1"
 
 
 # ============================================================================
@@ -163,10 +164,10 @@ def get_slidesparse_status() -> str:
     
     # SlideSparse 启用，检查具体 kernel 后端
     if is_cublaslt_enabled():
-        inner = "FP32" if is_inner_dtype_fp32() else "BF16"
+        inner = "FP32/INT32" if is_inner_dtype_32() else "BF16"
         return f"SlideSparse ENABLED, cuBLASLt kernel (inner_dtype={inner})"
     elif is_cusparselt_enabled():
-        inner = "FP32" if is_inner_dtype_fp32() else "BF16"
+        inner = "FP32/INT32" if is_inner_dtype_32() else "BF16"
         Z, L, expand_ratio = get_sparsity_config()
         return (f"SlideSparse ENABLED, cuSPARSELt kernel "
                 f"(inner_dtype={inner}, sparsity={Z}:{L}, expand_ratio={expand_ratio:.3f})")

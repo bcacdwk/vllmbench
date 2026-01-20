@@ -8,8 +8,8 @@ SlideSparse cuBLASLt 一键测试入口
   2. 汇总测试结果
 
 使用方法:
-  python3 run_cublaslt_tests.py               # cuBLASLt + BF16（默认）
-  python3 run_cublaslt_tests.py --inner-fp32  # cuBLASLt + FP32
+  python3 run_cublaslt_tests.py             # cuBLASLt + BF16（默认）
+  python3 run_cublaslt_tests.py --inner-32  # cuBLASLt + 高精度累加
 
 
 """
@@ -78,19 +78,19 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例:
-  python3 run_cublaslt_tests.py               # cuBLASLt + BF16（默认）
-  python3 run_cublaslt_tests.py --inner-fp32  # cuBLASLt + FP32
+  python3 run_cublaslt_tests.py             # cuBLASLt + BF16（默认）
+  python3 run_cublaslt_tests.py --inner-32  # cuBLASLt + 高精度累加
         """
     )
-    parser.add_argument("--inner-fp32", action="store_true", 
-                        help="使用 FP32 中间累加")
+    parser.add_argument("--inner-32", action="store_true", 
+                        help="使用高精度累加（FP8→FP32, INT8→INT32）")
     args = parser.parse_args()
     
     # 确定后端名称和测试参数
-    backend_name = "cuBLASLt + FP32" if args.inner_fp32 else "cuBLASLt + BF16"
+    backend_name = "cuBLASLt + 高精度" if args.inner_32 else "cuBLASLt + BF16"
     test_args = ["--use-cublaslt"]
-    if args.inner_fp32:
-        test_args.append("--inner-fp32")
+    if args.inner_32:
+        test_args.append("--inner-32")
     
     print_banner(backend_name)
     

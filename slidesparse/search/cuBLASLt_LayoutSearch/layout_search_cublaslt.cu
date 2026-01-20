@@ -166,16 +166,29 @@ static cudaDataType_t get_out_dtype(const char* outdtype) {
         return CUDA_R_16BF;
     } else if (strcmp(outdtype, "fp32") == 0 || strcmp(outdtype, "FP32") == 0) {
         return CUDA_R_32F;
+    } else if (strcmp(outdtype, "int32") == 0 || strcmp(outdtype, "INT32") == 0) {
+        return CUDA_R_32I;
     }
     return CUDA_R_16BF;  // 默认
 }
 
 static cublasComputeType_t get_compute_type(const char* dtype) {
-    // INT8 使用 CUBLAS_COMPUTE_32F 以支持 BF16/FP32 输出
-    // (CUBLAS_COMPUTE_32I 只支持 INT32 输出，不常用)
-    // FP8 也使用 CUBLAS_COMPUTE_32F
-    (void)dtype;  // 忽略参数，统一使用 32F
+    // FP8 使用 CUBLAS_COMPUTE_32F 支持 BF16/FP32 输出
+    // INT8 使用 CUBLAS_COMPUTE_32I，只支持 INT32 输出（cuBLASLt 限制）
+    if (strcmp(dtype, "int8") == 0 || strcmp(dtype, "INT8") == 0) {
+        return CUBLAS_COMPUTE_32I;
+    }
+    // FP8 使用 CUBLAS_COMPUTE_32F
     return CUBLAS_COMPUTE_32F;
+}
+
+static cudaDataType_t get_scale_type(const char* dtype) {
+    // INT8 + COMPUTE_32I 需要 INT32 scale type
+    // FP8 + COMPUTE_32F 需要 FP32 scale type
+    if (strcmp(dtype, "int8") == 0 || strcmp(dtype, "INT8") == 0) {
+        return CUDA_R_32I;
+    }
+    return CUDA_R_32F;
 }
 
 // =============================================================================
@@ -217,6 +230,7 @@ static int test_single_layout(
     
     cudaDataType_t out_type = get_out_dtype(outdtype);
     cublasComputeType_t compute_type = get_compute_type(dtype);
+    cudaDataType_t scale_type = get_scale_type(dtype);
     
     result->layout_id = layout_id;
     strncpy(result->layout_name, layout.name, 31);
@@ -284,8 +298,8 @@ static int test_single_layout(
     }
     cublasLtMatrixLayoutSetAttribute(layoutR, CUBLASLT_MATRIX_LAYOUT_ORDER, &layout.orderR, sizeof(layout.orderR));
     
-    // 创建矩阵乘法描述符
-    status = cublasLtMatmulDescCreate(&opDesc, compute_type, CUDA_R_32F);
+    // 创建矩阵乘法描述符 (INT8 用 INT32 scale_type, FP8 用 FP32)
+    status = cublasLtMatmulDescCreate(&opDesc, compute_type, scale_type);
     if (status != CUBLAS_STATUS_SUCCESS) {
         cublasLtMatrixLayoutDestroy(layoutW);
         cublasLtMatrixLayoutDestroy(layoutA_mat);
@@ -325,7 +339,13 @@ static int test_single_layout(
         return 0;  // 此布局不支持
     }
     
-    float alpha = 1.0f, beta = 0.0f;
+    // alpha/beta 类型需要与 scale_type 匹配
+    // INT8 GEMM: scale_type = CUDA_R_32I, 需要 int32 alpha/beta
+    // FP8 GEMM: scale_type = CUDA_R_32F, 需要 float alpha/beta
+    float alpha_f = 1.0f, beta_f = 0.0f;
+    int32_t alpha_i = 1, beta_i = 0;
+    const void* alpha_ptr = (scale_type == CUDA_R_32I) ? (const void*)&alpha_i : (const void*)&alpha_f;
+    const void* beta_ptr = (scale_type == CUDA_R_32I) ? (const void*)&beta_i : (const void*)&beta_f;
     
     // 遍历所有算法找到最优的
     float best_lat_us = 1e12f;
@@ -350,9 +370,9 @@ static int test_single_layout(
         }
         
         // 验证算法可用性
-        status = cublasLtMatmul(g_lt_handle, opDesc, &alpha,
+        status = cublasLtMatmul(g_lt_handle, opDesc, alpha_ptr,
                                W_ptr, layoutW, A_ptr, layoutA_mat,
-                               &beta, R_ptr, layoutR, R_ptr, layoutR,
+                               beta_ptr, R_ptr, layoutR, R_ptr, layoutR,
                                &algo, workspace, ws_size, stream);
         
         if (status != CUBLAS_STATUS_SUCCESS) {
@@ -363,9 +383,9 @@ static int test_single_layout(
         
         // Warmup
         for (int i = 0; i < warmup; ++i) {
-            cublasLtMatmul(g_lt_handle, opDesc, &alpha,
+            cublasLtMatmul(g_lt_handle, opDesc, alpha_ptr,
                           W_ptr, layoutW, A_ptr, layoutA_mat,
-                          &beta, R_ptr, layoutR, R_ptr, layoutR,
+                          beta_ptr, R_ptr, layoutR, R_ptr, layoutR,
                           &algo, workspace, ws_size, stream);
         }
         cudaStreamSynchronize(stream);
@@ -373,9 +393,9 @@ static int test_single_layout(
         // Benchmark
         cudaEventRecord(start, stream);
         for (int i = 0; i < repeat; ++i) {
-            cublasLtMatmul(g_lt_handle, opDesc, &alpha,
+            cublasLtMatmul(g_lt_handle, opDesc, alpha_ptr,
                           W_ptr, layoutW, A_ptr, layoutA_mat,
-                          &beta, R_ptr, layoutR, R_ptr, layoutR,
+                          beta_ptr, R_ptr, layoutR, R_ptr, layoutR,
                           &algo, workspace, ws_size, stream);
         }
         cudaEventRecord(stop, stream);

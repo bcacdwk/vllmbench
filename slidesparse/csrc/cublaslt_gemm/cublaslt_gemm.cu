@@ -6,12 +6,12 @@
  * =========
  * 1. 使用 cuBLASLt API 实现纯矩阵乘法（不带 scale/bias 融合）
  * 2. 支持 FP8E4M3 和 INT8 输入
- * 3. 支持 BF16 和 FP32 输出（inner_dtype）
+ * 3. FP8 支持 BF16/FP32 输出，INT8 仅支持 INT32 输出
  * 4. Dequant + bias 由后续 Triton kernel 处理
  * 
  * 计算流程：
  * =========
- * D[M,N] = A[M,K] @ W[N,K]^T
+ * D[N,M]_col = W[K,N]^T_col @ A[K,M]_col
  * 
  * cuBLASLt 配置：
  * ==============
@@ -22,8 +22,16 @@
  * 
  * 支持的数据类型组合：
  * ===================
- * - input_dtype: "fp8e4m3" (FP8E4M3) 或 "int8" (INT8)
- * - inner_dtype: "bf16" (BFloat16) 或 "fp32" (Float32)
+ * - FP8 输入:
+ *     - compute_type = CUBLAS_COMPUTE_32F
+ *     - scale_type = CUDA_R_32F (alpha/beta 为 float)
+ *     - inner_dtype = "bf16"（默认）或 "fp32"
+ * 
+ * - INT8 输入:
+ *     - compute_type = CUBLAS_COMPUTE_32I
+ *     - scale_type = CUDA_R_32I (alpha/beta 为 int32)
+ *     - inner_dtype 参数被忽略，强制使用 "int32"
+ *     - cuBLASLt INT8 GEMM 硬件限制：不支持 BF16/FP32 输出
  * 
  * 接口设计（extern "C"）：
  * =======================
@@ -174,30 +182,37 @@ static cudaDataType_t get_cuda_input_dtype(const std::string& input_dtype) {
 
 /**
  * 将字符串 inner_dtype 转换为 CUDA 数据类型
+ * 
+ * 支持的类型：
+ * - bf16: BFloat16 (仅 FP8 输入支持)
+ * - fp32: Float32 (仅 FP8 输入支持)
+ * - int32: Int32 (仅 INT8 输入支持)
  */
 static cudaDataType_t get_cuda_inner_dtype(const std::string& inner_dtype) {
   if (inner_dtype == "bf16") {
     return CUDA_R_16BF;
   } else if (inner_dtype == "fp32") {
     return CUDA_R_32F;
+  } else if (inner_dtype == "int32") {
+    return CUDA_R_32I;
   } else {
     throw std::invalid_argument(
         "Unsupported inner_dtype: " + inner_dtype +
-        ". Supported: bf16, fp32");
+        ". Supported: bf16, fp32, int32");
   }
 }
 
 /**
  * 根据 input_dtype 获取计算类型
  * 
- * 注意：INT8 也使用 CUBLAS_COMPUTE_32F 以支持 BF16/FP32 输出
- * (CUBLAS_COMPUTE_32I 只支持 INT32 输出，不常用)
+ * FP8 输入: 使用 CUBLAS_COMPUTE_32F，支持 BF16/FP32 输出
+ * INT8 输入: 使用 CUBLAS_COMPUTE_32I，仅支持 INT32 输出
  */
 static cublasComputeType_t get_compute_type(const std::string& input_dtype) {
   if (input_dtype == "fp8e4m3" || input_dtype == "fp8") {
     return CUBLAS_COMPUTE_32F;
   } else if (input_dtype == "int8") {
-    return CUBLAS_COMPUTE_32F;  // 使用 32F 以支持 BF16/FP32 输出
+    return CUBLAS_COMPUTE_32I;  // INT8 必须使用 32I，仅支持 INT32 输出
   } else {
     throw std::invalid_argument(
         "Unsupported input_dtype: " + input_dtype);
@@ -211,7 +226,7 @@ static cublasComputeType_t get_compute_type(const std::string& input_dtype) {
 /**
  * cuBLASLt Matrix Multiplication 内部实现
  * 
- * 计算：D[M,N] = A[M,K] @ W[N,K]^T
+ * 计算：D[N,M]_col = W[K,N]^T_col @ A[K,M]_col
  * 
  * @param W_ptr       权重矩阵指针 [N, K]，FP8/INT8，行主序（GPU 内存）
  * @param A_ptr       输入矩阵指针 [M, K]，FP8/INT8，行主序（GPU 内存）
@@ -243,8 +258,9 @@ static void cublaslt_mm_impl(
   cudaDataType_t cuda_inner_dtype = get_cuda_inner_dtype(inner_dtype);
   cublasComputeType_t compute_type = get_compute_type(input_dtype);
   
-  // Scale 类型始终为 FP32
-  cudaDataType_t scale_type = CUDA_R_32F;
+  // Scale 类型：FP8 使用 FP32，INT8 使用 INT32
+  // cuBLASLt 要求 scale_type 与 compute_type 匹配
+  cudaDataType_t scale_type = (input_dtype == "int8") ? CUDA_R_32I : CUDA_R_32F;
   
   // ========== 获取 cuBLASLt handle ==========
   cublasLtHandle_t handle = get_cublaslt_handle();
@@ -354,19 +370,31 @@ static void cublaslt_mm_impl(
   void* workspace = get_workspace(workspace_size, stream);
   
   // ========== 执行 Matmul ==========
-  // alpha = 1.0, beta = 0.0（纯矩阵乘法，scale 由后续 kernel 处理）
-  float alpha = 1.0f;
-  float beta = 0.0f;
+  // alpha = 1, beta = 0（纯矩阵乘法，scale 由后续 kernel 处理）
+  // 注意：INT8 + COMPUTE_32I 需要 int32 类型的 alpha/beta
+  //       FP8 + COMPUTE_32F 需要 float 类型的 alpha/beta
+  const void* alpha_ptr;
+  const void* beta_ptr;
+  int32_t alpha_i32 = 1, beta_i32 = 0;
+  float alpha_f32 = 1.0f, beta_f32 = 0.0f;
+  
+  if (input_dtype == "int8") {
+    alpha_ptr = &alpha_i32;
+    beta_ptr = &beta_i32;
+  } else {
+    alpha_ptr = &alpha_f32;
+    beta_ptr = &beta_f32;
+  }
   
   CHECK_CUBLASLT(cublasLtMatmul(
       handle,
       matmulDesc,
-      &alpha,
-      W_ptr,    // A（左矩阵）= W
+      alpha_ptr,
+      W_ptr,
       layoutW,
-      A_ptr,    // B（右矩阵）= A
+      A_ptr,
       layoutA,
-      &beta,
+      beta_ptr,
       D_ptr,    // C（用于累加，这里 beta=0 所以不使用）
       layoutD,
       D_ptr,    // D（输出）
@@ -418,7 +446,6 @@ const char* cublaslt_gemm_get_last_error() {
 /**
  * cuBLASLt FP8 Matrix Multiplication
  * 
- * 计算：D[M,N] = A[M,K] @ W[N,K]^T
  * 
  * @param W_ptr       权重矩阵指针 [N, K]，FP8E4M3，行主序（GPU 内存）
  * @param A_ptr       输入矩阵指针 [M, K]，FP8E4M3，行主序（GPU 内存）
@@ -461,18 +488,35 @@ int cublaslt_fp8_mm(
     }
 }
 
+// 用于打印一次性 INT8 警告信息
+static bool g_int8_info_printed = false;
+static std::mutex g_int8_info_mutex;
+
+static void print_int8_info_once() {
+    if (!g_int8_info_printed) {
+        std::lock_guard<std::mutex> lock(g_int8_info_mutex);
+        if (!g_int8_info_printed) {
+            std::cerr << "[cuBLASLt] INFO: INT8 GEMM only supports INT32 output. "
+                      << "inner_dtype parameter is ignored, always using int32.\n";
+            g_int8_info_printed = true;
+        }
+    }
+}
+
 /**
  * cuBLASLt INT8 Matrix Multiplication
  * 
- * 计算：D[M,N] = A[M,K] @ W[N,K]^T
+ * 
+ * 注意: cuBLASLt INT8 GEMM 仅支持 INT32 输出（CUBLAS_COMPUTE_32I）
+ *       inner_dtype 参数被忽略，总是使用 "int32"
  * 
  * @param W_ptr       权重矩阵指针 [N, K]，INT8，行主序（GPU 内存）
  * @param A_ptr       输入矩阵指针 [M, K]，INT8，行主序（GPU 内存）
- * @param D_ptr       输出矩阵指针 [M, N]，BF16/FP32，行主序（GPU 内存，调用方预分配）
+ * @param D_ptr       输出矩阵指针 [M, N]，INT32，行主序（GPU 内存，调用方预分配）
  * @param M           A 的行数
  * @param N           W 的行数（输出列数）
  * @param K           内维度
- * @param inner_dtype 输出数据类型字符串："bf16" 或 "fp32"
+ * @param inner_dtype 被忽略，总是使用 "int32"
  * @param stream      CUDA 流（可为 NULL 使用默认流）
  * @return            0 成功，-1 失败
  */
@@ -490,13 +534,13 @@ int cublaslt_int8_mm(
             set_error("Input/output pointers cannot be null");
             return -1;
         }
-        if (!inner_dtype) {
-            set_error("inner_dtype cannot be null");
-            return -1;
-        }
         
+        // 打印一次性 INFO: cuBLASLt INT8 仅支持 INT32 输出
+        print_int8_info_once();
+        
+        // 忽略 inner_dtype 参数，强制使用 int32
         cublaslt_mm_impl(W_ptr, A_ptr, D_ptr, M, N, K,
-                         "int8", std::string(inner_dtype), stream);
+                         "int8", "int32", stream);
         return 0;
     } catch (const std::exception& e) {
         set_error(e.what());

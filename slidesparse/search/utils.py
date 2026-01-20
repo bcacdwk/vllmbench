@@ -188,6 +188,8 @@ def get_output_torch_dtype(outdtype: str) -> torch.dtype:
         return torch.float32
     elif outdtype == "bf16":
         return torch.bfloat16
+    elif outdtype == "int32":
+        return torch.int32
     else:
         raise ValueError(f"不支持的输出类型: {outdtype}")
 
@@ -197,7 +199,94 @@ def get_output_torch_dtype(outdtype: str) -> torch.dtype:
 # =============================================================================
 
 SUPPORTED_DTYPES = ["int8", "fp8e4m3"]
-SUPPORTED_OUTDTYPES = ["bf16", "fp32"]
+SUPPORTED_OUTDTYPES = ["bf16", "fp32", "int32"]
+
+
+# 后端和数据类型的组合验证
+def validate_dtype_outdtype_combination(
+    dtype: str,
+    outdtype: str,
+    backend: str,
+) -> str:
+    """
+    验证 dtype/outdtype 组合是否合法，并返回实际使用的 outdtype。
+    
+    规则：
+    - FP8 输入: 支持 bf16 或 fp32 输出（所有后端）
+    - INT8 输入 + cuBLASLt: 只支持 int32 输出（硬件限制，不支持 bf16/fp32）
+    - INT8 输入 + cuSPARSELt: 支持 bf16 或 int32 输出（不支持 fp32）
+    
+    Args:
+        dtype: 输入数据类型
+        outdtype: 用户指定的输出数据类型
+        backend: 后端类型 ("cublaslt" 或 "cusparselt")
+    
+    Returns:
+        实际使用的 outdtype
+    
+    Raises:
+        ValueError: 不支持的组合
+    """
+    backend = backend.lower()
+    dtype = dtype.lower()
+    outdtype = outdtype.lower()
+    
+    if dtype in ("fp8", "fp8e4m3"):
+        # FP8: 支持 bf16 或 fp32
+        if outdtype not in ("bf16", "fp32"):
+            raise ValueError(f"FP8 输入不支持 {outdtype} 输出。支持: bf16, fp32")
+        return outdtype
+    
+    elif dtype == "int8":
+        if backend == "cublaslt":
+            # cuBLASLt INT8: 只支持 int32 输出（硬件限制）
+            # 不支持 bf16/fp32，直接报错而不是 fallback
+            if outdtype != "int32":
+                raise ValueError(
+                    f"cuBLASLt INT8 不支持 {outdtype} 输出。"
+                    f"cuBLASLt 使用 CUBLAS_COMPUTE_32I，只能输出 INT32。"
+                    f"如需 BF16 输出，请使用 cuSPARSELt 后端。"
+                )
+            return "int32"
+        
+        elif backend == "cusparselt":
+            # cuSPARSELt INT8: 支持 bf16 或 int32（不支持 fp32）
+            if outdtype == "fp32":
+                raise ValueError("cuSPARSELt INT8 不支持 fp32 输出。支持: bf16, int32")
+            if outdtype not in ("bf16", "int32"):
+                raise ValueError(f"INT8 输入不支持 {outdtype} 输出。支持: bf16, int32")
+            return outdtype
+        
+        else:
+            raise ValueError(f"未知后端: {backend}")
+    
+    else:
+        raise ValueError(f"不支持的输入类型: {dtype}")
+
+
+def get_default_outdtype(dtype: str, backend: str) -> str:
+    """
+    获取给定 dtype 和 backend 的默认 outdtype。
+    
+    Args:
+        dtype: 输入数据类型
+        backend: 后端类型
+    
+    Returns:
+        默认的 outdtype
+    """
+    backend = backend.lower()
+    dtype = dtype.lower()
+    
+    if dtype in ("fp8", "fp8e4m3"):
+        return "bf16"  # FP8 默认 bf16
+    elif dtype == "int8":
+        if backend == "cublaslt":
+            return "int32"  # cuBLASLt INT8 只能 int32
+        else:
+            return "bf16"   # cuSPARSELt INT8 默认 bf16
+    else:
+        return "bf16"
 
 
 # =============================================================================

@@ -7,7 +7,7 @@ test_02_kernel.py - SlideSparse Kernel 正确性测试
 验证 SlideSparse FP8 GEMM kernel 的计算正确性：
 1. 使用随机数据对比 vLLM 原生路径 和 SlideSparse 路径的输出
 2. 测试不同矩阵尺寸 (M, N, K)
-3. 验证 INNER_DTYPE_FP32 选项
+3. 验证 INNER_DTYPE_32 选项
 
 测试流程:
     input (BF16) -> quant (FP8) -> GEMM -> dequant+bias -> output (BF16)
@@ -17,7 +17,7 @@ test_02_kernel.py - SlideSparse Kernel 正确性测试
 使用方法:
     python3 test_02_kernel.py                        # 默认: vs CUTLASS fallback
     python3 test_02_kernel.py --use-cublaslt         # vs cuBLASLt
-    python3 test_02_kernel.py --use-cublaslt --inner-fp32  # cuBLASLt + FP32
+    python3 test_02_kernel.py --use-cublaslt --inner-32  # cuBLASLt + 高精度累加
     python3 test_02_kernel.py --use-cusparselt       # vs cuSPARSELt (TODO)
 
 对比说明:
@@ -346,7 +346,7 @@ def run_batch_correctness_test(
     test_cases: List[GEMMTestCase],
     use_cublaslt: bool = False,
     use_cusparselt: bool = False,
-    inner_fp32: bool = False,
+    inner_32: bool = False,
     verbose: bool = True
 ) -> Tuple[int, int, List[Dict]]:
     """
@@ -356,13 +356,13 @@ def run_batch_correctness_test(
         test_cases: 测试用例列表
         use_cublaslt: 测试组使用 cuBLASLt
         use_cusparselt: 测试组使用 cuSPARSELt
-        inner_fp32: 使用 FP32 累加
+        inner_32: 使用高精度累加
         verbose: 是否打印详细信息
     
     Returns:
         (passed, total, results)
     """
-    backend_name = get_backend_name(use_cublaslt, use_cusparselt, inner_fp32)
+    backend_name = get_backend_name(use_cublaslt, use_cusparselt, inner_32)
     results = []
     passed = 0
     
@@ -397,7 +397,7 @@ def run_batch_correctness_test(
                     restore_env(saved)
                 
                 # 2. 运行 test (SlideSparse)
-                saved = set_env_for_test(use_cublaslt, use_cusparselt, inner_fp32)
+                saved = set_env_for_test(use_cublaslt, use_cusparselt, inner_32)
                 test_output = run_slidesparse(input_bf16, weight_fp8_t, weight_scale, bias)
                 restore_env(saved)
                 
@@ -463,13 +463,13 @@ def test_batch_correctness():
     # 从环境变量获取当前配置
     use_cublaslt = EnvironmentChecker.is_cublaslt_enabled()
     use_cusparselt = EnvironmentChecker.is_cusparselt_enabled()
-    inner_fp32 = EnvironmentChecker.is_inner_dtype_fp32()
+    inner_32 = EnvironmentChecker.is_inner_dtype_32()
     
     passed, total, results = run_batch_correctness_test(
         TEST_CASES, 
         use_cublaslt=use_cublaslt,
         use_cusparselt=use_cusparselt,
-        inner_fp32=inner_fp32,
+        inner_32=inner_32,
         verbose=True
     )
     
@@ -487,13 +487,13 @@ def run_performance_comparison(
     test_cases: List[GEMMTestCase],
     use_cublaslt: bool = False,
     use_cusparselt: bool = False,
-    inner_fp32: bool = False,
+    inner_32: bool = False,
     warmup: int = 25,
     repeat: int = 100,
     verbose: bool = True
 ) -> List[Dict]:
     """运行性能对比"""
-    backend_name = get_backend_name(use_cublaslt, use_cusparselt, inner_fp32)
+    backend_name = get_backend_name(use_cublaslt, use_cusparselt, inner_32)
     results = []
     
     # 检测 CUTLASS 是否支持当前 GPU
@@ -540,7 +540,7 @@ def run_performance_comparison(
                     restore_env(saved)
                 
                 # Test 性能
-                saved = set_env_for_test(use_cublaslt, use_cusparselt, inner_fp32)
+                saved = set_env_for_test(use_cublaslt, use_cusparselt, inner_32)
                 test_time, _ = Benchmarker.benchmark(
                     lambda: run_slidesparse(input_bf16, weight_fp8_t, weight_scale, bias),
                     warmup=warmup,
@@ -607,13 +607,13 @@ def test_performance_comparison():
     # 从环境变量获取当前配置
     use_cublaslt = EnvironmentChecker.is_cublaslt_enabled()
     use_cusparselt = EnvironmentChecker.is_cusparselt_enabled()
-    inner_fp32 = EnvironmentChecker.is_inner_dtype_fp32()
+    inner_32 = EnvironmentChecker.is_inner_dtype_32()
     
     results = run_performance_comparison(
         TEST_CASES, 
         use_cublaslt=use_cublaslt,
         use_cusparselt=use_cusparselt,
-        inner_fp32=inner_fp32,
+        inner_32=inner_32,
         warmup=10, 
         repeat=50
     )

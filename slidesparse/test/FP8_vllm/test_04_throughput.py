@@ -21,7 +21,7 @@ test_04_throughput.py - 吞吐量对比测试
 使用方法:
     python3 test_04_throughput.py                          # 默认: vs CUTLASS fallback
     python3 test_04_throughput.py --use-cublaslt           # vs cuBLASLt
-    python3 test_04_throughput.py --use-cublaslt --inner-fp32  # cuBLASLt + FP32
+    python3 test_04_throughput.py --use-cublaslt --inner-32  # cuBLASLt + 高精度累加
     python3 test_04_throughput.py --use-cusparselt         # vs cuSPARSELt (TODO)
 """
 
@@ -210,7 +210,7 @@ def run_throughput_comparison(
     model_path: Path,
     use_cublaslt: bool = False,
     use_cusparselt: bool = False,
-    inner_fp32: bool = False,
+    inner_32: bool = False,
     sparsity: str = None,
     verbose: bool = True,
 ) -> Dict[str, Any]:
@@ -221,14 +221,14 @@ def run_throughput_comparison(
         model_path: 模型路径
         use_cublaslt: SlideSparse 后端是否使用 cuBLASLt
         use_cusparselt: SlideSparse 后端是否使用 cuSPARSELt
-        inner_fp32: 是否使用 FP32 中间累加
+        inner_32: 是否使用高精度累加（FP8→FP32, INT8→INT32）
         sparsity: 稀疏配置 (如 "2_8", "2_6")，仅 cuSPARSELt 有效
         verbose: 是否打印详细信息
     
     Returns:
         对比结果字典
     """
-    backend_name = get_backend_name(use_cublaslt, use_cusparselt, inner_fp32, sparsity)
+    backend_name = get_backend_name(use_cublaslt, use_cusparselt, inner_32, sparsity)
     results = {}
     
     # 对于 cuSPARSELt，跳过 baseline（使用不同 checkpoint）
@@ -280,7 +280,7 @@ def run_throughput_comparison(
     # 测试: SlideSparse 后端
     if verbose:
         print(f"  {Colors.green(f'[测试] {backend_name}...')}")
-    saved_env = set_env_for_test(use_cublaslt, use_cusparselt, inner_fp32, sparsity)
+    saved_env = set_env_for_test(use_cublaslt, use_cusparselt, inner_32, sparsity)
     test_prefill = run_phase_test(
         model_path,
         num_prompts=PREFILL_CONFIG["num_prompts"],
@@ -343,7 +343,7 @@ def run_throughput_comparison(
     # 测试: SlideSparse 后端
     if verbose:
         print(f"  {Colors.green(f'[测试] {backend_name}...')}")
-    saved_env = set_env_for_test(use_cublaslt, use_cusparselt, inner_fp32, sparsity)
+    saved_env = set_env_for_test(use_cublaslt, use_cusparselt, inner_32, sparsity)
     test_decode = run_phase_test(
         model_path,
         num_prompts=DECODE_CONFIG["num_prompts"],
@@ -407,7 +407,7 @@ if __name__ == "__main__":
     # 根据参数决定测试的 SlideSparse 后端
     use_cublaslt = getattr(args, 'use_cublaslt', False)
     use_cusparselt = getattr(args, 'use_cusparselt', False)
-    inner_fp32 = getattr(args, 'inner_fp32', False)
+    inner_32 = getattr(args, 'inner_32', False)
     sparsity = getattr(args, 'sparsity', None)
     
     # 查找模型
@@ -429,7 +429,7 @@ if __name__ == "__main__":
         model_path=model_path,
         use_cublaslt=use_cublaslt,
         use_cusparselt=use_cusparselt,
-        inner_fp32=inner_fp32,
+        inner_32=inner_32,
         sparsity=sparsity,
         verbose=True,
     )

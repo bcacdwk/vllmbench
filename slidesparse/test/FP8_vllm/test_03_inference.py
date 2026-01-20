@@ -16,7 +16,7 @@ test_03_inference.py - 端到端推理输出对比
 使用方法:
     python3 test_03_inference.py                          # 默认: vs CUTLASS fallback
     python3 test_03_inference.py --use-cublaslt           # vs cuBLASLt
-    python3 test_03_inference.py --use-cublaslt --inner-fp32  # cuBLASLt + FP32
+    python3 test_03_inference.py --use-cublaslt --inner-32  # cuBLASLt + 高精度累加
     python3 test_03_inference.py --use-cusparselt         # vs cuSPARSELt (TODO)
 """
 
@@ -63,7 +63,7 @@ def run_comparison_inference(
     prompts: List[str],
     use_cublaslt: bool = False,
     use_cusparselt: bool = False,
-    inner_fp32: bool = False,
+    inner_32: bool = False,
     sparsity: str = "2_8",
     max_tokens: int = 48,
     verbose: bool = True,
@@ -76,7 +76,7 @@ def run_comparison_inference(
         prompts: 提示词列表
         use_cublaslt: SlideSparse 后端是否使用 cuBLASLt
         use_cusparselt: SlideSparse 后端是否使用 cuSPARSELt
-        inner_fp32: 是否使用 FP32 中间累加
+        inner_32: 是否使用高精度累加（FP8→FP32, INT8→INT32）
         sparsity: 稀疏格式（仅 cuSPARSELt 时生效）
         max_tokens: 最大生成 token 数
         verbose: 是否打印详细信息
@@ -88,7 +88,7 @@ def run_comparison_inference(
     from vllm import LLM, SamplingParams
     
     results = []
-    backend_name = get_backend_name(use_cublaslt, use_cusparselt, inner_fp32, sparsity)
+    backend_name = get_backend_name(use_cublaslt, use_cusparselt, inner_32, sparsity)
     
     # 检测 CUTLASS 是否支持当前 GPU
     cutlass_supported = EnvironmentChecker.supports_cutlass_fp8()
@@ -157,7 +157,7 @@ def run_comparison_inference(
         step = "[1/1]" if baseline_texts is None else "[2/2]"
         print(f"\n{Colors.cyan(f'{step} 运行 {backend_name}...')}")
     
-    saved_env = set_env_for_test(use_cublaslt, use_cusparselt, inner_fp32, sparsity)
+    saved_env = set_env_for_test(use_cublaslt, use_cusparselt, inner_32, sparsity)
     
     with cuda_memory_manager():
         llm_test = LLM(
@@ -238,7 +238,7 @@ if __name__ == "__main__":
     # 根据参数决定测试的 SlideSparse 后端
     use_cublaslt = getattr(args, 'use_cublaslt', False)
     use_cusparselt = getattr(args, 'use_cusparselt', False)
-    inner_fp32 = getattr(args, 'inner_fp32', False)
+    inner_32 = getattr(args, 'inner_32', False)
     sparsity = getattr(args, 'sparsity', '2_8')
     
     # 查找模型
@@ -270,7 +270,7 @@ if __name__ == "__main__":
         prompts=TEST_PROMPTS,
         use_cublaslt=use_cublaslt,
         use_cusparselt=use_cusparselt,
-        inner_fp32=inner_fp32,
+        inner_32=inner_32,
         max_tokens=64,
         verbose=True,
     )

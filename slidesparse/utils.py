@@ -117,6 +117,10 @@ DTYPE_ALIASES = {
     "int8": "INT8",
     "INT8": "INT8",
     "i8": "INT8",
+    # INT32
+    "int32": "INT32",
+    "INT32": "INT32",
+    "i32": "INT32",
     # BF16
     "bf16": "BF16",
     "BF16": "BF16",
@@ -2632,14 +2636,14 @@ class SlideSparseConfig:
                 f"expand={self.expand_ratio:.3f})")
 
 
-def compute_output_k(k_in: int, config: SlideSparseConfig, align_to: int = 16) -> Tuple[int, int]:
+def compute_output_k(k_in: int, config: SlideSparseConfig, align_to: int = 32) -> Tuple[int, int]:
     """
     计算滑动扩展后的 K 维度
     
     Args:
         k_in: 原始输入维度 K
         config: SlideSparse 配置
-        align_to: 输出对齐要求（默认 16）
+        align_to: 输出对齐要求（默认 32
     
     Returns:
         (k_padded, k_out):
@@ -2816,7 +2820,7 @@ def get_model_nk_sizes_slided(
     nk_sizes: Dict[str, Tuple[int, int]],
     Z: int,
     L: int,
-    align_to: int = 16,
+    align_to: int = 32,
 ) -> Dict[str, Tuple[int, int]]:
     """
     计算 slide 后的 N,K 尺寸
@@ -2873,7 +2877,7 @@ def print_model_nk_summary(
     model_path: Union[str, Path],
     Z: int = 2,
     L: int = 8,
-    align_to: int = 16,
+    align_to: int = 32,
 ) -> None:
     """
     打印模型的 NK 尺寸摘要（原始、slide、压缩）
