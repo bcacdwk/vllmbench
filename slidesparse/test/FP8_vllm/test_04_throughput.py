@@ -15,7 +15,7 @@ test_04_throughput.py - 吞吐量对比测试
     [SlideSparse 后端]  根据参数选择不同 kernel    ← test
 
 使用方法:
-    python3 test_04_throughput.py                          # 默认: vs CUTLASS fallback
+    python3 test_04_throughput.py --use-cutlass     # 默认: vs CUTLASS fallback
     python3 test_04_throughput.py --use-cublaslt           # vs cuBLASLt
     python3 test_04_throughput.py --use-cublaslt --inner-32  # cuBLASLt + 高精度累加
 
@@ -378,16 +378,44 @@ def run_throughput_comparison(
     # ========== 总结 ==========
     if verbose:
         print(f"\n{'=' * 90}")
-        print(Colors.bold("总结"))
+        print(Colors.bold("总结 - 吞吐量对比表格"))
         print(f"{'=' * 90}")
-        if "speedup" in results.get("prefill", {}):
-            print(f"  Prefill (长输入): {format_speedup(results['prefill']['speedup'])}")
+        
+        # 表头
+        print(f"\n  {'阶段':<12} │ {'Baseline (tok/s)':<18} │ {backend_name + ' (tok/s)':<18} │ {'加速比':<12}")
+        print(f"  {'─' * 12}─┼─{'─' * 18}─┼─{'─' * 18}─┼─{'─' * 12}")
+        
+        # Prefill 行
+        prefill_data = results.get("prefill", {})
+        if "speedup" in prefill_data:
+            baseline_str = f"{prefill_data['baseline_tps']:>14.1f}"
+            test_str = f"{prefill_data['test_tps']:>14.1f}"
+            speedup_str = format_speedup(prefill_data['speedup'])
         else:
-            print(f"  Prefill (长输入): {results['prefill']['test_tps']:.1f} tok/s (无 baseline)")
-        if "speedup" in results.get("decode", {}):
-            print(f"  Decode  (长输出): {format_speedup(results['decode']['speedup'])}")
+            baseline_str = f"{'N/A':>14}"
+            test_str = f"{prefill_data.get('test_tps', 0):>14.1f}"
+            speedup_str = "N/A"
+        print(f"  {'Prefill':<12} │ {baseline_str:<18} │ {test_str:<18} │ {speedup_str:<12}")
+        
+        # Decode 行
+        decode_data = results.get("decode", {})
+        if "speedup" in decode_data:
+            baseline_str = f"{decode_data['baseline_tps']:>14.1f}"
+            test_str = f"{decode_data['test_tps']:>14.1f}"
+            speedup_str = format_speedup(decode_data['speedup'])
         else:
-            print(f"  Decode  (长输出): {results['decode']['test_tps']:.1f} tok/s (无 baseline)")
+            baseline_str = f"{'N/A':>14}"
+            test_str = f"{decode_data.get('test_tps', 0):>14.1f}"
+            speedup_str = "N/A"
+        print(f"  {'Decode':<12} │ {baseline_str:<18} │ {test_str:<18} │ {speedup_str:<12}")
+        
+        print(f"  {'─' * 12}─┴─{'─' * 18}─┴─{'─' * 18}─┴─{'─' * 12}")
+        
+        # 综合加速比
+        if "speedup" in prefill_data and "speedup" in decode_data:
+            avg_speedup = (prefill_data['speedup'] + decode_data['speedup']) / 2
+            print(f"\n  平均加速比: {format_speedup(avg_speedup)}")
+        
         print(f"{'=' * 90}")
     
     return results
