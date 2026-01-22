@@ -257,26 +257,23 @@ def benchmark_kernel_4layers(
 # ============================================================================
 
 def test_cutlass_kernels(data_list: List[LayerTestData], M: int):
-    """测试 CUTLASS 路径的各个 kernel"""
-    from vllm.model_executor.layers.quantization.input_quant_fp8 import QuantFP8
-    from vllm.model_executor.layers.quantization.utils.quant_utils import GroupShape
+    """测试 CUTLASS 路径的各个 kernel
+    
+    注意：直接调用 ops.scaled_fp8_quant 而不是 QuantFP8 类，
+    避免 nn.Module.__call__ 带来的 ~30us Python 开销。
+    这样测量的是纯 kernel 时间，与 cuBLASLt/cuSPARSELt 路径公平对比。
+    """
     from vllm import _custom_ops as ops
     
     print(f"\n{'='*80}")
     print(f"CUTLASS 路径 (M={M})")
     print(f"{'='*80}")
     
-    # 创建 QuantFP8 实例
-    quant_fp8 = QuantFP8(
-        static=False,
-        group_shape=GroupShape.PER_TOKEN,
-    )
-    
-    # 1. 测试 Quant
-    print("\n[CUTLASS.quant] vLLM QuantFP8")
+    # 1. 测试 Quant - 直接调用 ops.scaled_fp8_quant（绑过 QuantFP8 类）
+    print("\n[CUTLASS.quant] ops.scaled_fp8_quant (直接调用，无类包装)")
     def quant_factory(data):
         def fn():
-            return quant_fp8(data.input_bf16, None, None)
+            return ops.scaled_fp8_quant(data.input_bf16, None, use_per_token_if_dynamic=True)
         return fn
     
     avg_quant, times_quant = benchmark_kernel_4layers(quant_factory, data_list)
@@ -287,11 +284,11 @@ def test_cutlass_kernels(data_list: List[LayerTestData], M: int):
     # 2. 测试 scaled_mm（需要先 quant 得到 qinput）
     print("\n[CUTLASS.scaled_mm] CUTLASS 融合 GEMM+Dequant")
     
-    # 预先计算 qinput 和 scale_a
+    # 预先计算 qinput 和 scale_a（直接调用 ops）
     qinputs = []
     scale_as = []
     for data in data_list:
-        qinput, scale_a = quant_fp8(data.input_bf16, None, None)
+        qinput, scale_a = ops.scaled_fp8_quant(data.input_bf16, None, use_per_token_if_dynamic=True)
         qinputs.append(qinput)
         scale_as.append(scale_a)
     

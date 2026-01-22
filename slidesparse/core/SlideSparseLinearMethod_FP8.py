@@ -71,6 +71,7 @@ from .config import (
 from pathlib import Path
 from typing import Optional
 from collections import defaultdict
+from contextlib import nullcontext
 import os
 import time
 
@@ -94,7 +95,7 @@ _pending_events: list = []  # [(name, start_event, end_event), ...]
 _PENDING_FLUSH_THRESHOLD = 1000  # 积累多少个 events 后批量同步
 
 
-class ProfileTimer:
+class _ProfileTimerImpl:
     """
     异步 CUDA 计时器 - 不阻塞 GPU pipeline
     
@@ -130,6 +131,19 @@ class ProfileTimer:
             # 如果积累了太多 events，批量同步一次
             if len(_pending_events) >= _PENDING_FLUSH_THRESHOLD:
                 _flush_pending_events()
+
+
+def ProfileTimer(name: str, enabled: bool = True):
+    """
+    ProfileTimer 工厂函数 - 兼容 torch.compile
+    
+    在 torch.compile 追踪阶段返回 nullcontext，避免 graph break。
+    正常执行时返回 _ProfileTimerImpl 进行实际计时。
+    """
+    # 检测是否在 torch.compile 追踪阶段
+    if torch.compiler.is_compiling():
+        return nullcontext()
+    return _ProfileTimerImpl(name, enabled)
 
 
 def _flush_pending_events():
@@ -403,6 +417,9 @@ def _get_gemm_extension(backend: str):
     获取 GEMM extension（懒加载）
     
     加载 ctypes 包装的 CUDA 扩展（纯 C 库，通过 ctypes.CDLL 加载）
+    
+    注意：SlideSparseFp8LinearOp.__init__ 会预加载 extension，
+    所以在 torch.compile 追踪时会直接命中缓存。
     """
     if backend in _gemm_extensions:
         return _gemm_extensions[backend]
@@ -503,11 +520,10 @@ def dequant_bias_kernel(
     
     计算: output[M, N] = gemm_output[M, N] * scale_a[M] * scale_b[N] + bias[N]
     """
-    fn = _load_dequant_bias_kernel()
     if bias is None:
         # 使用缓存的零 bias，避免每次调用都分配内存
         bias = _get_zero_bias(gemm_output.shape[1], gemm_output.device)
-    return fn(gemm_output, scale_a, scale_b, bias, out_dtype)
+    return _dequant_bias_fn(gemm_output, scale_a, scale_b, bias, out_dtype)
 
 
 # ============================================================================
@@ -555,8 +571,7 @@ def quant_only_fp8_kernel(
         qinput: [M_pad, K_pad] FP8，M_pad=ceil16(M), K_pad=ceil32(K)
         scale_a: [M_pad] FP32，padding 区域为 1.0
     """
-    fn = _load_quant_only_fp8_kernel()
-    return fn(input)
+    return _quant_only_fp8_fn(input)
 
 
 # ============================================================================
@@ -608,8 +623,7 @@ def quant_slide_fp8_kernel(
                 K_slide = num_groups * (L/2 - 1) * 4
         scale_a: [M_pad] FP32，padding 区域为 1.0
     """
-    fn = _load_quant_slide_fp8_kernel()
-    return fn(input, L)
+    return _quant_slide_fp8_fn(input, L)
 
 
 # ============================================================================
@@ -659,8 +673,8 @@ def cuBLASLt_FP8_linear(
             ↓ dequant_bias_kernel
         output[M, N] out_dtype
     """
-    with ProfileTimer("cuBLASLt.get_extension"):
-        ext = _get_gemm_extension("cublaslt")
+    # extension 已在 SlideSparseFp8LinearOp.__init__ 中预加载，直接从缓存获取
+    ext = _gemm_extensions["cublaslt"]
     M = input.shape[0]
     
     # Quant: [M, K] -> [M_pad, K_pad]
@@ -734,8 +748,8 @@ def cuSPARSELt_FP8_linear(
         slide_weight_K: 权重 K_slide 维度（slide 扩展后，已 32 对齐）
         L: 稀疏组大小（默认 8）
     """
-    with ProfileTimer("cuSPARSELt.get_extension"):
-        ext = _get_gemm_extension("cusparselt")
+    # extension 已在 SlideSparseFp8LinearOp.__init__ 中预加载，直接从缓存获取
+    ext = _gemm_extensions["cusparselt"]
     
     if slide_weight_N is None or slide_weight_K is None:
         raise ValueError(
@@ -871,9 +885,17 @@ class SlideSparseFp8LinearOp:
         if self._use_cublaslt:
             self._kernel_name = "cuBLASLt"
             self._linear_fn = cuBLASLt_FP8_linear
+            # 预加载 extension 和 kernel，避免 torch.compile 追踪时的 graph break
+            _get_gemm_extension("cublaslt")
+            _load_quant_only_fp8_kernel()
+            _load_dequant_bias_kernel()
         elif self._use_cusparselt:
             self._kernel_name = "cuSPARSELt"
             self._linear_fn = cuSPARSELt_FP8_linear
+            # 预加载 extension 和 kernel，避免 torch.compile 追踪时的 graph break
+            _get_gemm_extension("cusparselt")
+            _load_quant_slide_fp8_kernel()
+            _load_dequant_bias_kernel()
         else:
             self._kernel_name = "CUTLASS"
             self._linear_fn = cutlass_FP8_linear

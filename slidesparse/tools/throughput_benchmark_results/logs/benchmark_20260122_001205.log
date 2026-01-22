@@ -1,0 +1,410 @@
+======================================================================
+SlideSparse vLLM Throughput Benchmark Log
+Created: 2026-01-22 00:12:05
+======================================================================
+
+原始命令:
+  throughput_benchmark.py --model qwen2.5-0.5b-fp8 --backend cusparselt --sparsity 2_4 --stage decode --M 512
+
+命令行参数:
+  --model: qwen2.5-0.5b-fp8
+  --backend: cusparselt
+  --sparsity: 2_4
+  --stage: decode
+  --M: 512
+  --N: None
+  --inner-32: False
+  --eager: False
+  --gpu-id: 0
+  --gpu-mem: 0.9
+  --dry-run: False
+  --list-models: False
+
+硬件信息:
+  GPU: RTX5080
+  Compute Capability: cc120
+  VRAM: 15.5 GB
+  CUDA: 12.9
+  Python: py312
+
+======================================================================
+
+
+============================================================
+  Qwen2.5-0.5B-FP8 | cuSPARSELt (2_4) | decode
+============================================================
+
+[INFO] Checkpoint: /root/vllmbench/checkpoints_slidesparse/Qwen2.5-0.5B-FP8-SlideSparse-2_4
+[INFO] Output: /root/vllmbench/slidesparse/tools/throughput_benchmark_results/decode/RTX5080_cc120_FP8E4M3_py312_cu129_x86_64/cusparselt/2_4
+
+============================================================
+[1/1] 测试 M=512
+============================================================
+
+┌─────────────────────────────────────────────────────────────┐
+│                    测试参数                                  │
+├─────────────────────────────────────────────────────────────┤
+│ 模型:     Qwen2.5-0.5B-FP8
+│ Backend:  cuSPARSELt (2:4)
+│ 阶段:     decode
+├─────────────────────────────────────────────────────────────┤
+│ GEMM M 维度:
+│   M_prefill = 8192 (= 512 x 16)
+│   M_decode  = 512
+├─────────────────────────────────────────────────────────────┤
+│ vLLM 参数:
+│   --input-len       = 16
+│   --output-len      = 256
+│   --num-prompts     = 512
+│   --max-num-seqs    = 512
+│   --max-model-len   = 400
+├─────────────────────────────────────────────────────────────┤
+│ 迭代次数:
+│   N_prefill = 1
+│   N_decode  = 256
+└─────────────────────────────────────────────────────────────┘
+
+[INFO] 开始测试...
+
+─── STDOUT ───
+When dataset path is not set, it will default to random dataset
+INFO 01-22 00:12:08 [datasets.py:612] Sampling input_len from [16, 16] and output_len from [256, 256]
+INFO 01-22 00:12:08 [utils.py:253] non-default args: {'tokenizer': '/root/vllmbench/checkpoints_slidesparse/Qwen2.5-0.5B-FP8-SlideSparse-2_4', 'max_model_len': 400, 'max_num_batched_tokens': 204800, 'max_num_seqs': 512, 'disable_log_stats': True, 'enable_lora': None, 'reasoning_parser_plugin': '', 'model': '/root/vllmbench/checkpoints_slidesparse/Qwen2.5-0.5B-FP8-SlideSparse-2_4'}
+INFO 01-22 00:12:08 [model.py:514] Resolved architecture: Qwen2ForCausalLM
+INFO 01-22 00:12:08 [model.py:1661] Using max model len 400
+INFO 01-22 00:12:09 [scheduler.py:230] Chunked prefill is enabled with max_num_batched_tokens=204800.
+(EngineCore_DP0 pid=3254235) INFO 01-22 00:12:12 [core.py:93] Initializing a V1 LLM engine (v0.13.1.dev7+gd5e6597bf) with config: model='/root/vllmbench/checkpoints_slidesparse/Qwen2.5-0.5B-FP8-SlideSparse-2_4', speculative_config=None, tokenizer='/root/vllmbench/checkpoints_slidesparse/Qwen2.5-0.5B-FP8-SlideSparse-2_4', skip_tokenizer_init=False, tokenizer_mode=auto, revision=None, tokenizer_revision=None, trust_remote_code=False, dtype=torch.bfloat16, max_seq_len=400, download_dir=None, load_format=auto, tensor_parallel_size=1, pipeline_parallel_size=1, data_parallel_size=1, disable_custom_all_reduce=False, quantization=compressed-tensors, enforce_eager=False, kv_cache_dtype=auto, device_config=cuda, structured_outputs_config=StructuredOutputsConfig(backend='auto', disable_fallback=False, disable_any_whitespace=False, disable_additional_properties=False, reasoning_parser='', reasoning_parser_plugin='', enable_in_reasoning=False), observability_config=ObservabilityConfig(show_hidden_metrics_for_version=None, otlp_traces_endpoint=None, collect_detailed_traces=None, kv_cache_metrics=False, kv_cache_metrics_sample=0.01, cudagraph_metrics=False, enable_layerwise_nvtx_tracing=False), seed=0, served_model_name=/root/vllmbench/checkpoints_slidesparse/Qwen2.5-0.5B-FP8-SlideSparse-2_4, enable_prefix_caching=True, enable_chunked_prefill=True, pooler_config=None, compilation_config={'level': None, 'mode': <CompilationMode.VLLM_COMPILE: 3>, 'debug_dump_path': None, 'cache_dir': '', 'compile_cache_save_format': 'binary', 'backend': 'inductor', 'custom_ops': ['none'], 'splitting_ops': ['vllm::unified_attention', 'vllm::unified_attention_with_output', 'vllm::unified_mla_attention', 'vllm::unified_mla_attention_with_output', 'vllm::mamba_mixer2', 'vllm::mamba_mixer', 'vllm::short_conv', 'vllm::linear_attention', 'vllm::plamo2_mamba_mixer', 'vllm::gdn_attention_core', 'vllm::kda_attention', 'vllm::sparse_attn_indexer'], 'compile_mm_encoder': False, 'compile_sizes': [], 'compile_ranges_split_points': [204800], 'inductor_compile_config': {'enable_auto_functionalized_v2': False, 'combo_kernels': True, 'benchmark_combo_kernel': True}, 'inductor_passes': {}, 'cudagraph_mode': <CUDAGraphMode.FULL_AND_PIECEWISE: (2, 1)>, 'cudagraph_num_of_warmups': 1, 'cudagraph_capture_sizes': [1, 2, 4, 8, 16, 24, 32, 40, 48, 56, 64, 72, 80, 88, 96, 104, 112, 120, 128, 136, 144, 152, 160, 168, 176, 184, 192, 200, 208, 216, 224, 232, 240, 248, 256, 272, 288, 304, 320, 336, 352, 368, 384, 400, 416, 432, 448, 464, 480, 496, 512], 'cudagraph_copy_inputs': False, 'cudagraph_specialize_lora': True, 'use_inductor_graph_partition': False, 'pass_config': {'fuse_norm_quant': False, 'fuse_act_quant': False, 'fuse_attn_quant': False, 'eliminate_noops': True, 'enable_sp': False, 'fuse_gemm_comms': False, 'fuse_allreduce_rms': False}, 'max_cudagraph_capture_size': 512, 'dynamic_shapes_config': {'type': <DynamicShapesType.BACKED: 'backed'>, 'evaluate_guards': False}, 'local_cache_dir': None}
+(EngineCore_DP0 pid=3254235) INFO 01-22 00:12:12 [parallel_state.py:1203] world_size=1 rank=0 local_rank=0 distributed_init_method=tcp://10.172.141.44:52495 backend=nccl
+(EngineCore_DP0 pid=3254235) INFO 01-22 00:12:13 [parallel_state.py:1411] rank 0 in world size 1 is assigned as DP rank 0, PP rank 0, PCP rank 0, TP rank 0, EP rank 0
+(EngineCore_DP0 pid=3254235) INFO 01-22 00:12:13 [gpu_model_runner.py:3562] Starting to load model /root/vllmbench/checkpoints_slidesparse/Qwen2.5-0.5B-FP8-SlideSparse-2_4...
+(EngineCore_DP0 pid=3254235) INFO 01-22 00:12:13 [cuda.py:351] Using FLASH_ATTN attention backend out of potential backends: ('FLASH_ATTN', 'FLASHINFER', 'TRITON_ATTN', 'FLEX_ATTENTION')
+(EngineCore_DP0 pid=3254235) INFO 01-22 00:12:13 [default_loader.py:308] Loading weights took 0.09 seconds
+(EngineCore_DP0 pid=3254235) INFO 01-22 00:12:13 [gpu_model_runner.py:3659] Model loading took 0.5927 GiB memory and 0.252668 seconds
+(EngineCore_DP0 pid=3254235) INFO 01-22 00:12:17 [backends.py:643] Using cache directory: /root/.cache/vllm/torch_compile_cache/84cdbf88f0/rank_0_0/backbone for vLLM's torch.compile
+(EngineCore_DP0 pid=3254235) INFO 01-22 00:12:17 [backends.py:703] Dynamo bytecode transform time: 3.77 s
+(EngineCore_DP0 pid=3254235) INFO 01-22 00:12:20 [backends.py:226] Directly load the compiled graph(s) for compile range (1, 204800) from the cache, took 0.968 s
+(EngineCore_DP0 pid=3254235) INFO 01-22 00:12:20 [monitor.py:34] torch.compile takes 4.74 s in total
+(EngineCore_DP0 pid=3254235) INFO 01-22 00:12:20 [gpu_worker.py:375] Available KV cache memory: 7.58 GiB
+(EngineCore_DP0 pid=3254235) INFO 01-22 00:12:21 [kv_cache_utils.py:1291] GPU KV cache size: 662,000 tokens
+(EngineCore_DP0 pid=3254235) INFO 01-22 00:12:21 [kv_cache_utils.py:1296] Maximum concurrency for 400 tokens per request: 1655.00x
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866] EngineCore failed to start.
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866] Traceback (most recent call last):
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]   File "/root/vllmbench/vllm/v1/engine/core.py", line 857, in run_engine_core
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]     engine_core = EngineCoreProc(*args, **kwargs)
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]   File "/root/vllmbench/vllm/v1/engine/core.py", line 637, in __init__
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]     super().__init__(
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]   File "/root/vllmbench/vllm/v1/engine/core.py", line 109, in __init__
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]     num_gpu_blocks, num_cpu_blocks, kv_cache_config = self._initialize_kv_caches(
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]                                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]   File "/root/vllmbench/vllm/v1/engine/core.py", line 256, in _initialize_kv_caches
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]     self.model_executor.initialize_from_config(kv_cache_configs)
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]   File "/root/vllmbench/vllm/v1/executor/abstract.py", line 116, in initialize_from_config
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]     self.collective_rpc("compile_or_warm_up_model")
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]   File "/root/vllmbench/vllm/v1/executor/uniproc_executor.py", line 75, in collective_rpc
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]     result = run_method(self.driver_worker, method, args, kwargs)
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]   File "/root/vllmbench/vllm/v1/serial_utils.py", line 461, in run_method
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]     return func(*args, **kwargs)
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]   File "/root/vllmbench/vllm/v1/worker/gpu_worker.py", line 455, in compile_or_warm_up_model
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]     kernel_warmup(self)
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]   File "/root/vllmbench/vllm/model_executor/warmup/kernel_warmup.py", line 41, in kernel_warmup
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]     flashinfer_autotune(worker.model_runner)
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]   File "/root/vllmbench/vllm/model_executor/warmup/kernel_warmup.py", line 94, in flashinfer_autotune
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]     runner._dummy_run(
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/utils/_contextlib.py", line 120, in decorate_context
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]     return func(*args, **kwargs)
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]   File "/root/vllmbench/vllm/v1/worker/gpu_model_runner.py", line 4198, in _dummy_run
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]     outputs = self.model(
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]               ^^^^^^^^^^^
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]   File "/root/vllmbench/vllm/compilation/cuda_graph.py", line 220, in __call__
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]     return self.runnable(*args, **kwargs)
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py", line 1775, in _wrapped_call_impl
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]     return self._call_impl(*args, **kwargs)
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py", line 1786, in _call_impl
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]     return forward_call(*args, **kwargs)
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]   File "/root/vllmbench/vllm/model_executor/models/qwen2.py", line 583, in forward
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]     hidden_states = self.model(
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]                     ^^^^^^^^^^^
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]   File "/root/vllmbench/vllm/compilation/decorators.py", line 439, in __call__
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]     return TorchCompileWithNoGuardsWrapper.__call__(self, *args, **kwargs)
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]   File "/root/vllmbench/vllm/compilation/wrapper.py", line 223, in __call__
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]     return self._call_with_optional_nvtx_range(
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]   File "/root/vllmbench/vllm/compilation/wrapper.py", line 109, in _call_with_optional_nvtx_range
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]     return callable_fn(*args, **kwargs)
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]   File "/root/vllmbench/vllm/model_executor/models/qwen2.py", line 418, in forward
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]     def forward(
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/_dynamo/eval_frame.py", line 1044, in _fn
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]     return fn(*args, **kwargs)
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]            ^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]   File "/root/vllmbench/vllm/compilation/caching.py", line 54, in __call__
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]     return self.optimized_call(*args, **kwargs)
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/fx/graph_module.py", line 837, in call_wrapped
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]     return self._wrapped_call(self, *args, **kwargs)
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/fx/graph_module.py", line 413, in __call__
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]     raise e
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/fx/graph_module.py", line 400, in __call__
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]     return super(self.cls, obj).__call__(*args, **kwargs)  # type: ignore[misc]
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py", line 1775, in _wrapped_call_impl
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]     return self._call_impl(*args, **kwargs)
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py", line 1786, in _call_impl
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]     return forward_call(*args, **kwargs)
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]   File "<eval_with_key>.50", line 288, in forward
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]     submod_4 = self.submod_4(getitem_8, s72, l_self_modules_layers_modules_1_modules_self_attn_modules_o_proj_parameters_weight_, l_self_modules_layers_modules_1_modules_self_attn_modules_o_proj_parameters_weight_scale_, l_self_modules_layers_modules_1_modules_post_attention_layernorm_parameters_weight_, getitem_9, l_self_modules_layers_modules_1_modules_mlp_modules_gate_up_proj_parameters_weight_, l_self_modules_layers_modules_1_modules_mlp_modules_gate_up_proj_parameters_weight_scale_, l_self_modules_layers_modules_1_modules_mlp_modules_down_proj_parameters_weight_, l_self_modules_layers_modules_1_modules_mlp_modules_down_proj_parameters_weight_scale_, l_self_modules_layers_modules_2_modules_input_layernorm_parameters_weight_, l_self_modules_layers_modules_2_modules_self_attn_modules_qkv_proj_parameters_weight_, l_self_modules_layers_modules_2_modules_self_attn_modules_qkv_proj_parameters_weight_scale_, l_self_modules_layers_modules_2_modules_self_attn_modules_qkv_proj_parameters_bias_, l_positions_, l_self_modules_layers_modules_0_modules_self_attn_modules_rotary_emb_buffers_cos_sin_cache_);  getitem_8 = l_self_modules_layers_modules_1_modules_self_attn_modules_o_proj_parameters_weight_ = l_self_modules_layers_modules_1_modules_self_attn_modules_o_proj_parameters_weight_scale_ = l_self_modules_layers_modules_1_modules_post_attention_layernorm_parameters_weight_ = getitem_9 = l_self_modules_layers_modules_1_modules_mlp_modules_gate_up_proj_parameters_weight_ = l_self_modules_layers_modules_1_modules_mlp_modules_gate_up_proj_parameters_weight_scale_ = l_self_modules_layers_modules_1_modules_mlp_modules_down_proj_parameters_weight_ = l_self_modules_layers_modules_1_modules_mlp_modules_down_proj_parameters_weight_scale_ = l_self_modules_layers_modules_2_modules_input_layernorm_parameters_weight_ = l_self_modules_layers_modules_2_modules_self_attn_modules_qkv_proj_parameters_weight_ = l_self_modules_layers_modules_2_modules_self_attn_modules_qkv_proj_parameters_weight_scale_ = l_self_modules_layers_modules_2_modules_self_attn_modules_qkv_proj_parameters_bias_ = None
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]   File "/root/vllmbench/vllm/compilation/cuda_graph.py", line 220, in __call__
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]     return self.runnable(*args, **kwargs)
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]   File "/root/vllmbench/vllm/compilation/piecewise_backend.py", line 178, in __call__
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]     return range_entry.runnable(*args)
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]   File "/root/vllmbench/vllm/compilation/compiler_interface.py", line 268, in compiled_graph_wrapper
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]     graph_output = inductor_compiled_graph(*args)
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/_inductor/standalone_compile.py", line 63, in __call__
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]     return self._compiled_fn(*args)
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/_inductor/standalone_compile.py", line 184, in <lambda>
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]     return CompiledArtifact(lambda *args: compiled_fn(list(args)), None)
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]                                           ^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 353, in runtime_wrapper
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]     all_outs = call_func_at_runtime_with_args(
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/_functorch/_aot_autograd/utils.py", line 129, in call_func_at_runtime_with_args
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]     out = normalize_as_list(f(args))
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]                             ^^^^^^^
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 526, in wrapper
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]     return compiled_fn(runtime_args)
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/_inductor/output_code.py", line 613, in __call__
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]     return self.current_callable(inputs)
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/_inductor/utils.py", line 2962, in run
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]     out = model(new_inputs)
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]           ^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]   File "/tmp/torchinductor_root/lq/clqr4a3ybsywbzerymhme4kz5vqffijj3j3uilafrxedhvvtdjgj.py", line 1284, in call
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]     buf10 = empty_strided_cuda((s72, 9728), (9728, 1), torch.bfloat16)
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866]             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3254235) ERROR 01-22 00:12:21 [core.py:866] torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 3.71 GiB. GPU 0 has a total capacity of 15.46 GiB of which 935.94 MiB is free. Including non-PyTorch memory, this process has 14.31 GiB memory in use. Of the allocated memory 9.74 GiB is allocated by PyTorch, and 4.19 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+
+
+─── STDERR ───
+/root/vllmbench/vllm/model_executor/layers/quantization/slidesparse.py:81: UserWarning: Failed to import slidesparse modules: No module named 'slidesparse'. SlideSparse features will be disabled.
+  warnings.warn(
+/root/vllmbench/vllm/model_executor/layers/quantization/slidesparse.py:81: UserWarning: Failed to import slidesparse modules: No module named 'slidesparse'. SlideSparse features will be disabled.
+  warnings.warn(
+(EngineCore_DP0 pid=3254235) 
+Loading safetensors checkpoint shards:   0% Completed | 0/1 [00:00<?, ?it/s]
+(EngineCore_DP0 pid=3254235) 
+Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00, 13.36it/s]
+(EngineCore_DP0 pid=3254235) 
+(EngineCore_DP0 pid=3254235) 2026-01-22 00:12:21,306 - INFO - autotuner.py:256 - flashinfer.jit: [Autotuner]: Autotuning process starts ...
+(EngineCore_DP0 pid=3254235) 2026-01-22 00:12:21,393 - INFO - autotuner.py:262 - flashinfer.jit: [Autotuner]: Autotuning process ends
+(EngineCore_DP0 pid=3254235) Process EngineCore_DP0:
+(EngineCore_DP0 pid=3254235) Traceback (most recent call last):
+(EngineCore_DP0 pid=3254235)   File "/usr/lib/python3.12/multiprocessing/process.py", line 314, in _bootstrap
+(EngineCore_DP0 pid=3254235)     self.run()
+(EngineCore_DP0 pid=3254235)   File "/usr/lib/python3.12/multiprocessing/process.py", line 108, in run
+(EngineCore_DP0 pid=3254235)     self._target(*self._args, **self._kwargs)
+(EngineCore_DP0 pid=3254235)   File "/root/vllmbench/vllm/v1/engine/core.py", line 870, in run_engine_core
+(EngineCore_DP0 pid=3254235)     raise e
+(EngineCore_DP0 pid=3254235)   File "/root/vllmbench/vllm/v1/engine/core.py", line 857, in run_engine_core
+(EngineCore_DP0 pid=3254235)     engine_core = EngineCoreProc(*args, **kwargs)
+(EngineCore_DP0 pid=3254235)                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3254235)   File "/root/vllmbench/vllm/v1/engine/core.py", line 637, in __init__
+(EngineCore_DP0 pid=3254235)     super().__init__(
+(EngineCore_DP0 pid=3254235)   File "/root/vllmbench/vllm/v1/engine/core.py", line 109, in __init__
+(EngineCore_DP0 pid=3254235)     num_gpu_blocks, num_cpu_blocks, kv_cache_config = self._initialize_kv_caches(
+(EngineCore_DP0 pid=3254235)                                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3254235)   File "/root/vllmbench/vllm/v1/engine/core.py", line 256, in _initialize_kv_caches
+(EngineCore_DP0 pid=3254235)     self.model_executor.initialize_from_config(kv_cache_configs)
+(EngineCore_DP0 pid=3254235)   File "/root/vllmbench/vllm/v1/executor/abstract.py", line 116, in initialize_from_config
+(EngineCore_DP0 pid=3254235)     self.collective_rpc("compile_or_warm_up_model")
+(EngineCore_DP0 pid=3254235)   File "/root/vllmbench/vllm/v1/executor/uniproc_executor.py", line 75, in collective_rpc
+(EngineCore_DP0 pid=3254235)     result = run_method(self.driver_worker, method, args, kwargs)
+(EngineCore_DP0 pid=3254235)              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3254235)   File "/root/vllmbench/vllm/v1/serial_utils.py", line 461, in run_method
+(EngineCore_DP0 pid=3254235)     return func(*args, **kwargs)
+(EngineCore_DP0 pid=3254235)            ^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3254235)   File "/root/vllmbench/vllm/v1/worker/gpu_worker.py", line 455, in compile_or_warm_up_model
+(EngineCore_DP0 pid=3254235)     kernel_warmup(self)
+(EngineCore_DP0 pid=3254235)   File "/root/vllmbench/vllm/model_executor/warmup/kernel_warmup.py", line 41, in kernel_warmup
+(EngineCore_DP0 pid=3254235)     flashinfer_autotune(worker.model_runner)
+(EngineCore_DP0 pid=3254235)   File "/root/vllmbench/vllm/model_executor/warmup/kernel_warmup.py", line 94, in flashinfer_autotune
+(EngineCore_DP0 pid=3254235)     runner._dummy_run(
+(EngineCore_DP0 pid=3254235)   File "/usr/local/lib/python3.12/dist-packages/torch/utils/_contextlib.py", line 120, in decorate_context
+(EngineCore_DP0 pid=3254235)     return func(*args, **kwargs)
+(EngineCore_DP0 pid=3254235)            ^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3254235)   File "/root/vllmbench/vllm/v1/worker/gpu_model_runner.py", line 4198, in _dummy_run
+(EngineCore_DP0 pid=3254235)     outputs = self.model(
+(EngineCore_DP0 pid=3254235)               ^^^^^^^^^^^
+(EngineCore_DP0 pid=3254235)   File "/root/vllmbench/vllm/compilation/cuda_graph.py", line 220, in __call__
+(EngineCore_DP0 pid=3254235)     return self.runnable(*args, **kwargs)
+(EngineCore_DP0 pid=3254235)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3254235)   File "/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py", line 1775, in _wrapped_call_impl
+(EngineCore_DP0 pid=3254235)     return self._call_impl(*args, **kwargs)
+(EngineCore_DP0 pid=3254235)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3254235)   File "/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py", line 1786, in _call_impl
+(EngineCore_DP0 pid=3254235)     return forward_call(*args, **kwargs)
+(EngineCore_DP0 pid=3254235)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3254235)   File "/root/vllmbench/vllm/model_executor/models/qwen2.py", line 583, in forward
+(EngineCore_DP0 pid=3254235)     hidden_states = self.model(
+(EngineCore_DP0 pid=3254235)                     ^^^^^^^^^^^
+(EngineCore_DP0 pid=3254235)   File "/root/vllmbench/vllm/compilation/decorators.py", line 439, in __call__
+(EngineCore_DP0 pid=3254235)     return TorchCompileWithNoGuardsWrapper.__call__(self, *args, **kwargs)
+(EngineCore_DP0 pid=3254235)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3254235)   File "/root/vllmbench/vllm/compilation/wrapper.py", line 223, in __call__
+(EngineCore_DP0 pid=3254235)     return self._call_with_optional_nvtx_range(
+(EngineCore_DP0 pid=3254235)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3254235)   File "/root/vllmbench/vllm/compilation/wrapper.py", line 109, in _call_with_optional_nvtx_range
+(EngineCore_DP0 pid=3254235)     return callable_fn(*args, **kwargs)
+(EngineCore_DP0 pid=3254235)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3254235)   File "/root/vllmbench/vllm/model_executor/models/qwen2.py", line 418, in forward
+(EngineCore_DP0 pid=3254235)     def forward(
+(EngineCore_DP0 pid=3254235)   File "/usr/local/lib/python3.12/dist-packages/torch/_dynamo/eval_frame.py", line 1044, in _fn
+(EngineCore_DP0 pid=3254235)     return fn(*args, **kwargs)
+(EngineCore_DP0 pid=3254235)            ^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3254235)   File "/root/vllmbench/vllm/compilation/caching.py", line 54, in __call__
+(EngineCore_DP0 pid=3254235)     return self.optimized_call(*args, **kwargs)
+(EngineCore_DP0 pid=3254235)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3254235)   File "/usr/local/lib/python3.12/dist-packages/torch/fx/graph_module.py", line 837, in call_wrapped
+(EngineCore_DP0 pid=3254235)     return self._wrapped_call(self, *args, **kwargs)
+(EngineCore_DP0 pid=3254235)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3254235)   File "/usr/local/lib/python3.12/dist-packages/torch/fx/graph_module.py", line 413, in __call__
+(EngineCore_DP0 pid=3254235)     raise e
+(EngineCore_DP0 pid=3254235)   File "/usr/local/lib/python3.12/dist-packages/torch/fx/graph_module.py", line 400, in __call__
+(EngineCore_DP0 pid=3254235)     return super(self.cls, obj).__call__(*args, **kwargs)  # type: ignore[misc]
+(EngineCore_DP0 pid=3254235)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3254235)   File "/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py", line 1775, in _wrapped_call_impl
+(EngineCore_DP0 pid=3254235)     return self._call_impl(*args, **kwargs)
+(EngineCore_DP0 pid=3254235)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3254235)   File "/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py", line 1786, in _call_impl
+(EngineCore_DP0 pid=3254235)     return forward_call(*args, **kwargs)
+(EngineCore_DP0 pid=3254235)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3254235)   File "<eval_with_key>.50", line 288, in forward
+(EngineCore_DP0 pid=3254235)     submod_4 = self.submod_4(getitem_8, s72, l_self_modules_layers_modules_1_modules_self_attn_modules_o_proj_parameters_weight_, l_self_modules_layers_modules_1_modules_self_attn_modules_o_proj_parameters_weight_scale_, l_self_modules_layers_modules_1_modules_post_attention_layernorm_parameters_weight_, getitem_9, l_self_modules_layers_modules_1_modules_mlp_modules_gate_up_proj_parameters_weight_, l_self_modules_layers_modules_1_modules_mlp_modules_gate_up_proj_parameters_weight_scale_, l_self_modules_layers_modules_1_modules_mlp_modules_down_proj_parameters_weight_, l_self_modules_layers_modules_1_modules_mlp_modules_down_proj_parameters_weight_scale_, l_self_modules_layers_modules_2_modules_input_layernorm_parameters_weight_, l_self_modules_layers_modules_2_modules_self_attn_modules_qkv_proj_parameters_weight_, l_self_modules_layers_modules_2_modules_self_attn_modules_qkv_proj_parameters_weight_scale_, l_self_modules_layers_modules_2_modules_self_attn_modules_qkv_proj_parameters_bias_, l_positions_, l_self_modules_layers_modules_0_modules_self_attn_modules_rotary_emb_buffers_cos_sin_cache_);  getitem_8 = l_self_modules_layers_modules_1_modules_self_attn_modules_o_proj_parameters_weight_ = l_self_modules_layers_modules_1_modules_self_attn_modules_o_proj_parameters_weight_scale_ = l_self_modules_layers_modules_1_modules_post_attention_layernorm_parameters_weight_ = getitem_9 = l_self_modules_layers_modules_1_modules_mlp_modules_gate_up_proj_parameters_weight_ = l_self_modules_layers_modules_1_modules_mlp_modules_gate_up_proj_parameters_weight_scale_ = l_self_modules_layers_modules_1_modules_mlp_modules_down_proj_parameters_weight_ = l_self_modules_layers_modules_1_modules_mlp_modules_down_proj_parameters_weight_scale_ = l_self_modules_layers_modules_2_modules_input_layernorm_parameters_weight_ = l_self_modules_layers_modules_2_modules_self_attn_modules_qkv_proj_parameters_weight_ = l_self_modules_layers_modules_2_modules_self_attn_modules_qkv_proj_parameters_weight_scale_ = l_self_modules_layers_modules_2_modules_self_attn_modules_qkv_proj_parameters_bias_ = None
+(EngineCore_DP0 pid=3254235)                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3254235)   File "/root/vllmbench/vllm/compilation/cuda_graph.py", line 220, in __call__
+(EngineCore_DP0 pid=3254235)     return self.runnable(*args, **kwargs)
+(EngineCore_DP0 pid=3254235)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3254235)   File "/root/vllmbench/vllm/compilation/piecewise_backend.py", line 178, in __call__
+(EngineCore_DP0 pid=3254235)     return range_entry.runnable(*args)
+(EngineCore_DP0 pid=3254235)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3254235)   File "/root/vllmbench/vllm/compilation/compiler_interface.py", line 268, in compiled_graph_wrapper
+(EngineCore_DP0 pid=3254235)     graph_output = inductor_compiled_graph(*args)
+(EngineCore_DP0 pid=3254235)                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3254235)   File "/usr/local/lib/python3.12/dist-packages/torch/_inductor/standalone_compile.py", line 63, in __call__
+(EngineCore_DP0 pid=3254235)     return self._compiled_fn(*args)
+(EngineCore_DP0 pid=3254235)            ^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3254235)   File "/usr/local/lib/python3.12/dist-packages/torch/_inductor/standalone_compile.py", line 184, in <lambda>
+(EngineCore_DP0 pid=3254235)     return CompiledArtifact(lambda *args: compiled_fn(list(args)), None)
+(EngineCore_DP0 pid=3254235)                                           ^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3254235)   File "/usr/local/lib/python3.12/dist-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 353, in runtime_wrapper
+(EngineCore_DP0 pid=3254235)     all_outs = call_func_at_runtime_with_args(
+(EngineCore_DP0 pid=3254235)                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3254235)   File "/usr/local/lib/python3.12/dist-packages/torch/_functorch/_aot_autograd/utils.py", line 129, in call_func_at_runtime_with_args
+(EngineCore_DP0 pid=3254235)     out = normalize_as_list(f(args))
+(EngineCore_DP0 pid=3254235)                             ^^^^^^^
+(EngineCore_DP0 pid=3254235)   File "/usr/local/lib/python3.12/dist-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 526, in wrapper
+(EngineCore_DP0 pid=3254235)     return compiled_fn(runtime_args)
+(EngineCore_DP0 pid=3254235)            ^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3254235)   File "/usr/local/lib/python3.12/dist-packages/torch/_inductor/output_code.py", line 613, in __call__
+(EngineCore_DP0 pid=3254235)     return self.current_callable(inputs)
+(EngineCore_DP0 pid=3254235)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3254235)   File "/usr/local/lib/python3.12/dist-packages/torch/_inductor/utils.py", line 2962, in run
+(EngineCore_DP0 pid=3254235)     out = model(new_inputs)
+(EngineCore_DP0 pid=3254235)           ^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3254235)   File "/tmp/torchinductor_root/lq/clqr4a3ybsywbzerymhme4kz5vqffijj3j3uilafrxedhvvtdjgj.py", line 1284, in call
+(EngineCore_DP0 pid=3254235)     buf10 = empty_strided_cuda((s72, 9728), (9728, 1), torch.bfloat16)
+(EngineCore_DP0 pid=3254235)             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3254235) torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 3.71 GiB. GPU 0 has a total capacity of 15.46 GiB of which 935.94 MiB is free. Including non-PyTorch memory, this process has 14.31 GiB memory in use. Of the allocated memory 9.74 GiB is allocated by PyTorch, and 4.19 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+[rank0]:[W122 00:12:21.654356376 ProcessGroupNCCL.cpp:1524] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+Traceback (most recent call last):
+  File "/usr/local/bin/vllm", line 7, in <module>
+    sys.exit(main())
+             ^^^^^^
+  File "/root/vllmbench/vllm/entrypoints/cli/main.py", line 73, in main
+    args.dispatch_function(args)
+  File "/root/vllmbench/vllm/entrypoints/cli/benchmark/throughput.py", line 21, in cmd
+    main(args)
+  File "/root/vllmbench/vllm/benchmarks/throughput.py", line 730, in main
+    elapsed_time, request_outputs = run_vllm(
+                                    ^^^^^^^^^
+  File "/root/vllmbench/vllm/benchmarks/throughput.py", line 51, in run_vllm
+    llm = LLM(**dataclasses.asdict(engine_args))
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/entrypoints/llm.py", line 351, in __init__
+    self.llm_engine = LLMEngine.from_engine_args(
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/v1/engine/llm_engine.py", line 183, in from_engine_args
+    return cls(
+           ^^^^
+  File "/root/vllmbench/vllm/v1/engine/llm_engine.py", line 109, in __init__
+    self.engine_core = EngineCoreClient.make_client(
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/v1/engine/core_client.py", line 93, in make_client
+    return SyncMPClient(vllm_config, executor_class, log_stats)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/v1/engine/core_client.py", line 648, in __init__
+    super().__init__(
+  File "/root/vllmbench/vllm/v1/engine/core_client.py", line 477, in __init__
+    with launch_core_engines(vllm_config, executor_class, log_stats) as (
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/contextlib.py", line 144, in __exit__
+    next(self.gen)
+  File "/root/vllmbench/vllm/v1/engine/utils.py", line 903, in launch_core_engines
+    wait_for_engine_startup(
+  File "/root/vllmbench/vllm/v1/engine/utils.py", line 960, in wait_for_engine_startup
+    raise RuntimeError(
+RuntimeError: Engine core initialization failed. See root cause above. Failed core proc(s): {}
+
+[ERROR] 测试失败: M=512 (exit code: 1)
+
+─── 错误输出 (最后 10 行) ───
+  File "/root/vllmbench/vllm/v1/engine/core_client.py", line 477, in __init__
+    with launch_core_engines(vllm_config, executor_class, log_stats) as (
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/contextlib.py", line 144, in __exit__
+    next(self.gen)
+  File "/root/vllmbench/vllm/v1/engine/utils.py", line 903, in launch_core_engines
+    wait_for_engine_startup(
+  File "/root/vllmbench/vllm/v1/engine/utils.py", line 960, in wait_for_engine_startup
+    raise RuntimeError(
+RuntimeError: Engine core initialization failed. See root cause above. Failed core proc(s): {}
+─────────────────────────────────
+
+
+------------------------------------------------------------
+  生成 CSV: Qwen2.5-0.5B-FP8
+------------------------------------------------------------
+[SUCCESS] CSV 保存到: /root/vllmbench/slidesparse/tools/throughput_benchmark_results/decode/RTX5080_cc120_FP8E4M3_py312_cu129_x86_64/cusparselt/2_4/Qwen2.5-0.5B-FP8_decode.csv
+
+预览:
+------------------------------------------------------------
+M_decode,prompt_len,max_num_seqs,num_prompts,N_decode,output_len,requests_per_s,tokens_per_s,elapsed_time_s
+
+------------------------------------------------------------
+
+[INFO] 完成: 0 成功, 1 失败
+
+
+============================================================
+  Benchmark 完成!
+============================================================
+
+
+总计: 0 成功, 1 失败
+============================================================

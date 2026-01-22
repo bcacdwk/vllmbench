@@ -1,0 +1,960 @@
+
+========== M=16 ==========
+Time: 2026-01-21 23:50:37
+Backend: cuSPARSELt (2:6)
+Checkpoint: /root/vllmbench/checkpoints_slidesparse/Qwen2.5-0.5B-FP8-SlideSparse-2_6
+Params: prompt_len=16, output_len=256, num_prompts=16, max_num_seqs=16
+Command: vllm bench throughput --model /root/vllmbench/checkpoints_slidesparse/Qwen2.5-0.5B-FP8-SlideSparse-2_6 --dataset-name random --input-len 16 --output-len 256 --num-prompts 16 --max-num-seqs 16 --max-model-len 400 --max-num-batched-tokens 6400 --gpu-memory-utilization 0.9 --disable-log-stats --output-json /root/vllmbench/slidesparse/tools/throughput_benchmark_results/decode/RTX5080_cc120_FP8E4M3_py312_cu129_x86_64/cusparselt/2_6/json/Qwen2.5-0.5B-FP8_M16.json
+
+STDOUT:
+When dataset path is not set, it will default to random dataset
+(EngineCore_DP0 pid=3241343) ERROR 01-21 23:50:46 [core.py:866] EngineCore failed to start.
+(EngineCore_DP0 pid=3241343) ERROR 01-21 23:50:46 [core.py:866] Traceback (most recent call last):
+(EngineCore_DP0 pid=3241343) ERROR 01-21 23:50:46 [core.py:866]   File "/root/vllmbench/vllm/v1/engine/core.py", line 857, in run_engine_core
+(EngineCore_DP0 pid=3241343) ERROR 01-21 23:50:46 [core.py:866]     engine_core = EngineCoreProc(*args, **kwargs)
+(EngineCore_DP0 pid=3241343) ERROR 01-21 23:50:46 [core.py:866]                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3241343) ERROR 01-21 23:50:46 [core.py:866]   File "/root/vllmbench/vllm/v1/engine/core.py", line 637, in __init__
+(EngineCore_DP0 pid=3241343) ERROR 01-21 23:50:46 [core.py:866]     super().__init__(
+(EngineCore_DP0 pid=3241343) ERROR 01-21 23:50:46 [core.py:866]   File "/root/vllmbench/vllm/v1/engine/core.py", line 102, in __init__
+(EngineCore_DP0 pid=3241343) ERROR 01-21 23:50:46 [core.py:866]     self.model_executor = executor_class(vllm_config)
+(EngineCore_DP0 pid=3241343) ERROR 01-21 23:50:46 [core.py:866]                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3241343) ERROR 01-21 23:50:46 [core.py:866]   File "/root/vllmbench/vllm/v1/executor/abstract.py", line 101, in __init__
+(EngineCore_DP0 pid=3241343) ERROR 01-21 23:50:46 [core.py:866]     self._init_executor()
+(EngineCore_DP0 pid=3241343) ERROR 01-21 23:50:46 [core.py:866]   File "/root/vllmbench/vllm/v1/executor/uniproc_executor.py", line 48, in _init_executor
+(EngineCore_DP0 pid=3241343) ERROR 01-21 23:50:46 [core.py:866]     self.driver_worker.load_model()
+(EngineCore_DP0 pid=3241343) ERROR 01-21 23:50:46 [core.py:866]   File "/root/vllmbench/vllm/v1/worker/gpu_worker.py", line 289, in load_model
+(EngineCore_DP0 pid=3241343) ERROR 01-21 23:50:46 [core.py:866]     self.model_runner.load_model(eep_scale_up=eep_scale_up)
+(EngineCore_DP0 pid=3241343) ERROR 01-21 23:50:46 [core.py:866]   File "/root/vllmbench/vllm/v1/worker/gpu_model_runner.py", line 3581, in load_model
+(EngineCore_DP0 pid=3241343) ERROR 01-21 23:50:46 [core.py:866]     self.model = model_loader.load_model(
+(EngineCore_DP0 pid=3241343) ERROR 01-21 23:50:46 [core.py:866]                  ^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3241343) ERROR 01-21 23:50:46 [core.py:866]   File "/root/vllmbench/vllm/model_executor/model_loader/base_loader.py", line 55, in load_model
+(EngineCore_DP0 pid=3241343) ERROR 01-21 23:50:46 [core.py:866]     self.load_weights(model, model_config)
+(EngineCore_DP0 pid=3241343) ERROR 01-21 23:50:46 [core.py:866]   File "/root/vllmbench/vllm/model_executor/model_loader/default_loader.py", line 305, in load_weights
+(EngineCore_DP0 pid=3241343) ERROR 01-21 23:50:46 [core.py:866]     loaded_weights = model.load_weights(self.get_all_weights(model_config, model))
+(EngineCore_DP0 pid=3241343) ERROR 01-21 23:50:46 [core.py:866]                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3241343) ERROR 01-21 23:50:46 [core.py:866]   File "/root/vllmbench/vllm/model_executor/models/qwen2.py", line 600, in load_weights
+(EngineCore_DP0 pid=3241343) ERROR 01-21 23:50:46 [core.py:866]     return loader.load_weights(weights)
+(EngineCore_DP0 pid=3241343) ERROR 01-21 23:50:46 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3241343) ERROR 01-21 23:50:46 [core.py:866]   File "/root/vllmbench/vllm/model_executor/model_loader/online_quantization.py", line 173, in patched_model_load_weights
+(EngineCore_DP0 pid=3241343) ERROR 01-21 23:50:46 [core.py:866]     return original_load_weights(auto_weight_loader, weights, mapper=mapper)
+(EngineCore_DP0 pid=3241343) ERROR 01-21 23:50:46 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3241343) ERROR 01-21 23:50:46 [core.py:866]   File "/root/vllmbench/vllm/model_executor/models/utils.py", line 335, in load_weights
+(EngineCore_DP0 pid=3241343) ERROR 01-21 23:50:46 [core.py:866]     autoloaded_weights = set(self._load_module("", self.module, weights))
+(EngineCore_DP0 pid=3241343) ERROR 01-21 23:50:46 [core.py:866]                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3241343) ERROR 01-21 23:50:46 [core.py:866]   File "/root/vllmbench/vllm/model_executor/models/utils.py", line 288, in _load_module
+(EngineCore_DP0 pid=3241343) ERROR 01-21 23:50:46 [core.py:866]     yield from self._load_module(
+(EngineCore_DP0 pid=3241343) ERROR 01-21 23:50:46 [core.py:866]   File "/root/vllmbench/vllm/model_executor/models/utils.py", line 261, in _load_module
+(EngineCore_DP0 pid=3241343) ERROR 01-21 23:50:46 [core.py:866]     loaded_params = module_load_weights(weights)
+(EngineCore_DP0 pid=3241343) ERROR 01-21 23:50:46 [core.py:866]                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3241343) ERROR 01-21 23:50:46 [core.py:866]   File "/root/vllmbench/vllm/model_executor/models/qwen2.py", line 501, in load_weights
+(EngineCore_DP0 pid=3241343) ERROR 01-21 23:50:46 [core.py:866]     weight_loader(param, loaded_weight, shard_id)
+(EngineCore_DP0 pid=3241343) ERROR 01-21 23:50:46 [core.py:866]   File "/root/vllmbench/vllm/model_executor/layers/linear.py", line 858, in weight_loader_v2
+(EngineCore_DP0 pid=3241343) ERROR 01-21 23:50:46 [core.py:866]     param.load_merged_column_weight(
+(EngineCore_DP0 pid=3241343) ERROR 01-21 23:50:46 [core.py:866]   File "/root/vllmbench/vllm/model_executor/parameter.py", line 175, in load_merged_column_weight
+(EngineCore_DP0 pid=3241343) ERROR 01-21 23:50:46 [core.py:866]     assert param_data.shape == loaded_weight.shape
+(EngineCore_DP0 pid=3241343) ERROR 01-21 23:50:46 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3241343) ERROR 01-21 23:50:46 [core.py:866] AssertionError
+
+STDERR:
+/root/vllmbench/vllm/model_executor/layers/quantization/slidesparse.py:81: UserWarning: Failed to import slidesparse modules: No module named 'slidesparse'. SlideSparse features will be disabled.
+  warnings.warn(
+/root/vllmbench/vllm/model_executor/layers/quantization/slidesparse.py:81: UserWarning: Failed to import slidesparse modules: No module named 'slidesparse'. SlideSparse features will be disabled.
+  warnings.warn(
+(EngineCore_DP0 pid=3241343) 
+Loading safetensors checkpoint shards:   0% Completed | 0/1 [00:00<?, ?it/s]
+(EngineCore_DP0 pid=3241343) Process EngineCore_DP0:
+(EngineCore_DP0 pid=3241343) Traceback (most recent call last):
+(EngineCore_DP0 pid=3241343)   File "/usr/lib/python3.12/multiprocessing/process.py", line 314, in _bootstrap
+(EngineCore_DP0 pid=3241343)     self.run()
+(EngineCore_DP0 pid=3241343)   File "/usr/lib/python3.12/multiprocessing/process.py", line 108, in run
+(EngineCore_DP0 pid=3241343)     self._target(*self._args, **self._kwargs)
+(EngineCore_DP0 pid=3241343)   File "/root/vllmbench/vllm/v1/engine/core.py", line 870, in run_engine_core
+(EngineCore_DP0 pid=3241343)     raise e
+(EngineCore_DP0 pid=3241343)   File "/root/vllmbench/vllm/v1/engine/core.py", line 857, in run_engine_core
+(EngineCore_DP0 pid=3241343)     engine_core = EngineCoreProc(*args, **kwargs)
+(EngineCore_DP0 pid=3241343)                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3241343)   File "/root/vllmbench/vllm/v1/engine/core.py", line 637, in __init__
+(EngineCore_DP0 pid=3241343)     super().__init__(
+(EngineCore_DP0 pid=3241343)   File "/root/vllmbench/vllm/v1/engine/core.py", line 102, in __init__
+(EngineCore_DP0 pid=3241343)     self.model_executor = executor_class(vllm_config)
+(EngineCore_DP0 pid=3241343)                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3241343)   File "/root/vllmbench/vllm/v1/executor/abstract.py", line 101, in __init__
+(EngineCore_DP0 pid=3241343)     self._init_executor()
+(EngineCore_DP0 pid=3241343)   File "/root/vllmbench/vllm/v1/executor/uniproc_executor.py", line 48, in _init_executor
+(EngineCore_DP0 pid=3241343)     self.driver_worker.load_model()
+(EngineCore_DP0 pid=3241343)   File "/root/vllmbench/vllm/v1/worker/gpu_worker.py", line 289, in load_model
+(EngineCore_DP0 pid=3241343)     self.model_runner.load_model(eep_scale_up=eep_scale_up)
+(EngineCore_DP0 pid=3241343)   File "/root/vllmbench/vllm/v1/worker/gpu_model_runner.py", line 3581, in load_model
+(EngineCore_DP0 pid=3241343)     self.model = model_loader.load_model(
+(EngineCore_DP0 pid=3241343)                  ^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3241343)   File "/root/vllmbench/vllm/model_executor/model_loader/base_loader.py", line 55, in load_model
+(EngineCore_DP0 pid=3241343)     self.load_weights(model, model_config)
+(EngineCore_DP0 pid=3241343)   File "/root/vllmbench/vllm/model_executor/model_loader/default_loader.py", line 305, in load_weights
+(EngineCore_DP0 pid=3241343)     loaded_weights = model.load_weights(self.get_all_weights(model_config, model))
+(EngineCore_DP0 pid=3241343)                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3241343)   File "/root/vllmbench/vllm/model_executor/models/qwen2.py", line 600, in load_weights
+(EngineCore_DP0 pid=3241343)     return loader.load_weights(weights)
+(EngineCore_DP0 pid=3241343)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3241343)   File "/root/vllmbench/vllm/model_executor/model_loader/online_quantization.py", line 173, in patched_model_load_weights
+(EngineCore_DP0 pid=3241343)     return original_load_weights(auto_weight_loader, weights, mapper=mapper)
+(EngineCore_DP0 pid=3241343)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3241343)   File "/root/vllmbench/vllm/model_executor/models/utils.py", line 335, in load_weights
+(EngineCore_DP0 pid=3241343)     autoloaded_weights = set(self._load_module("", self.module, weights))
+(EngineCore_DP0 pid=3241343)                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3241343)   File "/root/vllmbench/vllm/model_executor/models/utils.py", line 288, in _load_module
+(EngineCore_DP0 pid=3241343)     yield from self._load_module(
+(EngineCore_DP0 pid=3241343)   File "/root/vllmbench/vllm/model_executor/models/utils.py", line 261, in _load_module
+(EngineCore_DP0 pid=3241343)     loaded_params = module_load_weights(weights)
+(EngineCore_DP0 pid=3241343)                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3241343)   File "/root/vllmbench/vllm/model_executor/models/qwen2.py", line 501, in load_weights
+(EngineCore_DP0 pid=3241343)     weight_loader(param, loaded_weight, shard_id)
+(EngineCore_DP0 pid=3241343)   File "/root/vllmbench/vllm/model_executor/layers/linear.py", line 858, in weight_loader_v2
+(EngineCore_DP0 pid=3241343)     param.load_merged_column_weight(
+(EngineCore_DP0 pid=3241343)   File "/root/vllmbench/vllm/model_executor/parameter.py", line 175, in load_merged_column_weight
+(EngineCore_DP0 pid=3241343)     assert param_data.shape == loaded_weight.shape
+(EngineCore_DP0 pid=3241343)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3241343) AssertionError
+(EngineCore_DP0 pid=3241343) 
+Loading safetensors checkpoint shards:   0% Completed | 0/1 [00:00<?, ?it/s]
+(EngineCore_DP0 pid=3241343) 
+[rank0]:[W121 23:50:46.726501565 ProcessGroupNCCL.cpp:1524] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+Traceback (most recent call last):
+  File "/usr/local/bin/vllm", line 7, in <module>
+    sys.exit(main())
+             ^^^^^^
+  File "/root/vllmbench/vllm/entrypoints/cli/main.py", line 73, in main
+    args.dispatch_function(args)
+  File "/root/vllmbench/vllm/entrypoints/cli/benchmark/throughput.py", line 21, in cmd
+    main(args)
+  File "/root/vllmbench/vllm/benchmarks/throughput.py", line 730, in main
+    elapsed_time, request_outputs = run_vllm(
+                                    ^^^^^^^^^
+  File "/root/vllmbench/vllm/benchmarks/throughput.py", line 51, in run_vllm
+    llm = LLM(**dataclasses.asdict(engine_args))
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/entrypoints/llm.py", line 351, in __init__
+    self.llm_engine = LLMEngine.from_engine_args(
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/v1/engine/llm_engine.py", line 183, in from_engine_args
+    return cls(
+           ^^^^
+  File "/root/vllmbench/vllm/v1/engine/llm_engine.py", line 109, in __init__
+    self.engine_core = EngineCoreClient.make_client(
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/v1/engine/core_client.py", line 93, in make_client
+    return SyncMPClient(vllm_config, executor_class, log_stats)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/v1/engine/core_client.py", line 648, in __init__
+    super().__init__(
+  File "/root/vllmbench/vllm/v1/engine/core_client.py", line 477, in __init__
+    with launch_core_engines(vllm_config, executor_class, log_stats) as (
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/contextlib.py", line 144, in __exit__
+    next(self.gen)
+  File "/root/vllmbench/vllm/v1/engine/utils.py", line 903, in launch_core_engines
+    wait_for_engine_startup(
+  File "/root/vllmbench/vllm/v1/engine/utils.py", line 960, in wait_for_engine_startup
+    raise RuntimeError(
+RuntimeError: Engine core initialization failed. See root cause above. Failed core proc(s): {}
+
+ERROR: Test failed for M=16
+
+========== M=128 ==========
+Time: 2026-01-21 23:50:48
+Backend: cuSPARSELt (2:6)
+Checkpoint: /root/vllmbench/checkpoints_slidesparse/Qwen2.5-0.5B-FP8-SlideSparse-2_6
+Params: prompt_len=16, output_len=256, num_prompts=128, max_num_seqs=128
+Command: vllm bench throughput --model /root/vllmbench/checkpoints_slidesparse/Qwen2.5-0.5B-FP8-SlideSparse-2_6 --dataset-name random --input-len 16 --output-len 256 --num-prompts 128 --max-num-seqs 128 --max-model-len 400 --max-num-batched-tokens 51200 --gpu-memory-utilization 0.9 --disable-log-stats --output-json /root/vllmbench/slidesparse/tools/throughput_benchmark_results/decode/RTX5080_cc120_FP8E4M3_py312_cu129_x86_64/cusparselt/2_6/json/Qwen2.5-0.5B-FP8_M128.json
+
+STDOUT:
+When dataset path is not set, it will default to random dataset
+(EngineCore_DP0 pid=3241663) ERROR 01-21 23:50:56 [core.py:866] EngineCore failed to start.
+(EngineCore_DP0 pid=3241663) ERROR 01-21 23:50:56 [core.py:866] Traceback (most recent call last):
+(EngineCore_DP0 pid=3241663) ERROR 01-21 23:50:56 [core.py:866]   File "/root/vllmbench/vllm/v1/engine/core.py", line 857, in run_engine_core
+(EngineCore_DP0 pid=3241663) ERROR 01-21 23:50:56 [core.py:866]     engine_core = EngineCoreProc(*args, **kwargs)
+(EngineCore_DP0 pid=3241663) ERROR 01-21 23:50:56 [core.py:866]                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3241663) ERROR 01-21 23:50:56 [core.py:866]   File "/root/vllmbench/vllm/v1/engine/core.py", line 637, in __init__
+(EngineCore_DP0 pid=3241663) ERROR 01-21 23:50:56 [core.py:866]     super().__init__(
+(EngineCore_DP0 pid=3241663) ERROR 01-21 23:50:56 [core.py:866]   File "/root/vllmbench/vllm/v1/engine/core.py", line 102, in __init__
+(EngineCore_DP0 pid=3241663) ERROR 01-21 23:50:56 [core.py:866]     self.model_executor = executor_class(vllm_config)
+(EngineCore_DP0 pid=3241663) ERROR 01-21 23:50:56 [core.py:866]                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3241663) ERROR 01-21 23:50:56 [core.py:866]   File "/root/vllmbench/vllm/v1/executor/abstract.py", line 101, in __init__
+(EngineCore_DP0 pid=3241663) ERROR 01-21 23:50:56 [core.py:866]     self._init_executor()
+(EngineCore_DP0 pid=3241663) ERROR 01-21 23:50:56 [core.py:866]   File "/root/vllmbench/vllm/v1/executor/uniproc_executor.py", line 48, in _init_executor
+(EngineCore_DP0 pid=3241663) ERROR 01-21 23:50:56 [core.py:866]     self.driver_worker.load_model()
+(EngineCore_DP0 pid=3241663) ERROR 01-21 23:50:56 [core.py:866]   File "/root/vllmbench/vllm/v1/worker/gpu_worker.py", line 289, in load_model
+(EngineCore_DP0 pid=3241663) ERROR 01-21 23:50:56 [core.py:866]     self.model_runner.load_model(eep_scale_up=eep_scale_up)
+(EngineCore_DP0 pid=3241663) ERROR 01-21 23:50:56 [core.py:866]   File "/root/vllmbench/vllm/v1/worker/gpu_model_runner.py", line 3581, in load_model
+(EngineCore_DP0 pid=3241663) ERROR 01-21 23:50:56 [core.py:866]     self.model = model_loader.load_model(
+(EngineCore_DP0 pid=3241663) ERROR 01-21 23:50:56 [core.py:866]                  ^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3241663) ERROR 01-21 23:50:56 [core.py:866]   File "/root/vllmbench/vllm/model_executor/model_loader/base_loader.py", line 55, in load_model
+(EngineCore_DP0 pid=3241663) ERROR 01-21 23:50:56 [core.py:866]     self.load_weights(model, model_config)
+(EngineCore_DP0 pid=3241663) ERROR 01-21 23:50:56 [core.py:866]   File "/root/vllmbench/vllm/model_executor/model_loader/default_loader.py", line 305, in load_weights
+(EngineCore_DP0 pid=3241663) ERROR 01-21 23:50:56 [core.py:866]     loaded_weights = model.load_weights(self.get_all_weights(model_config, model))
+(EngineCore_DP0 pid=3241663) ERROR 01-21 23:50:56 [core.py:866]                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3241663) ERROR 01-21 23:50:56 [core.py:866]   File "/root/vllmbench/vllm/model_executor/models/qwen2.py", line 600, in load_weights
+(EngineCore_DP0 pid=3241663) ERROR 01-21 23:50:56 [core.py:866]     return loader.load_weights(weights)
+(EngineCore_DP0 pid=3241663) ERROR 01-21 23:50:56 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3241663) ERROR 01-21 23:50:56 [core.py:866]   File "/root/vllmbench/vllm/model_executor/model_loader/online_quantization.py", line 173, in patched_model_load_weights
+(EngineCore_DP0 pid=3241663) ERROR 01-21 23:50:56 [core.py:866]     return original_load_weights(auto_weight_loader, weights, mapper=mapper)
+(EngineCore_DP0 pid=3241663) ERROR 01-21 23:50:56 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3241663) ERROR 01-21 23:50:56 [core.py:866]   File "/root/vllmbench/vllm/model_executor/models/utils.py", line 335, in load_weights
+(EngineCore_DP0 pid=3241663) ERROR 01-21 23:50:56 [core.py:866]     autoloaded_weights = set(self._load_module("", self.module, weights))
+(EngineCore_DP0 pid=3241663) ERROR 01-21 23:50:56 [core.py:866]                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3241663) ERROR 01-21 23:50:56 [core.py:866]   File "/root/vllmbench/vllm/model_executor/models/utils.py", line 288, in _load_module
+(EngineCore_DP0 pid=3241663) ERROR 01-21 23:50:56 [core.py:866]     yield from self._load_module(
+(EngineCore_DP0 pid=3241663) ERROR 01-21 23:50:56 [core.py:866]   File "/root/vllmbench/vllm/model_executor/models/utils.py", line 261, in _load_module
+(EngineCore_DP0 pid=3241663) ERROR 01-21 23:50:56 [core.py:866]     loaded_params = module_load_weights(weights)
+(EngineCore_DP0 pid=3241663) ERROR 01-21 23:50:56 [core.py:866]                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3241663) ERROR 01-21 23:50:56 [core.py:866]   File "/root/vllmbench/vllm/model_executor/models/qwen2.py", line 501, in load_weights
+(EngineCore_DP0 pid=3241663) ERROR 01-21 23:50:56 [core.py:866]     weight_loader(param, loaded_weight, shard_id)
+(EngineCore_DP0 pid=3241663) ERROR 01-21 23:50:56 [core.py:866]   File "/root/vllmbench/vllm/model_executor/layers/linear.py", line 858, in weight_loader_v2
+(EngineCore_DP0 pid=3241663) ERROR 01-21 23:50:56 [core.py:866]     param.load_merged_column_weight(
+(EngineCore_DP0 pid=3241663) ERROR 01-21 23:50:56 [core.py:866]   File "/root/vllmbench/vllm/model_executor/parameter.py", line 175, in load_merged_column_weight
+(EngineCore_DP0 pid=3241663) ERROR 01-21 23:50:56 [core.py:866]     assert param_data.shape == loaded_weight.shape
+(EngineCore_DP0 pid=3241663) ERROR 01-21 23:50:56 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3241663) ERROR 01-21 23:50:56 [core.py:866] AssertionError
+
+STDERR:
+/root/vllmbench/vllm/model_executor/layers/quantization/slidesparse.py:81: UserWarning: Failed to import slidesparse modules: No module named 'slidesparse'. SlideSparse features will be disabled.
+  warnings.warn(
+/root/vllmbench/vllm/model_executor/layers/quantization/slidesparse.py:81: UserWarning: Failed to import slidesparse modules: No module named 'slidesparse'. SlideSparse features will be disabled.
+  warnings.warn(
+(EngineCore_DP0 pid=3241663) 
+Loading safetensors checkpoint shards:   0% Completed | 0/1 [00:00<?, ?it/s]
+(EngineCore_DP0 pid=3241663) Process EngineCore_DP0:
+(EngineCore_DP0 pid=3241663) Traceback (most recent call last):
+(EngineCore_DP0 pid=3241663)   File "/usr/lib/python3.12/multiprocessing/process.py", line 314, in _bootstrap
+(EngineCore_DP0 pid=3241663)     self.run()
+(EngineCore_DP0 pid=3241663)   File "/usr/lib/python3.12/multiprocessing/process.py", line 108, in run
+(EngineCore_DP0 pid=3241663)     self._target(*self._args, **self._kwargs)
+(EngineCore_DP0 pid=3241663)   File "/root/vllmbench/vllm/v1/engine/core.py", line 870, in run_engine_core
+(EngineCore_DP0 pid=3241663)     raise e
+(EngineCore_DP0 pid=3241663)   File "/root/vllmbench/vllm/v1/engine/core.py", line 857, in run_engine_core
+(EngineCore_DP0 pid=3241663)     engine_core = EngineCoreProc(*args, **kwargs)
+(EngineCore_DP0 pid=3241663)                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3241663)   File "/root/vllmbench/vllm/v1/engine/core.py", line 637, in __init__
+(EngineCore_DP0 pid=3241663)     super().__init__(
+(EngineCore_DP0 pid=3241663)   File "/root/vllmbench/vllm/v1/engine/core.py", line 102, in __init__
+(EngineCore_DP0 pid=3241663)     self.model_executor = executor_class(vllm_config)
+(EngineCore_DP0 pid=3241663)                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3241663)   File "/root/vllmbench/vllm/v1/executor/abstract.py", line 101, in __init__
+(EngineCore_DP0 pid=3241663)     self._init_executor()
+(EngineCore_DP0 pid=3241663)   File "/root/vllmbench/vllm/v1/executor/uniproc_executor.py", line 48, in _init_executor
+(EngineCore_DP0 pid=3241663)     self.driver_worker.load_model()
+(EngineCore_DP0 pid=3241663)   File "/root/vllmbench/vllm/v1/worker/gpu_worker.py", line 289, in load_model
+(EngineCore_DP0 pid=3241663)     self.model_runner.load_model(eep_scale_up=eep_scale_up)
+(EngineCore_DP0 pid=3241663)   File "/root/vllmbench/vllm/v1/worker/gpu_model_runner.py", line 3581, in load_model
+(EngineCore_DP0 pid=3241663)     self.model = model_loader.load_model(
+(EngineCore_DP0 pid=3241663)                  ^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3241663)   File "/root/vllmbench/vllm/model_executor/model_loader/base_loader.py", line 55, in load_model
+(EngineCore_DP0 pid=3241663)     self.load_weights(model, model_config)
+(EngineCore_DP0 pid=3241663)   File "/root/vllmbench/vllm/model_executor/model_loader/default_loader.py", line 305, in load_weights
+(EngineCore_DP0 pid=3241663)     loaded_weights = model.load_weights(self.get_all_weights(model_config, model))
+(EngineCore_DP0 pid=3241663)                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3241663)   File "/root/vllmbench/vllm/model_executor/models/qwen2.py", line 600, in load_weights
+(EngineCore_DP0 pid=3241663)     return loader.load_weights(weights)
+(EngineCore_DP0 pid=3241663)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3241663)   File "/root/vllmbench/vllm/model_executor/model_loader/online_quantization.py", line 173, in patched_model_load_weights
+(EngineCore_DP0 pid=3241663)     return original_load_weights(auto_weight_loader, weights, mapper=mapper)
+(EngineCore_DP0 pid=3241663)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3241663)   File "/root/vllmbench/vllm/model_executor/models/utils.py", line 335, in load_weights
+(EngineCore_DP0 pid=3241663)     autoloaded_weights = set(self._load_module("", self.module, weights))
+(EngineCore_DP0 pid=3241663)                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3241663)   File "/root/vllmbench/vllm/model_executor/models/utils.py", line 288, in _load_module
+(EngineCore_DP0 pid=3241663)     yield from self._load_module(
+(EngineCore_DP0 pid=3241663)   File "/root/vllmbench/vllm/model_executor/models/utils.py", line 261, in _load_module
+(EngineCore_DP0 pid=3241663)     loaded_params = module_load_weights(weights)
+(EngineCore_DP0 pid=3241663)                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3241663)   File "/root/vllmbench/vllm/model_executor/models/qwen2.py", line 501, in load_weights
+(EngineCore_DP0 pid=3241663)     weight_loader(param, loaded_weight, shard_id)
+(EngineCore_DP0 pid=3241663)   File "/root/vllmbench/vllm/model_executor/layers/linear.py", line 858, in weight_loader_v2
+(EngineCore_DP0 pid=3241663)     param.load_merged_column_weight(
+(EngineCore_DP0 pid=3241663)   File "/root/vllmbench/vllm/model_executor/parameter.py", line 175, in load_merged_column_weight
+(EngineCore_DP0 pid=3241663)     assert param_data.shape == loaded_weight.shape
+(EngineCore_DP0 pid=3241663)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3241663) AssertionError
+(EngineCore_DP0 pid=3241663) 
+Loading safetensors checkpoint shards:   0% Completed | 0/1 [00:00<?, ?it/s]
+(EngineCore_DP0 pid=3241663) 
+[rank0]:[W121 23:50:57.062871048 ProcessGroupNCCL.cpp:1524] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+Traceback (most recent call last):
+  File "/usr/local/bin/vllm", line 7, in <module>
+    sys.exit(main())
+             ^^^^^^
+  File "/root/vllmbench/vllm/entrypoints/cli/main.py", line 73, in main
+    args.dispatch_function(args)
+  File "/root/vllmbench/vllm/entrypoints/cli/benchmark/throughput.py", line 21, in cmd
+    main(args)
+  File "/root/vllmbench/vllm/benchmarks/throughput.py", line 730, in main
+    elapsed_time, request_outputs = run_vllm(
+                                    ^^^^^^^^^
+  File "/root/vllmbench/vllm/benchmarks/throughput.py", line 51, in run_vllm
+    llm = LLM(**dataclasses.asdict(engine_args))
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/entrypoints/llm.py", line 351, in __init__
+    self.llm_engine = LLMEngine.from_engine_args(
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/v1/engine/llm_engine.py", line 183, in from_engine_args
+    return cls(
+           ^^^^
+  File "/root/vllmbench/vllm/v1/engine/llm_engine.py", line 109, in __init__
+    self.engine_core = EngineCoreClient.make_client(
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/v1/engine/core_client.py", line 93, in make_client
+    return SyncMPClient(vllm_config, executor_class, log_stats)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/v1/engine/core_client.py", line 648, in __init__
+    super().__init__(
+  File "/root/vllmbench/vllm/v1/engine/core_client.py", line 477, in __init__
+    with launch_core_engines(vllm_config, executor_class, log_stats) as (
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/contextlib.py", line 144, in __exit__
+    next(self.gen)
+  File "/root/vllmbench/vllm/v1/engine/utils.py", line 903, in launch_core_engines
+    wait_for_engine_startup(
+  File "/root/vllmbench/vllm/v1/engine/utils.py", line 960, in wait_for_engine_startup
+    raise RuntimeError(
+RuntimeError: Engine core initialization failed. See root cause above. Failed core proc(s): {}
+
+ERROR: Test failed for M=128
+
+========== M=512 ==========
+Time: 2026-01-21 23:50:58
+Backend: cuSPARSELt (2:6)
+Checkpoint: /root/vllmbench/checkpoints_slidesparse/Qwen2.5-0.5B-FP8-SlideSparse-2_6
+Params: prompt_len=16, output_len=256, num_prompts=512, max_num_seqs=512
+Command: vllm bench throughput --model /root/vllmbench/checkpoints_slidesparse/Qwen2.5-0.5B-FP8-SlideSparse-2_6 --dataset-name random --input-len 16 --output-len 256 --num-prompts 512 --max-num-seqs 512 --max-model-len 400 --max-num-batched-tokens 204800 --gpu-memory-utilization 0.9 --disable-log-stats --output-json /root/vllmbench/slidesparse/tools/throughput_benchmark_results/decode/RTX5080_cc120_FP8E4M3_py312_cu129_x86_64/cusparselt/2_6/json/Qwen2.5-0.5B-FP8_M512.json
+
+STDOUT:
+When dataset path is not set, it will default to random dataset
+(EngineCore_DP0 pid=3241984) ERROR 01-21 23:51:07 [core.py:866] EngineCore failed to start.
+(EngineCore_DP0 pid=3241984) ERROR 01-21 23:51:07 [core.py:866] Traceback (most recent call last):
+(EngineCore_DP0 pid=3241984) ERROR 01-21 23:51:07 [core.py:866]   File "/root/vllmbench/vllm/v1/engine/core.py", line 857, in run_engine_core
+(EngineCore_DP0 pid=3241984) ERROR 01-21 23:51:07 [core.py:866]     engine_core = EngineCoreProc(*args, **kwargs)
+(EngineCore_DP0 pid=3241984) ERROR 01-21 23:51:07 [core.py:866]                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3241984) ERROR 01-21 23:51:07 [core.py:866]   File "/root/vllmbench/vllm/v1/engine/core.py", line 637, in __init__
+(EngineCore_DP0 pid=3241984) ERROR 01-21 23:51:07 [core.py:866]     super().__init__(
+(EngineCore_DP0 pid=3241984) ERROR 01-21 23:51:07 [core.py:866]   File "/root/vllmbench/vllm/v1/engine/core.py", line 102, in __init__
+(EngineCore_DP0 pid=3241984) ERROR 01-21 23:51:07 [core.py:866]     self.model_executor = executor_class(vllm_config)
+(EngineCore_DP0 pid=3241984) ERROR 01-21 23:51:07 [core.py:866]                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3241984) ERROR 01-21 23:51:07 [core.py:866]   File "/root/vllmbench/vllm/v1/executor/abstract.py", line 101, in __init__
+(EngineCore_DP0 pid=3241984) ERROR 01-21 23:51:07 [core.py:866]     self._init_executor()
+(EngineCore_DP0 pid=3241984) ERROR 01-21 23:51:07 [core.py:866]   File "/root/vllmbench/vllm/v1/executor/uniproc_executor.py", line 48, in _init_executor
+(EngineCore_DP0 pid=3241984) ERROR 01-21 23:51:07 [core.py:866]     self.driver_worker.load_model()
+(EngineCore_DP0 pid=3241984) ERROR 01-21 23:51:07 [core.py:866]   File "/root/vllmbench/vllm/v1/worker/gpu_worker.py", line 289, in load_model
+(EngineCore_DP0 pid=3241984) ERROR 01-21 23:51:07 [core.py:866]     self.model_runner.load_model(eep_scale_up=eep_scale_up)
+(EngineCore_DP0 pid=3241984) ERROR 01-21 23:51:07 [core.py:866]   File "/root/vllmbench/vllm/v1/worker/gpu_model_runner.py", line 3581, in load_model
+(EngineCore_DP0 pid=3241984) ERROR 01-21 23:51:07 [core.py:866]     self.model = model_loader.load_model(
+(EngineCore_DP0 pid=3241984) ERROR 01-21 23:51:07 [core.py:866]                  ^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3241984) ERROR 01-21 23:51:07 [core.py:866]   File "/root/vllmbench/vllm/model_executor/model_loader/base_loader.py", line 55, in load_model
+(EngineCore_DP0 pid=3241984) ERROR 01-21 23:51:07 [core.py:866]     self.load_weights(model, model_config)
+(EngineCore_DP0 pid=3241984) ERROR 01-21 23:51:07 [core.py:866]   File "/root/vllmbench/vllm/model_executor/model_loader/default_loader.py", line 305, in load_weights
+(EngineCore_DP0 pid=3241984) ERROR 01-21 23:51:07 [core.py:866]     loaded_weights = model.load_weights(self.get_all_weights(model_config, model))
+(EngineCore_DP0 pid=3241984) ERROR 01-21 23:51:07 [core.py:866]                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3241984) ERROR 01-21 23:51:07 [core.py:866]   File "/root/vllmbench/vllm/model_executor/models/qwen2.py", line 600, in load_weights
+(EngineCore_DP0 pid=3241984) ERROR 01-21 23:51:07 [core.py:866]     return loader.load_weights(weights)
+(EngineCore_DP0 pid=3241984) ERROR 01-21 23:51:07 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3241984) ERROR 01-21 23:51:07 [core.py:866]   File "/root/vllmbench/vllm/model_executor/model_loader/online_quantization.py", line 173, in patched_model_load_weights
+(EngineCore_DP0 pid=3241984) ERROR 01-21 23:51:07 [core.py:866]     return original_load_weights(auto_weight_loader, weights, mapper=mapper)
+(EngineCore_DP0 pid=3241984) ERROR 01-21 23:51:07 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3241984) ERROR 01-21 23:51:07 [core.py:866]   File "/root/vllmbench/vllm/model_executor/models/utils.py", line 335, in load_weights
+(EngineCore_DP0 pid=3241984) ERROR 01-21 23:51:07 [core.py:866]     autoloaded_weights = set(self._load_module("", self.module, weights))
+(EngineCore_DP0 pid=3241984) ERROR 01-21 23:51:07 [core.py:866]                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3241984) ERROR 01-21 23:51:07 [core.py:866]   File "/root/vllmbench/vllm/model_executor/models/utils.py", line 288, in _load_module
+(EngineCore_DP0 pid=3241984) ERROR 01-21 23:51:07 [core.py:866]     yield from self._load_module(
+(EngineCore_DP0 pid=3241984) ERROR 01-21 23:51:07 [core.py:866]   File "/root/vllmbench/vllm/model_executor/models/utils.py", line 261, in _load_module
+(EngineCore_DP0 pid=3241984) ERROR 01-21 23:51:07 [core.py:866]     loaded_params = module_load_weights(weights)
+(EngineCore_DP0 pid=3241984) ERROR 01-21 23:51:07 [core.py:866]                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3241984) ERROR 01-21 23:51:07 [core.py:866]   File "/root/vllmbench/vllm/model_executor/models/qwen2.py", line 501, in load_weights
+(EngineCore_DP0 pid=3241984) ERROR 01-21 23:51:07 [core.py:866]     weight_loader(param, loaded_weight, shard_id)
+(EngineCore_DP0 pid=3241984) ERROR 01-21 23:51:07 [core.py:866]   File "/root/vllmbench/vllm/model_executor/layers/linear.py", line 858, in weight_loader_v2
+(EngineCore_DP0 pid=3241984) ERROR 01-21 23:51:07 [core.py:866]     param.load_merged_column_weight(
+(EngineCore_DP0 pid=3241984) ERROR 01-21 23:51:07 [core.py:866]   File "/root/vllmbench/vllm/model_executor/parameter.py", line 175, in load_merged_column_weight
+(EngineCore_DP0 pid=3241984) ERROR 01-21 23:51:07 [core.py:866]     assert param_data.shape == loaded_weight.shape
+(EngineCore_DP0 pid=3241984) ERROR 01-21 23:51:07 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3241984) ERROR 01-21 23:51:07 [core.py:866] AssertionError
+
+STDERR:
+/root/vllmbench/vllm/model_executor/layers/quantization/slidesparse.py:81: UserWarning: Failed to import slidesparse modules: No module named 'slidesparse'. SlideSparse features will be disabled.
+  warnings.warn(
+/root/vllmbench/vllm/model_executor/layers/quantization/slidesparse.py:81: UserWarning: Failed to import slidesparse modules: No module named 'slidesparse'. SlideSparse features will be disabled.
+  warnings.warn(
+(EngineCore_DP0 pid=3241984) 
+Loading safetensors checkpoint shards:   0% Completed | 0/1 [00:00<?, ?it/s]
+(EngineCore_DP0 pid=3241984) Process EngineCore_DP0:
+(EngineCore_DP0 pid=3241984) Traceback (most recent call last):
+(EngineCore_DP0 pid=3241984)   File "/usr/lib/python3.12/multiprocessing/process.py", line 314, in _bootstrap
+(EngineCore_DP0 pid=3241984)     self.run()
+(EngineCore_DP0 pid=3241984)   File "/usr/lib/python3.12/multiprocessing/process.py", line 108, in run
+(EngineCore_DP0 pid=3241984)     self._target(*self._args, **self._kwargs)
+(EngineCore_DP0 pid=3241984)   File "/root/vllmbench/vllm/v1/engine/core.py", line 870, in run_engine_core
+(EngineCore_DP0 pid=3241984)     raise e
+(EngineCore_DP0 pid=3241984)   File "/root/vllmbench/vllm/v1/engine/core.py", line 857, in run_engine_core
+(EngineCore_DP0 pid=3241984)     engine_core = EngineCoreProc(*args, **kwargs)
+(EngineCore_DP0 pid=3241984)                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3241984)   File "/root/vllmbench/vllm/v1/engine/core.py", line 637, in __init__
+(EngineCore_DP0 pid=3241984)     super().__init__(
+(EngineCore_DP0 pid=3241984)   File "/root/vllmbench/vllm/v1/engine/core.py", line 102, in __init__
+(EngineCore_DP0 pid=3241984)     self.model_executor = executor_class(vllm_config)
+(EngineCore_DP0 pid=3241984)                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3241984)   File "/root/vllmbench/vllm/v1/executor/abstract.py", line 101, in __init__
+(EngineCore_DP0 pid=3241984)     self._init_executor()
+(EngineCore_DP0 pid=3241984)   File "/root/vllmbench/vllm/v1/executor/uniproc_executor.py", line 48, in _init_executor
+(EngineCore_DP0 pid=3241984)     self.driver_worker.load_model()
+(EngineCore_DP0 pid=3241984)   File "/root/vllmbench/vllm/v1/worker/gpu_worker.py", line 289, in load_model
+(EngineCore_DP0 pid=3241984)     self.model_runner.load_model(eep_scale_up=eep_scale_up)
+(EngineCore_DP0 pid=3241984)   File "/root/vllmbench/vllm/v1/worker/gpu_model_runner.py", line 3581, in load_model
+(EngineCore_DP0 pid=3241984)     self.model = model_loader.load_model(
+(EngineCore_DP0 pid=3241984)                  ^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3241984)   File "/root/vllmbench/vllm/model_executor/model_loader/base_loader.py", line 55, in load_model
+(EngineCore_DP0 pid=3241984)     self.load_weights(model, model_config)
+(EngineCore_DP0 pid=3241984)   File "/root/vllmbench/vllm/model_executor/model_loader/default_loader.py", line 305, in load_weights
+(EngineCore_DP0 pid=3241984)     loaded_weights = model.load_weights(self.get_all_weights(model_config, model))
+(EngineCore_DP0 pid=3241984)                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3241984)   File "/root/vllmbench/vllm/model_executor/models/qwen2.py", line 600, in load_weights
+(EngineCore_DP0 pid=3241984)     return loader.load_weights(weights)
+(EngineCore_DP0 pid=3241984)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3241984)   File "/root/vllmbench/vllm/model_executor/model_loader/online_quantization.py", line 173, in patched_model_load_weights
+(EngineCore_DP0 pid=3241984)     return original_load_weights(auto_weight_loader, weights, mapper=mapper)
+(EngineCore_DP0 pid=3241984)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3241984)   File "/root/vllmbench/vllm/model_executor/models/utils.py", line 335, in load_weights
+(EngineCore_DP0 pid=3241984)     autoloaded_weights = set(self._load_module("", self.module, weights))
+(EngineCore_DP0 pid=3241984)                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3241984)   File "/root/vllmbench/vllm/model_executor/models/utils.py", line 288, in _load_module
+(EngineCore_DP0 pid=3241984)     yield from self._load_module(
+(EngineCore_DP0 pid=3241984)   File "/root/vllmbench/vllm/model_executor/models/utils.py", line 261, in _load_module
+(EngineCore_DP0 pid=3241984)     loaded_params = module_load_weights(weights)
+(EngineCore_DP0 pid=3241984)                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3241984)   File "/root/vllmbench/vllm/model_executor/models/qwen2.py", line 501, in load_weights
+(EngineCore_DP0 pid=3241984)     weight_loader(param, loaded_weight, shard_id)
+(EngineCore_DP0 pid=3241984)   File "/root/vllmbench/vllm/model_executor/layers/linear.py", line 858, in weight_loader_v2
+(EngineCore_DP0 pid=3241984)     param.load_merged_column_weight(
+(EngineCore_DP0 pid=3241984)   File "/root/vllmbench/vllm/model_executor/parameter.py", line 175, in load_merged_column_weight
+(EngineCore_DP0 pid=3241984)     assert param_data.shape == loaded_weight.shape
+(EngineCore_DP0 pid=3241984)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3241984) AssertionError
+(EngineCore_DP0 pid=3241984) 
+Loading safetensors checkpoint shards:   0% Completed | 0/1 [00:00<?, ?it/s]
+(EngineCore_DP0 pid=3241984) 
+[rank0]:[W121 23:51:08.876121634 ProcessGroupNCCL.cpp:1524] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+Traceback (most recent call last):
+  File "/usr/local/bin/vllm", line 7, in <module>
+    sys.exit(main())
+             ^^^^^^
+  File "/root/vllmbench/vllm/entrypoints/cli/main.py", line 73, in main
+    args.dispatch_function(args)
+  File "/root/vllmbench/vllm/entrypoints/cli/benchmark/throughput.py", line 21, in cmd
+    main(args)
+  File "/root/vllmbench/vllm/benchmarks/throughput.py", line 730, in main
+    elapsed_time, request_outputs = run_vllm(
+                                    ^^^^^^^^^
+  File "/root/vllmbench/vllm/benchmarks/throughput.py", line 51, in run_vllm
+    llm = LLM(**dataclasses.asdict(engine_args))
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/entrypoints/llm.py", line 351, in __init__
+    self.llm_engine = LLMEngine.from_engine_args(
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/v1/engine/llm_engine.py", line 183, in from_engine_args
+    return cls(
+           ^^^^
+  File "/root/vllmbench/vllm/v1/engine/llm_engine.py", line 109, in __init__
+    self.engine_core = EngineCoreClient.make_client(
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/v1/engine/core_client.py", line 93, in make_client
+    return SyncMPClient(vllm_config, executor_class, log_stats)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/v1/engine/core_client.py", line 648, in __init__
+    super().__init__(
+  File "/root/vllmbench/vllm/v1/engine/core_client.py", line 477, in __init__
+    with launch_core_engines(vllm_config, executor_class, log_stats) as (
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/contextlib.py", line 144, in __exit__
+    next(self.gen)
+  File "/root/vllmbench/vllm/v1/engine/utils.py", line 903, in launch_core_engines
+    wait_for_engine_startup(
+  File "/root/vllmbench/vllm/v1/engine/utils.py", line 960, in wait_for_engine_startup
+    raise RuntimeError(
+RuntimeError: Engine core initialization failed. See root cause above. Failed core proc(s): {}
+
+ERROR: Test failed for M=512
+
+========== M=16 ==========
+Time: 2026-01-21 23:53:44
+Backend: cuSPARSELt (2:6)
+Checkpoint: /root/vllmbench/checkpoints_slidesparse/Llama3.2-1B-FP8-SlideSparse-2_6
+Params: prompt_len=16, output_len=256, num_prompts=16, max_num_seqs=16
+Command: vllm bench throughput --model /root/vllmbench/checkpoints_slidesparse/Llama3.2-1B-FP8-SlideSparse-2_6 --dataset-name random --input-len 16 --output-len 256 --num-prompts 16 --max-num-seqs 16 --max-model-len 400 --max-num-batched-tokens 6400 --gpu-memory-utilization 0.9 --disable-log-stats --output-json /root/vllmbench/slidesparse/tools/throughput_benchmark_results/decode/RTX5080_cc120_FP8E4M3_py312_cu129_x86_64/cusparselt/2_6/json/Llama3.2-1B-FP8_M16.json
+
+STDOUT:
+When dataset path is not set, it will default to random dataset
+(EngineCore_DP0 pid=3246199) ERROR 01-21 23:53:52 [core.py:866] EngineCore failed to start.
+(EngineCore_DP0 pid=3246199) ERROR 01-21 23:53:52 [core.py:866] Traceback (most recent call last):
+(EngineCore_DP0 pid=3246199) ERROR 01-21 23:53:52 [core.py:866]   File "/root/vllmbench/vllm/v1/engine/core.py", line 857, in run_engine_core
+(EngineCore_DP0 pid=3246199) ERROR 01-21 23:53:52 [core.py:866]     engine_core = EngineCoreProc(*args, **kwargs)
+(EngineCore_DP0 pid=3246199) ERROR 01-21 23:53:52 [core.py:866]                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3246199) ERROR 01-21 23:53:52 [core.py:866]   File "/root/vllmbench/vllm/v1/engine/core.py", line 637, in __init__
+(EngineCore_DP0 pid=3246199) ERROR 01-21 23:53:52 [core.py:866]     super().__init__(
+(EngineCore_DP0 pid=3246199) ERROR 01-21 23:53:52 [core.py:866]   File "/root/vllmbench/vllm/v1/engine/core.py", line 102, in __init__
+(EngineCore_DP0 pid=3246199) ERROR 01-21 23:53:52 [core.py:866]     self.model_executor = executor_class(vllm_config)
+(EngineCore_DP0 pid=3246199) ERROR 01-21 23:53:52 [core.py:866]                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3246199) ERROR 01-21 23:53:52 [core.py:866]   File "/root/vllmbench/vllm/v1/executor/abstract.py", line 101, in __init__
+(EngineCore_DP0 pid=3246199) ERROR 01-21 23:53:52 [core.py:866]     self._init_executor()
+(EngineCore_DP0 pid=3246199) ERROR 01-21 23:53:52 [core.py:866]   File "/root/vllmbench/vllm/v1/executor/uniproc_executor.py", line 48, in _init_executor
+(EngineCore_DP0 pid=3246199) ERROR 01-21 23:53:52 [core.py:866]     self.driver_worker.load_model()
+(EngineCore_DP0 pid=3246199) ERROR 01-21 23:53:52 [core.py:866]   File "/root/vllmbench/vllm/v1/worker/gpu_worker.py", line 289, in load_model
+(EngineCore_DP0 pid=3246199) ERROR 01-21 23:53:52 [core.py:866]     self.model_runner.load_model(eep_scale_up=eep_scale_up)
+(EngineCore_DP0 pid=3246199) ERROR 01-21 23:53:52 [core.py:866]   File "/root/vllmbench/vllm/v1/worker/gpu_model_runner.py", line 3581, in load_model
+(EngineCore_DP0 pid=3246199) ERROR 01-21 23:53:52 [core.py:866]     self.model = model_loader.load_model(
+(EngineCore_DP0 pid=3246199) ERROR 01-21 23:53:52 [core.py:866]                  ^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3246199) ERROR 01-21 23:53:52 [core.py:866]   File "/root/vllmbench/vllm/model_executor/model_loader/base_loader.py", line 55, in load_model
+(EngineCore_DP0 pid=3246199) ERROR 01-21 23:53:52 [core.py:866]     self.load_weights(model, model_config)
+(EngineCore_DP0 pid=3246199) ERROR 01-21 23:53:52 [core.py:866]   File "/root/vllmbench/vllm/model_executor/model_loader/default_loader.py", line 305, in load_weights
+(EngineCore_DP0 pid=3246199) ERROR 01-21 23:53:52 [core.py:866]     loaded_weights = model.load_weights(self.get_all_weights(model_config, model))
+(EngineCore_DP0 pid=3246199) ERROR 01-21 23:53:52 [core.py:866]                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3246199) ERROR 01-21 23:53:52 [core.py:866]   File "/root/vllmbench/vllm/model_executor/models/llama.py", line 640, in load_weights
+(EngineCore_DP0 pid=3246199) ERROR 01-21 23:53:52 [core.py:866]     return loader.load_weights(
+(EngineCore_DP0 pid=3246199) ERROR 01-21 23:53:52 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3246199) ERROR 01-21 23:53:52 [core.py:866]   File "/root/vllmbench/vllm/model_executor/model_loader/online_quantization.py", line 173, in patched_model_load_weights
+(EngineCore_DP0 pid=3246199) ERROR 01-21 23:53:52 [core.py:866]     return original_load_weights(auto_weight_loader, weights, mapper=mapper)
+(EngineCore_DP0 pid=3246199) ERROR 01-21 23:53:52 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3246199) ERROR 01-21 23:53:52 [core.py:866]   File "/root/vllmbench/vllm/model_executor/models/utils.py", line 335, in load_weights
+(EngineCore_DP0 pid=3246199) ERROR 01-21 23:53:52 [core.py:866]     autoloaded_weights = set(self._load_module("", self.module, weights))
+(EngineCore_DP0 pid=3246199) ERROR 01-21 23:53:52 [core.py:866]                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3246199) ERROR 01-21 23:53:52 [core.py:866]   File "/root/vllmbench/vllm/model_executor/models/utils.py", line 288, in _load_module
+(EngineCore_DP0 pid=3246199) ERROR 01-21 23:53:52 [core.py:866]     yield from self._load_module(
+(EngineCore_DP0 pid=3246199) ERROR 01-21 23:53:52 [core.py:866]   File "/root/vllmbench/vllm/model_executor/models/utils.py", line 261, in _load_module
+(EngineCore_DP0 pid=3246199) ERROR 01-21 23:53:52 [core.py:866]     loaded_params = module_load_weights(weights)
+(EngineCore_DP0 pid=3246199) ERROR 01-21 23:53:52 [core.py:866]                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3246199) ERROR 01-21 23:53:52 [core.py:866]   File "/root/vllmbench/vllm/model_executor/models/llama.py", line 497, in load_weights
+(EngineCore_DP0 pid=3246199) ERROR 01-21 23:53:52 [core.py:866]     weight_loader(param, loaded_weight, shard_id)
+(EngineCore_DP0 pid=3246199) ERROR 01-21 23:53:52 [core.py:866]   File "/root/vllmbench/vllm/model_executor/layers/linear.py", line 858, in weight_loader_v2
+(EngineCore_DP0 pid=3246199) ERROR 01-21 23:53:52 [core.py:866]     param.load_merged_column_weight(
+(EngineCore_DP0 pid=3246199) ERROR 01-21 23:53:52 [core.py:866]   File "/root/vllmbench/vllm/model_executor/parameter.py", line 175, in load_merged_column_weight
+(EngineCore_DP0 pid=3246199) ERROR 01-21 23:53:52 [core.py:866]     assert param_data.shape == loaded_weight.shape
+(EngineCore_DP0 pid=3246199) ERROR 01-21 23:53:52 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3246199) ERROR 01-21 23:53:52 [core.py:866] AssertionError
+
+STDERR:
+/root/vllmbench/vllm/model_executor/layers/quantization/slidesparse.py:81: UserWarning: Failed to import slidesparse modules: No module named 'slidesparse'. SlideSparse features will be disabled.
+  warnings.warn(
+/root/vllmbench/vllm/model_executor/layers/quantization/slidesparse.py:81: UserWarning: Failed to import slidesparse modules: No module named 'slidesparse'. SlideSparse features will be disabled.
+  warnings.warn(
+(EngineCore_DP0 pid=3246199) 
+Loading safetensors checkpoint shards:   0% Completed | 0/1 [00:00<?, ?it/s]
+(EngineCore_DP0 pid=3246199) Process EngineCore_DP0:
+(EngineCore_DP0 pid=3246199) Traceback (most recent call last):
+(EngineCore_DP0 pid=3246199)   File "/usr/lib/python3.12/multiprocessing/process.py", line 314, in _bootstrap
+(EngineCore_DP0 pid=3246199)     self.run()
+(EngineCore_DP0 pid=3246199)   File "/usr/lib/python3.12/multiprocessing/process.py", line 108, in run
+(EngineCore_DP0 pid=3246199)     self._target(*self._args, **self._kwargs)
+(EngineCore_DP0 pid=3246199)   File "/root/vllmbench/vllm/v1/engine/core.py", line 870, in run_engine_core
+(EngineCore_DP0 pid=3246199)     raise e
+(EngineCore_DP0 pid=3246199)   File "/root/vllmbench/vllm/v1/engine/core.py", line 857, in run_engine_core
+(EngineCore_DP0 pid=3246199)     engine_core = EngineCoreProc(*args, **kwargs)
+(EngineCore_DP0 pid=3246199)                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3246199)   File "/root/vllmbench/vllm/v1/engine/core.py", line 637, in __init__
+(EngineCore_DP0 pid=3246199)     super().__init__(
+(EngineCore_DP0 pid=3246199)   File "/root/vllmbench/vllm/v1/engine/core.py", line 102, in __init__
+(EngineCore_DP0 pid=3246199)     self.model_executor = executor_class(vllm_config)
+(EngineCore_DP0 pid=3246199)                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3246199)   File "/root/vllmbench/vllm/v1/executor/abstract.py", line 101, in __init__
+(EngineCore_DP0 pid=3246199)     self._init_executor()
+(EngineCore_DP0 pid=3246199)   File "/root/vllmbench/vllm/v1/executor/uniproc_executor.py", line 48, in _init_executor
+(EngineCore_DP0 pid=3246199)     self.driver_worker.load_model()
+(EngineCore_DP0 pid=3246199)   File "/root/vllmbench/vllm/v1/worker/gpu_worker.py", line 289, in load_model
+(EngineCore_DP0 pid=3246199)     self.model_runner.load_model(eep_scale_up=eep_scale_up)
+(EngineCore_DP0 pid=3246199)   File "/root/vllmbench/vllm/v1/worker/gpu_model_runner.py", line 3581, in load_model
+(EngineCore_DP0 pid=3246199)     self.model = model_loader.load_model(
+(EngineCore_DP0 pid=3246199)                  ^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3246199)   File "/root/vllmbench/vllm/model_executor/model_loader/base_loader.py", line 55, in load_model
+(EngineCore_DP0 pid=3246199)     self.load_weights(model, model_config)
+(EngineCore_DP0 pid=3246199)   File "/root/vllmbench/vllm/model_executor/model_loader/default_loader.py", line 305, in load_weights
+(EngineCore_DP0 pid=3246199)     loaded_weights = model.load_weights(self.get_all_weights(model_config, model))
+(EngineCore_DP0 pid=3246199)                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3246199)   File "/root/vllmbench/vllm/model_executor/models/llama.py", line 640, in load_weights
+(EngineCore_DP0 pid=3246199)     return loader.load_weights(
+(EngineCore_DP0 pid=3246199)            ^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3246199)   File "/root/vllmbench/vllm/model_executor/model_loader/online_quantization.py", line 173, in patched_model_load_weights
+(EngineCore_DP0 pid=3246199)     return original_load_weights(auto_weight_loader, weights, mapper=mapper)
+(EngineCore_DP0 pid=3246199)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3246199)   File "/root/vllmbench/vllm/model_executor/models/utils.py", line 335, in load_weights
+(EngineCore_DP0 pid=3246199)     autoloaded_weights = set(self._load_module("", self.module, weights))
+(EngineCore_DP0 pid=3246199)                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3246199)   File "/root/vllmbench/vllm/model_executor/models/utils.py", line 288, in _load_module
+(EngineCore_DP0 pid=3246199)     yield from self._load_module(
+(EngineCore_DP0 pid=3246199)   File "/root/vllmbench/vllm/model_executor/models/utils.py", line 261, in _load_module
+(EngineCore_DP0 pid=3246199)     loaded_params = module_load_weights(weights)
+(EngineCore_DP0 pid=3246199)                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3246199)   File "/root/vllmbench/vllm/model_executor/models/llama.py", line 497, in load_weights
+(EngineCore_DP0 pid=3246199)     weight_loader(param, loaded_weight, shard_id)
+(EngineCore_DP0 pid=3246199)   File "/root/vllmbench/vllm/model_executor/layers/linear.py", line 858, in weight_loader_v2
+(EngineCore_DP0 pid=3246199)     param.load_merged_column_weight(
+(EngineCore_DP0 pid=3246199)   File "/root/vllmbench/vllm/model_executor/parameter.py", line 175, in load_merged_column_weight
+(EngineCore_DP0 pid=3246199)     assert param_data.shape == loaded_weight.shape
+(EngineCore_DP0 pid=3246199)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3246199) AssertionError
+(EngineCore_DP0 pid=3246199) 
+Loading safetensors checkpoint shards:   0% Completed | 0/1 [00:00<?, ?it/s]
+(EngineCore_DP0 pid=3246199) 
+[rank0]:[W121 23:53:53.128022617 ProcessGroupNCCL.cpp:1524] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+Traceback (most recent call last):
+  File "/usr/local/bin/vllm", line 7, in <module>
+    sys.exit(main())
+             ^^^^^^
+  File "/root/vllmbench/vllm/entrypoints/cli/main.py", line 73, in main
+    args.dispatch_function(args)
+  File "/root/vllmbench/vllm/entrypoints/cli/benchmark/throughput.py", line 21, in cmd
+    main(args)
+  File "/root/vllmbench/vllm/benchmarks/throughput.py", line 730, in main
+    elapsed_time, request_outputs = run_vllm(
+                                    ^^^^^^^^^
+  File "/root/vllmbench/vllm/benchmarks/throughput.py", line 51, in run_vllm
+    llm = LLM(**dataclasses.asdict(engine_args))
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/entrypoints/llm.py", line 351, in __init__
+    self.llm_engine = LLMEngine.from_engine_args(
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/v1/engine/llm_engine.py", line 183, in from_engine_args
+    return cls(
+           ^^^^
+  File "/root/vllmbench/vllm/v1/engine/llm_engine.py", line 109, in __init__
+    self.engine_core = EngineCoreClient.make_client(
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/v1/engine/core_client.py", line 93, in make_client
+    return SyncMPClient(vllm_config, executor_class, log_stats)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/v1/engine/core_client.py", line 648, in __init__
+    super().__init__(
+  File "/root/vllmbench/vllm/v1/engine/core_client.py", line 477, in __init__
+    with launch_core_engines(vllm_config, executor_class, log_stats) as (
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/contextlib.py", line 144, in __exit__
+    next(self.gen)
+  File "/root/vllmbench/vllm/v1/engine/utils.py", line 903, in launch_core_engines
+    wait_for_engine_startup(
+  File "/root/vllmbench/vllm/v1/engine/utils.py", line 960, in wait_for_engine_startup
+    raise RuntimeError(
+RuntimeError: Engine core initialization failed. See root cause above. Failed core proc(s): {}
+
+ERROR: Test failed for M=16
+
+========== M=128 ==========
+Time: 2026-01-21 23:53:54
+Backend: cuSPARSELt (2:6)
+Checkpoint: /root/vllmbench/checkpoints_slidesparse/Llama3.2-1B-FP8-SlideSparse-2_6
+Params: prompt_len=16, output_len=256, num_prompts=128, max_num_seqs=128
+Command: vllm bench throughput --model /root/vllmbench/checkpoints_slidesparse/Llama3.2-1B-FP8-SlideSparse-2_6 --dataset-name random --input-len 16 --output-len 256 --num-prompts 128 --max-num-seqs 128 --max-model-len 400 --max-num-batched-tokens 51200 --gpu-memory-utilization 0.9 --disable-log-stats --output-json /root/vllmbench/slidesparse/tools/throughput_benchmark_results/decode/RTX5080_cc120_FP8E4M3_py312_cu129_x86_64/cusparselt/2_6/json/Llama3.2-1B-FP8_M128.json
+
+STDOUT:
+When dataset path is not set, it will default to random dataset
+(EngineCore_DP0 pid=3246558) ERROR 01-21 23:54:03 [core.py:866] EngineCore failed to start.
+(EngineCore_DP0 pid=3246558) ERROR 01-21 23:54:03 [core.py:866] Traceback (most recent call last):
+(EngineCore_DP0 pid=3246558) ERROR 01-21 23:54:03 [core.py:866]   File "/root/vllmbench/vllm/v1/engine/core.py", line 857, in run_engine_core
+(EngineCore_DP0 pid=3246558) ERROR 01-21 23:54:03 [core.py:866]     engine_core = EngineCoreProc(*args, **kwargs)
+(EngineCore_DP0 pid=3246558) ERROR 01-21 23:54:03 [core.py:866]                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3246558) ERROR 01-21 23:54:03 [core.py:866]   File "/root/vllmbench/vllm/v1/engine/core.py", line 637, in __init__
+(EngineCore_DP0 pid=3246558) ERROR 01-21 23:54:03 [core.py:866]     super().__init__(
+(EngineCore_DP0 pid=3246558) ERROR 01-21 23:54:03 [core.py:866]   File "/root/vllmbench/vllm/v1/engine/core.py", line 102, in __init__
+(EngineCore_DP0 pid=3246558) ERROR 01-21 23:54:03 [core.py:866]     self.model_executor = executor_class(vllm_config)
+(EngineCore_DP0 pid=3246558) ERROR 01-21 23:54:03 [core.py:866]                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3246558) ERROR 01-21 23:54:03 [core.py:866]   File "/root/vllmbench/vllm/v1/executor/abstract.py", line 101, in __init__
+(EngineCore_DP0 pid=3246558) ERROR 01-21 23:54:03 [core.py:866]     self._init_executor()
+(EngineCore_DP0 pid=3246558) ERROR 01-21 23:54:03 [core.py:866]   File "/root/vllmbench/vllm/v1/executor/uniproc_executor.py", line 48, in _init_executor
+(EngineCore_DP0 pid=3246558) ERROR 01-21 23:54:03 [core.py:866]     self.driver_worker.load_model()
+(EngineCore_DP0 pid=3246558) ERROR 01-21 23:54:03 [core.py:866]   File "/root/vllmbench/vllm/v1/worker/gpu_worker.py", line 289, in load_model
+(EngineCore_DP0 pid=3246558) ERROR 01-21 23:54:03 [core.py:866]     self.model_runner.load_model(eep_scale_up=eep_scale_up)
+(EngineCore_DP0 pid=3246558) ERROR 01-21 23:54:03 [core.py:866]   File "/root/vllmbench/vllm/v1/worker/gpu_model_runner.py", line 3581, in load_model
+(EngineCore_DP0 pid=3246558) ERROR 01-21 23:54:03 [core.py:866]     self.model = model_loader.load_model(
+(EngineCore_DP0 pid=3246558) ERROR 01-21 23:54:03 [core.py:866]                  ^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3246558) ERROR 01-21 23:54:03 [core.py:866]   File "/root/vllmbench/vllm/model_executor/model_loader/base_loader.py", line 55, in load_model
+(EngineCore_DP0 pid=3246558) ERROR 01-21 23:54:03 [core.py:866]     self.load_weights(model, model_config)
+(EngineCore_DP0 pid=3246558) ERROR 01-21 23:54:03 [core.py:866]   File "/root/vllmbench/vllm/model_executor/model_loader/default_loader.py", line 305, in load_weights
+(EngineCore_DP0 pid=3246558) ERROR 01-21 23:54:03 [core.py:866]     loaded_weights = model.load_weights(self.get_all_weights(model_config, model))
+(EngineCore_DP0 pid=3246558) ERROR 01-21 23:54:03 [core.py:866]                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3246558) ERROR 01-21 23:54:03 [core.py:866]   File "/root/vllmbench/vllm/model_executor/models/llama.py", line 640, in load_weights
+(EngineCore_DP0 pid=3246558) ERROR 01-21 23:54:03 [core.py:866]     return loader.load_weights(
+(EngineCore_DP0 pid=3246558) ERROR 01-21 23:54:03 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3246558) ERROR 01-21 23:54:03 [core.py:866]   File "/root/vllmbench/vllm/model_executor/model_loader/online_quantization.py", line 173, in patched_model_load_weights
+(EngineCore_DP0 pid=3246558) ERROR 01-21 23:54:03 [core.py:866]     return original_load_weights(auto_weight_loader, weights, mapper=mapper)
+(EngineCore_DP0 pid=3246558) ERROR 01-21 23:54:03 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3246558) ERROR 01-21 23:54:03 [core.py:866]   File "/root/vllmbench/vllm/model_executor/models/utils.py", line 335, in load_weights
+(EngineCore_DP0 pid=3246558) ERROR 01-21 23:54:03 [core.py:866]     autoloaded_weights = set(self._load_module("", self.module, weights))
+(EngineCore_DP0 pid=3246558) ERROR 01-21 23:54:03 [core.py:866]                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3246558) ERROR 01-21 23:54:03 [core.py:866]   File "/root/vllmbench/vllm/model_executor/models/utils.py", line 288, in _load_module
+(EngineCore_DP0 pid=3246558) ERROR 01-21 23:54:03 [core.py:866]     yield from self._load_module(
+(EngineCore_DP0 pid=3246558) ERROR 01-21 23:54:03 [core.py:866]   File "/root/vllmbench/vllm/model_executor/models/utils.py", line 261, in _load_module
+(EngineCore_DP0 pid=3246558) ERROR 01-21 23:54:03 [core.py:866]     loaded_params = module_load_weights(weights)
+(EngineCore_DP0 pid=3246558) ERROR 01-21 23:54:03 [core.py:866]                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3246558) ERROR 01-21 23:54:03 [core.py:866]   File "/root/vllmbench/vllm/model_executor/models/llama.py", line 497, in load_weights
+(EngineCore_DP0 pid=3246558) ERROR 01-21 23:54:03 [core.py:866]     weight_loader(param, loaded_weight, shard_id)
+(EngineCore_DP0 pid=3246558) ERROR 01-21 23:54:03 [core.py:866]   File "/root/vllmbench/vllm/model_executor/layers/linear.py", line 858, in weight_loader_v2
+(EngineCore_DP0 pid=3246558) ERROR 01-21 23:54:03 [core.py:866]     param.load_merged_column_weight(
+(EngineCore_DP0 pid=3246558) ERROR 01-21 23:54:03 [core.py:866]   File "/root/vllmbench/vllm/model_executor/parameter.py", line 175, in load_merged_column_weight
+(EngineCore_DP0 pid=3246558) ERROR 01-21 23:54:03 [core.py:866]     assert param_data.shape == loaded_weight.shape
+(EngineCore_DP0 pid=3246558) ERROR 01-21 23:54:03 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3246558) ERROR 01-21 23:54:03 [core.py:866] AssertionError
+
+STDERR:
+/root/vllmbench/vllm/model_executor/layers/quantization/slidesparse.py:81: UserWarning: Failed to import slidesparse modules: No module named 'slidesparse'. SlideSparse features will be disabled.
+  warnings.warn(
+/root/vllmbench/vllm/model_executor/layers/quantization/slidesparse.py:81: UserWarning: Failed to import slidesparse modules: No module named 'slidesparse'. SlideSparse features will be disabled.
+  warnings.warn(
+(EngineCore_DP0 pid=3246558) 
+Loading safetensors checkpoint shards:   0% Completed | 0/1 [00:00<?, ?it/s]
+(EngineCore_DP0 pid=3246558) Process EngineCore_DP0:
+(EngineCore_DP0 pid=3246558) Traceback (most recent call last):
+(EngineCore_DP0 pid=3246558)   File "/usr/lib/python3.12/multiprocessing/process.py", line 314, in _bootstrap
+(EngineCore_DP0 pid=3246558)     self.run()
+(EngineCore_DP0 pid=3246558)   File "/usr/lib/python3.12/multiprocessing/process.py", line 108, in run
+(EngineCore_DP0 pid=3246558)     self._target(*self._args, **self._kwargs)
+(EngineCore_DP0 pid=3246558)   File "/root/vllmbench/vllm/v1/engine/core.py", line 870, in run_engine_core
+(EngineCore_DP0 pid=3246558)     raise e
+(EngineCore_DP0 pid=3246558)   File "/root/vllmbench/vllm/v1/engine/core.py", line 857, in run_engine_core
+(EngineCore_DP0 pid=3246558)     engine_core = EngineCoreProc(*args, **kwargs)
+(EngineCore_DP0 pid=3246558)                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3246558)   File "/root/vllmbench/vllm/v1/engine/core.py", line 637, in __init__
+(EngineCore_DP0 pid=3246558)     super().__init__(
+(EngineCore_DP0 pid=3246558)   File "/root/vllmbench/vllm/v1/engine/core.py", line 102, in __init__
+(EngineCore_DP0 pid=3246558)     self.model_executor = executor_class(vllm_config)
+(EngineCore_DP0 pid=3246558)                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3246558)   File "/root/vllmbench/vllm/v1/executor/abstract.py", line 101, in __init__
+(EngineCore_DP0 pid=3246558)     self._init_executor()
+(EngineCore_DP0 pid=3246558)   File "/root/vllmbench/vllm/v1/executor/uniproc_executor.py", line 48, in _init_executor
+(EngineCore_DP0 pid=3246558)     self.driver_worker.load_model()
+(EngineCore_DP0 pid=3246558)   File "/root/vllmbench/vllm/v1/worker/gpu_worker.py", line 289, in load_model
+(EngineCore_DP0 pid=3246558)     self.model_runner.load_model(eep_scale_up=eep_scale_up)
+(EngineCore_DP0 pid=3246558)   File "/root/vllmbench/vllm/v1/worker/gpu_model_runner.py", line 3581, in load_model
+(EngineCore_DP0 pid=3246558)     self.model = model_loader.load_model(
+(EngineCore_DP0 pid=3246558)                  ^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3246558)   File "/root/vllmbench/vllm/model_executor/model_loader/base_loader.py", line 55, in load_model
+(EngineCore_DP0 pid=3246558)     self.load_weights(model, model_config)
+(EngineCore_DP0 pid=3246558)   File "/root/vllmbench/vllm/model_executor/model_loader/default_loader.py", line 305, in load_weights
+(EngineCore_DP0 pid=3246558)     loaded_weights = model.load_weights(self.get_all_weights(model_config, model))
+(EngineCore_DP0 pid=3246558)                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3246558)   File "/root/vllmbench/vllm/model_executor/models/llama.py", line 640, in load_weights
+(EngineCore_DP0 pid=3246558)     return loader.load_weights(
+(EngineCore_DP0 pid=3246558)            ^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3246558)   File "/root/vllmbench/vllm/model_executor/model_loader/online_quantization.py", line 173, in patched_model_load_weights
+(EngineCore_DP0 pid=3246558)     return original_load_weights(auto_weight_loader, weights, mapper=mapper)
+(EngineCore_DP0 pid=3246558)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3246558)   File "/root/vllmbench/vllm/model_executor/models/utils.py", line 335, in load_weights
+(EngineCore_DP0 pid=3246558)     autoloaded_weights = set(self._load_module("", self.module, weights))
+(EngineCore_DP0 pid=3246558)                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3246558)   File "/root/vllmbench/vllm/model_executor/models/utils.py", line 288, in _load_module
+(EngineCore_DP0 pid=3246558)     yield from self._load_module(
+(EngineCore_DP0 pid=3246558)   File "/root/vllmbench/vllm/model_executor/models/utils.py", line 261, in _load_module
+(EngineCore_DP0 pid=3246558)     loaded_params = module_load_weights(weights)
+(EngineCore_DP0 pid=3246558)                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3246558)   File "/root/vllmbench/vllm/model_executor/models/llama.py", line 497, in load_weights
+(EngineCore_DP0 pid=3246558)     weight_loader(param, loaded_weight, shard_id)
+(EngineCore_DP0 pid=3246558)   File "/root/vllmbench/vllm/model_executor/layers/linear.py", line 858, in weight_loader_v2
+(EngineCore_DP0 pid=3246558)     param.load_merged_column_weight(
+(EngineCore_DP0 pid=3246558)   File "/root/vllmbench/vllm/model_executor/parameter.py", line 175, in load_merged_column_weight
+(EngineCore_DP0 pid=3246558)     assert param_data.shape == loaded_weight.shape
+(EngineCore_DP0 pid=3246558)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3246558) AssertionError
+(EngineCore_DP0 pid=3246558) 
+Loading safetensors checkpoint shards:   0% Completed | 0/1 [00:00<?, ?it/s]
+(EngineCore_DP0 pid=3246558) 
+[rank0]:[W121 23:54:04.811031930 ProcessGroupNCCL.cpp:1524] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+Traceback (most recent call last):
+  File "/usr/local/bin/vllm", line 7, in <module>
+    sys.exit(main())
+             ^^^^^^
+  File "/root/vllmbench/vllm/entrypoints/cli/main.py", line 73, in main
+    args.dispatch_function(args)
+  File "/root/vllmbench/vllm/entrypoints/cli/benchmark/throughput.py", line 21, in cmd
+    main(args)
+  File "/root/vllmbench/vllm/benchmarks/throughput.py", line 730, in main
+    elapsed_time, request_outputs = run_vllm(
+                                    ^^^^^^^^^
+  File "/root/vllmbench/vllm/benchmarks/throughput.py", line 51, in run_vllm
+    llm = LLM(**dataclasses.asdict(engine_args))
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/entrypoints/llm.py", line 351, in __init__
+    self.llm_engine = LLMEngine.from_engine_args(
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/v1/engine/llm_engine.py", line 183, in from_engine_args
+    return cls(
+           ^^^^
+  File "/root/vllmbench/vllm/v1/engine/llm_engine.py", line 109, in __init__
+    self.engine_core = EngineCoreClient.make_client(
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/v1/engine/core_client.py", line 93, in make_client
+    return SyncMPClient(vllm_config, executor_class, log_stats)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/v1/engine/core_client.py", line 648, in __init__
+    super().__init__(
+  File "/root/vllmbench/vllm/v1/engine/core_client.py", line 477, in __init__
+    with launch_core_engines(vllm_config, executor_class, log_stats) as (
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/contextlib.py", line 144, in __exit__
+    next(self.gen)
+  File "/root/vllmbench/vllm/v1/engine/utils.py", line 903, in launch_core_engines
+    wait_for_engine_startup(
+  File "/root/vllmbench/vllm/v1/engine/utils.py", line 960, in wait_for_engine_startup
+    raise RuntimeError(
+RuntimeError: Engine core initialization failed. See root cause above. Failed core proc(s): {}
+
+ERROR: Test failed for M=128
+
+========== M=512 ==========
+Time: 2026-01-21 23:54:05
+Backend: cuSPARSELt (2:6)
+Checkpoint: /root/vllmbench/checkpoints_slidesparse/Llama3.2-1B-FP8-SlideSparse-2_6
+Params: prompt_len=16, output_len=256, num_prompts=512, max_num_seqs=512
+Command: vllm bench throughput --model /root/vllmbench/checkpoints_slidesparse/Llama3.2-1B-FP8-SlideSparse-2_6 --dataset-name random --input-len 16 --output-len 256 --num-prompts 512 --max-num-seqs 512 --max-model-len 400 --max-num-batched-tokens 204800 --gpu-memory-utilization 0.9 --disable-log-stats --output-json /root/vllmbench/slidesparse/tools/throughput_benchmark_results/decode/RTX5080_cc120_FP8E4M3_py312_cu129_x86_64/cusparselt/2_6/json/Llama3.2-1B-FP8_M512.json
+
+STDOUT:
+When dataset path is not set, it will default to random dataset
+(EngineCore_DP0 pid=3246903) ERROR 01-21 23:54:14 [core.py:866] EngineCore failed to start.
+(EngineCore_DP0 pid=3246903) ERROR 01-21 23:54:14 [core.py:866] Traceback (most recent call last):
+(EngineCore_DP0 pid=3246903) ERROR 01-21 23:54:14 [core.py:866]   File "/root/vllmbench/vllm/v1/engine/core.py", line 857, in run_engine_core
+(EngineCore_DP0 pid=3246903) ERROR 01-21 23:54:14 [core.py:866]     engine_core = EngineCoreProc(*args, **kwargs)
+(EngineCore_DP0 pid=3246903) ERROR 01-21 23:54:14 [core.py:866]                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3246903) ERROR 01-21 23:54:14 [core.py:866]   File "/root/vllmbench/vllm/v1/engine/core.py", line 637, in __init__
+(EngineCore_DP0 pid=3246903) ERROR 01-21 23:54:14 [core.py:866]     super().__init__(
+(EngineCore_DP0 pid=3246903) ERROR 01-21 23:54:14 [core.py:866]   File "/root/vllmbench/vllm/v1/engine/core.py", line 102, in __init__
+(EngineCore_DP0 pid=3246903) ERROR 01-21 23:54:14 [core.py:866]     self.model_executor = executor_class(vllm_config)
+(EngineCore_DP0 pid=3246903) ERROR 01-21 23:54:14 [core.py:866]                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3246903) ERROR 01-21 23:54:14 [core.py:866]   File "/root/vllmbench/vllm/v1/executor/abstract.py", line 101, in __init__
+(EngineCore_DP0 pid=3246903) ERROR 01-21 23:54:14 [core.py:866]     self._init_executor()
+(EngineCore_DP0 pid=3246903) ERROR 01-21 23:54:14 [core.py:866]   File "/root/vllmbench/vllm/v1/executor/uniproc_executor.py", line 48, in _init_executor
+(EngineCore_DP0 pid=3246903) ERROR 01-21 23:54:14 [core.py:866]     self.driver_worker.load_model()
+(EngineCore_DP0 pid=3246903) ERROR 01-21 23:54:14 [core.py:866]   File "/root/vllmbench/vllm/v1/worker/gpu_worker.py", line 289, in load_model
+(EngineCore_DP0 pid=3246903) ERROR 01-21 23:54:14 [core.py:866]     self.model_runner.load_model(eep_scale_up=eep_scale_up)
+(EngineCore_DP0 pid=3246903) ERROR 01-21 23:54:14 [core.py:866]   File "/root/vllmbench/vllm/v1/worker/gpu_model_runner.py", line 3581, in load_model
+(EngineCore_DP0 pid=3246903) ERROR 01-21 23:54:14 [core.py:866]     self.model = model_loader.load_model(
+(EngineCore_DP0 pid=3246903) ERROR 01-21 23:54:14 [core.py:866]                  ^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3246903) ERROR 01-21 23:54:14 [core.py:866]   File "/root/vllmbench/vllm/model_executor/model_loader/base_loader.py", line 55, in load_model
+(EngineCore_DP0 pid=3246903) ERROR 01-21 23:54:14 [core.py:866]     self.load_weights(model, model_config)
+(EngineCore_DP0 pid=3246903) ERROR 01-21 23:54:14 [core.py:866]   File "/root/vllmbench/vllm/model_executor/model_loader/default_loader.py", line 305, in load_weights
+(EngineCore_DP0 pid=3246903) ERROR 01-21 23:54:14 [core.py:866]     loaded_weights = model.load_weights(self.get_all_weights(model_config, model))
+(EngineCore_DP0 pid=3246903) ERROR 01-21 23:54:14 [core.py:866]                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3246903) ERROR 01-21 23:54:14 [core.py:866]   File "/root/vllmbench/vllm/model_executor/models/llama.py", line 640, in load_weights
+(EngineCore_DP0 pid=3246903) ERROR 01-21 23:54:14 [core.py:866]     return loader.load_weights(
+(EngineCore_DP0 pid=3246903) ERROR 01-21 23:54:14 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3246903) ERROR 01-21 23:54:14 [core.py:866]   File "/root/vllmbench/vllm/model_executor/model_loader/online_quantization.py", line 173, in patched_model_load_weights
+(EngineCore_DP0 pid=3246903) ERROR 01-21 23:54:14 [core.py:866]     return original_load_weights(auto_weight_loader, weights, mapper=mapper)
+(EngineCore_DP0 pid=3246903) ERROR 01-21 23:54:14 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3246903) ERROR 01-21 23:54:14 [core.py:866]   File "/root/vllmbench/vllm/model_executor/models/utils.py", line 335, in load_weights
+(EngineCore_DP0 pid=3246903) ERROR 01-21 23:54:14 [core.py:866]     autoloaded_weights = set(self._load_module("", self.module, weights))
+(EngineCore_DP0 pid=3246903) ERROR 01-21 23:54:14 [core.py:866]                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3246903) ERROR 01-21 23:54:14 [core.py:866]   File "/root/vllmbench/vllm/model_executor/models/utils.py", line 288, in _load_module
+(EngineCore_DP0 pid=3246903) ERROR 01-21 23:54:14 [core.py:866]     yield from self._load_module(
+(EngineCore_DP0 pid=3246903) ERROR 01-21 23:54:14 [core.py:866]   File "/root/vllmbench/vllm/model_executor/models/utils.py", line 261, in _load_module
+(EngineCore_DP0 pid=3246903) ERROR 01-21 23:54:14 [core.py:866]     loaded_params = module_load_weights(weights)
+(EngineCore_DP0 pid=3246903) ERROR 01-21 23:54:14 [core.py:866]                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3246903) ERROR 01-21 23:54:14 [core.py:866]   File "/root/vllmbench/vllm/model_executor/models/llama.py", line 497, in load_weights
+(EngineCore_DP0 pid=3246903) ERROR 01-21 23:54:14 [core.py:866]     weight_loader(param, loaded_weight, shard_id)
+(EngineCore_DP0 pid=3246903) ERROR 01-21 23:54:14 [core.py:866]   File "/root/vllmbench/vllm/model_executor/layers/linear.py", line 858, in weight_loader_v2
+(EngineCore_DP0 pid=3246903) ERROR 01-21 23:54:14 [core.py:866]     param.load_merged_column_weight(
+(EngineCore_DP0 pid=3246903) ERROR 01-21 23:54:14 [core.py:866]   File "/root/vllmbench/vllm/model_executor/parameter.py", line 175, in load_merged_column_weight
+(EngineCore_DP0 pid=3246903) ERROR 01-21 23:54:14 [core.py:866]     assert param_data.shape == loaded_weight.shape
+(EngineCore_DP0 pid=3246903) ERROR 01-21 23:54:14 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3246903) ERROR 01-21 23:54:14 [core.py:866] AssertionError
+
+STDERR:
+/root/vllmbench/vllm/model_executor/layers/quantization/slidesparse.py:81: UserWarning: Failed to import slidesparse modules: No module named 'slidesparse'. SlideSparse features will be disabled.
+  warnings.warn(
+/root/vllmbench/vllm/model_executor/layers/quantization/slidesparse.py:81: UserWarning: Failed to import slidesparse modules: No module named 'slidesparse'. SlideSparse features will be disabled.
+  warnings.warn(
+(EngineCore_DP0 pid=3246903) 
+Loading safetensors checkpoint shards:   0% Completed | 0/1 [00:00<?, ?it/s]
+(EngineCore_DP0 pid=3246903) Process EngineCore_DP0:
+(EngineCore_DP0 pid=3246903) Traceback (most recent call last):
+(EngineCore_DP0 pid=3246903)   File "/usr/lib/python3.12/multiprocessing/process.py", line 314, in _bootstrap
+(EngineCore_DP0 pid=3246903)     self.run()
+(EngineCore_DP0 pid=3246903)   File "/usr/lib/python3.12/multiprocessing/process.py", line 108, in run
+(EngineCore_DP0 pid=3246903)     self._target(*self._args, **self._kwargs)
+(EngineCore_DP0 pid=3246903)   File "/root/vllmbench/vllm/v1/engine/core.py", line 870, in run_engine_core
+(EngineCore_DP0 pid=3246903)     raise e
+(EngineCore_DP0 pid=3246903)   File "/root/vllmbench/vllm/v1/engine/core.py", line 857, in run_engine_core
+(EngineCore_DP0 pid=3246903)     engine_core = EngineCoreProc(*args, **kwargs)
+(EngineCore_DP0 pid=3246903)                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3246903)   File "/root/vllmbench/vllm/v1/engine/core.py", line 637, in __init__
+(EngineCore_DP0 pid=3246903)     super().__init__(
+(EngineCore_DP0 pid=3246903)   File "/root/vllmbench/vllm/v1/engine/core.py", line 102, in __init__
+(EngineCore_DP0 pid=3246903)     self.model_executor = executor_class(vllm_config)
+(EngineCore_DP0 pid=3246903)                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3246903)   File "/root/vllmbench/vllm/v1/executor/abstract.py", line 101, in __init__
+(EngineCore_DP0 pid=3246903)     self._init_executor()
+(EngineCore_DP0 pid=3246903)   File "/root/vllmbench/vllm/v1/executor/uniproc_executor.py", line 48, in _init_executor
+(EngineCore_DP0 pid=3246903)     self.driver_worker.load_model()
+(EngineCore_DP0 pid=3246903)   File "/root/vllmbench/vllm/v1/worker/gpu_worker.py", line 289, in load_model
+(EngineCore_DP0 pid=3246903)     self.model_runner.load_model(eep_scale_up=eep_scale_up)
+(EngineCore_DP0 pid=3246903)   File "/root/vllmbench/vllm/v1/worker/gpu_model_runner.py", line 3581, in load_model
+(EngineCore_DP0 pid=3246903)     self.model = model_loader.load_model(
+(EngineCore_DP0 pid=3246903)                  ^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3246903)   File "/root/vllmbench/vllm/model_executor/model_loader/base_loader.py", line 55, in load_model
+(EngineCore_DP0 pid=3246903)     self.load_weights(model, model_config)
+(EngineCore_DP0 pid=3246903)   File "/root/vllmbench/vllm/model_executor/model_loader/default_loader.py", line 305, in load_weights
+(EngineCore_DP0 pid=3246903)     loaded_weights = model.load_weights(self.get_all_weights(model_config, model))
+(EngineCore_DP0 pid=3246903)                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3246903)   File "/root/vllmbench/vllm/model_executor/models/llama.py", line 640, in load_weights
+(EngineCore_DP0 pid=3246903)     return loader.load_weights(
+(EngineCore_DP0 pid=3246903)            ^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3246903)   File "/root/vllmbench/vllm/model_executor/model_loader/online_quantization.py", line 173, in patched_model_load_weights
+(EngineCore_DP0 pid=3246903)     return original_load_weights(auto_weight_loader, weights, mapper=mapper)
+(EngineCore_DP0 pid=3246903)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3246903)   File "/root/vllmbench/vllm/model_executor/models/utils.py", line 335, in load_weights
+(EngineCore_DP0 pid=3246903)     autoloaded_weights = set(self._load_module("", self.module, weights))
+(EngineCore_DP0 pid=3246903)                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3246903)   File "/root/vllmbench/vllm/model_executor/models/utils.py", line 288, in _load_module
+(EngineCore_DP0 pid=3246903)     yield from self._load_module(
+(EngineCore_DP0 pid=3246903)   File "/root/vllmbench/vllm/model_executor/models/utils.py", line 261, in _load_module
+(EngineCore_DP0 pid=3246903)     loaded_params = module_load_weights(weights)
+(EngineCore_DP0 pid=3246903)                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3246903)   File "/root/vllmbench/vllm/model_executor/models/llama.py", line 497, in load_weights
+(EngineCore_DP0 pid=3246903)     weight_loader(param, loaded_weight, shard_id)
+(EngineCore_DP0 pid=3246903)   File "/root/vllmbench/vllm/model_executor/layers/linear.py", line 858, in weight_loader_v2
+(EngineCore_DP0 pid=3246903)     param.load_merged_column_weight(
+(EngineCore_DP0 pid=3246903)   File "/root/vllmbench/vllm/model_executor/parameter.py", line 175, in load_merged_column_weight
+(EngineCore_DP0 pid=3246903)     assert param_data.shape == loaded_weight.shape
+(EngineCore_DP0 pid=3246903)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3246903) AssertionError
+(EngineCore_DP0 pid=3246903) 
+Loading safetensors checkpoint shards:   0% Completed | 0/1 [00:00<?, ?it/s]
+(EngineCore_DP0 pid=3246903) 
+[rank0]:[W121 23:54:14.759665787 ProcessGroupNCCL.cpp:1524] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+Traceback (most recent call last):
+  File "/usr/local/bin/vllm", line 7, in <module>
+    sys.exit(main())
+             ^^^^^^
+  File "/root/vllmbench/vllm/entrypoints/cli/main.py", line 73, in main
+    args.dispatch_function(args)
+  File "/root/vllmbench/vllm/entrypoints/cli/benchmark/throughput.py", line 21, in cmd
+    main(args)
+  File "/root/vllmbench/vllm/benchmarks/throughput.py", line 730, in main
+    elapsed_time, request_outputs = run_vllm(
+                                    ^^^^^^^^^
+  File "/root/vllmbench/vllm/benchmarks/throughput.py", line 51, in run_vllm
+    llm = LLM(**dataclasses.asdict(engine_args))
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/entrypoints/llm.py", line 351, in __init__
+    self.llm_engine = LLMEngine.from_engine_args(
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/v1/engine/llm_engine.py", line 183, in from_engine_args
+    return cls(
+           ^^^^
+  File "/root/vllmbench/vllm/v1/engine/llm_engine.py", line 109, in __init__
+    self.engine_core = EngineCoreClient.make_client(
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/v1/engine/core_client.py", line 93, in make_client
+    return SyncMPClient(vllm_config, executor_class, log_stats)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/v1/engine/core_client.py", line 648, in __init__
+    super().__init__(
+  File "/root/vllmbench/vllm/v1/engine/core_client.py", line 477, in __init__
+    with launch_core_engines(vllm_config, executor_class, log_stats) as (
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/contextlib.py", line 144, in __exit__
+    next(self.gen)
+  File "/root/vllmbench/vllm/v1/engine/utils.py", line 903, in launch_core_engines
+    wait_for_engine_startup(
+  File "/root/vllmbench/vllm/v1/engine/utils.py", line 960, in wait_for_engine_startup
+    raise RuntimeError(
+RuntimeError: Engine core initialization failed. See root cause above. Failed core proc(s): {}
+
+ERROR: Test failed for M=512

@@ -1,0 +1,254 @@
+======================================================================
+SlideSparse vLLM Throughput Benchmark Log
+Created: 2026-01-22 00:15:38
+======================================================================
+
+原始命令:
+  throughput_benchmark.py --model Qwen2.5-0.5B-FP8 --backend cusparselt --sparsity 2_6 --stage prefill --M 16
+
+命令行参数:
+  --model: Qwen2.5-0.5B-FP8
+  --backend: cusparselt
+  --sparsity: 2_6
+  --stage: prefill
+  --M: 16
+  --N: None
+  --inner-32: False
+  --eager: False
+  --gpu-id: 0
+  --gpu-mem: 0.9
+  --dry-run: False
+  --list-models: False
+
+硬件信息:
+  GPU: RTX5080
+  Compute Capability: cc120
+  VRAM: 15.5 GB
+  CUDA: 12.9
+  Python: py312
+
+======================================================================
+
+
+============================================================
+  Qwen2.5-0.5B-FP8 | cuSPARSELt (2_6) | prefill
+============================================================
+
+[INFO] Checkpoint: /root/vllmbench/checkpoints_slidesparse/Qwen2.5-0.5B-FP8-SlideSparse-2_6
+[INFO] Output: /root/vllmbench/slidesparse/tools/throughput_benchmark_results/prefill/RTX5080_cc120_FP8E4M3_py312_cu129_x86_64/cusparselt/2_6
+
+============================================================
+[1/1] 测试 M=16
+============================================================
+
+┌─────────────────────────────────────────────────────────────┐
+│                    测试参数                                  │
+├─────────────────────────────────────────────────────────────┤
+│ 模型:     Qwen2.5-0.5B-FP8
+│ Backend:  cuSPARSELt (2:6)
+│ 阶段:     prefill
+├─────────────────────────────────────────────────────────────┤
+│ GEMM M 维度:
+│   M_prefill = 16 (= 1 x 16)
+│   M_decode  = 1
+├─────────────────────────────────────────────────────────────┤
+│ vLLM 参数:
+│   --input-len       = 16
+│   --output-len      = 1
+│   --num-prompts     = 128
+│   --max-num-seqs    = 1
+│   --max-model-len   = 145
+├─────────────────────────────────────────────────────────────┤
+│ 迭代次数:
+│   N_prefill = 128
+│   N_decode  = 0
+└─────────────────────────────────────────────────────────────┘
+
+[INFO] 开始测试...
+
+─── STDOUT ───
+When dataset path is not set, it will default to random dataset
+INFO 01-22 00:15:41 [datasets.py:612] Sampling input_len from [16, 16] and output_len from [1, 1]
+INFO 01-22 00:15:42 [utils.py:253] non-default args: {'tokenizer': '/root/vllmbench/checkpoints_slidesparse/Qwen2.5-0.5B-FP8-SlideSparse-2_6', 'max_model_len': 145, 'max_num_batched_tokens': 145, 'max_num_seqs': 1, 'disable_log_stats': True, 'enable_lora': None, 'reasoning_parser_plugin': '', 'model': '/root/vllmbench/checkpoints_slidesparse/Qwen2.5-0.5B-FP8-SlideSparse-2_6'}
+INFO 01-22 00:15:42 [model.py:514] Resolved architecture: Qwen2ForCausalLM
+INFO 01-22 00:15:42 [model.py:1661] Using max model len 145
+INFO 01-22 00:15:42 [scheduler.py:230] Chunked prefill is enabled with max_num_batched_tokens=145.
+(EngineCore_DP0 pid=3257462) INFO 01-22 00:15:45 [core.py:93] Initializing a V1 LLM engine (v0.13.1.dev7+gd5e6597bf) with config: model='/root/vllmbench/checkpoints_slidesparse/Qwen2.5-0.5B-FP8-SlideSparse-2_6', speculative_config=None, tokenizer='/root/vllmbench/checkpoints_slidesparse/Qwen2.5-0.5B-FP8-SlideSparse-2_6', skip_tokenizer_init=False, tokenizer_mode=auto, revision=None, tokenizer_revision=None, trust_remote_code=False, dtype=torch.bfloat16, max_seq_len=145, download_dir=None, load_format=auto, tensor_parallel_size=1, pipeline_parallel_size=1, data_parallel_size=1, disable_custom_all_reduce=False, quantization=compressed-tensors, enforce_eager=False, kv_cache_dtype=auto, device_config=cuda, structured_outputs_config=StructuredOutputsConfig(backend='auto', disable_fallback=False, disable_any_whitespace=False, disable_additional_properties=False, reasoning_parser='', reasoning_parser_plugin='', enable_in_reasoning=False), observability_config=ObservabilityConfig(show_hidden_metrics_for_version=None, otlp_traces_endpoint=None, collect_detailed_traces=None, kv_cache_metrics=False, kv_cache_metrics_sample=0.01, cudagraph_metrics=False, enable_layerwise_nvtx_tracing=False), seed=0, served_model_name=/root/vllmbench/checkpoints_slidesparse/Qwen2.5-0.5B-FP8-SlideSparse-2_6, enable_prefix_caching=True, enable_chunked_prefill=True, pooler_config=None, compilation_config={'level': None, 'mode': <CompilationMode.VLLM_COMPILE: 3>, 'debug_dump_path': None, 'cache_dir': '', 'compile_cache_save_format': 'binary', 'backend': 'inductor', 'custom_ops': ['none'], 'splitting_ops': ['vllm::unified_attention', 'vllm::unified_attention_with_output', 'vllm::unified_mla_attention', 'vllm::unified_mla_attention_with_output', 'vllm::mamba_mixer2', 'vllm::mamba_mixer', 'vllm::short_conv', 'vllm::linear_attention', 'vllm::plamo2_mamba_mixer', 'vllm::gdn_attention_core', 'vllm::kda_attention', 'vllm::sparse_attn_indexer'], 'compile_mm_encoder': False, 'compile_sizes': [], 'compile_ranges_split_points': [145], 'inductor_compile_config': {'enable_auto_functionalized_v2': False, 'combo_kernels': True, 'benchmark_combo_kernel': True}, 'inductor_passes': {}, 'cudagraph_mode': <CUDAGraphMode.FULL_AND_PIECEWISE: (2, 1)>, 'cudagraph_num_of_warmups': 1, 'cudagraph_capture_sizes': [1, 2], 'cudagraph_copy_inputs': False, 'cudagraph_specialize_lora': True, 'use_inductor_graph_partition': False, 'pass_config': {'fuse_norm_quant': False, 'fuse_act_quant': False, 'fuse_attn_quant': False, 'eliminate_noops': True, 'enable_sp': False, 'fuse_gemm_comms': False, 'fuse_allreduce_rms': False}, 'max_cudagraph_capture_size': 2, 'dynamic_shapes_config': {'type': <DynamicShapesType.BACKED: 'backed'>, 'evaluate_guards': False}, 'local_cache_dir': None}
+(EngineCore_DP0 pid=3257462) INFO 01-22 00:15:46 [parallel_state.py:1203] world_size=1 rank=0 local_rank=0 distributed_init_method=tcp://10.172.141.44:37811 backend=nccl
+(EngineCore_DP0 pid=3257462) INFO 01-22 00:15:46 [parallel_state.py:1411] rank 0 in world size 1 is assigned as DP rank 0, PP rank 0, PCP rank 0, TP rank 0, EP rank 0
+(EngineCore_DP0 pid=3257462) INFO 01-22 00:15:46 [gpu_model_runner.py:3562] Starting to load model /root/vllmbench/checkpoints_slidesparse/Qwen2.5-0.5B-FP8-SlideSparse-2_6...
+(EngineCore_DP0 pid=3257462) INFO 01-22 00:15:46 [cuda.py:351] Using FLASH_ATTN attention backend out of potential backends: ('FLASH_ATTN', 'FLASHINFER', 'TRITON_ATTN', 'FLEX_ATTENTION')
+(EngineCore_DP0 pid=3257462) ERROR 01-22 00:15:46 [core.py:866] EngineCore failed to start.
+(EngineCore_DP0 pid=3257462) ERROR 01-22 00:15:46 [core.py:866] Traceback (most recent call last):
+(EngineCore_DP0 pid=3257462) ERROR 01-22 00:15:46 [core.py:866]   File "/root/vllmbench/vllm/v1/engine/core.py", line 857, in run_engine_core
+(EngineCore_DP0 pid=3257462) ERROR 01-22 00:15:46 [core.py:866]     engine_core = EngineCoreProc(*args, **kwargs)
+(EngineCore_DP0 pid=3257462) ERROR 01-22 00:15:46 [core.py:866]                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3257462) ERROR 01-22 00:15:46 [core.py:866]   File "/root/vllmbench/vllm/v1/engine/core.py", line 637, in __init__
+(EngineCore_DP0 pid=3257462) ERROR 01-22 00:15:46 [core.py:866]     super().__init__(
+(EngineCore_DP0 pid=3257462) ERROR 01-22 00:15:46 [core.py:866]   File "/root/vllmbench/vllm/v1/engine/core.py", line 102, in __init__
+(EngineCore_DP0 pid=3257462) ERROR 01-22 00:15:46 [core.py:866]     self.model_executor = executor_class(vllm_config)
+(EngineCore_DP0 pid=3257462) ERROR 01-22 00:15:46 [core.py:866]                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3257462) ERROR 01-22 00:15:46 [core.py:866]   File "/root/vllmbench/vllm/v1/executor/abstract.py", line 101, in __init__
+(EngineCore_DP0 pid=3257462) ERROR 01-22 00:15:46 [core.py:866]     self._init_executor()
+(EngineCore_DP0 pid=3257462) ERROR 01-22 00:15:46 [core.py:866]   File "/root/vllmbench/vllm/v1/executor/uniproc_executor.py", line 48, in _init_executor
+(EngineCore_DP0 pid=3257462) ERROR 01-22 00:15:46 [core.py:866]     self.driver_worker.load_model()
+(EngineCore_DP0 pid=3257462) ERROR 01-22 00:15:46 [core.py:866]   File "/root/vllmbench/vllm/v1/worker/gpu_worker.py", line 289, in load_model
+(EngineCore_DP0 pid=3257462) ERROR 01-22 00:15:46 [core.py:866]     self.model_runner.load_model(eep_scale_up=eep_scale_up)
+(EngineCore_DP0 pid=3257462) ERROR 01-22 00:15:46 [core.py:866]   File "/root/vllmbench/vllm/v1/worker/gpu_model_runner.py", line 3581, in load_model
+(EngineCore_DP0 pid=3257462) ERROR 01-22 00:15:46 [core.py:866]     self.model = model_loader.load_model(
+(EngineCore_DP0 pid=3257462) ERROR 01-22 00:15:46 [core.py:866]                  ^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3257462) ERROR 01-22 00:15:46 [core.py:866]   File "/root/vllmbench/vllm/model_executor/model_loader/base_loader.py", line 55, in load_model
+(EngineCore_DP0 pid=3257462) ERROR 01-22 00:15:46 [core.py:866]     self.load_weights(model, model_config)
+(EngineCore_DP0 pid=3257462) ERROR 01-22 00:15:46 [core.py:866]   File "/root/vllmbench/vllm/model_executor/model_loader/default_loader.py", line 305, in load_weights
+(EngineCore_DP0 pid=3257462) ERROR 01-22 00:15:46 [core.py:866]     loaded_weights = model.load_weights(self.get_all_weights(model_config, model))
+(EngineCore_DP0 pid=3257462) ERROR 01-22 00:15:46 [core.py:866]                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3257462) ERROR 01-22 00:15:46 [core.py:866]   File "/root/vllmbench/vllm/model_executor/models/qwen2.py", line 600, in load_weights
+(EngineCore_DP0 pid=3257462) ERROR 01-22 00:15:46 [core.py:866]     return loader.load_weights(weights)
+(EngineCore_DP0 pid=3257462) ERROR 01-22 00:15:46 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3257462) ERROR 01-22 00:15:46 [core.py:866]   File "/root/vllmbench/vllm/model_executor/model_loader/online_quantization.py", line 173, in patched_model_load_weights
+(EngineCore_DP0 pid=3257462) ERROR 01-22 00:15:46 [core.py:866]     return original_load_weights(auto_weight_loader, weights, mapper=mapper)
+(EngineCore_DP0 pid=3257462) ERROR 01-22 00:15:46 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3257462) ERROR 01-22 00:15:46 [core.py:866]   File "/root/vllmbench/vllm/model_executor/models/utils.py", line 335, in load_weights
+(EngineCore_DP0 pid=3257462) ERROR 01-22 00:15:46 [core.py:866]     autoloaded_weights = set(self._load_module("", self.module, weights))
+(EngineCore_DP0 pid=3257462) ERROR 01-22 00:15:46 [core.py:866]                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3257462) ERROR 01-22 00:15:46 [core.py:866]   File "/root/vllmbench/vllm/model_executor/models/utils.py", line 288, in _load_module
+(EngineCore_DP0 pid=3257462) ERROR 01-22 00:15:46 [core.py:866]     yield from self._load_module(
+(EngineCore_DP0 pid=3257462) ERROR 01-22 00:15:46 [core.py:866]   File "/root/vllmbench/vllm/model_executor/models/utils.py", line 261, in _load_module
+(EngineCore_DP0 pid=3257462) ERROR 01-22 00:15:46 [core.py:866]     loaded_params = module_load_weights(weights)
+(EngineCore_DP0 pid=3257462) ERROR 01-22 00:15:46 [core.py:866]                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3257462) ERROR 01-22 00:15:46 [core.py:866]   File "/root/vllmbench/vllm/model_executor/models/qwen2.py", line 501, in load_weights
+(EngineCore_DP0 pid=3257462) ERROR 01-22 00:15:46 [core.py:866]     weight_loader(param, loaded_weight, shard_id)
+(EngineCore_DP0 pid=3257462) ERROR 01-22 00:15:46 [core.py:866]   File "/root/vllmbench/vllm/model_executor/layers/linear.py", line 858, in weight_loader_v2
+(EngineCore_DP0 pid=3257462) ERROR 01-22 00:15:46 [core.py:866]     param.load_merged_column_weight(
+(EngineCore_DP0 pid=3257462) ERROR 01-22 00:15:46 [core.py:866]   File "/root/vllmbench/vllm/model_executor/parameter.py", line 175, in load_merged_column_weight
+(EngineCore_DP0 pid=3257462) ERROR 01-22 00:15:46 [core.py:866]     assert param_data.shape == loaded_weight.shape
+(EngineCore_DP0 pid=3257462) ERROR 01-22 00:15:46 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3257462) ERROR 01-22 00:15:46 [core.py:866] AssertionError
+
+
+─── STDERR ───
+/root/vllmbench/vllm/model_executor/layers/quantization/slidesparse.py:81: UserWarning: Failed to import slidesparse modules: No module named 'slidesparse'. SlideSparse features will be disabled.
+  warnings.warn(
+/root/vllmbench/vllm/model_executor/layers/quantization/slidesparse.py:81: UserWarning: Failed to import slidesparse modules: No module named 'slidesparse'. SlideSparse features will be disabled.
+  warnings.warn(
+(EngineCore_DP0 pid=3257462) 
+Loading safetensors checkpoint shards:   0% Completed | 0/1 [00:00<?, ?it/s]
+(EngineCore_DP0 pid=3257462) Process EngineCore_DP0:
+(EngineCore_DP0 pid=3257462) Traceback (most recent call last):
+(EngineCore_DP0 pid=3257462)   File "/usr/lib/python3.12/multiprocessing/process.py", line 314, in _bootstrap
+(EngineCore_DP0 pid=3257462)     self.run()
+(EngineCore_DP0 pid=3257462)   File "/usr/lib/python3.12/multiprocessing/process.py", line 108, in run
+(EngineCore_DP0 pid=3257462)     self._target(*self._args, **self._kwargs)
+(EngineCore_DP0 pid=3257462)   File "/root/vllmbench/vllm/v1/engine/core.py", line 870, in run_engine_core
+(EngineCore_DP0 pid=3257462)     raise e
+(EngineCore_DP0 pid=3257462)   File "/root/vllmbench/vllm/v1/engine/core.py", line 857, in run_engine_core
+(EngineCore_DP0 pid=3257462)     engine_core = EngineCoreProc(*args, **kwargs)
+(EngineCore_DP0 pid=3257462)                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3257462)   File "/root/vllmbench/vllm/v1/engine/core.py", line 637, in __init__
+(EngineCore_DP0 pid=3257462)     super().__init__(
+(EngineCore_DP0 pid=3257462)   File "/root/vllmbench/vllm/v1/engine/core.py", line 102, in __init__
+(EngineCore_DP0 pid=3257462)     self.model_executor = executor_class(vllm_config)
+(EngineCore_DP0 pid=3257462)                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3257462)   File "/root/vllmbench/vllm/v1/executor/abstract.py", line 101, in __init__
+(EngineCore_DP0 pid=3257462)     self._init_executor()
+(EngineCore_DP0 pid=3257462)   File "/root/vllmbench/vllm/v1/executor/uniproc_executor.py", line 48, in _init_executor
+(EngineCore_DP0 pid=3257462)     self.driver_worker.load_model()
+(EngineCore_DP0 pid=3257462)   File "/root/vllmbench/vllm/v1/worker/gpu_worker.py", line 289, in load_model
+(EngineCore_DP0 pid=3257462)     self.model_runner.load_model(eep_scale_up=eep_scale_up)
+(EngineCore_DP0 pid=3257462)   File "/root/vllmbench/vllm/v1/worker/gpu_model_runner.py", line 3581, in load_model
+(EngineCore_DP0 pid=3257462)     self.model = model_loader.load_model(
+(EngineCore_DP0 pid=3257462)                  ^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3257462)   File "/root/vllmbench/vllm/model_executor/model_loader/base_loader.py", line 55, in load_model
+(EngineCore_DP0 pid=3257462)     self.load_weights(model, model_config)
+(EngineCore_DP0 pid=3257462)   File "/root/vllmbench/vllm/model_executor/model_loader/default_loader.py", line 305, in load_weights
+(EngineCore_DP0 pid=3257462)     loaded_weights = model.load_weights(self.get_all_weights(model_config, model))
+(EngineCore_DP0 pid=3257462)                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3257462)   File "/root/vllmbench/vllm/model_executor/models/qwen2.py", line 600, in load_weights
+(EngineCore_DP0 pid=3257462)     return loader.load_weights(weights)
+(EngineCore_DP0 pid=3257462)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3257462)   File "/root/vllmbench/vllm/model_executor/model_loader/online_quantization.py", line 173, in patched_model_load_weights
+(EngineCore_DP0 pid=3257462)     return original_load_weights(auto_weight_loader, weights, mapper=mapper)
+(EngineCore_DP0 pid=3257462)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3257462)   File "/root/vllmbench/vllm/model_executor/models/utils.py", line 335, in load_weights
+(EngineCore_DP0 pid=3257462)     autoloaded_weights = set(self._load_module("", self.module, weights))
+(EngineCore_DP0 pid=3257462)                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3257462)   File "/root/vllmbench/vllm/model_executor/models/utils.py", line 288, in _load_module
+(EngineCore_DP0 pid=3257462)     yield from self._load_module(
+(EngineCore_DP0 pid=3257462)   File "/root/vllmbench/vllm/model_executor/models/utils.py", line 261, in _load_module
+(EngineCore_DP0 pid=3257462)     loaded_params = module_load_weights(weights)
+(EngineCore_DP0 pid=3257462)                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3257462)   File "/root/vllmbench/vllm/model_executor/models/qwen2.py", line 501, in load_weights
+(EngineCore_DP0 pid=3257462)     weight_loader(param, loaded_weight, shard_id)
+(EngineCore_DP0 pid=3257462)   File "/root/vllmbench/vllm/model_executor/layers/linear.py", line 858, in weight_loader_v2
+(EngineCore_DP0 pid=3257462)     param.load_merged_column_weight(
+(EngineCore_DP0 pid=3257462)   File "/root/vllmbench/vllm/model_executor/parameter.py", line 175, in load_merged_column_weight
+(EngineCore_DP0 pid=3257462)     assert param_data.shape == loaded_weight.shape
+(EngineCore_DP0 pid=3257462)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=3257462) AssertionError
+(EngineCore_DP0 pid=3257462) 
+Loading safetensors checkpoint shards:   0% Completed | 0/1 [00:00<?, ?it/s]
+(EngineCore_DP0 pid=3257462) 
+[rank0]:[W122 00:15:47.057305181 ProcessGroupNCCL.cpp:1524] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+Traceback (most recent call last):
+  File "/usr/local/bin/vllm", line 7, in <module>
+    sys.exit(main())
+             ^^^^^^
+  File "/root/vllmbench/vllm/entrypoints/cli/main.py", line 73, in main
+    args.dispatch_function(args)
+  File "/root/vllmbench/vllm/entrypoints/cli/benchmark/throughput.py", line 21, in cmd
+    main(args)
+  File "/root/vllmbench/vllm/benchmarks/throughput.py", line 730, in main
+    elapsed_time, request_outputs = run_vllm(
+                                    ^^^^^^^^^
+  File "/root/vllmbench/vllm/benchmarks/throughput.py", line 51, in run_vllm
+    llm = LLM(**dataclasses.asdict(engine_args))
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/entrypoints/llm.py", line 351, in __init__
+    self.llm_engine = LLMEngine.from_engine_args(
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/v1/engine/llm_engine.py", line 183, in from_engine_args
+    return cls(
+           ^^^^
+  File "/root/vllmbench/vllm/v1/engine/llm_engine.py", line 109, in __init__
+    self.engine_core = EngineCoreClient.make_client(
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/v1/engine/core_client.py", line 93, in make_client
+    return SyncMPClient(vllm_config, executor_class, log_stats)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/v1/engine/core_client.py", line 648, in __init__
+    super().__init__(
+  File "/root/vllmbench/vllm/v1/engine/core_client.py", line 477, in __init__
+    with launch_core_engines(vllm_config, executor_class, log_stats) as (
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/contextlib.py", line 144, in __exit__
+    next(self.gen)
+  File "/root/vllmbench/vllm/v1/engine/utils.py", line 903, in launch_core_engines
+    wait_for_engine_startup(
+  File "/root/vllmbench/vllm/v1/engine/utils.py", line 960, in wait_for_engine_startup
+    raise RuntimeError(
+RuntimeError: Engine core initialization failed. See root cause above. Failed core proc(s): {}
+
+[ERROR] 测试失败: M=16 (exit code: 1)
+
+
+------------------------------------------------------------
+  生成 CSV: Qwen2.5-0.5B-FP8
+------------------------------------------------------------
+[SUCCESS] CSV 保存到: /root/vllmbench/slidesparse/tools/throughput_benchmark_results/prefill/RTX5080_cc120_FP8E4M3_py312_cu129_x86_64/cusparselt/2_6/Qwen2.5-0.5B-FP8_prefill.csv
+
+预览:
+------------------------------------------------------------
+M_prefill,prompt_len,max_num_seqs,num_prompts,N_prefill,requests_per_s,tokens_per_s,elapsed_time_s
+
+------------------------------------------------------------
+
+[INFO] 完成: 0 成功, 1 失败
+
+
+============================================================
+  Benchmark 完成!
+============================================================
+
+
+总计: 0 成功, 1 失败
+============================================================
