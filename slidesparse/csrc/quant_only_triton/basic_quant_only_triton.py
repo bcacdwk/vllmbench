@@ -150,37 +150,7 @@ def _quant_only_int8_kernel(
 # 配置选择
 # =============================================================================
 
-# Tensor Cache for output allocation (避免重复分配开销)
-_fp8_out_cache: dict = {}
-_fp8_scale_cache: dict = {}
-_int8_out_cache: dict = {}
-_int8_scale_cache: dict = {}
 
-
-def _get_cached_fp8_tensors(M_padded: int, K_padded: int, device: torch.device):
-    """Get or create cached FP8 output tensors."""
-    key = (M_padded, K_padded, device.index if device.index is not None else 0)
-    if key not in _fp8_out_cache:
-        _fp8_out_cache[key] = torch.empty(M_padded, K_padded, dtype=torch.float8_e4m3fn, device=device)
-        _fp8_scale_cache[key] = torch.empty(M_padded, dtype=torch.float32, device=device)
-    # Must zero/fill every call since kernel only writes valid M rows
-    out, scale = _fp8_out_cache[key], _fp8_scale_cache[key]
-    out.zero_()
-    scale.fill_(1.0)
-    return out, scale
-
-
-def _get_cached_int8_tensors(M_padded: int, K_padded: int, device: torch.device):
-    """Get or create cached INT8 output tensors."""
-    key = (M_padded, K_padded, device.index if device.index is not None else 0)
-    if key not in _int8_out_cache:
-        _int8_out_cache[key] = torch.empty(M_padded, K_padded, dtype=torch.int8, device=device)
-        _int8_scale_cache[key] = torch.empty(M_padded, dtype=torch.float32, device=device)
-    # Must zero/fill every call since kernel only writes valid M rows
-    out, scale = _int8_out_cache[key], _int8_scale_cache[key]
-    out.zero_()
-    scale.fill_(1.0)
-    return out, scale
 
 
 def _get_config(M: int, K: int) -> tuple[int, int, int]:
@@ -258,8 +228,10 @@ def quant_only_fp8_triton(
     K_padded = ((K + 31) // 32) * 32
     M_padded = ((M + 15) // 16) * 16
     
-    # 使用缓存的 tensor，避免重复分配开销
-    out, scale = _get_cached_fp8_tensors(M_padded, K_padded, x.device)
+    # 使用 zeros 分配，padding 区域天然为 0（torch.compile 友好）
+    out = torch.zeros(M_padded, K_padded, dtype=torch.float8_e4m3fn, device=x.device)
+    # scale padding 为 1.0，避免 dequant 时除以 0
+    scale = torch.ones(M_padded, dtype=torch.float32, device=x.device)
     
     # 自动选择配置
     if block_k is None or num_warps is None or num_stages is None:
@@ -309,8 +281,10 @@ def quant_only_int8_triton(
     K_padded = ((K + 31) // 32) * 32
     M_padded = ((M + 15) // 16) * 16
     
-    # 使用缓存的 tensor，避免重复分配开销
-    out, scale = _get_cached_int8_tensors(M_padded, K_padded, x.device)
+    # 使用 zeros 分配，padding 区域天然为 0（torch.compile 友好）
+    out = torch.zeros(M_padded, K_padded, dtype=torch.int8, device=x.device)
+    # scale padding 为 1.0，避免 dequant 时除以 0
+    scale = torch.ones(M_padded, dtype=torch.float32, device=x.device)
     
     # 自动选择配置
     if block_k is None or num_warps is None or num_stages is None:

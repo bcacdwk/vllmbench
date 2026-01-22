@@ -55,30 +55,44 @@ Padding 策略:
 - USE_CUBLASLT=1          : 使用 cuBLASLt kernel
 - USE_CUSPARSELT=1        : 使用 cuSPARSELt kernel（与 USE_CUBLASLT 互斥）
 - INNER_DTYPE_32=1        : GEMM 使用高精度累加（FP8→FP32）
-- SPARSITY=2_8            : 稀疏格式（仅 cuSPARSELt 时生效，默认 2_8）
-- SLIDESPARSE_PROFILE=1   : 启用 SlideSparse 计时诊断
+- SPARSITY=2_L            : 稀疏格式（仅 cuSPARSELt 时生效，L=4,6,8,10,... 默认 2_8）
+- SLIDESPARSE_PROFILE=1   : 启用 SlideSparse 计时诊断（破坏Graph 必须eager 且存在计时开销）
 """
 
+import ctypes
+import os
+import subprocess
+from collections import defaultdict
+from contextlib import nullcontext
+from pathlib import Path
+from typing import Optional
+
+import torch
+from torch.library import Library
+from torch.nn import Module
+
+from vllm import _custom_ops as ops
+from vllm.logger import init_logger
+from vllm.model_executor.layers.quantization.input_quant_fp8 import QuantFP8
+from vllm.model_executor.layers.quantization.utils.quant_utils import GroupShape
+from vllm.platforms import current_platform
+
+from slidesparse.utils import (
+    load_module,
+    find_file,
+    SlideSparseConfig,
+    compute_output_k,
+    ensure_cublaslt_loaded,
+    ensure_cusparselt_loaded,
+)
 from .config import (
-    is_slidesparse_enabled, 
-    is_cublaslt_enabled, 
-    is_cusparselt_enabled, 
-    is_inner_dtype_32, 
+    is_slidesparse_enabled,
+    is_cublaslt_enabled,
+    is_cusparselt_enabled,
+    is_inner_dtype_32,
     get_slidesparse_status,
     get_sparsity_config,
 )
-
-from pathlib import Path
-from typing import Optional
-from collections import defaultdict
-from contextlib import nullcontext
-import os
-import time
-
-import ctypes
-import subprocess
-import torch
-from torch.nn import Module
 
 
 # ============================================================================
@@ -97,15 +111,8 @@ _PENDING_FLUSH_THRESHOLD = 1000  # 积累多少个 events 后批量同步
 
 class _ProfileTimerImpl:
     """
-    异步 CUDA 计时器 - 不阻塞 GPU pipeline
-    
-    准确性说明：
-    - 使用 CUDA events 记录 kernel 的 start/end 时间点
-    - events 存储在 _pending_events 中，延迟同步以避免阻塞 GPU
-    - count 和 total_ms 都在 flush 时统一更新，保证一致性
-    - 计时精度：CUDA event 是硬件级精度，不受 Python 开销影响
-    
-    注意：elapsed_time() 测量的是 GPU 时间，不包含 event record 的 CPU 开销
+    Async CUDA timer using events (no GPU pipeline blocking).
+    Events are batched and synchronized lazily for accurate timing.
     """
     
     def __init__(self, name: str, enabled: bool = True):
@@ -124,48 +131,36 @@ class _ProfileTimerImpl:
     def __exit__(self, *args):
         if self.enabled:
             self.end_event.record()
-            # 不立即同步，而是存储 events 以便后续批量处理
-            # 注意：count 也延迟到 flush 时更新，保证 count 和 total_ms 一致
             _pending_events.append((self.name, self.start_event, self.end_event))
-            
-            # 如果积累了太多 events，批量同步一次
             if len(_pending_events) >= _PENDING_FLUSH_THRESHOLD:
                 _flush_pending_events()
 
 
 def ProfileTimer(name: str, enabled: bool = True):
-    """
-    ProfileTimer 工厂函数 - 兼容 torch.compile
-    
-    在 torch.compile 追踪阶段返回 nullcontext，避免 graph break。
-    正常执行时返回 _ProfileTimerImpl 进行实际计时。
-    """
-    # 检测是否在 torch.compile 追踪阶段
+    """ProfileTimer factory - returns nullcontext during torch.compile tracing."""
     if torch.compiler.is_compiling():
         return nullcontext()
     return _ProfileTimerImpl(name, enabled)
 
 
 def _flush_pending_events():
-    """批量同步并收集所有 pending events 的时间"""
+    """Synchronize and collect all pending events."""
     global _pending_events
     if not _pending_events:
         return
     
-    # 只同步一次
     torch.cuda.synchronize()
     
-    # 收集所有时间，同时更新 count（保证 count 和 total_ms 一致）
     for name, start_event, end_event in _pending_events:
         elapsed_ms = start_event.elapsed_time(end_event)
         _profile_data[name]["total_ms"] += elapsed_ms
-        _profile_data[name]["count"] += 1  # count 在这里更新，和 total_ms 同步
+        _profile_data[name]["count"] += 1
     
     _pending_events = []
 
 
 def profile_step():
-    """每次 apply 调用后检查是否需要打印统计"""
+    """Check if stats should be printed (called after each apply)."""
     global _profile_call_count
     if not _PROFILE_ENABLED:
         return
@@ -176,8 +171,7 @@ def profile_step():
 
 
 def print_profile_stats():
-    """打印计时统计"""
-    # 先 flush 所有 pending events
+    """Print profiling statistics."""
     _flush_pending_events()
     
     if not _profile_data:
@@ -202,58 +196,14 @@ def print_profile_stats():
 
 
 def reset_profile_stats():
-    """
-    重置计时统计
-    
-    注意：会丢弃所有未 flush 的 pending events！
-    如果需要保留这些数据，请先调用 print_profile_stats() 或 _flush_pending_events()
-    """
+    """重置计时统计（会丢弃所有未 flush 的 pending events）"""
     global _profile_call_count, _pending_events
     _profile_data.clear()
     _profile_call_count = 0
-    _pending_events = []  # 丢弃未处理的 events（它们属于旧的统计周期）
+    _pending_events = []
 
-from vllm import _custom_ops as ops
-from vllm.logger import init_logger
-from vllm.model_executor.layers.quantization.input_quant_fp8 import QuantFP8
-from vllm.model_executor.layers.quantization.utils.quant_utils import GroupShape
-from vllm.platforms import current_platform
-
-from slidesparse.utils import (
-    load_module, 
-    find_file,
-    SlideSparseConfig,
-    compute_output_k,
-    ensure_cublaslt_loaded,
-    ensure_cusparselt_loaded,
-)
 
 logger = init_logger(__name__)
-
-
-# ============================================================================
-# 内部配置函数（带缓存）
-# ============================================================================
-
-# 缓存 inner_dtype 配置（进程生命周期内不变）
-_inner_dtype_str_cache: str | None = None
-_inner_dtype_torch_cache: torch.dtype | None = None
-
-
-def get_inner_dtype_str() -> str:
-    """获取 GEMM 输出精度字符串（带缓存）"""
-    global _inner_dtype_str_cache
-    if _inner_dtype_str_cache is None:
-        _inner_dtype_str_cache = "fp32" if is_inner_dtype_32() else "bf16"
-    return _inner_dtype_str_cache
-
-
-def get_inner_dtype_torch() -> torch.dtype:
-    """获取 GEMM 输出精度的 PyTorch dtype（带缓存）"""
-    global _inner_dtype_torch_cache
-    if _inner_dtype_torch_cache is None:
-        _inner_dtype_torch_cache = torch.float32 if is_inner_dtype_32() else torch.bfloat16
-    return _inner_dtype_torch_cache
 
 
 # ============================================================================
@@ -283,7 +233,7 @@ def _build_search_kernel(kernel_dir: Path, kernel_type: str) -> None:
     logger.info(f"Auto-building {kernel_type} kernel from {script_path}...")
     
     try:
-        result = subprocess.run(
+        subprocess.run(
             ["python", str(script_path)] + extra_args,
             cwd=kernel_dir,
             capture_output=True,
@@ -465,6 +415,149 @@ def _get_gemm_extension(backend: str):
 
 
 # ============================================================================
+# torch.library Custom Ops - 让 ctypes GEMM 对 torch.compile 透明
+# ============================================================================
+#
+# 通过 torch.library 注册 custom op，提供：
+#    - 实际实现：调用 ctypes 包装器
+#    - fake 实现：返回正确形状的空 tensor，用于追踪
+# torch.compile 追踪时使用 fake 实现，执行时使用实际实现
+
+# 创建 SlideSparse library
+_slidesparse_lib = Library("slidesparse", "FRAGMENT")
+
+
+def _register_cublaslt_custom_op():
+    """注册 cuBLASLt FP8 GEMM custom op"""
+    
+    # 定义 op schema
+    _slidesparse_lib.define(
+        "cublaslt_fp8_mm(Tensor weight, Tensor qinput, str inner_dtype) -> Tensor"
+    )
+    
+    # 实际实现
+    def _cublaslt_fp8_mm_impl(
+        weight: torch.Tensor,
+        qinput: torch.Tensor,
+        inner_dtype: str,
+    ) -> torch.Tensor:
+        """cuBLASLt FP8 GEMM 实际执行"""
+        ext = _gemm_extensions.get("cublaslt")
+        if ext is None:
+            raise RuntimeError(
+                "cuBLASLt extension not loaded. "
+                "Ensure _get_gemm_extension('cublaslt') is called first."
+            )
+        return ext.cublaslt_fp8_mm(weight, qinput, inner_dtype)
+    
+    # fake 实现（用于 torch.compile 追踪）
+    def _cublaslt_fp8_mm_fake(
+        weight: torch.Tensor,
+        qinput: torch.Tensor,
+        inner_dtype: str,
+    ) -> torch.Tensor:
+        """cuBLASLt FP8 GEMM fake 实现 - 返回正确形状的空 tensor"""
+        M_pad = qinput.shape[0]
+        N = weight.shape[0]
+        out_dtype = torch.float32 if inner_dtype == "fp32" else torch.bfloat16
+        return torch.empty((M_pad, N), dtype=out_dtype, device=qinput.device)
+    
+    # 注册实现
+    _slidesparse_lib.impl("cublaslt_fp8_mm", _cublaslt_fp8_mm_impl, "CUDA")
+    _slidesparse_lib._register_fake("cublaslt_fp8_mm", _cublaslt_fp8_mm_fake)
+    
+    logger.info_once("cuBLASLt custom op registered: slidesparse::cublaslt_fp8_mm")
+
+
+def _register_cusparselt_custom_op():
+    """注册 cuSPARSELt FP8 GEMM custom op"""
+    
+    # 定义 op schema
+    # 注意: N 和 K_slide 作为 int 参数传入（因为 weight 是压缩后的 1D tensor）
+    _slidesparse_lib.define(
+        "cusparselt_fp8_mm(Tensor weight_compressed, Tensor qinput, "
+        "int N, int K_slide, str inner_dtype) -> Tensor"
+    )
+    
+    # 实际实现
+    def _cusparselt_fp8_mm_impl(
+        weight_compressed: torch.Tensor,
+        qinput: torch.Tensor,
+        N: int,
+        K_slide: int,
+        inner_dtype: str,
+    ) -> torch.Tensor:
+        """cuSPARSELt FP8 GEMM 实际执行"""
+        ext = _gemm_extensions.get("cusparselt")
+        if ext is None:
+            raise RuntimeError(
+                "cuSPARSELt extension not loaded. "
+                "Ensure _get_gemm_extension('cusparselt') is called first."
+            )
+        return ext.cusparselt_fp8_mm(weight_compressed, qinput, N, K_slide, inner_dtype)
+    
+    # fake 实现（用于 torch.compile 追踪）
+    def _cusparselt_fp8_mm_fake(
+        weight_compressed: torch.Tensor,
+        qinput: torch.Tensor,
+        N: int,
+        K_slide: int,
+        inner_dtype: str,
+    ) -> torch.Tensor:
+        """cuSPARSELt FP8 GEMM fake 实现 - 返回正确形状的空 tensor"""
+        M_pad = qinput.shape[0]
+        out_dtype = torch.float32 if inner_dtype == "fp32" else torch.bfloat16
+        return torch.empty((M_pad, N), dtype=out_dtype, device=qinput.device)
+    
+    # 注册实现
+    _slidesparse_lib.impl("cusparselt_fp8_mm", _cusparselt_fp8_mm_impl, "CUDA")
+    _slidesparse_lib._register_fake("cusparselt_fp8_mm", _cusparselt_fp8_mm_fake)
+    
+    logger.info_once("cuSPARSELt custom op registered: slidesparse::cusparselt_fp8_mm")
+
+
+# 在模块加载时注册 custom ops
+# 注意：这里只是注册 op schema 和实现，不加载 ctypes 库
+# ctypes 库在 SlideSparseFp8LinearOp.__init__ 中预加载
+_register_cublaslt_custom_op()
+_register_cusparselt_custom_op()
+
+
+# ============================================================================
+# Custom Op 调用包装函数
+# ============================================================================
+
+def cublaslt_fp8_mm_op(
+    weight: torch.Tensor,
+    qinput: torch.Tensor,
+    inner_dtype: str,
+) -> torch.Tensor:
+    """
+    cuBLASLt FP8 GEMM - torch.compile 兼容版本
+    
+    通过 torch.ops 调用注册的 custom op，而非直接调用 ctypes。
+    """
+    return torch.ops.slidesparse.cublaslt_fp8_mm(weight, qinput, inner_dtype)
+
+
+def cusparselt_fp8_mm_op(
+    weight_compressed: torch.Tensor,
+    qinput: torch.Tensor,
+    N: int,
+    K_slide: int,
+    inner_dtype: str,
+) -> torch.Tensor:
+    """
+    cuSPARSELt FP8 GEMM - torch.compile 兼容版本
+    
+    通过 torch.ops 调用注册的 custom op，而非直接调用 ctypes。
+    """
+    return torch.ops.slidesparse.cusparselt_fp8_mm(
+        weight_compressed, qinput, N, K_slide, inner_dtype
+    )
+
+
+# ============================================================================
 # Dequant + Bias Kernel
 # ============================================================================
 
@@ -488,24 +581,13 @@ def _load_dequant_bias_kernel():
             module = load_module("dequant_bias_tuned", search_dir=build_dir, ext=".py")
         except FileNotFoundError:
             raise FileNotFoundError(
-                f"Dequant+bias kernel not found after autotune."
-            )
+                f"Dequant+bias kernel not found after autotune.\n"
+                f"Expected location: {build_dir}/dequant_bias_tuned_*.py"
+            ) from None
     
     _dequant_bias_fn = module.dequant_bias_triton
     logger.info_once("Dequant+bias kernel loaded")
     return _dequant_bias_fn
-
-
-# 缓存的零 bias tensor（按 N 维度缓存，避免重复创建）
-_zero_bias_cache: dict[tuple[int, torch.device], torch.Tensor] = {}
-
-
-def _get_zero_bias(N: int, device: torch.device) -> torch.Tensor:
-    """获取缓存的零 bias tensor"""
-    key = (N, device)
-    if key not in _zero_bias_cache:
-        _zero_bias_cache[key] = torch.zeros(N, dtype=torch.bfloat16, device=device)
-    return _zero_bias_cache[key]
 
 
 def dequant_bias_kernel(
@@ -516,13 +598,14 @@ def dequant_bias_kernel(
     out_dtype: torch.dtype,
 ) -> torch.Tensor:
     """
-    Dequant + Bias
-    
-    计算: output[M, N] = gemm_output[M, N] * scale_a[M] * scale_b[N] + bias[N]
+    Dequant + Bias: output = gemm_output * scale_a * scale_b + bias
     """
     if bias is None:
-        # 使用缓存的零 bias，避免每次调用都分配内存
-        bias = _get_zero_bias(gemm_output.shape[1], gemm_output.device)
+        bias = torch.zeros(
+            gemm_output.shape[1],
+            dtype=gemm_output.dtype,
+            device=gemm_output.device
+        )
     return _dequant_bias_fn(gemm_output, scale_a, scale_b, bias, out_dtype)
 
 
@@ -550,8 +633,9 @@ def _load_quant_only_fp8_kernel():
             module = load_module("quant_only_tuned", search_dir=build_dir, ext=".py")
         except FileNotFoundError:
             raise FileNotFoundError(
-                f"FP8 quant kernel not found after autotune."
-            )
+                f"FP8 quant kernel not found after autotune.\n"
+                f"Expected location: {build_dir}/quant_only_tuned_*.py"
+            ) from None
     
     _quant_only_fp8_fn = module.quant_only_fp8_triton
     logger.info_once("FP8 quant kernel loaded")
@@ -598,8 +682,9 @@ def _load_quant_slide_fp8_kernel():
             module = load_module("quant_slide_tuned", search_dir=build_dir, ext=".py")
         except FileNotFoundError:
             raise FileNotFoundError(
-                f"FP8 quant+slide kernel not found after autotune."
-            )
+                f"FP8 quant+slide kernel not found after autotune.\n"
+                f"Expected location: {build_dir}/quant_slide_tuned_*.py"
+            ) from None
     
     _quant_slide_fp8_fn = module.quant_slide_fp8_triton
     logger.info_once("FP8 quant+slide kernel loaded")
@@ -620,7 +705,7 @@ def quant_slide_fp8_kernel(
     Returns:
         qinput: [M_pad, K_slide_pad] FP8
                 M_pad=ceil16(M), K_slide_pad=ceil32(K_slide)
-                K_slide = num_groups * (L/2 - 1) * 4
+                K_slide = K * (L - 2) / (L / 2) = K * 2 * (L - 2) / L
         scale_a: [M_pad] FP32，padding 区域为 1.0
     """
     return _quant_slide_fp8_fn(input, L)
@@ -651,13 +736,12 @@ def cuBLASLt_FP8_linear(
     input: torch.Tensor,
     weight: torch.Tensor,
     out_dtype: torch.dtype,
-    scale_b: torch.Tensor,
+    weight_scale: torch.Tensor,
     bias: Optional[torch.Tensor],
     output_shape: list,
-    quant_fn: Optional[QuantFP8] = None,
+    inner_dtype_str: str,
     input_scale: Optional[torch.Tensor] = None,
     input_scale_ub: Optional[torch.Tensor] = None,
-    **kwargs,
 ) -> torch.Tensor:
     """
     cuBLASLt FP8 GEMM + Triton Dequant
@@ -673,8 +757,6 @@ def cuBLASLt_FP8_linear(
             ↓ dequant_bias_kernel
         output[M, N] out_dtype
     """
-    # extension 已在 SlideSparseFp8LinearOp.__init__ 中预加载，直接从缓存获取
-    ext = _gemm_extensions["cublaslt"]
     M = input.shape[0]
     
     # Quant: [M, K] -> [M_pad, K_pad]
@@ -691,17 +773,17 @@ def cuBLASLt_FP8_linear(
         )
     
     try:
-        # GEMM: Weight @ Activation -> [M_pad, N]
+        # GEMM: [M_pad, K_pad] @ [N, K_pad].T -> [M_pad, N]
         with ProfileTimer("cuBLASLt.gemm"):
-            gemm_out_pad = ext.cublaslt_fp8_mm(weight, qinput, get_inner_dtype_str())
+            gemm_out_pad = cublaslt_fp8_mm_op(weight, qinput, inner_dtype_str)
         
-        # 截断 M_pad -> M（view 操作，无数据拷贝）
+        # Truncate padding
         gemm_out = gemm_out_pad[:M, :]
         scale_a = scale_a_pad[:M]
         
-        # Dequant: [M, N]
+        # Dequant + Bias
         with ProfileTimer("cuBLASLt.dequant"):
-            output = dequant_bias_kernel(gemm_out, scale_a, scale_b, bias, out_dtype)
+            output = dequant_bias_kernel(gemm_out, scale_a, weight_scale, bias, out_dtype)
         
         with ProfileTimer("cuBLASLt.view"):
             result = output.view(*output_shape)
@@ -717,16 +799,15 @@ def cuSPARSELt_FP8_linear(
     input: torch.Tensor,
     slide_weight_compressed: torch.Tensor,
     out_dtype: torch.dtype,
-    scale_b: torch.Tensor,
+    weight_scale: torch.Tensor,
     bias: Optional[torch.Tensor],
     output_shape: list,
-    quant_fn: Optional[QuantFP8] = None,
+    inner_dtype_str: str,
     input_scale: Optional[torch.Tensor] = None,
     input_scale_ub: Optional[torch.Tensor] = None,
     slide_weight_N: Optional[int] = None,
     slide_weight_K: Optional[int] = None,
     L: int = 8,
-    **kwargs,
 ) -> torch.Tensor:
     """
     cuSPARSELt 2:4 Sparse FP8 GEMM + Triton Dequant
@@ -748,8 +829,6 @@ def cuSPARSELt_FP8_linear(
         slide_weight_K: 权重 K_slide 维度（slide 扩展后，已 32 对齐）
         L: 稀疏组大小（默认 8）
     """
-    # extension 已在 SlideSparseFp8LinearOp.__init__ 中预加载，直接从缓存获取
-    ext = _gemm_extensions["cusparselt"]
     
     if slide_weight_N is None or slide_weight_K is None:
         raise ValueError(
@@ -777,23 +856,23 @@ def cuSPARSELt_FP8_linear(
         )
     
     try:
-        # GEMM: Weight_compressed @ Activation -> [M_pad, N]
+        # GEMM: [M_pad, K_slide_pad] @ compressed_weight -> [M_pad, N]
         with ProfileTimer("cuSPARSELt.gemm"):
-            gemm_out_pad = ext.cusparselt_fp8_mm(
+            gemm_out_pad = cusparselt_fp8_mm_op(
                 slide_weight_compressed,
                 qinput,
                 slide_weight_N,
                 K_slide_pad,
-                get_inner_dtype_str()
+                inner_dtype_str
             )
         
-        # 截断 M_pad -> M（view 操作，无数据拷贝）
+        # Truncate padding
         gemm_out = gemm_out_pad[:M, :]
         scale_a = scale_a_pad[:M]
         
-        # Dequant: [M, N]
+        # Dequant + Bias
         with ProfileTimer("cuSPARSELt.dequant"):
-            output = dequant_bias_kernel(gemm_out, scale_a, scale_b, bias, out_dtype)
+            output = dequant_bias_kernel(gemm_out, scale_a, weight_scale, bias, out_dtype)
         
         with ProfileTimer("cuSPARSELt.view"):
             result = output.view(*output_shape)
@@ -809,13 +888,12 @@ def cutlass_FP8_linear(
     input: torch.Tensor,
     weight: torch.Tensor,
     out_dtype: torch.dtype,
-    scale_b: torch.Tensor,
+    weight_scale: torch.Tensor,
     bias: Optional[torch.Tensor],
     output_shape: list,
-    quant_fn: Optional[QuantFP8] = None,
+    quant_fn: QuantFP8,
     input_scale: Optional[torch.Tensor] = None,
     input_scale_ub: Optional[torch.Tensor] = None,
-    **kwargs,
 ) -> torch.Tensor:
     """
     vLLM CUTLASS（融合 GEMM + Dequant + Bias）
@@ -829,7 +907,6 @@ def cutlass_FP8_linear(
     """
     # Quant（使用 vLLM 原生 QuantFP8）
     if input.dtype != current_platform.fp8_dtype():
-        assert quant_fn is not None, "quant_fn required for non-FP8 input"
         with ProfileTimer("CUTLASS.quant"):
             qinput, scale_a = quant_fn(input, input_scale, input_scale_ub)
     else:
@@ -839,7 +916,7 @@ def cutlass_FP8_linear(
     with ProfileTimer("CUTLASS.scaled_mm"):
         output = ops.cutlass_scaled_mm(
             qinput, weight, out_dtype=out_dtype,
-            scale_a=scale_a, scale_b=scale_b, bias=bias
+            scale_a=scale_a, scale_b=weight_scale, bias=bias
         )
     
     with ProfileTimer("CUTLASS.view"):
@@ -881,6 +958,9 @@ class SlideSparseFp8LinearOp:
         # 确定 kernel 路径（缓存环境变量判断结果）
         self._use_cublaslt = is_cublaslt_enabled()
         self._use_cusparselt = is_cusparselt_enabled()
+        
+        # 缓存 inner_dtype（环境变量在进程生命周期内不变）
+        self._inner_dtype_str = "fp32" if is_inner_dtype_32() else "bf16"
         
         if self._use_cublaslt:
             self._kernel_name = "cuBLASLt"
@@ -964,34 +1044,38 @@ class SlideSparseFp8LinearOp:
         if out_dtype is None:
             out_dtype = input.dtype
         
+        # 公共参数
+        common_args = dict(
+            input=input_2d,
+            out_dtype=out_dtype,
+            weight_scale=weight_scale,
+            bias=bias,
+            output_shape=output_shape,
+            input_scale=input_scale,
+            input_scale_ub=input_scale_ub,
+        )
+        
         # 调用选定的 kernel 路径
         if self._use_cusparselt:
             return self._linear_fn(
-                input=input_2d,
+                **common_args,
                 slide_weight_compressed=weight,
-                out_dtype=out_dtype,
-                scale_b=weight_scale,
-                bias=bias,
-                output_shape=output_shape,
-                quant_fn=self.quant_fp8,
-                input_scale=input_scale,
-                input_scale_ub=input_scale_ub,
+                inner_dtype_str=self._inner_dtype_str,
                 slide_weight_N=slide_weight_N,
                 slide_weight_K=slide_weight_K,
                 L=L,
             )
-        else:
-            # cuBLASLt 或 CUTLASS 路径
+        elif self._use_cublaslt:
             return self._linear_fn(
-                input=input_2d,
+                **common_args,
                 weight=weight,
-                out_dtype=out_dtype,
-                scale_b=weight_scale,
-                bias=bias,
-                output_shape=output_shape,
+                inner_dtype_str=self._inner_dtype_str,
+            )
+        else:
+            return self._linear_fn(
+                **common_args,
+                weight=weight,
                 quant_fn=self.quant_fp8,
-                input_scale=input_scale,
-                input_scale_ub=input_scale_ub,
             )
 
 
@@ -1161,14 +1245,18 @@ class SlideSparseFp8LinearMethod:
         x: torch.Tensor,
         bias: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        """应用权重（执行线性变换）"""
+        """Apply weights (linear transformation)"""
+        input_scale = getattr(layer, "input_scale", None)
+        input_scale_ub = getattr(layer, "input_scale_ub", None)
+        
         if self._use_cusparselt:
             return self.slidesparse_fp8_linear.apply(
                 input=x,
                 weight=layer.weight,
                 weight_scale=layer.weight_scale,
                 out_dtype=self.out_dtype,
-                input_scale=getattr(layer, "input_scale", None),
+                input_scale=input_scale,
+                input_scale_ub=input_scale_ub,
                 bias=bias,
                 slide_weight_N=layer.slide_weight_N,
                 slide_weight_K=layer.slide_weight_K,
@@ -1180,7 +1268,8 @@ class SlideSparseFp8LinearMethod:
                 weight=layer.weight,
                 weight_scale=layer.weight_scale,
                 out_dtype=self.out_dtype,
-                input_scale=getattr(layer, "input_scale", None),
+                input_scale=input_scale,
+                input_scale_ub=input_scale_ub,
                 bias=bias,
             )
 

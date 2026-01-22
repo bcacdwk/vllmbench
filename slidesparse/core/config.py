@@ -111,13 +111,10 @@ def is_cublaslt_enabled() -> bool:
 
 
 def is_cusparselt_enabled() -> bool:
-    """检查是否启用 cuSPARSELt kernel (TODO)
+    """Check if cuSPARSELt kernel is enabled
     
-    设置 USE_CUSPARSELT=1 启用
-    默认为 0，使用外挂 CUTLASS 作为 fallback
-    仅在 SlideSparse 启用时有意义
-    
-    注意：与 USE_CUBLASLT 互斥
+    Set USE_CUSPARSELT=1 to enable.
+    Mutually exclusive with USE_CUBLASLT.
     """
     _validate_config()
     return os.environ.get("USE_CUSPARSELT", "0") == "1"

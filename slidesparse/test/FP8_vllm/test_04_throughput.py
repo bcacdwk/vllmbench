@@ -16,9 +16,9 @@ test_04_throughput.py - 吞吐量对比测试
 
 使用方法:
 
-
-
-    python3 test_04_throughput.py --use-cublaslt --inner-32  # cuBLASLt + 高精度累加
+    python3 test_04_throughput.py --use-cutlass
+    python3 test_04_throughput.py --use-cublaslt
+    python3 test_04_throughput.py --use-cusparselt --sparsity 2_8 
 
 
     python3 test_04_throughput.py --use-cusparselt --sparsity 2_4
@@ -176,6 +176,7 @@ def run_phase_test(
     warmup: int = 2,
     repeat: int = 1,
     reset_profile: bool = True,
+    enforce_eager: bool = False,
 ) -> PhaseResult:
     """
     运行单阶段吞吐量测试
@@ -201,7 +202,7 @@ def run_phase_test(
             max_model_len=prompt_len + output_len + 64,
             gpu_memory_utilization=0.8,
             disable_log_stats=True,
-            enforce_eager=True,
+            enforce_eager=enforce_eager,
         )
         
         # 生成 prompts（每个 prompt 使用不同 seed，避免 prefix caching）
@@ -279,6 +280,7 @@ def run_throughput_comparison(
     sparsity: str = None,
     verbose: bool = True,
     baseline_model_path: Path = None,
+    enforce_eager: bool = False,
 ) -> Dict[str, Any]:
     """
     运行完整的吞吐量对比测试（分离 Prefill 和 Decode）
@@ -291,6 +293,7 @@ def run_throughput_comparison(
         sparsity: 稀疏配置 (如 "2_8", "2_6")，仅 cuSPARSELt 有效
         verbose: 是否打印详细信息
         baseline_model_path: baseline 模型路径（若不同于 model_path）
+        enforce_eager: 是否强制使用 eager mode
     
     Returns:
         对比结果字典
@@ -343,6 +346,7 @@ def run_throughput_comparison(
             warmup=PREFILL_CONFIG["warmup"],
             repeat=PREFILL_CONFIG["repeat"],
             reset_profile=True,
+            enforce_eager=enforce_eager,
         )
         baseline_prefill_tps = baseline_prefill.input_tokens / baseline_prefill.total_time_s
     except Exception as e:
@@ -362,6 +366,7 @@ def run_throughput_comparison(
         warmup=PREFILL_CONFIG["warmup"],
         repeat=PREFILL_CONFIG["repeat"],
         reset_profile=True,
+        enforce_eager=enforce_eager,
     )
     test_prefill_tps = test_prefill.input_tokens / test_prefill.total_time_s
     # 打印 Prefill 阶段的 profile 统计
@@ -412,6 +417,7 @@ def run_throughput_comparison(
             warmup=DECODE_CONFIG["warmup"],
             repeat=1,  # Decode 只需运行一次（output_len 已经很长）
             reset_profile=True,
+            enforce_eager=enforce_eager,
         )
         baseline_decode_tps = baseline_decode.output_tokens / baseline_decode.total_time_s
     except Exception as e:
@@ -431,6 +437,7 @@ def run_throughput_comparison(
         warmup=DECODE_CONFIG["warmup"],
         repeat=1,
         reset_profile=True,
+        enforce_eager=enforce_eager,
     )
     test_decode_tps = test_decode.output_tokens / test_decode.total_time_s
     # 打印 Decode 阶段的 profile 统计
@@ -508,6 +515,11 @@ def run_throughput_comparison(
 
 if __name__ == "__main__":
     parser = parse_common_args("吞吐量对比测试（分离 Prefill/Decode）")
+    parser.add_argument(
+        "--eager",
+        action="store_true",
+        help="强制使用 eager mode（禁用 torch.compile）"
+    )
     args = parser.parse_args()
     
     # 注意：不调用 apply_env_args(args)
@@ -546,6 +558,9 @@ if __name__ == "__main__":
             print(Colors.red("错误: 未找到 FP8 模型"))
             sys.exit(1)
     
+    # 获取 eager 参数
+    enforce_eager = getattr(args, 'eager', False)
+    
     # 运行吞吐量对比
     run_throughput_comparison(
         model_path=model_path,
@@ -555,6 +570,7 @@ if __name__ == "__main__":
         sparsity=sparsity,
         verbose=True,
         baseline_model_path=baseline_model_path,
+        enforce_eager=enforce_eager,
     )
     
     sys.exit(0)

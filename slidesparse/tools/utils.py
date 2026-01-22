@@ -48,6 +48,8 @@ from slidesparse.utils import (
     get_model_local_path,
     check_model_downloaded,
     build_stem,
+    resolve_slidesparse_model_path,
+    get_slidesparse_checkpoints_dir,
 )
 
 
@@ -567,6 +569,187 @@ def print_hardware_info() -> None:
 # 导出
 # =============================================================================
 
+# =============================================================================
+# Benchmark 专用工具函数
+# =============================================================================
+
+def build_backend_result_dir(
+    base_name: str,
+    stage: str,
+    backend: str,
+    dtype: str,
+    sparsity: Optional[str] = None,
+    *,
+    create: bool = True,
+) -> Path:
+    """
+    构建 Backend 对应的结果目录
+    
+    格式:
+        {base_name}_results/{stage}/{hw_folder}/{backend}/
+        {base_name}_results/{stage}/{hw_folder}/cusparselt/{sparsity}/
+    
+    Args:
+        base_name: 基础名称（如 "throughput_benchmark"）
+        stage: "prefill" 或 "decode"
+        backend: "cutlass" / "cublaslt" / "cusparselt"
+        dtype: "FP8" 或 "INT8"
+        sparsity: 稀疏配置 (仅 cusparselt)
+        create: 是否创建目录
+    
+    Returns:
+        结果目录路径
+    """
+    hw_folder = get_hw_folder_name(dtype=dtype)
+    
+    result_base = _TOOLS_DIR / f"{base_name}_results"
+    
+    if backend == "cusparselt" and sparsity:
+        result_dir = result_base / stage / hw_folder / backend / sparsity
+    else:
+        result_dir = result_base / stage / hw_folder / backend
+    
+    if create:
+        result_dir.mkdir(parents=True, exist_ok=True)
+    
+    return result_dir
+
+
+def get_checkpoint_path(
+    model_key: str,
+    backend: str,
+    sparsity: Optional[str] = None,
+    *,
+    auto_convert: bool = True,
+) -> Optional[Path]:
+    """
+    获取模型 checkpoint 路径
+    
+    对于 cuSPARSELt backend，如果 sparse checkpoint 不存在且 auto_convert=True，
+    会尝试自动将 dense checkpoint 转换为 sparse 格式。
+    
+    Args:
+        model_key: 模型 key
+        backend: "cutlass" / "cublaslt" / "cusparselt"
+        sparsity: 稀疏配置 (仅 cusparselt)
+        auto_convert: 是否自动转换 (默认 True)
+    
+    Returns:
+        checkpoint 路径，如果不存在返回 None
+    """
+    entry = model_registry.get(model_key)
+    if entry is None:
+        return None
+    
+    if backend in ("cutlass", "cublaslt"):
+        # Dense checkpoint
+        model_path = get_model_local_path(model_key, CHECKPOINT_DIR)
+        if model_path.exists() and (model_path / "config.json").exists():
+            return model_path
+        return None
+    
+    elif backend == "cusparselt":
+        # Sparse checkpoint
+        model_path = get_model_local_path(model_key, CHECKPOINT_DIR)
+        if not model_path.exists():
+            return None
+        
+        # sparsity 必须指定
+        if sparsity is None:
+            return None
+        
+        # 先尝试直接查找
+        sparse_path = resolve_slidesparse_model_path(model_path, sparsity)
+        if sparse_path is not None:
+            return sparse_path
+        
+        # 不存在，尝试自动转换
+        if auto_convert:
+            print_info(f"尝试自动转换: {entry.local_name} -> SlideSparse-{sparsity}")
+            sparse_path = auto_convert_sparse_checkpoint(
+                model_path, entry.local_name, sparsity
+            )
+            if sparse_path is not None:
+                return sparse_path
+        
+        return None
+    
+    return None
+
+
+def auto_convert_sparse_checkpoint(
+    base_model_path: Path,
+    model_name: str,
+    sparsity: str,
+) -> Optional[Path]:
+    """
+    自动转换 dense checkpoint 为 sparse 格式
+    
+    Args:
+        base_model_path: 基础模型路径
+        model_name: 模型名称（用于日志）
+        sparsity: 稀疏配置（如 "2_4"）
+    
+    Returns:
+        转换后的路径，失败返回 None
+    """
+    # 解析 sparsity
+    parts = sparsity.split("_")
+    if len(parts) != 2:
+        print_error(f"无效的稀疏配置: {sparsity}")
+        return None
+    
+    Z, L = int(parts[0]), int(parts[1])
+    
+    # 查找转换脚本
+    slidesparse_root = _TOOLS_DIR.parent
+    entry_script = slidesparse_root / "weight_convert" / "entry.py"
+    if not entry_script.exists():
+        print_error(f"转换脚本不存在: {entry_script}")
+        return None
+    
+    print()
+    print("=" * 70)
+    print(f"[SlideSparse] 自动转换: {model_name} -> SlideSparse-{sparsity}")
+    print("=" * 70)
+    
+    try:
+        cmd = [
+            sys.executable, str(entry_script),
+            "--input", str(base_model_path),
+            "--Z", str(Z),
+            "--L", str(L),
+        ]
+        
+        result = subprocess.run(
+            cmd,
+            cwd=str(entry_script.parent),
+            capture_output=False,  # 显示输出
+        )
+        
+        if result.returncode != 0:
+            print_error(f"转换失败 (exit code: {result.returncode})")
+            return None
+        
+        # 转换成功，返回新路径
+        slidesparse_dir = get_slidesparse_checkpoints_dir()
+        expected_name = f"{model_name}-SlideSparse-{sparsity}"
+        converted_path = slidesparse_dir / expected_name
+        
+        if converted_path.exists():
+            print_success(f"转换成功: {converted_path.name}")
+            print("=" * 70)
+            print()
+            return converted_path
+        else:
+            print_error(f"转换完成但未找到输出目录: {expected_name}")
+            return None
+            
+    except Exception as e:
+        print_error(f"转换出错: {e}")
+        return None
+
+
 __all__ = [
     # 路径
     "PROJECT_ROOT",
@@ -585,6 +768,10 @@ __all__ = [
     "get_hw_folder_name",
     "build_result_dir",
     "get_result_dir",
+    "build_backend_result_dir",
+    # Checkpoint
+    "get_checkpoint_path",
+    "auto_convert_sparse_checkpoint",
     # GPU
     "get_gpu_devices_for_tp",
     # vLLM
@@ -599,4 +786,6 @@ __all__ = [
     "print_model_status",
     # 硬件
     "print_hardware_info",
+    # 其他
+    "strip_ansi",
 ]

@@ -9,6 +9,7 @@ SlideSparse vLLM Throughput Benchmark 脚本 (重构版)
   Model → Backend → Sparsity → Stage → M
 
 Backend 支持:
+  - cutlass:    vLLM 原生 CUTLASS (baseline)
   - cublaslt:   cuBLASLt dense GEMM
   - cusparselt: cuSPARSELt 2:N sparse GEMM (需要预稀疏化的 checkpoint)
 
@@ -27,6 +28,9 @@ Backend 支持:
     
     # 测试特定模型的所有 backend
     python3 throughput_benchmark.py --model qwen2.5-0.5b-fp8
+    
+    # 只测试 cutlass backend (baseline)
+    python3 throughput_benchmark.py --model fp8 --backend cutlass
     
     # 只测试 cublaslt backend
     python3 throughput_benchmark.py --model fp8 --backend cublaslt
@@ -66,9 +70,6 @@ from slidesparse.utils import (
     model_registry,
     check_quant_support,
     get_model_local_path,
-    resolve_slidesparse_model_path,
-    find_slidesparse_model,
-    get_slidesparse_checkpoints_dir,
     hw_info,
     build_stem,
 )
@@ -85,6 +86,10 @@ from slidesparse.tools.utils import (
     get_vllm_env_vars,
     check_triton_support_and_warn,
     print_hardware_info,
+    get_hw_folder_name,
+    build_backend_result_dir,
+    get_checkpoint_path,
+    auto_convert_sparse_checkpoint,
 )
 
 
@@ -119,15 +124,15 @@ MODEL_LEN_BUFFER = 128
 # 默认稀疏度列表 (仅 cusparselt)
 DEFAULT_SPARSITY_LIST = ["2_4", "2_6", "2_8", "2_10", "2_12"]
 
-# 支持的 Backend
-SUPPORTED_BACKENDS = ["cublaslt", "cusparselt"]
+# 支持的 Backend（顺序即默认测试顺序）
+DEFAULT_BACKEND_LIST = ["cutlass", "cublaslt", "cusparselt"]
 
 # 日志级别 (INFO 可以看到更多调试信息)
 VLLM_LOG_LEVEL = "INFO"
 
 # GPU 配置
 GPU_ID = "0"
-GPU_MEMORY_UTILIZATION = 0.9
+GPU_MEMORY_UTILIZATION = 0.8
 
 # 全局状态 (用于信号处理)
 _CURRENT_OUTPUT_DIR: Path | None = None
@@ -307,7 +312,7 @@ def set_backend_env(
     设置 Backend 对应的环境变量
     
     Args:
-        backend: "cublaslt" 或 "cusparselt"
+        backend: "cutlass" / "cublaslt" / "cusparselt"
         sparsity: 稀疏配置 (仅 cusparselt)
         inner_32: 是否使用高精度累加
     
@@ -316,20 +321,26 @@ def set_backend_env(
     """
     saved = {
         "DISABLE_SLIDESPARSE": os.environ.get("DISABLE_SLIDESPARSE"),
+        "USE_CUTLASS": os.environ.get("USE_CUTLASS"),
         "USE_CUBLASLT": os.environ.get("USE_CUBLASLT"),
         "USE_CUSPARSELT": os.environ.get("USE_CUSPARSELT"),
         "INNER_DTYPE_32": os.environ.get("INNER_DTYPE_32"),
         "SPARSITY": os.environ.get("SPARSITY"),
     }
     
-    # 启用 SlideSparse
-    os.environ["DISABLE_SLIDESPARSE"] = "0"
-    
-    if backend == "cublaslt":
+    if backend == "cutlass":
+        os.environ["DISABLE_SLIDESPARSE"] = "0"
+        os.environ["USE_CUTLASS"] = "1"
+        os.environ.pop("USE_CUBLASLT", None)
+        os.environ.pop("USE_CUSPARSELT", None)
+        os.environ.pop("SPARSITY", None)
+    elif backend == "cublaslt":
+        os.environ["DISABLE_SLIDESPARSE"] = "0"
         os.environ["USE_CUBLASLT"] = "1"
         os.environ.pop("USE_CUSPARSELT", None)
         os.environ.pop("SPARSITY", None)
     elif backend == "cusparselt":
+        os.environ["DISABLE_SLIDESPARSE"] = "0"
         os.environ["USE_CUSPARSELT"] = "1"
         os.environ.pop("USE_CUBLASLT", None)
         if sparsity:
@@ -410,9 +421,13 @@ def parse_model_list(model_arg: Optional[str]) -> List[str]:
 def parse_backend_list(backend_arg: Optional[str]) -> List[str]:
     """解析 backend 列表参数"""
     if backend_arg is None or backend_arg.lower() == "all":
-        return SUPPORTED_BACKENDS.copy()
+        return DEFAULT_BACKEND_LIST.copy()
     
-    return [b.strip().lower() for b in backend_arg.split(",")]
+    backends = [b.strip().lower() for b in backend_arg.split(",")]
+    for b in backends:
+        if b not in DEFAULT_BACKEND_LIST:
+            print_warning(f"未知 backend: {b}，将被忽略")
+    return [b for b in backends if b in DEFAULT_BACKEND_LIST]
 
 
 def parse_sparsity_list(sparsity_arg: Optional[str]) -> List[str]:
@@ -499,188 +514,8 @@ def calculate_test_params(m_value: int, test_mode: str, n_repeat: Optional[int] 
 
 
 # ============================================================================
-# 结果目录管理
+# 测试执行核心
 # ============================================================================
-
-def get_hw_folder_name(dtype: Optional[str] = None) -> str:
-    """
-    获取完整的硬件信息文件夹名
-    
-    格式: {GPU}_{CC}[_{dtype}]_{PyVer}_{CUDAVer}_{Arch}
-    """
-    return build_stem("", dtype=dtype).lstrip("_")
-
-
-def build_backend_result_dir(
-    stage: str,
-    backend: str,
-    dtype: str,
-    sparsity: Optional[str] = None,
-) -> Path:
-    """
-    构建 Backend 对应的结果目录
-    
-    格式:
-        throughput_benchmark_results/{stage}/{hw_folder}/{backend}/
-        throughput_benchmark_results/{stage}/{hw_folder}/cusparselt/{sparsity}/
-    
-    Args:
-        stage: "prefill" 或 "decode"
-        backend: "cublaslt" 或 "cusparselt"
-        dtype: "FP8" 或 "INT8"
-        sparsity: 稀疏配置 (仅 cusparselt)
-    
-    Returns:
-        结果目录路径
-    """
-    hw_folder = get_hw_folder_name(dtype=dtype)
-    
-    result_base = _SCRIPT_DIR / "throughput_benchmark_results"
-    
-    if backend == "cusparselt" and sparsity:
-        result_dir = result_base / stage / hw_folder / backend / sparsity
-    else:
-        result_dir = result_base / stage / hw_folder / backend
-    
-    result_dir.mkdir(parents=True, exist_ok=True)
-    
-    return result_dir
-
-
-def get_checkpoint_path(
-    model_key: str,
-    backend: str,
-    sparsity: Optional[str] = None,
-    *,
-    auto_convert: bool = True,
-) -> Optional[Path]:
-    """
-    获取模型 checkpoint 路径
-    
-    对于 cuSPARSELt backend，如果 sparse checkpoint 不存在且 auto_convert=True，
-    会尝试自动将 dense checkpoint 转换为 sparse 格式。
-    
-    Args:
-        model_key: 模型 key
-        backend: "cublaslt" 或 "cusparselt"
-        sparsity: 稀疏配置 (仅 cusparselt)
-        auto_convert: 是否自动转换 (默认 True)
-    
-    Returns:
-        checkpoint 路径，如果不存在返回 None
-    """
-    entry = model_registry.get(model_key)
-    if entry is None:
-        return None
-    
-    if backend == "cublaslt":
-        # Dense checkpoint
-        model_path = get_model_local_path(model_key, CHECKPOINT_DIR)
-        if model_path.exists() and (model_path / "config.json").exists():
-            return model_path
-        return None
-    
-    elif backend == "cusparselt":
-        # Sparse checkpoint
-        model_path = get_model_local_path(model_key, CHECKPOINT_DIR)
-        if not model_path.exists():
-            return None
-        
-        # sparsity 必须指定
-        if sparsity is None:
-            return None
-        
-        # 先尝试直接查找
-        sparse_path = resolve_slidesparse_model_path(model_path, sparsity)
-        if sparse_path is not None:
-            return sparse_path
-        
-        # 不存在，尝试自动转换
-        if auto_convert:
-            print_info(f"尝试自动转换: {entry.local_name} -> SlideSparse-{sparsity}")
-            sparse_path = _auto_convert_sparse_checkpoint(
-                model_path, entry.local_name, sparsity
-            )
-            if sparse_path is not None:
-                return sparse_path
-        
-        return None
-    
-    return None
-
-
-def _auto_convert_sparse_checkpoint(
-    base_model_path: Path,
-    model_name: str,
-    sparsity: str,
-) -> Optional[Path]:
-    """
-    自动转换 dense checkpoint 为 sparse 格式
-    
-    Args:
-        base_model_path: 基础模型路径
-        model_name: 模型名称（用于日志）
-        sparsity: 稀疏配置（如 "2_4"）
-    
-    Returns:
-        转换后的路径，失败返回 None
-    """
-    import subprocess
-    
-    # 解析 sparsity
-    parts = sparsity.split("_")
-    if len(parts) != 2:
-        print_error(f"无效的稀疏配置: {sparsity}")
-        return None
-    
-    Z, L = int(parts[0]), int(parts[1])
-    
-    # 查找转换脚本
-    entry_script = _SLIDESPARSE_ROOT / "weight_convert" / "entry.py"
-    if not entry_script.exists():
-        print_error(f"转换脚本不存在: {entry_script}")
-        return None
-    
-    print()
-    print("=" * 70)
-    print(f"[SlideSparse] 自动转换: {model_name} -> SlideSparse-{sparsity}")
-    print("=" * 70)
-    
-    try:
-        cmd = [
-            sys.executable, str(entry_script),
-            "--input", str(base_model_path),
-            "--Z", str(Z),
-            "--L", str(L),
-        ]
-        
-        result = subprocess.run(
-            cmd,
-            cwd=str(entry_script.parent),
-            capture_output=False,  # 显示输出
-        )
-        
-        if result.returncode != 0:
-            print_error(f"转换失败 (exit code: {result.returncode})")
-            return None
-        
-        # 转换成功，返回新路径
-        slidesparse_dir = get_slidesparse_checkpoints_dir()
-        expected_name = f"{model_name}-SlideSparse-{sparsity}"
-        converted_path = slidesparse_dir / expected_name
-        
-        if converted_path.exists():
-            print_success(f"转换成功: {converted_path.name}")
-            print("=" * 70)
-            print()
-            return converted_path
-        else:
-            print_error(f"转换完成但未找到输出目录: {expected_name}")
-            return None
-            
-    except Exception as e:
-        print_error(f"转换出错: {e}")
-        return None
 
 
 # ============================================================================
@@ -726,7 +561,9 @@ def run_single_m_test(
     max_num_batched_tokens = params.max_num_seqs * params.max_model_len
     
     # 构建 backend 显示名
-    if backend == "cusparselt" and sparsity:
+    if backend == "cutlass":
+        backend_display = "CUTLASS (vLLM native)"
+    elif backend == "cusparselt" and sparsity:
         backend_display = f"cuSPARSELt ({sparsity.replace('_', ':')})"
     else:
         backend_display = "cuBLASLt"
@@ -813,7 +650,9 @@ def run_single_m_test(
         if dry_run:
             print_info("[DRY-RUN] 将执行的命令:")
             env_str = f"CUDA_VISIBLE_DEVICES={gpu_id}"
-            if backend == "cublaslt":
+            if backend == "cutlass":
+                env_str += " USE_CUTLASS=1"
+            elif backend == "cublaslt":
                 env_str += " USE_CUBLASLT=1"
             elif backend == "cusparselt":
                 env_str += f" USE_CUSPARSELT=1 SPARSITY={sparsity}"
@@ -1008,7 +847,7 @@ def run_stage_benchmark(
         return (0, 1)
     
     # 构建输出目录
-    output_dir = build_backend_result_dir(stage, backend, entry.quant.upper(), sparsity)
+    output_dir = build_backend_result_dir("throughput_benchmark", stage, backend, entry.quant.upper(), sparsity)
     _CURRENT_OUTPUT_DIR = output_dir
     
     result_json_dir = output_dir / "json"
@@ -1115,8 +954,8 @@ def run_full_benchmark(config: BenchmarkConfig) -> Tuple[int, int]:
                         total_success += success
                         total_fail += fail
             else:
-                # cuBLASLt: 使用 dense checkpoint
-                checkpoint_path = get_checkpoint_path(model_key, backend, None)
+                # cutlass / cuBLASLt: 使用 dense checkpoint
+                checkpoint_path = get_checkpoint_path(model_key, "cublaslt", None)
                 if checkpoint_path is None:
                     print_warning(f"Dense checkpoint 不存在，跳过: {entry.local_name}")
                     continue
@@ -1153,8 +992,9 @@ def main():
   Model → Backend → Sparsity → Stage → M
 
 Backend 说明:
-  cublaslt   - cuBLASLt dense GEMM (使用原始 checkpoint)
-  cusparselt - cuSPARSELt sparse GEMM (使用预稀疏化 checkpoint)
+  cutlass    - vLLM 原生 CUTLASS 路径 (SlideSparse的cutlass，作为 baseline)
+  cublaslt   - SlideSparse cuBLASLt dense GEMM (使用原始 checkpoint)
+  cusparselt - SlideSparse cuSPARSELt sparse GEMM (使用预稀疏化 checkpoint)
 
 Sparsity 说明:
   2_4  - 2:4 稀疏 (50% 稀疏率)
@@ -1168,6 +1008,7 @@ Sparsity 说明:
   python3 throughput_benchmark.py --model qwen2.5-0.5b-fp8  # 测试特定模型
   python3 throughput_benchmark.py --model fp8         # 测试所有 FP8 模型
   python3 throughput_benchmark.py --model all         # 测试所有模型
+  python3 throughput_benchmark.py --backend cutlass   # 只测试 vLLM 原生 (baseline)
   python3 throughput_benchmark.py --backend cublaslt  # 只测试 cuBLASLt
   python3 throughput_benchmark.py --backend cusparselt --sparsity 2_8
   python3 throughput_benchmark.py --stage prefill     # 只测试 Prefill
@@ -1187,7 +1028,7 @@ Sparsity 说明:
     backend_group = parser.add_argument_group("Backend 选择")
     backend_group.add_argument(
         "-b", "--backend", type=str, metavar="NAME",
-        help="Backend: cublaslt / cusparselt / all (默认: all)"
+        help="Backend: cutlass / cublaslt / cusparselt / all (默认: all)"
     )
     backend_group.add_argument(
         "--sparsity", type=str, metavar="LIST",
