@@ -15,19 +15,22 @@ test_04_throughput.py - 吞吐量对比测试
     [SlideSparse 后端]  根据参数选择不同 kernel    ← test
 
 使用方法:
-    python3 test_04_throughput.py --use-cutlass     # 默认: vs CUTLASS fallback
-    python3 test_04_throughput.py --use-cublaslt           # vs cuBLASLt
+
+
+
     python3 test_04_throughput.py --use-cublaslt --inner-32  # cuBLASLt + 高精度累加
 
 
     python3 test_04_throughput.py --use-cusparselt --sparsity 2_4
     python3 test_04_throughput.py --use-cusparselt --sparsity 2_6
-    python3 test_04_throughput.py --use-cusparselt --sparsity 2_8
     
     python3 test_04_throughput.py --use-cusparselt --sparsity 2_4 --inner-32
     python3 test_04_throughput.py --use-cusparselt --sparsity 2_6 --inner-32
     python3 test_04_throughput.py --use-cusparselt --sparsity 2_8 --inner-32
 
+    SLIDESPARSE_PROFILE=1 python3 test_04_throughput.py --use-cutlass
+    SLIDESPARSE_PROFILE=1 python3 test_04_throughput.py --use-cublaslt
+    SLIDESPARSE_PROFILE=1 python3 test_04_throughput.py --use-cusparselt --sparsity 2_8    
 """
 
 import os
@@ -58,18 +61,27 @@ from utils import (
 # 测试配置
 # ============================================================================
 
-# Prefill 测试配置：长输入 + 短输出
+# Prefill 测试配置：
+# - M_prefill = num_prompts * prompt_len
+# - 目标 M=2048，设置 num_prompts=2, prompt_len=1024 → M=2048
+# - 测试约 100 次，warmup=5
 PREFILL_CONFIG = {
-    "num_prompts": 8,
-    "prompt_len": 256,
-    "output_len": 1,
+    "num_prompts": 2,      # 每批 2 个 prompt
+    "prompt_len": 1024,    # 每个 prompt 1024 tokens → M_prefill = 2048
+    "output_len": 1,       # 最小化 decode 开销
+    "warmup": 5,           # 预热次数
+    "repeat": 100,         # 测试重复次数
 }
 
-# Decode 测试配置：短输入 + 长输出
+# Decode 测试配置：
+# - M_decode = num_prompts (batch size)
+# - 目标 M=32，设置 num_prompts=32
+# - output_len=100 → 约 3200 个 decode step
 DECODE_CONFIG = {
-    "num_prompts": 4,
-    "prompt_len": 16,
-    "output_len": 128,
+    "num_prompts": 32,     # batch size = 32 → M_decode = 32
+    "prompt_len": 4,      # 短 prompt，快速跳过 prefill
+    "output_len": 100,     # 生成 100 tokens/prompt → 3200 decode steps
+    "warmup": 2,           # 预热次数
 }
 
 
@@ -123,6 +135,36 @@ class PhaseResult:
 
 
 # ============================================================================
+# Profile 统计管理
+# ============================================================================
+
+def reset_profile_stats():
+    """重置 SlideSparse profile 统计（如果启用）"""
+    try:
+        from slidesparse.core.SlideSparseLinearMethod_FP8 import reset_profile_stats as _reset
+        _reset()
+    except ImportError:
+        pass
+
+
+def print_profile_stats_with_label(label: str):
+    """打印 SlideSparse profile 统计（带标签）"""
+    try:
+        from slidesparse.core.SlideSparseLinearMethod_FP8 import (
+            print_profile_stats as _print_stats,
+            _flush_pending_events,
+        )
+        # 先 flush pending events
+        _flush_pending_events()
+        print(f"\n{'#' * 80}")
+        print(f"# {label}")
+        print(f"{'#' * 80}")
+        _print_stats()
+    except ImportError:
+        pass
+
+
+# ============================================================================
 # 核心测试函数
 # ============================================================================
 
@@ -132,16 +174,20 @@ def run_phase_test(
     prompt_len: int,
     output_len: int,
     warmup: int = 2,
+    repeat: int = 1,
+    reset_profile: bool = True,
 ) -> PhaseResult:
     """
     运行单阶段吞吐量测试
     
     Args:
         model_path: 模型路径
-        num_prompts: 请求数量
+        num_prompts: 请求数量（每次 generate 调用的 batch size）
         prompt_len: 输入 prompt 的 token 长度
         output_len: 输出的 token 长度
         warmup: 预热次数
+        repeat: 正式测试重复次数（多次调用 generate）
+        reset_profile: 是否在正式测试前重置 profile 统计
     
     Returns:
         PhaseResult
@@ -159,10 +205,17 @@ def run_phase_test(
         )
         
         # 生成 prompts（每个 prompt 使用不同 seed，避免 prefix caching）
-        prompts = [generate_dummy_prompt(prompt_len, seed=i) for i in range(num_prompts)]
+        # 为每次重复生成不同的 prompts
+        all_prompts = []
+        for r in range(repeat):
+            batch_prompts = [
+                generate_dummy_prompt(prompt_len, seed=r * num_prompts + i)
+                for i in range(num_prompts)
+            ]
+            all_prompts.append(batch_prompts)
         
-        # Warmup 用不同的 prompts（seed 从 1000 开始，避免和正式测试重叠）
-        warmup_prompts = [generate_dummy_prompt(prompt_len, seed=1000+i) for i in range(2)]
+        # Warmup 用不同的 prompts（seed 从 100000 开始）
+        warmup_prompts = [generate_dummy_prompt(prompt_len, seed=100000+i) for i in range(num_prompts)]
         
         sampling_params = SamplingParams(
             temperature=0.0,
@@ -170,22 +223,29 @@ def run_phase_test(
             ignore_eos=True,  # 强制生成指定数量的 token
         )
         
-        # Warmup
+        # Warmup（预热不计入统计）
         for _ in range(warmup):
             _ = llm.generate(warmup_prompts, sampling_params)
+        torch.cuda.synchronize()
+        
+        # 重置 profile 统计（warmup 后、正式测试前）
+        if reset_profile:
+            reset_profile_stats()
         
         # 正式测试
+        total_input_tokens = 0
+        total_output_tokens = 0
+        
         torch.cuda.synchronize()
         start = time.perf_counter()
         
-        outputs = llm.generate(prompts, sampling_params)
+        for r in range(repeat):
+            outputs = llm.generate(all_prompts[r], sampling_params)
+            total_input_tokens += sum(len(o.prompt_token_ids) for o in outputs)
+            total_output_tokens += sum(len(o.outputs[0].token_ids) for o in outputs)
         
         torch.cuda.synchronize()
         elapsed = time.perf_counter() - start
-        
-        # 统计
-        total_input_tokens = sum(len(o.prompt_token_ids) for o in outputs)
-        total_output_tokens = sum(len(o.outputs[0].token_ids) for o in outputs)
         
         del llm
     
@@ -258,12 +318,15 @@ def run_throughput_comparison(
         print("=" * 90)
     
     # ========== Prefill 测试 ==========
+    # M_prefill = num_prompts * prompt_len = 2 * 1024 = 2048
     if verbose:
         print(f"\n{Colors.cyan('━' * 50)}")
         print(Colors.bold("Prefill 吞吐量测试"))
         print(f"配置: {PREFILL_CONFIG['num_prompts']} prompts × "
               f"{PREFILL_CONFIG['prompt_len']} input tokens × "
-              f"{PREFILL_CONFIG['output_len']} output token")
+              f"{PREFILL_CONFIG['output_len']} output token × "
+              f"{PREFILL_CONFIG['repeat']} repeats")
+        print(f"M_prefill = {PREFILL_CONFIG['num_prompts'] * PREFILL_CONFIG['prompt_len']}")
         print(f"{Colors.cyan('━' * 50)}")
     
     # 基准: vLLM 原生路径
@@ -277,6 +340,9 @@ def run_throughput_comparison(
             num_prompts=PREFILL_CONFIG["num_prompts"],
             prompt_len=PREFILL_CONFIG["prompt_len"],
             output_len=PREFILL_CONFIG["output_len"],
+            warmup=PREFILL_CONFIG["warmup"],
+            repeat=PREFILL_CONFIG["repeat"],
+            reset_profile=True,
         )
         baseline_prefill_tps = baseline_prefill.input_tokens / baseline_prefill.total_time_s
     except Exception as e:
@@ -293,8 +359,13 @@ def run_throughput_comparison(
         num_prompts=PREFILL_CONFIG["num_prompts"],
         prompt_len=PREFILL_CONFIG["prompt_len"],
         output_len=PREFILL_CONFIG["output_len"],
+        warmup=PREFILL_CONFIG["warmup"],
+        repeat=PREFILL_CONFIG["repeat"],
+        reset_profile=True,
     )
     test_prefill_tps = test_prefill.input_tokens / test_prefill.total_time_s
+    # 打印 Prefill 阶段的 profile 统计
+    print_profile_stats_with_label(f"Prefill Profile ({backend_name}) - M={PREFILL_CONFIG['num_prompts'] * PREFILL_CONFIG['prompt_len']}")
     restore_env(saved_env)
     
     if baseline_prefill_tps is not None:
@@ -317,12 +388,14 @@ def run_throughput_comparison(
             print(f"    (无 baseline 对比)")
     
     # ========== Decode 测试 ==========
+    # M_decode = num_prompts = 32
     if verbose:
         print(f"\n{Colors.cyan('━' * 50)}")
         print(Colors.bold("Decode 吞吐量测试"))
         print(f"配置: {DECODE_CONFIG['num_prompts']} prompts × "
               f"{DECODE_CONFIG['prompt_len']} input tokens × "
               f"{DECODE_CONFIG['output_len']} output tokens")
+        print(f"M_decode = {DECODE_CONFIG['num_prompts']}")
         print(f"{Colors.cyan('━' * 50)}")
     
     # 基准: vLLM 原生路径
@@ -336,6 +409,9 @@ def run_throughput_comparison(
             num_prompts=DECODE_CONFIG["num_prompts"],
             prompt_len=DECODE_CONFIG["prompt_len"],
             output_len=DECODE_CONFIG["output_len"],
+            warmup=DECODE_CONFIG["warmup"],
+            repeat=1,  # Decode 只需运行一次（output_len 已经很长）
+            reset_profile=True,
         )
         baseline_decode_tps = baseline_decode.output_tokens / baseline_decode.total_time_s
     except Exception as e:
@@ -352,8 +428,13 @@ def run_throughput_comparison(
         num_prompts=DECODE_CONFIG["num_prompts"],
         prompt_len=DECODE_CONFIG["prompt_len"],
         output_len=DECODE_CONFIG["output_len"],
+        warmup=DECODE_CONFIG["warmup"],
+        repeat=1,
+        reset_profile=True,
     )
     test_decode_tps = test_decode.output_tokens / test_decode.total_time_s
+    # 打印 Decode 阶段的 profile 统计
+    print_profile_stats_with_label(f"Decode Profile ({backend_name}) - M={DECODE_CONFIG['num_prompts']}")
     restore_env(saved_env)
     
     if baseline_decode_tps is not None:

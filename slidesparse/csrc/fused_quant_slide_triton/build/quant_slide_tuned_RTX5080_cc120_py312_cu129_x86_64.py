@@ -44,28 +44,20 @@ def _get_cached_int8_slide_tensors(M_padded: int, K_out_padded: int, device: tor
 
 def _get_config(M: int, K: int) -> tuple:
     """Returns (BLOCK_GROUPS, num_warps, num_stages)"""
-    if K == 2560:
-        if M <= 16:
-            return 1024, 16, 2
-        elif M <= 128:
-            return 512, 16, 2
-        elif M <= 1024:
-            return 1024, 8, 2
-        elif M <= 4096:
-            return 256, 8, 3
-        else:
-            return 512, 8, 2
-    elif K == 6912:
-        if M <= 16:
-            return 512, 16, 2
-        elif M <= 128:
+    if K == 896:
+        if M <= 32:
             return 256, 8, 1
-        elif M <= 1024:
-            return 512, 16, 3
-        elif M <= 4096:
-            return 1024, 16, 3
+        elif M <= 256:
+            return 128, 4, 3
         else:
+            return 256, 4, 3
+    elif K == 4864:
+        if M <= 32:
+            return 256, 4, 3
+        elif M <= 256:
             return 256, 8, 3
+        else:
+            return 256, 8, 1
     # Default fallback
     if K <= 4096:
         return 256, 8, 2

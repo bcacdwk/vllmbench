@@ -43,26 +43,20 @@ def _get_cached_int8_tensors(M_padded: int, K_padded: int, device: torch.device)
 
 def _get_config(M: int, K: int) -> tuple:
     """Returns (BLOCK_K, num_warps, num_stages)"""
-    if K == 2560:
-        if M <= 16:
-            return 8192, 16, 2
-        elif M <= 128:
-            return 4096, 4, 4
-        elif M <= 1024:
-            return 4096, 1, 2
+    if K == 896:
+        if M <= 32:
+            return 2048, 4, 4
+        elif M <= 256:
+            return 1024, 1, 1
         else:
-            return 4096, 1, 3
-    elif K == 6912:
-        if M <= 16:
-            return 8192, 8, 1
-        elif M <= 128:
+            return 1024, 2, 2
+    elif K == 4864:
+        if M <= 32:
+            return 8192, 4, 1
+        elif M <= 256:
             return 8192, 8, 3
-        elif M <= 1024:
-            return 8192, 16, 1
-        elif M <= 4096:
-            return 8192, 16, 3
         else:
-            return 8192, 16, 1
+            return 8192, 8, 1
     # Default fallback
     if K <= 4096:
         return 4096, 8, 2

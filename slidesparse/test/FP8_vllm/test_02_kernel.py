@@ -15,7 +15,7 @@ test_02_kernel.py - SlideSparse Kernel 正确性测试
                     baseline (vLLM 原生) vs test (SlideSparse)
 
 使用方法:
-    python3 test_02_kernel.py                               # 默认: vs CUTLASS fallback (2:6 稀疏)
+    python3 test_02_kernel.py --use-cutlass
     python3 test_02_kernel.py --use-cublaslt                # vs cuBLASLt
     python3 test_02_kernel.py --use-cublaslt --inner-32     # cuBLASLt + 高精度累加
 

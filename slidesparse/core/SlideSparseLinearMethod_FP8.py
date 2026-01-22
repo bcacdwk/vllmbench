@@ -56,6 +56,7 @@ Padding 策略:
 - USE_CUSPARSELT=1        : 使用 cuSPARSELt kernel（与 USE_CUBLASLT 互斥）
 - INNER_DTYPE_32=1        : GEMM 使用高精度累加（FP8→FP32）
 - SPARSITY=2_8            : 稀疏格式（仅 cuSPARSELt 时生效，默认 2_8）
+- SLIDESPARSE_PROFILE=1   : 启用 SlideSparse 计时诊断
 """
 
 from .config import (
@@ -69,11 +70,134 @@ from .config import (
 
 from pathlib import Path
 from typing import Optional
+from collections import defaultdict
+import os
+import time
 
 import ctypes
 import subprocess
 import torch
 from torch.nn import Module
+
+
+# ============================================================================
+# 计时诊断模块 (SLIDESPARSE_PROFILE=1 时启用)
+# ============================================================================
+
+_PROFILE_ENABLED = os.environ.get("SLIDESPARSE_PROFILE", "0") == "1"
+_profile_data = defaultdict(lambda: {"count": 0, "total_ms": 0.0})
+_profile_call_count = 0
+_PROFILE_PRINT_INTERVAL = 1000  # 每 N 次调用打印一次统计
+
+# 异步计时：存储 pending 的 CUDA events，延迟同步
+_pending_events: list = []  # [(name, start_event, end_event), ...]
+_PENDING_FLUSH_THRESHOLD = 1000  # 积累多少个 events 后批量同步
+
+
+class ProfileTimer:
+    """
+    异步 CUDA 计时器 - 不阻塞 GPU pipeline
+    
+    准确性说明：
+    - 使用 CUDA events 记录 kernel 的 start/end 时间点
+    - events 存储在 _pending_events 中，延迟同步以避免阻塞 GPU
+    - count 和 total_ms 都在 flush 时统一更新，保证一致性
+    - 计时精度：CUDA event 是硬件级精度，不受 Python 开销影响
+    
+    注意：elapsed_time() 测量的是 GPU 时间，不包含 event record 的 CPU 开销
+    """
+    
+    def __init__(self, name: str, enabled: bool = True):
+        self.name = name
+        self.enabled = enabled and _PROFILE_ENABLED
+        self.start_event = None
+        self.end_event = None
+        
+    def __enter__(self):
+        if self.enabled:
+            self.start_event = torch.cuda.Event(enable_timing=True)
+            self.end_event = torch.cuda.Event(enable_timing=True)
+            self.start_event.record()
+        return self
+    
+    def __exit__(self, *args):
+        if self.enabled:
+            self.end_event.record()
+            # 不立即同步，而是存储 events 以便后续批量处理
+            # 注意：count 也延迟到 flush 时更新，保证 count 和 total_ms 一致
+            _pending_events.append((self.name, self.start_event, self.end_event))
+            
+            # 如果积累了太多 events，批量同步一次
+            if len(_pending_events) >= _PENDING_FLUSH_THRESHOLD:
+                _flush_pending_events()
+
+
+def _flush_pending_events():
+    """批量同步并收集所有 pending events 的时间"""
+    global _pending_events
+    if not _pending_events:
+        return
+    
+    # 只同步一次
+    torch.cuda.synchronize()
+    
+    # 收集所有时间，同时更新 count（保证 count 和 total_ms 一致）
+    for name, start_event, end_event in _pending_events:
+        elapsed_ms = start_event.elapsed_time(end_event)
+        _profile_data[name]["total_ms"] += elapsed_ms
+        _profile_data[name]["count"] += 1  # count 在这里更新，和 total_ms 同步
+    
+    _pending_events = []
+
+
+def profile_step():
+    """每次 apply 调用后检查是否需要打印统计"""
+    global _profile_call_count
+    if not _PROFILE_ENABLED:
+        return
+    
+    _profile_call_count += 1
+    if _profile_call_count % _PROFILE_PRINT_INTERVAL == 0:
+        print_profile_stats()
+
+
+def print_profile_stats():
+    """打印计时统计"""
+    # 先 flush 所有 pending events
+    _flush_pending_events()
+    
+    if not _profile_data:
+        return
+    
+    print(f"\n{'=' * 80}")
+    print(f"SlideSparse Profile Stats (after {_profile_call_count} calls)")
+    print(f"{'=' * 80}")
+    print(f"{'Operation':<40} {'Count':>10} {'Total(ms)':>12} {'Avg(us)':>10}")
+    print(f"{'-' * 80}")
+    
+    # 按 total_ms 降序排列
+    sorted_items = sorted(_profile_data.items(), key=lambda x: -x[1]["total_ms"])
+    
+    for name, data in sorted_items:
+        count = data["count"]
+        total_ms = data["total_ms"]
+        avg_ms = total_ms / count if count > 0 else 0
+        print(f"{name:<40} {count:>10} {total_ms:>12.3f} {avg_ms * 1000:>10.1f}")
+    
+    print(f"{'=' * 80}\n")
+
+
+def reset_profile_stats():
+    """
+    重置计时统计
+    
+    注意：会丢弃所有未 flush 的 pending events！
+    如果需要保留这些数据，请先调用 print_profile_stats() 或 _flush_pending_events()
+    """
+    global _profile_call_count, _pending_events
+    _profile_data.clear()
+    _profile_call_count = 0
+    _pending_events = []  # 丢弃未处理的 events（它们属于旧的统计周期）
 
 from vllm import _custom_ops as ops
 from vllm.logger import init_logger
@@ -535,13 +659,15 @@ def cuBLASLt_FP8_linear(
             ↓ dequant_bias_kernel
         output[M, N] out_dtype
     """
-    ext = _get_gemm_extension("cublaslt")
+    with ProfileTimer("cuBLASLt.get_extension"):
+        ext = _get_gemm_extension("cublaslt")
     M = input.shape[0]
     
     # Quant: [M, K] -> [M_pad, K_pad]
     # cuBLASLt 路径始终使用 Triton quant kernel（需要 padding）
     if input.dtype != current_platform.fp8_dtype():
-        qinput, scale_a_pad = quant_only_fp8_kernel(input)
+        with ProfileTimer("cuBLASLt.quant"):
+            qinput, scale_a_pad = quant_only_fp8_kernel(input)
     else:
         # 静态量化：input 已是 FP8，但没有 padding
         # cuBLASLt GEMM wrapper 期望 padded 维度，所以不支持静态量化
@@ -552,15 +678,22 @@ def cuBLASLt_FP8_linear(
     
     try:
         # GEMM: Weight @ Activation -> [M_pad, N]
-        gemm_out_pad = ext.cublaslt_fp8_mm(weight, qinput, get_inner_dtype_str())
+        with ProfileTimer("cuBLASLt.gemm"):
+            gemm_out_pad = ext.cublaslt_fp8_mm(weight, qinput, get_inner_dtype_str())
         
         # 截断 M_pad -> M（view 操作，无数据拷贝）
         gemm_out = gemm_out_pad[:M, :]
         scale_a = scale_a_pad[:M]
         
         # Dequant: [M, N]
-        output = dequant_bias_kernel(gemm_out, scale_a, scale_b, bias, out_dtype)
-        return output.view(*output_shape)
+        with ProfileTimer("cuBLASLt.dequant"):
+            output = dequant_bias_kernel(gemm_out, scale_a, scale_b, bias, out_dtype)
+        
+        with ProfileTimer("cuBLASLt.view"):
+            result = output.view(*output_shape)
+        
+        profile_step()
+        return result
     except Exception as e:
         raise RuntimeError(f"cuBLASLt execution failed: {e}") from e
 
@@ -601,7 +734,8 @@ def cuSPARSELt_FP8_linear(
         slide_weight_K: 权重 K_slide 维度（slide 扩展后，已 32 对齐）
         L: 稀疏组大小（默认 8）
     """
-    ext = _get_gemm_extension("cusparselt")
+    with ProfileTimer("cuSPARSELt.get_extension"):
+        ext = _get_gemm_extension("cusparselt")
     
     if slide_weight_N is None or slide_weight_K is None:
         raise ValueError(
@@ -612,7 +746,8 @@ def cuSPARSELt_FP8_linear(
     
     # Quant + Slide: [M, K] -> [M_pad, K_slide_pad]
     if input.dtype != current_platform.fp8_dtype():
-        qinput, scale_a_pad = quant_slide_fp8_kernel(input, L)
+        with ProfileTimer("cuSPARSELt.quant_slide"):
+            qinput, scale_a_pad = quant_slide_fp8_kernel(input, L)
     else:
         raise NotImplementedError(
             "cuSPARSELt with static quantization is not supported yet."
@@ -629,21 +764,28 @@ def cuSPARSELt_FP8_linear(
     
     try:
         # GEMM: Weight_compressed @ Activation -> [M_pad, N]
-        gemm_out_pad = ext.cusparselt_fp8_mm(
-            slide_weight_compressed,
-            qinput,
-            slide_weight_N,
-            K_slide_pad,
-            get_inner_dtype_str()
-        )
+        with ProfileTimer("cuSPARSELt.gemm"):
+            gemm_out_pad = ext.cusparselt_fp8_mm(
+                slide_weight_compressed,
+                qinput,
+                slide_weight_N,
+                K_slide_pad,
+                get_inner_dtype_str()
+            )
         
         # 截断 M_pad -> M（view 操作，无数据拷贝）
         gemm_out = gemm_out_pad[:M, :]
         scale_a = scale_a_pad[:M]
         
         # Dequant: [M, N]
-        output = dequant_bias_kernel(gemm_out, scale_a, scale_b, bias, out_dtype)
-        return output.view(*output_shape)
+        with ProfileTimer("cuSPARSELt.dequant"):
+            output = dequant_bias_kernel(gemm_out, scale_a, scale_b, bias, out_dtype)
+        
+        with ProfileTimer("cuSPARSELt.view"):
+            result = output.view(*output_shape)
+        
+        profile_step()
+        return result
     except Exception as e:
         raise RuntimeError(f"cuSPARSELt execution failed: {e}") from e
 
@@ -674,16 +816,23 @@ def cutlass_FP8_linear(
     # Quant（使用 vLLM 原生 QuantFP8）
     if input.dtype != current_platform.fp8_dtype():
         assert quant_fn is not None, "quant_fn required for non-FP8 input"
-        qinput, scale_a = quant_fn(input, input_scale, input_scale_ub)
+        with ProfileTimer("CUTLASS.quant"):
+            qinput, scale_a = quant_fn(input, input_scale, input_scale_ub)
     else:
         qinput, scale_a = input, input_scale
     
     # CUTLASS 融合 GEMM + Dequant + Bias
-    output = ops.cutlass_scaled_mm(
-        qinput, weight, out_dtype=out_dtype,
-        scale_a=scale_a, scale_b=scale_b, bias=bias
-    )
-    return output.view(*output_shape)
+    with ProfileTimer("CUTLASS.scaled_mm"):
+        output = ops.cutlass_scaled_mm(
+            qinput, weight, out_dtype=out_dtype,
+            scale_a=scale_a, scale_b=scale_b, bias=bias
+        )
+    
+    with ProfileTimer("CUTLASS.view"):
+        result = output.view(*output_shape)
+    
+    profile_step()
+    return result
 
 
 # ============================================================================
