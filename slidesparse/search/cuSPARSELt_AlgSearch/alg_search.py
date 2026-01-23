@@ -20,9 +20,8 @@ cuSPARSELt 算法离线搜索
 - 每个 alg_id 独立压缩权重
 
 运行示例:
-    python3 alg_search.py --dtype int8 --outdtype bf16 --model BitNet-2B4T
+    python3 alg_search.py --dtype int8 --outdtype int32 --model BitNet-2B4T
     python3 alg_search.py --dtype fp8e4m3 --outdtype bf16 --model BitNet-2B4T
-    python3 alg_search.py --dtype int8 --outdtype bf16 --no_api_search
 """
 
 import argparse
@@ -617,6 +616,8 @@ def parse_args():
     p.add_argument("--dtype", default="int8", choices=SUPPORTED_DTYPES, help="输入数据类型")
     p.add_argument("--outdtype", default="bf16", choices=SUPPORTED_OUTDTYPES, help="输出数据类型")
     p.add_argument("--model", default="BitNet-2B4T", help="模型名称或路径")
+    p.add_argument("--Lmax", type=int, default=None, help="最大 L 值（slide sparse），会为 L=4,6,...,Lmax 生成所有 NK")
+    p.add_argument("--M-quick", action="store_true", dest="m_quick", help="M-quick 模式: 使用固定 M 列表 [16, 128, 1024, 4096, 16384]")
     p.add_argument("--warmup", type=int, default=25)
     p.add_argument("--repeat", type=int, default=100)
     p.add_argument("--verify", action="store_true", help="开启正确性校验")
@@ -678,9 +679,15 @@ def main():
     supports_segment_k = bool(lib.cusparselt_supports_segment_k())
     print(f"✓ Segment-K 支持: {'是' if supports_segment_k else '否'}")
     
-    nk_list = get_nk_list_auto(args.model, with_names=False)
+    nk_list = get_nk_list_auto(args.model, L_max=args.Lmax, with_names=False)
     
-    if args.m_list:
+    if args.Lmax:
+        print(f"Lmax: {args.Lmax} (slide sparse L=4,6,...,{args.Lmax})")
+    
+    # 获取 M 列表
+    if args.m_quick:
+        m_list = [16, 128, 1024, 4096, 16384]
+    elif args.m_list:
         m_list = [int(x.strip()) for x in args.m_list.split(",")]
     else:
         m_list = default_m_list()

@@ -133,6 +133,10 @@ static int out_dtype_elem_size(const char* outdtype) {
 // 搜索结果结构
 // ============================================================================
 
+// 编译期检查：确保 cublasLtMatmulAlgo_t 不超过我们预留的缓冲区大小
+static_assert(sizeof(cublasLtMatmulAlgo_t) <= 64,
+              "cublasLtMatmulAlgo_t size exceeds 64 bytes, increase algo_data buffer");
+
 struct AlgRecord {
   int alg_id{-1};
   float lat_us{0.f};

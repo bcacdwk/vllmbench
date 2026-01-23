@@ -9,9 +9,6 @@ Usage:
     python3 autotune_autogen_dequant_bias.py
     python3 autotune_autogen_dequant_bias.py --quick
 
-Output:
-    build/dequant_bias_tuned_{GPU}_{CC}_{PyVer}_{CUDAVer}_{Arch}.py
-    例如: dequant_bias_tuned_H100_cc90_py312_cu124_x86_64.py
 """
 
 import os
@@ -41,10 +38,14 @@ if str(_PROJECT_ROOT) not in sys.path:
 
 from slidesparse.utils import (
     build_filename,
+    build_hw_dir_name,
+    build_tuned_filename,
     get_python_version_tag,
     get_arch_tag,
     get_gpu_cc,
     get_gpu_name,
+    get_nk_list_for_search,
+    get_unique_n_values,
 )
 
 # 将 csrc 目录添加到 sys.path 以导入 utils
@@ -54,9 +55,9 @@ if str(_SCRIPT_DIR.parent) not in sys.path:
 from utils import get_dequant_autotune_configs
 
 
-def get_output_filename() -> str:
-    """Generate output filename: dequant_bias_tuned_{GPU}_{CC}_{PyVer}_{CUDAVer}_{Arch}.py"""
-    return build_filename("dequant_bias_tuned", ext=".py")
+def get_output_filename(model_name: Optional[str] = None) -> str:
+    """Generate output filename: dequant_bias_tuned[_{model}].py"""
+    return build_tuned_filename("dequant_bias_tuned", model_name, ext=".py")
 
 
 # Get autotune configs from utils
@@ -66,8 +67,6 @@ AUTOTUNE_CONFIGS = get_dequant_autotune_configs()
 # =============================================================================
 # Test Matrix Sizes
 # =============================================================================
-
-N_VALUES = [2560, 3840, 13824]  # BitNet hidden sizes
 
 # M search strategy:
 # - Small M (1-512): Dense search - high variance in optimal config
@@ -417,18 +416,26 @@ def main():
     parser = argparse.ArgumentParser(description="Dequant+Bias Kernel Autotune & Codegen")
     parser.add_argument('--info', action='store_true', help='Show naming info only')
     parser.add_argument('--output-dir', type=str, default=None, help='Output directory (default: ./build)')
-    parser.add_argument('--quick', action='store_true', 
-                        help='Quick mode: use fewer M values for faster testing')
+    parser.add_argument('--model', type=str, default=None, help='Model name (e.g., BitNet-2B4T-INT8)')
+    parser.add_argument('--Lmax', type=int, default=None, help='Max L for slide sparse (e.g., 10). If set, generates NK for L=4,6,8,...,Lmax')
+    parser.add_argument('--M-quick', action='store_true', dest='m_quick',
+                        help='M-quick mode: use fixed M values [16, 128, 1024, 4096, 16384]')
     args = parser.parse_args()
     
-    # Quick mode: reduce M_VALUES for faster testing
-    global M_VALUES
-    if args.quick:
+    # M-quick mode: use fixed M values
+    global M_VALUES, N_VALUES
+    if args.m_quick:
         M_VALUES = [16, 128, 1024, 4096, 16384]
+    
+    # 使用统一的 NK 获取工具
+    nk_list, model_name = get_nk_list_for_search(args.model, args.Lmax)
+    N_VALUES = get_unique_n_values(nk_list)
     
     if not torch.cuda.is_available():
         print("ERROR: CUDA not available")
         return 1
+    
+    output_filename = get_output_filename(model_name if args.model else None)
     
     print("=" * 70)
     print("Dequant + Bias Kernel Autotune")
@@ -439,7 +446,12 @@ def main():
     print(f"PyTorch: {torch.__version__}")
     print(f"Triton:  {triton.__version__}")
     print(f"Input:   BF16/FP32 (auto-handled)")
-    print(f"Output:  {get_output_filename()}")
+    if args.model:
+        print(f"Model:   {model_name}")
+    if args.Lmax:
+        print(f"Lmax:    {args.Lmax} (slide sparse L=4,6,...,{args.Lmax})")
+    print(f"N values: {N_VALUES}")
+    print(f"Output:  {output_filename}")
     
     if args.info:
         return 0
@@ -473,10 +485,11 @@ def main():
     if args.output_dir:
         output_dir = Path(args.output_dir)
     else:
-        output_dir = Path(__file__).parent / "build"
+        # 使用硬件信息作为子目录
+        output_dir = Path(__file__).parent / "build" / build_hw_dir_name()
     output_dir.mkdir(parents=True, exist_ok=True)
     
-    output_file = output_dir / get_output_filename()
+    output_file = output_dir / output_filename
     
     with open(output_file, "w") as f:
         f.write(kernel_code)

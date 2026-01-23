@@ -19,8 +19,6 @@ Usage:
     python3 autotune_autogen_quant_only.py           # 默认 FP8 autotune
     python3 autotune_autogen_quant_only.py --quick   # 快速模式
 
-Output:
-    build/quant_only_tuned_{GPU}_{CC}_{PyVer}_{CUDAVer}_{Arch}.py
 """
 
 import os
@@ -37,6 +35,7 @@ import torch
 import triton
 import triton.language as tl
 from pathlib import Path
+from typing import Optional
 
 # 设置路径以导入 slidesparse 模块
 _SCRIPT_DIR = Path(__file__).parent
@@ -48,10 +47,14 @@ if str(_PROJECT_ROOT) not in sys.path:
 
 from slidesparse.utils import (
     build_filename,
+    build_hw_dir_name,
+    build_tuned_filename,
     get_python_version_tag,
     get_arch_tag,
     get_gpu_cc,
     get_gpu_name,
+    get_nk_list_for_search,
+    get_unique_k_values,
 )
 
 # 将 csrc 目录添加到 sys.path 以导入 utils
@@ -61,9 +64,9 @@ if str(_SCRIPT_DIR.parent) not in sys.path:
 from utils import get_quant_autotune_configs
 
 
-def get_output_filename() -> str:
-    """Generate output filename (unified, no dtype suffix)"""
-    return build_filename("quant_only_tuned", ext=".py")
+def get_output_filename(model_name: Optional[str] = None) -> str:
+    """Generate output filename: quant_only_tuned[_{model}].py"""
+    return build_tuned_filename("quant_only_tuned", model_name, ext=".py")
 
 
 # Get autotune configs
@@ -73,8 +76,6 @@ AUTOTUNE_CONFIGS = get_quant_autotune_configs()
 # =============================================================================
 # Test Matrix Sizes
 # =============================================================================
-
-K_VALUES = [2560, 6912]  # Hidden sizes for quantization
 
 # M search strategy:
 # - Small M (1-512): Dense search - high variance in optimal config
@@ -564,14 +565,20 @@ def main():
     parser = argparse.ArgumentParser(description="Quant Only Kernel Autotune & Codegen (Unified FP8/INT8)")
     parser.add_argument('--info', action='store_true', help='Show naming info only')
     parser.add_argument('--output-dir', type=str, default=None, help='Output directory')
-    parser.add_argument('--quick', action='store_true', 
-                        help='Quick mode: use fewer M values for faster testing')
+    parser.add_argument('--model', type=str, default=None, help='Model name (e.g., BitNet-2B4T-INT8)')
+    parser.add_argument('--Lmax', type=int, default=None, help='Max L for slide sparse (e.g., 10). If set, generates NK for L=4,6,8,...,Lmax')
+    parser.add_argument('--M-quick', action='store_true', dest='m_quick',
+                        help='M-quick mode: use fixed M values [16, 128, 1024, 4096, 16384]')
     args = parser.parse_args()
     
-    # Quick mode: reduce M_VALUES for faster testing
-    global M_VALUES
-    if args.quick:
+    # M-quick mode: use fixed M values
+    global M_VALUES, K_VALUES
+    if args.m_quick:
         M_VALUES = [16, 128, 1024, 4096, 16384]
+    
+    # 使用统一的 NK 获取工具
+    nk_list, model_name = get_nk_list_for_search(args.model, args.Lmax)
+    K_VALUES = get_unique_k_values(nk_list)
     
     if not torch.cuda.is_available():
         print("ERROR: CUDA not available")
@@ -579,6 +586,7 @@ def main():
     
     use_fp8 = check_fp8_support()
     tune_dtype = "FP8" if use_fp8 else "INT8 (fallback)"
+    output_filename = get_output_filename(model_name if args.model else None)
     
     print("=" * 70)
     print("Quant Only Kernel Autotune (Per-Row Design, Unified FP8/INT8)")
@@ -589,7 +597,12 @@ def main():
     print(f"PyTorch: {torch.__version__}")
     print(f"Triton:  {triton.__version__}")
     print(f"Tune dtype: {tune_dtype}")
-    print(f"Output file: {get_output_filename()}")
+    if args.model:
+        print(f"Model:   {model_name}")
+    if args.Lmax:
+        print(f"Lmax:    {args.Lmax} (slide sparse L=4,6,...,{args.Lmax})")
+    print(f"K values: {K_VALUES}")
+    print(f"Output file: {output_filename}")
     
     if args.info:
         return 0
@@ -623,10 +636,11 @@ def main():
     if args.output_dir:
         output_dir = Path(args.output_dir)
     else:
-        output_dir = Path(__file__).parent / "build"
+        # 使用硬件信息作为子目录
+        output_dir = Path(__file__).parent / "build" / build_hw_dir_name()
     output_dir.mkdir(parents=True, exist_ok=True)
     
-    output_file = output_dir / get_output_filename()
+    output_file = output_dir / output_filename
     
     with open(output_file, "w") as f:
         f.write(kernel_code)

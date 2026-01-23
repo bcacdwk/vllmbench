@@ -696,7 +696,6 @@ int cusparselt_search_single_m(
         
         if (sel_st == CUSPARSE_STATUS_SUCCESS) {
             cusparseLtMatmulPlan_t plan_api;
-            // 新版 API: 4 参数
             cusparseStatus_t plan_st = cusparseLtMatmulPlanInit(
                 &g_handle, &plan_api, &matmul, &alg_sel_api);
             
@@ -814,7 +813,6 @@ int cusparselt_search_single_m(
         }
         
         cusparseLtMatmulPlan_t plan_compress;
-        // 新版 API: 4 参数
         cusparseStatus_t plan_st = cusparseLtMatmulPlanInit(
             &g_handle, &plan_compress, &matmul, &alg_sel_compress);
         if (plan_st != CUSPARSE_STATUS_SUCCESS) {

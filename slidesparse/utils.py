@@ -1564,6 +1564,61 @@ def build_dir_name(
     return "_".join(components)
 
 
+def build_hw_dir_name() -> str:
+    """
+    构建仅包含硬件信息的目录名。
+    
+    格式: {GPU}_{CC}_{PyVer}_{CUDAVer}_{Arch}
+    示例: RTX5080_cc120_py312_cu129_x86_64
+    
+    Returns:
+        目录名称
+    """
+    return (
+        f"{hw_info.gpu_name}_{hw_info.cc_tag}"
+        f"_{hw_info.python_tag}_{hw_info.cuda_tag}_{hw_info.arch_tag}"
+    )
+
+
+def build_tuned_filename(
+    prefix: str,
+    model_name: Optional[str] = None,
+    ext: str = "",
+) -> str:
+    """
+    构建 autotune 生成文件的名称。
+    
+    格式:
+    - 无模型: {prefix}.{ext}
+    - 有模型: {prefix}_{model_name}.{ext}
+    
+    示例:
+    - build_tuned_filename("dequant_bias_tuned", ext=".py")
+      -> "dequant_bias_tuned.py"
+    - build_tuned_filename("dequant_bias_tuned", "BitNet-2B4T-INT8", ext=".py")
+      -> "dequant_bias_tuned_BitNet-2B4T-INT8.py"
+    
+    Args:
+        prefix: 文件前缀（如 "dequant_bias_tuned"）
+        model_name: 模型名称（可选）
+        ext: 文件扩展名
+    
+    Returns:
+        文件名称
+    """
+    if model_name:
+        name = f"{prefix}_{model_name}"
+    else:
+        name = prefix
+    
+    if ext:
+        if not ext.startswith("."):
+            ext = "." + ext
+        name += ext
+    
+    return name
+
+
 # =============================================================================
 # 文件查找
 # =============================================================================
@@ -3357,6 +3412,157 @@ def _try_auto_convert_model(
 
 
 # =============================================================================
+# 统一的 NK 尺寸获取工具（供搜索/调优脚本使用）
+# =============================================================================
+
+def get_nk_list_for_search(
+    model: Optional[str] = None,
+    L_max: Optional[int] = None,
+    checkpoints_dir: Optional[Union[str, Path]] = None,
+) -> Tuple[List[Tuple[int, int]], str]:
+    """
+    获取用于搜索/调优的 NK 尺寸列表（统一接口）
+    
+    供 7 个搜索/调优脚本统一使用：
+    - 3 个 Triton autotune: dequant_bias, quant_slide, quant_only
+    - 4 个 CUDA search: cuBLASLt_AlgSearch/LayoutSearch, cuSPARSELt_AlgSearch/LayoutSearch
+    
+    策略:
+    - 如果未指定 model: 返回 BitNet-2B4T 默认 NK
+    - 如果指定 model:
+        - L_max=None: 使用 get_model_nk_sizes 获取原始 NK
+        - L_max 指定: 使用 get_model_nk_sizes_slided 获取 L=4 到 L=L_max 的所有 NK
+    
+    Args:
+        model: 模型名称（如 "BitNet-2B4T-INT8", "Qwen2.5-7B-FP8"）或路径
+        L_max: 最大 L 值，用于 slide 稀疏。如果指定，会生成 L=4,6,8,...,L_max 的所有 NK
+        checkpoints_dir: 普通 checkpoints 目录（可选）
+    
+    Returns:
+        (nk_list, model_name): 
+            - nk_list: [(N, K), ...] 列表，去重后的结果
+            - model_name: 用于文件命名的模型名称
+    
+    Example:
+        >>> # 默认 BitNet-2B4T NK
+        >>> nk_list, name = get_nk_list_for_search()
+        >>> print(name)  # "BitNet-2B4T"
+        
+        >>> # 从模型获取原始 NK
+        >>> nk_list, name = get_nk_list_for_search("Qwen2.5-7B-FP8")
+        
+        >>> # 从模型获取 slide 后的 NK (L=4 到 L=10)
+        >>> nk_list, name = get_nk_list_for_search("BitNet-2B4T-INT8", L_max=10)
+    """
+    # 默认 BitNet-2B4T NK 尺寸
+    DEFAULT_NK_BITNET_2B = [
+        (3840, 2560),   # qkv_proj (Wqkv)
+        (2560, 2560),   # o_proj (Wo)
+        (13824, 2560),  # gate_up_proj (W13)
+        (2560, 6912),   # down_proj (W2)
+    ]
+    
+    if model is None:
+        return DEFAULT_NK_BITNET_2B, "BitNet-2B4T-Default"
+    
+    # 尝试查找模型目录
+    project_root = Path(__file__).parent.parent
+    
+    search_paths = []
+    
+    # 1. 直接路径
+    if Path(model).exists():
+        search_paths.append(Path(model))
+    
+    # 2. checkpoints 目录
+    if checkpoints_dir:
+        search_paths.append(Path(checkpoints_dir) / model)
+    else:
+        search_paths.append(project_root / "checkpoints" / model)
+    
+    # 查找有效路径
+    model_path = None
+    for path in search_paths:
+        if path.exists() and path.is_dir():
+            model_path = path
+            break
+    
+    if model_path is None:
+        # 未找到模型，使用默认 NK
+        print(f"[Warning] 未找到模型 '{model}'，使用 BitNet-2B4T 默认 NK")
+        return DEFAULT_NK_BITNET_2B, model
+    
+    # 提取模型名称（用于文件命名）
+    model_name = model_path.name
+    
+    try:
+        # 获取原始 NK 尺寸
+        nk_sizes = get_model_nk_sizes(model_path)
+    except Exception as e:
+        print(f"[Warning] 无法从 '{model_path}' 提取 NK 尺寸: {e}")
+        print(f"[Warning] 使用 BitNet-2B4T 默认 NK")
+        return DEFAULT_NK_BITNET_2B, model_name
+    
+    if not nk_sizes:
+        print(f"[Warning] 模型 '{model_name}' NK 尺寸为空，使用 BitNet-2B4T 默认 NK")
+        return DEFAULT_NK_BITNET_2B, model_name
+    
+    # 转换为列表格式
+    nk_list = []
+    
+    if L_max is None:
+        # 不使用 slide，直接返回原始 NK
+        for layer_type in ["qkv", "wo", "w13", "w2"]:
+            if layer_type in nk_sizes:
+                N, K = nk_sizes[layer_type]
+                if (N, K) not in nk_list:
+                    nk_list.append((N, K))
+    else:
+        # 使用 slide，生成 L=4 到 L=L_max 的所有 NK
+        # L 必须是偶数且 >= 4
+        L_values = [L for L in range(4, L_max + 1, 2)]
+        
+        for L in L_values:
+            slided_sizes = get_model_nk_sizes_slided(nk_sizes, Z=2, L=L, align_to=32)
+            for layer_type in ["qkv", "wo", "w13", "w2"]:
+                if layer_type in slided_sizes:
+                    N, K = slided_sizes[layer_type]
+                    if (N, K) not in nk_list:
+                        nk_list.append((N, K))
+    
+    if not nk_list:
+        return DEFAULT_NK_BITNET_2B, model_name
+    
+    return nk_list, model_name
+
+
+def get_unique_n_values(nk_list: List[Tuple[int, int]]) -> List[int]:
+    """
+    从 NK 列表中提取唯一的 N 值（用于 Triton dequant 等按 N 维度调优的 kernel）
+    
+    Args:
+        nk_list: [(N, K), ...] 列表
+    
+    Returns:
+        唯一的 N 值列表，已排序
+    """
+    return sorted(set(N for N, K in nk_list))
+
+
+def get_unique_k_values(nk_list: List[Tuple[int, int]]) -> List[int]:
+    """
+    从 NK 列表中提取唯一的 K 值（用于 Triton quant 等按 K 维度调优的 kernel）
+    
+    Args:
+        nk_list: [(N, K), ...] 列表
+    
+    Returns:
+        唯一的 K 值列表，已排序
+    """
+    return sorted(set(K for N, K in nk_list))
+
+
+# =============================================================================
 # 导出
 # =============================================================================
 
@@ -3422,6 +3628,8 @@ __all__ = [
     "build_filename",
     "build_stem",
     "build_dir_name",
+    "build_hw_dir_name",
+    "build_tuned_filename",
     # 文件查找
     "find_file",
     "find_files",
@@ -3468,6 +3676,10 @@ __all__ = [
     "get_model_nk_sizes_slided",
     "get_model_nk_sizes_compressed",
     "print_model_nk_summary",
+    # 统一的 NK 获取工具（供搜索/调优脚本使用）
+    "get_nk_list_for_search",
+    "get_unique_n_values",
+    "get_unique_k_values",
     # 稀疏配置解析
     "parse_sparsity_env",
     "get_sparsity_config_cached",

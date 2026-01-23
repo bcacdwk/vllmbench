@@ -45,6 +45,8 @@ from slidesparse.utils import (
     get_model_nk_sizes,
     get_model_nk_sizes_slided,
     get_model_nk_sizes_compressed,
+    # 统一 NK 获取工具
+    get_nk_list_for_search,
 )
 
 import ctypes
@@ -81,8 +83,11 @@ def build_search_extension(
     Returns:
         编译生成的 .so 文件路径
     """
-    # 构建带硬件信息的名称
-    full_name = f"{name}_{hw_info.gpu_name}_{hw_info.cc_tag}"
+    # 构建带完整硬件信息的名称
+    full_name = (
+        f"{name}_{hw_info.gpu_name}_{hw_info.cc_tag}"
+        f"_{hw_info.python_tag}_{hw_info.cuda_tag}_{hw_info.arch_tag}"
+    )
     
     # 获取后端链接库
     backend_lower = backend.lower()
@@ -363,6 +368,7 @@ def get_nk_list_from_model(
 def get_nk_list_auto(
     model: Optional[str] = None,
     *,
+    L_max: Optional[int] = None,
     with_names: bool = False,
 ) -> Union[List[Tuple[int, int]], List[Tuple[int, int, str]]]:
     """
@@ -371,35 +377,24 @@ def get_nk_list_auto(
     如果提供了 model 参数且找到对应模型目录，则从模型提取；
     否则使用 BitNet-2B4T 默认值。
     
+    如果指定了 L_max，会为 L=4,6,8,...,L_max 生成所有 slide 后的 NK 尺寸。
+    
     Args:
         model: 模型名称（如 "BitNet-2B4T"）或路径
+        L_max: 最大 L 值。若设置则生成 L=4,6,...,L_max 的所有 slide NK
         with_names: 是否返回层名称
     
     Returns:
         List of (N, K) 或 (N, K, name) tuples
     """
-    # 尝试查找模型目录
-    if model:
-        # 检查常见位置
-        search_paths = [
-            PROJECT_ROOT / "checkpoints" / model,
-            PROJECT_ROOT / "checkpoints_slidesparse" / model,
-            Path(model),
-        ]
-        
-        for path in search_paths:
-            if path.exists() and path.is_dir():
-                try:
-                    return get_nk_list_from_model(path, with_names=with_names)
-                except Exception:
-                    pass
+    # 使用统一的 NK 获取工具
+    nk_list, _ = get_nk_list_for_search(model, L_max)
     
-    # 使用默认值
-    default = default_nk_list_bitnet_2b()
     if with_names:
-        names = ["Wqkv", "Wo", "W13", "W2"]
-        return [(n, k, name) for (n, k), name in zip(default, names)]
-    return default
+        # 对于 slide 模式，名称可能重复（不同 L 值的同一层）
+        # 这里简化处理：使用索引作为名称后缀
+        return [(n, k, f"layer_{i}") for i, (n, k) in enumerate(nk_list)]
+    return nk_list
 
 
 # =============================================================================
@@ -425,28 +420,18 @@ def build_model_name_with_dtype(base_name: str, dtype: str) -> str:
 # 输出目录与文件命名
 # =============================================================================
 
-def build_output_dir_name(
-    model_name: str,
-    dtype: str,
-    outdtype: str,
-) -> str:
+def build_output_dir_name() -> str:
     """
-    构建输出目录名称。
+    构建输出目录名称（仅包含硬件信息）。
     
-    格式: {GPU}_{CC}_out-{outdtype}_{model_name}_{PyVer}_{CUDAVer}_{arch}
-    示例: H100_cc90_out-BF16_BitNet-2B4T-FP8E4M3_py312_cu129_x86_64
-    
-    Args:
-        model_name: 模型名称（已包含 dtype 后缀）
-        dtype: 输入数据类型（保留用于兼容性）
-        outdtype: 输出数据类型
+    格式: {GPU}_{CC}_{PyVer}_{CUDAVer}_{arch}
+    示例: RTX5080_cc120_py312_cu129_x86_64
     
     Returns:
         目录名称
     """
-    outdtype_norm = normalize_dtype(outdtype)
     return (
-        f"{hw_info.gpu_name}_{hw_info.cc_tag}_out-{outdtype_norm}_{model_name}"
+        f"{hw_info.gpu_name}_{hw_info.cc_tag}"
         f"_{hw_info.python_tag}_{hw_info.cuda_tag}_{hw_info.arch_tag}"
     )
 
@@ -454,23 +439,26 @@ def build_output_dir_name(
 def build_result_filename(
     prefix: str,
     model_name: str,
+    outdtype: str,
     ext: str = "",
 ) -> str:
     """
     构建结果文件名称。
     
-    格式: {prefix}_{model_name}.{ext}
-    示例: alg_search_LUT_BitNet-2B4T.json
+    格式: {prefix}_{model_name}_out-{outdtype}.{ext}
+    示例: alg_search_BitNet-2B4T-INT8_out-BF16.csv
     
     Args:
-        prefix: 文件前缀（如 "alg_search_LUT", "layout_search_bench"）
+        prefix: 文件前缀（如 "alg_search", "layout_search"）
         model_name: 模型名称
+        outdtype: 输出数据类型
         ext: 文件扩展名
     
     Returns:
         文件名称
     """
-    name = f"{prefix}_{model_name}"
+    outdtype_norm = normalize_dtype(outdtype)
+    name = f"{prefix}_{model_name}_out-{outdtype_norm}"
     if ext:
         if not ext.startswith("."):
             ext = "." + ext
@@ -934,12 +922,12 @@ def save_alg_search_results(
     """
     import base64
     
-    subdir_name = build_output_dir_name(model_name, dtype, outdtype)
+    subdir_name = build_output_dir_name()
     subdir = out_dir / subdir_name
     subdir.mkdir(parents=True, exist_ok=True)
     
-    csv_path = subdir / build_result_filename("alg_search_bench", model_name, "csv")
-    json_path = subdir / build_result_filename("alg_search_LUT", model_name, "json")
+    csv_path = subdir / build_result_filename("alg_search", model_name, outdtype, "csv")
+    json_path = subdir / build_result_filename("alg_search", model_name, outdtype, "json")
     
     alg_count = search_ret.get("max_alg_count", 0)
     config_count = alg_count * (6 if search_ret.get("search_split_k") else 1)
@@ -1042,15 +1030,24 @@ def save_alg_search_results(
             if results:
                 m_thresholds.append(M)
                 if has_split_k:
-                    top3_info = [{"alg_id": r["alg_id"], "split_k": r.get("split_k", 1)} for r in results[:3]]
+                    # cuSPARSELt: 保存 alg_id, split_k, workspace
+                    top3_info = [{
+                        "alg_id": r["alg_id"],
+                        "split_k": r.get("split_k", 1),
+                        "workspace": r.get("workspace", 0),
+                    } for r in results[:3]]
                     alg_by_m[str(M)] = top3_info
                 else:
-                    top3_b64 = []
+                    # cuBLASLt: 保存 base64 编码的 algo_data 和 workspace
+                    top3_entries = []
                     for r in results[:3]:
                         if "algo_data" in r:
                             algo_b64 = base64.b64encode(r["algo_data"]).decode('ascii')
-                            top3_b64.append(algo_b64)
-                    alg_by_m[str(M)] = top3_b64
+                            top3_entries.append({
+                                "algo_data": algo_b64,
+                                "workspace": r.get("workspace", 0),
+                            })
+                    alg_by_m[str(M)] = top3_entries
         
         nk_entries[nk_key] = {
             "m_thresholds": m_thresholds,
@@ -1104,12 +1101,12 @@ def save_layout_search_results(
     Returns:
         保存结果的子目录路径
     """
-    subdir_name = build_output_dir_name(model_name, dtype, outdtype)
+    subdir_name = build_output_dir_name()
     subdir = out_dir / subdir_name
     subdir.mkdir(parents=True, exist_ok=True)
     
-    csv_path = subdir / build_result_filename("layout_search_bench", model_name, "csv")
-    json_path = subdir / build_result_filename("layout_search_results", model_name, "json")
+    csv_path = subdir / build_result_filename("layout_search", model_name, outdtype, "csv")
+    json_path = subdir / build_result_filename("layout_search", model_name, outdtype, "json")
     
     num_layouts = len(layout_names)
     layout_tag = "LAYOUT_SEARCH_SPARSE24" if is_sparse else "LAYOUT_SEARCH"
