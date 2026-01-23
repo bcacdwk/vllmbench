@@ -1152,6 +1152,78 @@ class HardwareInfo:
         """是否支持原生 INT8（CC >= 8.0，Ampere+）"""
         return self.cc_major >= 8
     
+    # -------------------------------------------------------------------------
+    # vLLM CUTLASS Kernel 支持检测
+    # -------------------------------------------------------------------------
+    # 
+    # vLLM 预编译的 CUTLASS kernel 有版本限制：
+    # 
+    # INT8 CUTLASS:
+    #   - 支持范围: sm_75 ~ sm_90 (Turing ~ Hopper)
+    #   - sm_100+ (Blackwell) 不支持，vLLM 报错 "Int8 not supported on SM1xx"
+    #
+    # FP8 CUTLASS:
+    #   - 支持范围: sm_89 ~ sm_120 (Ada ~ Blackwell RTX 50xx)
+    #   - sm_121+ (GB10 等) 不支持
+    #   - sm_80~88 会 fallback 到 Marlin W8A16 kernel（不是真正的 FP8 计算）
+    #
+    # 注意：这些限制是 vLLM 预编译 kernel 的问题，不是硬件限制。
+    # SlideSparse 的 cuBLASLt/cuSPARSELt 路径不受这些限制。
+    # -------------------------------------------------------------------------
+    
+    @cached_property
+    def supports_vllm_cutlass_int8(self) -> Tuple[bool, str]:
+        """
+        检查 vLLM CUTLASS INT8 kernel 是否支持当前 GPU
+        
+        vLLM 的 CUTLASS INT8 kernel 只支持 sm_75 ~ sm_90 (Turing ~ Hopper)。
+        sm_100+ (Blackwell) 上 vLLM 会报错 "Int8 not supported on SM1xx"。
+        
+        Returns:
+            (supported, reason)
+        """
+        cc = (self.cc_major, self.cc_minor)
+        
+        if cc < (7, 5):
+            return False, f"sm_{self.cc_major}{self.cc_minor} < sm_75"
+        
+        if cc >= (10, 0):
+            return False, f"sm_{self.cc_major}{self.cc_minor} >= sm_100"
+        
+        return True, f"sm_{self.cc_major}{self.cc_minor} 在支持范围 [sm_75, sm_90]"
+    
+    @cached_property
+    def supports_vllm_cutlass_fp8(self) -> Tuple[bool, str]:
+        """
+        检查 vLLM CUTLASS FP8 kernel 是否支持当前 GPU
+        
+        vLLM 的 CUTLASS FP8 kernel 只支持 sm_89 ~ sm_120 (Ada ~ Blackwell RTX 50xx)。
+        - sm_80~88: 会 fallback 到 Marlin W8A16 kernel（不是真正的 FP8 计算）
+        - sm_121+: vLLM CUTLASS kernel 未编译支持
+        
+        Returns:
+            (supported, reason)
+        """
+        cc = (self.cc_major, self.cc_minor)
+        
+        if cc < (8, 9):
+            return False, f"sm_{self.cc_major}{self.cc_minor} < sm_89 (会 fallback 到 Marlin W8A16)"
+        
+        if cc > (12, 0):
+            return False, f"sm_{self.cc_major}{self.cc_minor} > sm_120 (vLLM CUTLASS FP8 未编译)"
+        
+        return True, f"sm_{self.cc_major}{self.cc_minor} 在支持范围 [sm_89, sm_120]"
+    
+    @cached_property
+    def vllm_cutlass_int8_supported(self) -> bool:
+        """vLLM CUTLASS INT8 是否支持（便捷属性）"""
+        return self.supports_vllm_cutlass_int8[0]
+    
+    @cached_property
+    def vllm_cutlass_fp8_supported(self) -> bool:
+        """vLLM CUTLASS FP8 是否支持（便捷属性）"""
+        return self.supports_vllm_cutlass_fp8[0]
+    
     @cached_property
     def triton_supported(self) -> Tuple[bool, str]:
         """
@@ -1174,6 +1246,54 @@ class HardwareInfo:
     def needs_eager_mode(self) -> bool:
         """是否需要使用 eager mode（禁用 torch.compile）"""
         return not self.triton_supported[0]
+    
+    # -------------------------------------------------------------------------
+    # cuBLASLt / cuSPARSELt 支持检测
+    # -------------------------------------------------------------------------
+    
+    @cached_property
+    def supports_cublaslt(self) -> Tuple[bool, str]:
+        """
+        检查 cuBLASLt 是否支持当前 GPU
+        
+        cuBLASLt 支持 sm_70+ (Volta 及更新架构)。
+        
+        Returns:
+            (supported, reason)
+        """
+        cc = (self.cc_major, self.cc_minor)
+        
+        if cc < (7, 0):
+            return False, f"sm_{self.cc_major}{self.cc_minor} < sm_70 (cuBLASLt 需要 Volta+)"
+        
+        return True, f"sm_{self.cc_major}{self.cc_minor} >= sm_70"
+    
+    @cached_property
+    def cublaslt_supported(self) -> bool:
+        """cuBLASLt 是否支持（便捷属性）"""
+        return self.supports_cublaslt[0]
+    
+    @cached_property
+    def supports_cusparselt(self) -> Tuple[bool, str]:
+        """
+        检查 cuSPARSELt 是否支持当前 GPU
+        
+        cuSPARSELt 支持 sm_80+ (Ampere 及更新架构)。
+        
+        Returns:
+            (supported, reason)
+        """
+        cc = (self.cc_major, self.cc_minor)
+        
+        if cc < (8, 0):
+            return False, f"sm_{self.cc_major}{self.cc_minor} < sm_80 (cuSPARSELt 需要 Ampere+)"
+        
+        return True, f"sm_{self.cc_major}{self.cc_minor} >= sm_80"
+    
+    @cached_property
+    def cusparselt_supported(self) -> bool:
+        """cuSPARSELt 是否支持（便捷属性）"""
+        return self.supports_cusparselt[0]
     
     # -------------------------------------------------------------------------
     # 汇总信息
@@ -1214,6 +1334,8 @@ class HardwareInfo:
                 "supports_fp8": self.supports_fp8,
                 "supports_int8": self.supports_int8,
                 "triton_supported": self.triton_supported[0],
+                "vllm_cutlass_int8": self.vllm_cutlass_int8_supported,
+                "vllm_cutlass_fp8": self.vllm_cutlass_fp8_supported,
             },
             "pytorch_version": self.pytorch_version,
         }

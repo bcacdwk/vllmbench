@@ -1,0 +1,283 @@
+
+========== M=16 ==========
+Time: 2026-01-23 04:26:23
+Backend: cuSPARSELt (2:12)
+Checkpoint: /root/vllmbench/checkpoints_slidesparse/Qwen2.5-0.5B-INT8-SlideSparse-2_12
+Params: prompt_len=16, output_len=1, num_prompts=128, max_num_seqs=1
+Command: vllm bench throughput --model /root/vllmbench/checkpoints_slidesparse/Qwen2.5-0.5B-INT8-SlideSparse-2_12 --dataset-name random --input-len 16 --output-len 1 --num-prompts 128 --max-num-seqs 1 --max-model-len 145 --max-num-batched-tokens 145 --gpu-memory-utilization 0.8 --disable-log-stats --output-json /root/vllmbench/slidesparse/tools/throughput_benchmark_results/prefill/RTX5080_cc120_INT8_py312_cu129_x86_64/cusparselt/2_12/json/Qwen2.5-0.5B-INT8_M16.json
+
+STDOUT:
+When dataset path is not set, it will default to random dataset
+INFO 01-23 04:26:27 [datasets.py:612] Sampling input_len from [16, 16] and output_len from [1, 1]
+INFO 01-23 04:26:27 [utils.py:253] non-default args: {'tokenizer': '/root/vllmbench/checkpoints_slidesparse/Qwen2.5-0.5B-INT8-SlideSparse-2_12', 'max_model_len': 145, 'gpu_memory_utilization': 0.8, 'max_num_batched_tokens': 145, 'max_num_seqs': 1, 'disable_log_stats': True, 'enable_lora': None, 'reasoning_parser_plugin': '', 'model': '/root/vllmbench/checkpoints_slidesparse/Qwen2.5-0.5B-INT8-SlideSparse-2_12'}
+INFO 01-23 04:26:27 [model.py:514] Resolved architecture: Qwen2ForCausalLM
+INFO 01-23 04:26:27 [model.py:1661] Using max model len 145
+INFO 01-23 04:26:27 [scheduler.py:230] Chunked prefill is enabled with max_num_batched_tokens=145.
+(EngineCore_DP0 pid=62622) INFO 01-23 04:26:30 [core.py:93] Initializing a V1 LLM engine (v0.13.1.dev7+gd5e6597bf) with config: model='/root/vllmbench/checkpoints_slidesparse/Qwen2.5-0.5B-INT8-SlideSparse-2_12', speculative_config=None, tokenizer='/root/vllmbench/checkpoints_slidesparse/Qwen2.5-0.5B-INT8-SlideSparse-2_12', skip_tokenizer_init=False, tokenizer_mode=auto, revision=None, tokenizer_revision=None, trust_remote_code=False, dtype=torch.bfloat16, max_seq_len=145, download_dir=None, load_format=auto, tensor_parallel_size=1, pipeline_parallel_size=1, data_parallel_size=1, disable_custom_all_reduce=False, quantization=compressed-tensors, enforce_eager=False, kv_cache_dtype=auto, device_config=cuda, structured_outputs_config=StructuredOutputsConfig(backend='auto', disable_fallback=False, disable_any_whitespace=False, disable_additional_properties=False, reasoning_parser='', reasoning_parser_plugin='', enable_in_reasoning=False), observability_config=ObservabilityConfig(show_hidden_metrics_for_version=None, otlp_traces_endpoint=None, collect_detailed_traces=None, kv_cache_metrics=False, kv_cache_metrics_sample=0.01, cudagraph_metrics=False, enable_layerwise_nvtx_tracing=False), seed=0, served_model_name=/root/vllmbench/checkpoints_slidesparse/Qwen2.5-0.5B-INT8-SlideSparse-2_12, enable_prefix_caching=True, enable_chunked_prefill=True, pooler_config=None, compilation_config={'level': None, 'mode': <CompilationMode.VLLM_COMPILE: 3>, 'debug_dump_path': None, 'cache_dir': '', 'compile_cache_save_format': 'binary', 'backend': 'inductor', 'custom_ops': ['none'], 'splitting_ops': ['vllm::unified_attention', 'vllm::unified_attention_with_output', 'vllm::unified_mla_attention', 'vllm::unified_mla_attention_with_output', 'vllm::mamba_mixer2', 'vllm::mamba_mixer', 'vllm::short_conv', 'vllm::linear_attention', 'vllm::plamo2_mamba_mixer', 'vllm::gdn_attention_core', 'vllm::kda_attention', 'vllm::sparse_attn_indexer'], 'compile_mm_encoder': False, 'compile_sizes': [], 'compile_ranges_split_points': [145], 'inductor_compile_config': {'enable_auto_functionalized_v2': False, 'combo_kernels': True, 'benchmark_combo_kernel': True}, 'inductor_passes': {}, 'cudagraph_mode': <CUDAGraphMode.FULL_AND_PIECEWISE: (2, 1)>, 'cudagraph_num_of_warmups': 1, 'cudagraph_capture_sizes': [1, 2], 'cudagraph_copy_inputs': False, 'cudagraph_specialize_lora': True, 'use_inductor_graph_partition': False, 'pass_config': {'fuse_norm_quant': False, 'fuse_act_quant': False, 'fuse_attn_quant': False, 'eliminate_noops': True, 'enable_sp': False, 'fuse_gemm_comms': False, 'fuse_allreduce_rms': False}, 'max_cudagraph_capture_size': 2, 'dynamic_shapes_config': {'type': <DynamicShapesType.BACKED: 'backed'>, 'evaluate_guards': False}, 'local_cache_dir': None}
+(EngineCore_DP0 pid=62622) INFO 01-23 04:26:31 [parallel_state.py:1203] world_size=1 rank=0 local_rank=0 distributed_init_method=tcp://10.172.141.44:57967 backend=nccl
+(EngineCore_DP0 pid=62622) INFO 01-23 04:26:31 [parallel_state.py:1411] rank 0 in world size 1 is assigned as DP rank 0, PP rank 0, PCP rank 0, TP rank 0, EP rank 0
+(EngineCore_DP0 pid=62622) INFO 01-23 04:26:31 [gpu_model_runner.py:3562] Starting to load model /root/vllmbench/checkpoints_slidesparse/Qwen2.5-0.5B-INT8-SlideSparse-2_12...
+(EngineCore_DP0 pid=62622) INFO 01-23 04:26:31 [compressed_tensors_w8a8_int8.py:62] Using CutlassScaledMMLinearKernel for CompressedTensorsW8A8Int8
+(EngineCore_DP0 pid=62622) INFO 01-23 04:26:31 [cuda.py:351] Using FLASH_ATTN attention backend out of potential backends: ('FLASH_ATTN', 'FLASHINFER', 'TRITON_ATTN', 'FLEX_ATTENTION')
+(EngineCore_DP0 pid=62622) INFO 01-23 04:26:31 [default_loader.py:308] Loading weights took 0.11 seconds
+(EngineCore_DP0 pid=62622) [INFO] Loading compress extension: cusparselt_compress_RTX5080_cc120_py312_cu129_x86_64.so
+(EngineCore_DP0 pid=62622) INFO 01-23 04:26:32 [gpu_model_runner.py:3659] Model loading took 0.6898 GiB memory and 0.340171 seconds
+(EngineCore_DP0 pid=62622) INFO 01-23 04:26:36 [backends.py:643] Using cache directory: /root/.cache/vllm/torch_compile_cache/cd011b4f90/rank_0_0/backbone for vLLM's torch.compile
+(EngineCore_DP0 pid=62622) INFO 01-23 04:26:36 [backends.py:703] Dynamo bytecode transform time: 3.90 s
+(EngineCore_DP0 pid=62622) INFO 01-23 04:26:38 [backends.py:261] Cache the graph of compile range (1, 145) for later use
+(EngineCore_DP0 pid=62622) INFO 01-23 04:27:03 [backends.py:278] Compiling a graph for compile range (1, 145) takes 25.85 s
+(EngineCore_DP0 pid=62622) INFO 01-23 04:27:03 [monitor.py:34] torch.compile takes 29.75 s in total
+(EngineCore_DP0 pid=62622) INFO 01-23 04:27:04 [gpu_worker.py:375] Available KV cache memory: 11.31 GiB
+(EngineCore_DP0 pid=62622) INFO 01-23 04:27:04 [kv_cache_utils.py:1291] GPU KV cache size: 988,448 tokens
+(EngineCore_DP0 pid=62622) INFO 01-23 04:27:04 [kv_cache_utils.py:1296] Maximum concurrency for 145 tokens per request: 6177.80x
+(EngineCore_DP0 pid=62622) INFO 01-23 04:27:05 [gpu_model_runner.py:4587] Graph capturing finished in 1 secs, took 0.01 GiB
+(EngineCore_DP0 pid=62622) INFO 01-23 04:27:05 [core.py:259] init engine (profile, create kv cache, warmup model) took 33.05 seconds
+INFO 01-23 04:27:05 [llm.py:360] Supported tasks: ['generate']
+Throughput: 123.28 requests/s, 2095.75 total tokens/s, 123.28 output tokens/s
+Total num prompt tokens:  2048
+Total num output tokens:  128
+
+STDERR:
+[2026-01-23 04:26:27] INFO gemm_wrapper.py:362: cuBLASLt FP8 custom op registered: slidesparse::cublaslt_fp8_mm
+[2026-01-23 04:26:27] INFO gemm_wrapper.py:408: cuSPARSELt FP8 custom op registered: slidesparse::cusparselt_fp8_mm
+[2026-01-23 04:26:27] INFO gemm_wrapper.py:455: cuBLASLt INT8 custom op registered: slidesparse::cublaslt_int8_mm
+[2026-01-23 04:26:27] INFO gemm_wrapper.py:502: cuSPARSELt INT8 custom op registered: slidesparse::cusparselt_int8_mm
+[2026-01-23 04:26:30] INFO gemm_wrapper.py:362: cuBLASLt FP8 custom op registered: slidesparse::cublaslt_fp8_mm
+[2026-01-23 04:26:30] INFO gemm_wrapper.py:408: cuSPARSELt FP8 custom op registered: slidesparse::cusparselt_fp8_mm
+[2026-01-23 04:26:30] INFO gemm_wrapper.py:455: cuBLASLt INT8 custom op registered: slidesparse::cublaslt_int8_mm
+[2026-01-23 04:26:30] INFO gemm_wrapper.py:502: cuSPARSELt INT8 custom op registered: slidesparse::cusparselt_int8_mm
+(EngineCore_DP0 pid=62622) [2026-01-23 04:26:31] INFO SlideSparseLinearMethod_INT8.py:767: Wrapping CompressedTensorsW8A8Int8 with SlideSparse (cuSPARSELt)
+(EngineCore_DP0 pid=62622) [2026-01-23 04:26:31] INFO gemm_wrapper.py:307: cusparselt GEMM extension loaded: cusparselt_gemm_RTX5080_cc120_py312_cu129_x86_64.so
+(EngineCore_DP0 pid=62622) [2026-01-23 04:26:31] INFO kernels.py:329: INT8 quant+slide kernel loaded
+(EngineCore_DP0 pid=62622) [2026-01-23 04:26:31] INFO kernels.py:115: Dequant+bias kernel loaded
+(EngineCore_DP0 pid=62622) [2026-01-23 04:26:31] INFO SlideSparseLinearMethod_INT8.py:437: SlideSparseInt8LinearOp initialized (kernel=cuSPARSELt)
+(EngineCore_DP0 pid=62622) [2026-01-23 04:26:31] INFO SlideSparseLinearMethod_INT8.py:582: SlideSparseInt8LinearMethod: cuSPARSELt sparsity=2:12, expand_ratio=1.200
+(EngineCore_DP0 pid=62622) [2026-01-23 04:26:31] INFO SlideSparseLinearMethod_INT8.py:587: SlideSparseInt8LinearMethod initialized, kernel=cuSPARSELt, symmetric=True
+(EngineCore_DP0 pid=62622) 
+Loading safetensors checkpoint shards:   0% Completed | 0/1 [00:00<?, ?it/s]
+(EngineCore_DP0 pid=62622) 
+Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00, 10.30it/s]
+(EngineCore_DP0 pid=62622) 
+(EngineCore_DP0 pid=62622) [2026-01-23 04:26:31] INFO SlideSparseLinearMethod_INT8.py:681: cuSPARSELt INT8 compression: [1152, 1504] -> 1D uint8
+(EngineCore_DP0 pid=62622) [2026-01-23 04:26:31] INFO SlideSparseLinearMethod_INT8.py:691: cuSPARSELt INT8 compression done: 1308672 bytes
+(EngineCore_DP0 pid=62622) [2026-01-23 04:26:31] INFO SlideSparseLinearMethod_INT8.py:681: cuSPARSELt INT8 compression: [896, 1504] -> 1D uint8
+(EngineCore_DP0 pid=62622) [2026-01-23 04:26:31] INFO SlideSparseLinearMethod_INT8.py:691: cuSPARSELt INT8 compression done: 1017856 bytes
+(EngineCore_DP0 pid=62622) [2026-01-23 04:26:31] INFO SlideSparseLinearMethod_INT8.py:681: cuSPARSELt INT8 compression: [9728, 1504] -> 1D uint8
+(EngineCore_DP0 pid=62622) [2026-01-23 04:26:31] INFO SlideSparseLinearMethod_INT8.py:691: cuSPARSELt INT8 compression done: 11051008 bytes
+(EngineCore_DP0 pid=62622) [2026-01-23 04:26:31] INFO SlideSparseLinearMethod_INT8.py:681: cuSPARSELt INT8 compression: [896, 8128] -> 1D uint8
+(EngineCore_DP0 pid=62622) [2026-01-23 04:26:31] INFO SlideSparseLinearMethod_INT8.py:691: cuSPARSELt INT8 compression done: 5476352 bytes
+(EngineCore_DP0 pid=62622) 2026-01-23 04:27:04,419 - INFO - autotuner.py:256 - flashinfer.jit: [Autotuner]: Autotuning process starts ...
+(EngineCore_DP0 pid=62622) 2026-01-23 04:27:04,427 - INFO - autotuner.py:262 - flashinfer.jit: [Autotuner]: Autotuning process ends
+(EngineCore_DP0 pid=62622) 
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):   0%|          | 0/2 [00:00<?, ?it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE): 100%|██████████| 2/2 [00:00<00:00, 39.07it/s]
+(EngineCore_DP0 pid=62622) 
+Capturing CUDA graphs (decode, FULL):   0%|          | 0/1 [00:00<?, ?it/s]
+Capturing CUDA graphs (decode, FULL): 100%|██████████| 1/1 [00:00<00:00,  7.38it/s]
+Capturing CUDA graphs (decode, FULL): 100%|██████████| 1/1 [00:00<00:00,  7.37it/s]
+
+Adding requests:   0%|          | 0/128 [00:00<?, ?it/s]
+Adding requests:  62%|██████▎   | 80/128 [00:00<00:00, 524.38it/s]
+Adding requests: 100%|██████████| 128/128 [00:00<00:00, 804.91it/s]
+
+Processed prompts:   0%|          | 0/128 [00:00<?, ?it/s, est. speed input: 0.00 toks/s, output: 0.00 toks/s]
+Processed prompts:  20%|██        | 26/128 [00:00<00:00, 250.47it/s, est. speed input: 4007.98 toks/s, output: 250.48 toks/s]
+Processed prompts:  41%|████      | 52/128 [00:00<00:00, 167.81it/s, est. speed input: 2824.77 toks/s, output: 176.55 toks/s]
+Processed prompts:  55%|█████▌    | 71/128 [00:00<00:00, 154.72it/s, est. speed input: 2624.08 toks/s, output: 164.00 toks/s]
+Processed prompts:  69%|██████▉   | 88/128 [00:00<00:00, 148.72it/s, est. speed input: 2530.86 toks/s, output: 158.17 toks/s]
+Processed prompts:  81%|████████▏ | 104/128 [00:00<00:00, 143.75it/s, est. speed input: 2461.12 toks/s, output: 153.82 toks/s]
+Processed prompts:  93%|█████████▎| 119/128 [00:00<00:00, 141.08it/s, est. speed input: 2418.47 toks/s, output: 151.15 toks/s]
+Processed prompts: 100%|██████████| 128/128 [00:00<00:00, 141.08it/s, est. speed input: 2333.88 toks/s, output: 145.87 toks/s]
+Processed prompts: 100%|██████████| 128/128 [00:00<00:00, 145.85it/s, est. speed input: 2333.88 toks/s, output: 145.87 toks/s]
+[rank0]:[W123 04:27:06.623665240 ProcessGroupNCCL.cpp:1524] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+
+
+========== M=128 ==========
+Time: 2026-01-23 04:27:07
+Backend: cuSPARSELt (2:12)
+Checkpoint: /root/vllmbench/checkpoints_slidesparse/Qwen2.5-0.5B-INT8-SlideSparse-2_12
+Params: prompt_len=128, output_len=1, num_prompts=128, max_num_seqs=1
+Command: vllm bench throughput --model /root/vllmbench/checkpoints_slidesparse/Qwen2.5-0.5B-INT8-SlideSparse-2_12 --dataset-name random --input-len 128 --output-len 1 --num-prompts 128 --max-num-seqs 1 --max-model-len 257 --max-num-batched-tokens 257 --gpu-memory-utilization 0.8 --disable-log-stats --output-json /root/vllmbench/slidesparse/tools/throughput_benchmark_results/prefill/RTX5080_cc120_INT8_py312_cu129_x86_64/cusparselt/2_12/json/Qwen2.5-0.5B-INT8_M128.json
+
+STDOUT:
+When dataset path is not set, it will default to random dataset
+INFO 01-23 04:27:11 [datasets.py:612] Sampling input_len from [128, 128] and output_len from [1, 1]
+INFO 01-23 04:27:11 [utils.py:253] non-default args: {'tokenizer': '/root/vllmbench/checkpoints_slidesparse/Qwen2.5-0.5B-INT8-SlideSparse-2_12', 'max_model_len': 257, 'gpu_memory_utilization': 0.8, 'max_num_batched_tokens': 257, 'max_num_seqs': 1, 'disable_log_stats': True, 'enable_lora': None, 'reasoning_parser_plugin': '', 'model': '/root/vllmbench/checkpoints_slidesparse/Qwen2.5-0.5B-INT8-SlideSparse-2_12'}
+INFO 01-23 04:27:11 [model.py:514] Resolved architecture: Qwen2ForCausalLM
+INFO 01-23 04:27:11 [model.py:1661] Using max model len 257
+INFO 01-23 04:27:11 [scheduler.py:230] Chunked prefill is enabled with max_num_batched_tokens=257.
+(EngineCore_DP0 pid=63990) INFO 01-23 04:27:15 [core.py:93] Initializing a V1 LLM engine (v0.13.1.dev7+gd5e6597bf) with config: model='/root/vllmbench/checkpoints_slidesparse/Qwen2.5-0.5B-INT8-SlideSparse-2_12', speculative_config=None, tokenizer='/root/vllmbench/checkpoints_slidesparse/Qwen2.5-0.5B-INT8-SlideSparse-2_12', skip_tokenizer_init=False, tokenizer_mode=auto, revision=None, tokenizer_revision=None, trust_remote_code=False, dtype=torch.bfloat16, max_seq_len=257, download_dir=None, load_format=auto, tensor_parallel_size=1, pipeline_parallel_size=1, data_parallel_size=1, disable_custom_all_reduce=False, quantization=compressed-tensors, enforce_eager=False, kv_cache_dtype=auto, device_config=cuda, structured_outputs_config=StructuredOutputsConfig(backend='auto', disable_fallback=False, disable_any_whitespace=False, disable_additional_properties=False, reasoning_parser='', reasoning_parser_plugin='', enable_in_reasoning=False), observability_config=ObservabilityConfig(show_hidden_metrics_for_version=None, otlp_traces_endpoint=None, collect_detailed_traces=None, kv_cache_metrics=False, kv_cache_metrics_sample=0.01, cudagraph_metrics=False, enable_layerwise_nvtx_tracing=False), seed=0, served_model_name=/root/vllmbench/checkpoints_slidesparse/Qwen2.5-0.5B-INT8-SlideSparse-2_12, enable_prefix_caching=True, enable_chunked_prefill=True, pooler_config=None, compilation_config={'level': None, 'mode': <CompilationMode.VLLM_COMPILE: 3>, 'debug_dump_path': None, 'cache_dir': '', 'compile_cache_save_format': 'binary', 'backend': 'inductor', 'custom_ops': ['none'], 'splitting_ops': ['vllm::unified_attention', 'vllm::unified_attention_with_output', 'vllm::unified_mla_attention', 'vllm::unified_mla_attention_with_output', 'vllm::mamba_mixer2', 'vllm::mamba_mixer', 'vllm::short_conv', 'vllm::linear_attention', 'vllm::plamo2_mamba_mixer', 'vllm::gdn_attention_core', 'vllm::kda_attention', 'vllm::sparse_attn_indexer'], 'compile_mm_encoder': False, 'compile_sizes': [], 'compile_ranges_split_points': [257], 'inductor_compile_config': {'enable_auto_functionalized_v2': False, 'combo_kernels': True, 'benchmark_combo_kernel': True}, 'inductor_passes': {}, 'cudagraph_mode': <CUDAGraphMode.FULL_AND_PIECEWISE: (2, 1)>, 'cudagraph_num_of_warmups': 1, 'cudagraph_capture_sizes': [1, 2], 'cudagraph_copy_inputs': False, 'cudagraph_specialize_lora': True, 'use_inductor_graph_partition': False, 'pass_config': {'fuse_norm_quant': False, 'fuse_act_quant': False, 'fuse_attn_quant': False, 'eliminate_noops': True, 'enable_sp': False, 'fuse_gemm_comms': False, 'fuse_allreduce_rms': False}, 'max_cudagraph_capture_size': 2, 'dynamic_shapes_config': {'type': <DynamicShapesType.BACKED: 'backed'>, 'evaluate_guards': False}, 'local_cache_dir': None}
+(EngineCore_DP0 pid=63990) INFO 01-23 04:27:15 [parallel_state.py:1203] world_size=1 rank=0 local_rank=0 distributed_init_method=tcp://10.172.141.44:51147 backend=nccl
+(EngineCore_DP0 pid=63990) INFO 01-23 04:27:15 [parallel_state.py:1411] rank 0 in world size 1 is assigned as DP rank 0, PP rank 0, PCP rank 0, TP rank 0, EP rank 0
+(EngineCore_DP0 pid=63990) INFO 01-23 04:27:16 [gpu_model_runner.py:3562] Starting to load model /root/vllmbench/checkpoints_slidesparse/Qwen2.5-0.5B-INT8-SlideSparse-2_12...
+(EngineCore_DP0 pid=63990) INFO 01-23 04:27:16 [compressed_tensors_w8a8_int8.py:62] Using CutlassScaledMMLinearKernel for CompressedTensorsW8A8Int8
+(EngineCore_DP0 pid=63990) INFO 01-23 04:27:16 [cuda.py:351] Using FLASH_ATTN attention backend out of potential backends: ('FLASH_ATTN', 'FLASHINFER', 'TRITON_ATTN', 'FLEX_ATTENTION')
+(EngineCore_DP0 pid=63990) INFO 01-23 04:27:16 [default_loader.py:308] Loading weights took 0.11 seconds
+(EngineCore_DP0 pid=63990) [INFO] Loading compress extension: cusparselt_compress_RTX5080_cc120_py312_cu129_x86_64.so
+(EngineCore_DP0 pid=63990) INFO 01-23 04:27:16 [gpu_model_runner.py:3659] Model loading took 0.6898 GiB memory and 0.342775 seconds
+(EngineCore_DP0 pid=63990) INFO 01-23 04:27:20 [backends.py:643] Using cache directory: /root/.cache/vllm/torch_compile_cache/8d5e68c92a/rank_0_0/backbone for vLLM's torch.compile
+(EngineCore_DP0 pid=63990) INFO 01-23 04:27:20 [backends.py:703] Dynamo bytecode transform time: 3.92 s
+(EngineCore_DP0 pid=63990) INFO 01-23 04:27:23 [backends.py:261] Cache the graph of compile range (1, 257) for later use
+(EngineCore_DP0 pid=63990) INFO 01-23 04:27:48 [backends.py:278] Compiling a graph for compile range (1, 257) takes 26.05 s
+(EngineCore_DP0 pid=63990) INFO 01-23 04:27:48 [monitor.py:34] torch.compile takes 29.97 s in total
+(EngineCore_DP0 pid=63990) INFO 01-23 04:27:49 [gpu_worker.py:375] Available KV cache memory: 11.31 GiB
+(EngineCore_DP0 pid=63990) INFO 01-23 04:27:49 [kv_cache_utils.py:1291] GPU KV cache size: 988,400 tokens
+(EngineCore_DP0 pid=63990) INFO 01-23 04:27:49 [kv_cache_utils.py:1296] Maximum concurrency for 257 tokens per request: 3633.82x
+(EngineCore_DP0 pid=63990) INFO 01-23 04:27:50 [gpu_model_runner.py:4587] Graph capturing finished in 1 secs, took 0.01 GiB
+(EngineCore_DP0 pid=63990) INFO 01-23 04:27:50 [core.py:259] init engine (profile, create kv cache, warmup model) took 33.29 seconds
+INFO 01-23 04:27:50 [llm.py:360] Supported tasks: ['generate']
+Throughput: 122.49 requests/s, 15801.38 total tokens/s, 122.49 output tokens/s
+Total num prompt tokens:  16384
+Total num output tokens:  128
+
+STDERR:
+[2026-01-23 04:27:11] INFO gemm_wrapper.py:362: cuBLASLt FP8 custom op registered: slidesparse::cublaslt_fp8_mm
+[2026-01-23 04:27:11] INFO gemm_wrapper.py:408: cuSPARSELt FP8 custom op registered: slidesparse::cusparselt_fp8_mm
+[2026-01-23 04:27:11] INFO gemm_wrapper.py:455: cuBLASLt INT8 custom op registered: slidesparse::cublaslt_int8_mm
+[2026-01-23 04:27:11] INFO gemm_wrapper.py:502: cuSPARSELt INT8 custom op registered: slidesparse::cusparselt_int8_mm
+[2026-01-23 04:27:15] INFO gemm_wrapper.py:362: cuBLASLt FP8 custom op registered: slidesparse::cublaslt_fp8_mm
+[2026-01-23 04:27:15] INFO gemm_wrapper.py:408: cuSPARSELt FP8 custom op registered: slidesparse::cusparselt_fp8_mm
+[2026-01-23 04:27:15] INFO gemm_wrapper.py:455: cuBLASLt INT8 custom op registered: slidesparse::cublaslt_int8_mm
+[2026-01-23 04:27:15] INFO gemm_wrapper.py:502: cuSPARSELt INT8 custom op registered: slidesparse::cusparselt_int8_mm
+(EngineCore_DP0 pid=63990) [2026-01-23 04:27:16] INFO SlideSparseLinearMethod_INT8.py:767: Wrapping CompressedTensorsW8A8Int8 with SlideSparse (cuSPARSELt)
+(EngineCore_DP0 pid=63990) [2026-01-23 04:27:16] INFO gemm_wrapper.py:307: cusparselt GEMM extension loaded: cusparselt_gemm_RTX5080_cc120_py312_cu129_x86_64.so
+(EngineCore_DP0 pid=63990) [2026-01-23 04:27:16] INFO kernels.py:329: INT8 quant+slide kernel loaded
+(EngineCore_DP0 pid=63990) [2026-01-23 04:27:16] INFO kernels.py:115: Dequant+bias kernel loaded
+(EngineCore_DP0 pid=63990) [2026-01-23 04:27:16] INFO SlideSparseLinearMethod_INT8.py:437: SlideSparseInt8LinearOp initialized (kernel=cuSPARSELt)
+(EngineCore_DP0 pid=63990) [2026-01-23 04:27:16] INFO SlideSparseLinearMethod_INT8.py:582: SlideSparseInt8LinearMethod: cuSPARSELt sparsity=2:12, expand_ratio=1.200
+(EngineCore_DP0 pid=63990) [2026-01-23 04:27:16] INFO SlideSparseLinearMethod_INT8.py:587: SlideSparseInt8LinearMethod initialized, kernel=cuSPARSELt, symmetric=True
+(EngineCore_DP0 pid=63990) 
+Loading safetensors checkpoint shards:   0% Completed | 0/1 [00:00<?, ?it/s]
+(EngineCore_DP0 pid=63990) 
+Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00, 10.30it/s]
+(EngineCore_DP0 pid=63990) 
+(EngineCore_DP0 pid=63990) [2026-01-23 04:27:16] INFO SlideSparseLinearMethod_INT8.py:681: cuSPARSELt INT8 compression: [1152, 1504] -> 1D uint8
+(EngineCore_DP0 pid=63990) [2026-01-23 04:27:16] INFO SlideSparseLinearMethod_INT8.py:691: cuSPARSELt INT8 compression done: 1308672 bytes
+(EngineCore_DP0 pid=63990) [2026-01-23 04:27:16] INFO SlideSparseLinearMethod_INT8.py:681: cuSPARSELt INT8 compression: [896, 1504] -> 1D uint8
+(EngineCore_DP0 pid=63990) [2026-01-23 04:27:16] INFO SlideSparseLinearMethod_INT8.py:691: cuSPARSELt INT8 compression done: 1017856 bytes
+(EngineCore_DP0 pid=63990) [2026-01-23 04:27:16] INFO SlideSparseLinearMethod_INT8.py:681: cuSPARSELt INT8 compression: [9728, 1504] -> 1D uint8
+(EngineCore_DP0 pid=63990) [2026-01-23 04:27:16] INFO SlideSparseLinearMethod_INT8.py:691: cuSPARSELt INT8 compression done: 11051008 bytes
+(EngineCore_DP0 pid=63990) [2026-01-23 04:27:16] INFO SlideSparseLinearMethod_INT8.py:681: cuSPARSELt INT8 compression: [896, 8128] -> 1D uint8
+(EngineCore_DP0 pid=63990) [2026-01-23 04:27:16] INFO SlideSparseLinearMethod_INT8.py:691: cuSPARSELt INT8 compression done: 5476352 bytes
+(EngineCore_DP0 pid=63990) 2026-01-23 04:27:49,489 - INFO - autotuner.py:256 - flashinfer.jit: [Autotuner]: Autotuning process starts ...
+(EngineCore_DP0 pid=63990) 2026-01-23 04:27:49,497 - INFO - autotuner.py:262 - flashinfer.jit: [Autotuner]: Autotuning process ends
+(EngineCore_DP0 pid=63990) 
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):   0%|          | 0/2 [00:00<?, ?it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE): 100%|██████████| 2/2 [00:00<00:00, 44.54it/s]
+(EngineCore_DP0 pid=63990) 
+Capturing CUDA graphs (decode, FULL):   0%|          | 0/1 [00:00<?, ?it/s]
+Capturing CUDA graphs (decode, FULL): 100%|██████████| 1/1 [00:00<00:00,  7.47it/s]
+Capturing CUDA graphs (decode, FULL): 100%|██████████| 1/1 [00:00<00:00,  7.46it/s]
+
+Adding requests:   0%|          | 0/128 [00:00<?, ?it/s]
+Adding requests: 100%|██████████| 128/128 [00:00<00:00, 2088.84it/s]
+
+Processed prompts:   0%|          | 0/128 [00:00<?, ?it/s, est. speed input: 0.00 toks/s, output: 0.00 toks/s]
+Processed prompts:  10%|█         | 13/128 [00:00<00:00, 124.39it/s, est. speed input: 15923.95 toks/s, output: 124.40 toks/s]
+Processed prompts:  20%|██        | 26/128 [00:00<00:00, 127.21it/s, est. speed input: 16229.04 toks/s, output: 126.78 toks/s]
+Processed prompts:  31%|███▏      | 40/128 [00:00<00:00, 131.15it/s, est. speed input: 16614.11 toks/s, output: 129.79 toks/s]
+Processed prompts:  42%|████▏     | 54/128 [00:00<00:00, 133.12it/s, est. speed input: 16816.99 toks/s, output: 131.38 toks/s]
+Processed prompts:  53%|█████▎    | 68/128 [00:00<00:00, 134.23it/s, est. speed input: 16940.46 toks/s, output: 132.35 toks/s]
+Processed prompts:  64%|██████▍   | 82/128 [00:00<00:00, 134.05it/s, est. speed input: 16969.98 toks/s, output: 132.58 toks/s]
+Processed prompts:  75%|███████▌  | 96/128 [00:00<00:00, 132.99it/s, est. speed input: 16937.48 toks/s, output: 132.32 toks/s]
+Processed prompts:  86%|████████▌ | 110/128 [00:00<00:00, 126.70it/s, est. speed input: 16622.00 toks/s, output: 129.86 toks/s]
+Processed prompts:  97%|█████████▋| 124/128 [00:00<00:00, 129.11it/s, est. speed input: 16689.56 toks/s, output: 130.39 toks/s]
+Processed prompts: 100%|██████████| 128/128 [00:00<00:00, 129.11it/s, est. speed input: 16688.34 toks/s, output: 130.38 toks/s]
+Processed prompts: 100%|██████████| 128/128 [00:00<00:00, 130.36it/s, est. speed input: 16688.34 toks/s, output: 130.38 toks/s]
+[rank0]:[W123 04:27:51.690409710 ProcessGroupNCCL.cpp:1524] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+
+
+========== M=256 ==========
+Time: 2026-01-23 04:27:53
+Backend: cuSPARSELt (2:12)
+Checkpoint: /root/vllmbench/checkpoints_slidesparse/Qwen2.5-0.5B-INT8-SlideSparse-2_12
+Params: prompt_len=256, output_len=1, num_prompts=128, max_num_seqs=1
+Command: vllm bench throughput --model /root/vllmbench/checkpoints_slidesparse/Qwen2.5-0.5B-INT8-SlideSparse-2_12 --dataset-name random --input-len 256 --output-len 1 --num-prompts 128 --max-num-seqs 1 --max-model-len 385 --max-num-batched-tokens 385 --gpu-memory-utilization 0.8 --disable-log-stats --output-json /root/vllmbench/slidesparse/tools/throughput_benchmark_results/prefill/RTX5080_cc120_INT8_py312_cu129_x86_64/cusparselt/2_12/json/Qwen2.5-0.5B-INT8_M256.json
+
+STDOUT:
+When dataset path is not set, it will default to random dataset
+INFO 01-23 04:27:56 [datasets.py:612] Sampling input_len from [256, 256] and output_len from [1, 1]
+INFO 01-23 04:27:57 [utils.py:253] non-default args: {'tokenizer': '/root/vllmbench/checkpoints_slidesparse/Qwen2.5-0.5B-INT8-SlideSparse-2_12', 'max_model_len': 385, 'gpu_memory_utilization': 0.8, 'max_num_batched_tokens': 385, 'max_num_seqs': 1, 'disable_log_stats': True, 'enable_lora': None, 'reasoning_parser_plugin': '', 'model': '/root/vllmbench/checkpoints_slidesparse/Qwen2.5-0.5B-INT8-SlideSparse-2_12'}
+INFO 01-23 04:27:57 [model.py:514] Resolved architecture: Qwen2ForCausalLM
+INFO 01-23 04:27:57 [model.py:1661] Using max model len 385
+INFO 01-23 04:27:57 [scheduler.py:230] Chunked prefill is enabled with max_num_batched_tokens=385.
+(EngineCore_DP0 pid=65360) INFO 01-23 04:28:00 [core.py:93] Initializing a V1 LLM engine (v0.13.1.dev7+gd5e6597bf) with config: model='/root/vllmbench/checkpoints_slidesparse/Qwen2.5-0.5B-INT8-SlideSparse-2_12', speculative_config=None, tokenizer='/root/vllmbench/checkpoints_slidesparse/Qwen2.5-0.5B-INT8-SlideSparse-2_12', skip_tokenizer_init=False, tokenizer_mode=auto, revision=None, tokenizer_revision=None, trust_remote_code=False, dtype=torch.bfloat16, max_seq_len=385, download_dir=None, load_format=auto, tensor_parallel_size=1, pipeline_parallel_size=1, data_parallel_size=1, disable_custom_all_reduce=False, quantization=compressed-tensors, enforce_eager=False, kv_cache_dtype=auto, device_config=cuda, structured_outputs_config=StructuredOutputsConfig(backend='auto', disable_fallback=False, disable_any_whitespace=False, disable_additional_properties=False, reasoning_parser='', reasoning_parser_plugin='', enable_in_reasoning=False), observability_config=ObservabilityConfig(show_hidden_metrics_for_version=None, otlp_traces_endpoint=None, collect_detailed_traces=None, kv_cache_metrics=False, kv_cache_metrics_sample=0.01, cudagraph_metrics=False, enable_layerwise_nvtx_tracing=False), seed=0, served_model_name=/root/vllmbench/checkpoints_slidesparse/Qwen2.5-0.5B-INT8-SlideSparse-2_12, enable_prefix_caching=True, enable_chunked_prefill=True, pooler_config=None, compilation_config={'level': None, 'mode': <CompilationMode.VLLM_COMPILE: 3>, 'debug_dump_path': None, 'cache_dir': '', 'compile_cache_save_format': 'binary', 'backend': 'inductor', 'custom_ops': ['none'], 'splitting_ops': ['vllm::unified_attention', 'vllm::unified_attention_with_output', 'vllm::unified_mla_attention', 'vllm::unified_mla_attention_with_output', 'vllm::mamba_mixer2', 'vllm::mamba_mixer', 'vllm::short_conv', 'vllm::linear_attention', 'vllm::plamo2_mamba_mixer', 'vllm::gdn_attention_core', 'vllm::kda_attention', 'vllm::sparse_attn_indexer'], 'compile_mm_encoder': False, 'compile_sizes': [], 'compile_ranges_split_points': [385], 'inductor_compile_config': {'enable_auto_functionalized_v2': False, 'combo_kernels': True, 'benchmark_combo_kernel': True}, 'inductor_passes': {}, 'cudagraph_mode': <CUDAGraphMode.FULL_AND_PIECEWISE: (2, 1)>, 'cudagraph_num_of_warmups': 1, 'cudagraph_capture_sizes': [1, 2], 'cudagraph_copy_inputs': False, 'cudagraph_specialize_lora': True, 'use_inductor_graph_partition': False, 'pass_config': {'fuse_norm_quant': False, 'fuse_act_quant': False, 'fuse_attn_quant': False, 'eliminate_noops': True, 'enable_sp': False, 'fuse_gemm_comms': False, 'fuse_allreduce_rms': False}, 'max_cudagraph_capture_size': 2, 'dynamic_shapes_config': {'type': <DynamicShapesType.BACKED: 'backed'>, 'evaluate_guards': False}, 'local_cache_dir': None}
+(EngineCore_DP0 pid=65360) INFO 01-23 04:28:01 [parallel_state.py:1203] world_size=1 rank=0 local_rank=0 distributed_init_method=tcp://10.172.141.44:47595 backend=nccl
+(EngineCore_DP0 pid=65360) INFO 01-23 04:28:01 [parallel_state.py:1411] rank 0 in world size 1 is assigned as DP rank 0, PP rank 0, PCP rank 0, TP rank 0, EP rank 0
+(EngineCore_DP0 pid=65360) INFO 01-23 04:28:01 [gpu_model_runner.py:3562] Starting to load model /root/vllmbench/checkpoints_slidesparse/Qwen2.5-0.5B-INT8-SlideSparse-2_12...
+(EngineCore_DP0 pid=65360) INFO 01-23 04:28:01 [compressed_tensors_w8a8_int8.py:62] Using CutlassScaledMMLinearKernel for CompressedTensorsW8A8Int8
+(EngineCore_DP0 pid=65360) INFO 01-23 04:28:01 [cuda.py:351] Using FLASH_ATTN attention backend out of potential backends: ('FLASH_ATTN', 'FLASHINFER', 'TRITON_ATTN', 'FLEX_ATTENTION')
+(EngineCore_DP0 pid=65360) INFO 01-23 04:28:01 [default_loader.py:308] Loading weights took 0.12 seconds
+(EngineCore_DP0 pid=65360) [INFO] Loading compress extension: cusparselt_compress_RTX5080_cc120_py312_cu129_x86_64.so
+(EngineCore_DP0 pid=65360) INFO 01-23 04:28:02 [gpu_model_runner.py:3659] Model loading took 0.6898 GiB memory and 0.340610 seconds
+(EngineCore_DP0 pid=65360) INFO 01-23 04:28:06 [backends.py:643] Using cache directory: /root/.cache/vllm/torch_compile_cache/12d56d7551/rank_0_0/backbone for vLLM's torch.compile
+(EngineCore_DP0 pid=65360) INFO 01-23 04:28:06 [backends.py:703] Dynamo bytecode transform time: 3.89 s
+(EngineCore_DP0 pid=65360) INFO 01-23 04:28:08 [backends.py:261] Cache the graph of compile range (1, 385) for later use
+(EngineCore_DP0 pid=65360) INFO 01-23 04:28:33 [backends.py:278] Compiling a graph for compile range (1, 385) takes 25.49 s
+(EngineCore_DP0 pid=65360) INFO 01-23 04:28:33 [monitor.py:34] torch.compile takes 29.38 s in total
+(EngineCore_DP0 pid=65360) INFO 01-23 04:28:33 [gpu_worker.py:375] Available KV cache memory: 11.31 GiB
+(EngineCore_DP0 pid=65360) INFO 01-23 04:28:34 [kv_cache_utils.py:1291] GPU KV cache size: 988,352 tokens
+(EngineCore_DP0 pid=65360) INFO 01-23 04:28:34 [kv_cache_utils.py:1296] Maximum concurrency for 385 tokens per request: 2470.88x
+(EngineCore_DP0 pid=65360) INFO 01-23 04:28:34 [gpu_model_runner.py:4587] Graph capturing finished in 1 secs, took -0.01 GiB
+(EngineCore_DP0 pid=65360) INFO 01-23 04:28:34 [core.py:259] init engine (profile, create kv cache, warmup model) took 32.65 seconds
+INFO 01-23 04:28:35 [llm.py:360] Supported tasks: ['generate']
+Throughput: 119.92 requests/s, 30819.29 total tokens/s, 119.92 output tokens/s
+Total num prompt tokens:  32768
+Total num output tokens:  128
+
+STDERR:
+[2026-01-23 04:27:57] INFO gemm_wrapper.py:362: cuBLASLt FP8 custom op registered: slidesparse::cublaslt_fp8_mm
+[2026-01-23 04:27:57] INFO gemm_wrapper.py:408: cuSPARSELt FP8 custom op registered: slidesparse::cusparselt_fp8_mm
+[2026-01-23 04:27:57] INFO gemm_wrapper.py:455: cuBLASLt INT8 custom op registered: slidesparse::cublaslt_int8_mm
+[2026-01-23 04:27:57] INFO gemm_wrapper.py:502: cuSPARSELt INT8 custom op registered: slidesparse::cusparselt_int8_mm
+[2026-01-23 04:28:00] INFO gemm_wrapper.py:362: cuBLASLt FP8 custom op registered: slidesparse::cublaslt_fp8_mm
+[2026-01-23 04:28:00] INFO gemm_wrapper.py:408: cuSPARSELt FP8 custom op registered: slidesparse::cusparselt_fp8_mm
+[2026-01-23 04:28:00] INFO gemm_wrapper.py:455: cuBLASLt INT8 custom op registered: slidesparse::cublaslt_int8_mm
+[2026-01-23 04:28:00] INFO gemm_wrapper.py:502: cuSPARSELt INT8 custom op registered: slidesparse::cusparselt_int8_mm
+(EngineCore_DP0 pid=65360) [2026-01-23 04:28:01] INFO SlideSparseLinearMethod_INT8.py:767: Wrapping CompressedTensorsW8A8Int8 with SlideSparse (cuSPARSELt)
+(EngineCore_DP0 pid=65360) [2026-01-23 04:28:01] INFO gemm_wrapper.py:307: cusparselt GEMM extension loaded: cusparselt_gemm_RTX5080_cc120_py312_cu129_x86_64.so
+(EngineCore_DP0 pid=65360) [2026-01-23 04:28:01] INFO kernels.py:329: INT8 quant+slide kernel loaded
+(EngineCore_DP0 pid=65360) [2026-01-23 04:28:01] INFO kernels.py:115: Dequant+bias kernel loaded
+(EngineCore_DP0 pid=65360) [2026-01-23 04:28:01] INFO SlideSparseLinearMethod_INT8.py:437: SlideSparseInt8LinearOp initialized (kernel=cuSPARSELt)
+(EngineCore_DP0 pid=65360) [2026-01-23 04:28:01] INFO SlideSparseLinearMethod_INT8.py:582: SlideSparseInt8LinearMethod: cuSPARSELt sparsity=2:12, expand_ratio=1.200
+(EngineCore_DP0 pid=65360) [2026-01-23 04:28:01] INFO SlideSparseLinearMethod_INT8.py:587: SlideSparseInt8LinearMethod initialized, kernel=cuSPARSELt, symmetric=True
+(EngineCore_DP0 pid=65360) 
+Loading safetensors checkpoint shards:   0% Completed | 0/1 [00:00<?, ?it/s]
+(EngineCore_DP0 pid=65360) 
+Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00, 10.21it/s]
+(EngineCore_DP0 pid=65360) 
+(EngineCore_DP0 pid=65360) [2026-01-23 04:28:01] INFO SlideSparseLinearMethod_INT8.py:681: cuSPARSELt INT8 compression: [1152, 1504] -> 1D uint8
+(EngineCore_DP0 pid=65360) [2026-01-23 04:28:01] INFO SlideSparseLinearMethod_INT8.py:691: cuSPARSELt INT8 compression done: 1308672 bytes
+(EngineCore_DP0 pid=65360) [2026-01-23 04:28:01] INFO SlideSparseLinearMethod_INT8.py:681: cuSPARSELt INT8 compression: [896, 1504] -> 1D uint8
+(EngineCore_DP0 pid=65360) [2026-01-23 04:28:01] INFO SlideSparseLinearMethod_INT8.py:691: cuSPARSELt INT8 compression done: 1017856 bytes
+(EngineCore_DP0 pid=65360) [2026-01-23 04:28:01] INFO SlideSparseLinearMethod_INT8.py:681: cuSPARSELt INT8 compression: [9728, 1504] -> 1D uint8
+(EngineCore_DP0 pid=65360) [2026-01-23 04:28:01] INFO SlideSparseLinearMethod_INT8.py:691: cuSPARSELt INT8 compression done: 11051008 bytes
+(EngineCore_DP0 pid=65360) [2026-01-23 04:28:01] INFO SlideSparseLinearMethod_INT8.py:681: cuSPARSELt INT8 compression: [896, 8128] -> 1D uint8
+(EngineCore_DP0 pid=65360) [2026-01-23 04:28:01] INFO SlideSparseLinearMethod_INT8.py:691: cuSPARSELt INT8 compression done: 5476352 bytes
+(EngineCore_DP0 pid=65360) 2026-01-23 04:28:34,008 - INFO - autotuner.py:256 - flashinfer.jit: [Autotuner]: Autotuning process starts ...
+(EngineCore_DP0 pid=65360) 2026-01-23 04:28:34,016 - INFO - autotuner.py:262 - flashinfer.jit: [Autotuner]: Autotuning process ends
+(EngineCore_DP0 pid=65360) 
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):   0%|          | 0/2 [00:00<?, ?it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE): 100%|██████████| 2/2 [00:00<00:00, 45.99it/s]
+(EngineCore_DP0 pid=65360) 
+Capturing CUDA graphs (decode, FULL):   0%|          | 0/1 [00:00<?, ?it/s]
+Capturing CUDA graphs (decode, FULL): 100%|██████████| 1/1 [00:00<00:00,  7.50it/s]
+Capturing CUDA graphs (decode, FULL): 100%|██████████| 1/1 [00:00<00:00,  7.49it/s]
+
+Adding requests:   0%|          | 0/128 [00:00<?, ?it/s]
+Adding requests: 100%|██████████| 128/128 [00:00<00:00, 1497.70it/s]
+
+Processed prompts:   0%|          | 0/128 [00:00<?, ?it/s, est. speed input: 0.00 toks/s, output: 0.00 toks/s]
+Processed prompts:  12%|█▏        | 15/128 [00:00<00:00, 142.13it/s, est. speed input: 36387.67 toks/s, output: 142.13 toks/s]
+Processed prompts:  23%|██▎       | 30/128 [00:00<00:00, 130.82it/s, est. speed input: 33894.83 toks/s, output: 132.40 toks/s]
+Processed prompts:  34%|███▍      | 44/128 [00:00<00:00, 125.22it/s, est. speed input: 32698.81 toks/s, output: 127.73 toks/s]
+Processed prompts:  45%|████▌     | 58/128 [00:00<00:00, 127.79it/s, est. speed input: 32962.63 toks/s, output: 128.76 toks/s]
+Processed prompts:  56%|█████▋    | 72/128 [00:00<00:00, 129.33it/s, est. speed input: 33131.37 toks/s, output: 129.42 toks/s]
+Processed prompts:  66%|██████▋   | 85/128 [00:00<00:00, 128.27it/s, est. speed input: 32997.37 toks/s, output: 128.90 toks/s]
+Processed prompts:  77%|███████▋  | 99/128 [00:00<00:00, 130.26it/s, est. speed input: 33192.04 toks/s, output: 129.66 toks/s]
+Processed prompts:  88%|████████▊ | 113/128 [00:00<00:00, 131.65it/s, est. speed input: 33347.02 toks/s, output: 130.26 toks/s]
+Processed prompts:  99%|█████████▉| 127/128 [00:00<00:00, 132.10it/s, est. speed input: 33425.79 toks/s, output: 130.57 toks/s]
+Processed prompts: 100%|██████████| 128/128 [00:00<00:00, 132.10it/s, est. speed input: 33436.54 toks/s, output: 130.61 toks/s]
+Processed prompts: 100%|██████████| 128/128 [00:00<00:00, 130.60it/s, est. speed input: 33436.54 toks/s, output: 130.61 toks/s]
+[rank0]:[W123 04:28:36.234741756 ProcessGroupNCCL.cpp:1524] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+

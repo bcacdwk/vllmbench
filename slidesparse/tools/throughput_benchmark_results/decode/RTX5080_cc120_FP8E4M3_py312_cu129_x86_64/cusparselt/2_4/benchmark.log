@@ -288,3 +288,566 @@ Processed prompts: 100%|██████████| 256/256 [00:02<00:00,  2
 Processed prompts: 100%|██████████| 256/256 [00:02<00:00, 123.10it/s, est. speed input: 1969.70 toks/s, output: 31515.17 toks/s]
 [rank0]:[W122 11:20:10.005672141 ProcessGroupNCCL.cpp:1524] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
 
+
+========== M=16 ==========
+Time: 2026-01-23 00:06:44
+Backend: cuSPARSELt (2:4)
+Checkpoint: /root/vllmbench/checkpoints_slidesparse/Qwen2.5-1.5B-FP8-SlideSparse-2_4
+Params: prompt_len=16, output_len=256, num_prompts=16, max_num_seqs=16
+Command: vllm bench throughput --model /root/vllmbench/checkpoints_slidesparse/Qwen2.5-1.5B-FP8-SlideSparse-2_4 --dataset-name random --input-len 16 --output-len 256 --num-prompts 16 --max-num-seqs 16 --max-model-len 400 --max-num-batched-tokens 6400 --gpu-memory-utilization 0.8 --disable-log-stats --output-json /root/vllmbench/slidesparse/tools/throughput_benchmark_results/decode/RTX5080_cc120_FP8E4M3_py312_cu129_x86_64/cusparselt/2_4/json/Qwen2.5-1.5B-FP8_M16.json
+
+STDOUT:
+When dataset path is not set, it will default to random dataset
+INFO 01-23 00:06:48 [datasets.py:612] Sampling input_len from [16, 16] and output_len from [256, 256]
+INFO 01-23 00:06:48 [utils.py:253] non-default args: {'tokenizer': '/root/vllmbench/checkpoints_slidesparse/Qwen2.5-1.5B-FP8-SlideSparse-2_4', 'max_model_len': 400, 'gpu_memory_utilization': 0.8, 'max_num_batched_tokens': 6400, 'max_num_seqs': 16, 'disable_log_stats': True, 'enable_lora': None, 'reasoning_parser_plugin': '', 'model': '/root/vllmbench/checkpoints_slidesparse/Qwen2.5-1.5B-FP8-SlideSparse-2_4'}
+INFO 01-23 00:06:48 [model.py:514] Resolved architecture: Qwen2ForCausalLM
+INFO 01-23 00:06:48 [model.py:1661] Using max model len 400
+INFO 01-23 00:06:48 [scheduler.py:230] Chunked prefill is enabled with max_num_batched_tokens=6400.
+(EngineCore_DP0 pid=4140449) INFO 01-23 00:06:52 [core.py:93] Initializing a V1 LLM engine (v0.13.1.dev7+gd5e6597bf) with config: model='/root/vllmbench/checkpoints_slidesparse/Qwen2.5-1.5B-FP8-SlideSparse-2_4', speculative_config=None, tokenizer='/root/vllmbench/checkpoints_slidesparse/Qwen2.5-1.5B-FP8-SlideSparse-2_4', skip_tokenizer_init=False, tokenizer_mode=auto, revision=None, tokenizer_revision=None, trust_remote_code=False, dtype=torch.bfloat16, max_seq_len=400, download_dir=None, load_format=auto, tensor_parallel_size=1, pipeline_parallel_size=1, data_parallel_size=1, disable_custom_all_reduce=False, quantization=compressed-tensors, enforce_eager=False, kv_cache_dtype=auto, device_config=cuda, structured_outputs_config=StructuredOutputsConfig(backend='auto', disable_fallback=False, disable_any_whitespace=False, disable_additional_properties=False, reasoning_parser='', reasoning_parser_plugin='', enable_in_reasoning=False), observability_config=ObservabilityConfig(show_hidden_metrics_for_version=None, otlp_traces_endpoint=None, collect_detailed_traces=None, kv_cache_metrics=False, kv_cache_metrics_sample=0.01, cudagraph_metrics=False, enable_layerwise_nvtx_tracing=False), seed=0, served_model_name=/root/vllmbench/checkpoints_slidesparse/Qwen2.5-1.5B-FP8-SlideSparse-2_4, enable_prefix_caching=True, enable_chunked_prefill=True, pooler_config=None, compilation_config={'level': None, 'mode': <CompilationMode.VLLM_COMPILE: 3>, 'debug_dump_path': None, 'cache_dir': '', 'compile_cache_save_format': 'binary', 'backend': 'inductor', 'custom_ops': ['none'], 'splitting_ops': ['vllm::unified_attention', 'vllm::unified_attention_with_output', 'vllm::unified_mla_attention', 'vllm::unified_mla_attention_with_output', 'vllm::mamba_mixer2', 'vllm::mamba_mixer', 'vllm::short_conv', 'vllm::linear_attention', 'vllm::plamo2_mamba_mixer', 'vllm::gdn_attention_core', 'vllm::kda_attention', 'vllm::sparse_attn_indexer'], 'compile_mm_encoder': False, 'compile_sizes': [], 'compile_ranges_split_points': [6400], 'inductor_compile_config': {'enable_auto_functionalized_v2': False, 'combo_kernels': True, 'benchmark_combo_kernel': True}, 'inductor_passes': {}, 'cudagraph_mode': <CUDAGraphMode.FULL_AND_PIECEWISE: (2, 1)>, 'cudagraph_num_of_warmups': 1, 'cudagraph_capture_sizes': [1, 2, 4, 8, 16, 24, 32], 'cudagraph_copy_inputs': False, 'cudagraph_specialize_lora': True, 'use_inductor_graph_partition': False, 'pass_config': {'fuse_norm_quant': False, 'fuse_act_quant': False, 'fuse_attn_quant': False, 'eliminate_noops': True, 'enable_sp': False, 'fuse_gemm_comms': False, 'fuse_allreduce_rms': False}, 'max_cudagraph_capture_size': 32, 'dynamic_shapes_config': {'type': <DynamicShapesType.BACKED: 'backed'>, 'evaluate_guards': False}, 'local_cache_dir': None}
+(EngineCore_DP0 pid=4140449) INFO 01-23 00:06:52 [parallel_state.py:1203] world_size=1 rank=0 local_rank=0 distributed_init_method=tcp://10.172.141.44:60389 backend=nccl
+(EngineCore_DP0 pid=4140449) INFO 01-23 00:06:52 [parallel_state.py:1411] rank 0 in world size 1 is assigned as DP rank 0, PP rank 0, PCP rank 0, TP rank 0, EP rank 0
+(EngineCore_DP0 pid=4140449) INFO 01-23 00:06:52 [gpu_model_runner.py:3562] Starting to load model /root/vllmbench/checkpoints_slidesparse/Qwen2.5-1.5B-FP8-SlideSparse-2_4...
+(EngineCore_DP0 pid=4140449) INFO 01-23 00:06:53 [cuda.py:351] Using FLASH_ATTN attention backend out of potential backends: ('FLASH_ATTN', 'FLASHINFER', 'TRITON_ATTN', 'FLEX_ATTENTION')
+(EngineCore_DP0 pid=4140449) INFO 01-23 00:06:53 [default_loader.py:308] Loading weights took 0.21 seconds
+(EngineCore_DP0 pid=4140449) [INFO] Loading compress extension: cusparselt_compress_RTX5080_cc120_py312_cu129_x86_64.so
+(EngineCore_DP0 pid=4140449) INFO 01-23 00:06:53 [gpu_model_runner.py:3659] Model loading took 1.2166 GiB memory and 0.439826 seconds
+(EngineCore_DP0 pid=4140449) INFO 01-23 00:06:58 [backends.py:643] Using cache directory: /root/.cache/vllm/torch_compile_cache/856a447cb2/rank_0_0/backbone for vLLM's torch.compile
+(EngineCore_DP0 pid=4140449) INFO 01-23 00:06:58 [backends.py:703] Dynamo bytecode transform time: 4.41 s
+(EngineCore_DP0 pid=4140449) INFO 01-23 00:07:01 [backends.py:261] Cache the graph of compile range (1, 6400) for later use
+(EngineCore_DP0 pid=4140449) INFO 01-23 00:07:18 [backends.py:278] Compiling a graph for compile range (1, 6400) takes 18.85 s
+(EngineCore_DP0 pid=4140449) INFO 01-23 00:07:18 [monitor.py:34] torch.compile takes 23.26 s in total
+(EngineCore_DP0 pid=4140449) INFO 01-23 00:07:19 [gpu_worker.py:375] Available KV cache memory: 10.56 GiB
+(EngineCore_DP0 pid=4140449) INFO 01-23 00:07:19 [kv_cache_utils.py:1291] GPU KV cache size: 395,632 tokens
+(EngineCore_DP0 pid=4140449) INFO 01-23 00:07:19 [kv_cache_utils.py:1296] Maximum concurrency for 400 tokens per request: 989.08x
+(EngineCore_DP0 pid=4140449) INFO 01-23 00:07:20 [gpu_model_runner.py:4587] Graph capturing finished in 1 secs, took -0.65 GiB
+(EngineCore_DP0 pid=4140449) INFO 01-23 00:07:20 [core.py:259] init engine (profile, create kv cache, warmup model) took 26.99 seconds
+INFO 01-23 00:07:21 [llm.py:360] Supported tasks: ['generate']
+Throughput: 11.85 requests/s, 3222.83 total tokens/s, 3033.25 output tokens/s
+Total num prompt tokens:  256
+Total num output tokens:  4096
+
+STDERR:
+[2026-01-23 00:06:48] INFO gemm_wrapper.py:362: cuBLASLt FP8 custom op registered: slidesparse::cublaslt_fp8_mm
+[2026-01-23 00:06:48] INFO gemm_wrapper.py:408: cuSPARSELt FP8 custom op registered: slidesparse::cusparselt_fp8_mm
+[2026-01-23 00:06:48] INFO gemm_wrapper.py:455: cuBLASLt INT8 custom op registered: slidesparse::cublaslt_int8_mm
+[2026-01-23 00:06:48] INFO gemm_wrapper.py:502: cuSPARSELt INT8 custom op registered: slidesparse::cusparselt_int8_mm
+[2026-01-23 00:06:52] INFO gemm_wrapper.py:362: cuBLASLt FP8 custom op registered: slidesparse::cublaslt_fp8_mm
+[2026-01-23 00:06:52] INFO gemm_wrapper.py:408: cuSPARSELt FP8 custom op registered: slidesparse::cusparselt_fp8_mm
+[2026-01-23 00:06:52] INFO gemm_wrapper.py:455: cuBLASLt INT8 custom op registered: slidesparse::cublaslt_int8_mm
+[2026-01-23 00:06:52] INFO gemm_wrapper.py:502: cuSPARSELt INT8 custom op registered: slidesparse::cusparselt_int8_mm
+(EngineCore_DP0 pid=4140449) [2026-01-23 00:06:53] INFO SlideSparseLinearMethod_FP8.py:691: Wrapping CompressedTensorsW8A8Fp8 with SlideSparse (cuSPARSELt)
+(EngineCore_DP0 pid=4140449) [2026-01-23 00:06:53] INFO gemm_wrapper.py:307: cusparselt GEMM extension loaded: cusparselt_gemm_RTX5080_cc120_py312_cu129_x86_64.so
+(EngineCore_DP0 pid=4140449) [2026-01-23 00:06:53] INFO kernels.py:223: FP8 quant+slide kernel loaded
+(EngineCore_DP0 pid=4140449) [2026-01-23 00:06:53] INFO kernels.py:115: Dequant+bias kernel loaded
+(EngineCore_DP0 pid=4140449) [2026-01-23 00:06:53] INFO SlideSparseLinearMethod_FP8.py:372: SlideSparseFp8LinearOp initialized (kernel=cuSPARSELt)
+(EngineCore_DP0 pid=4140449) [2026-01-23 00:06:53] INFO SlideSparseLinearMethod_FP8.py:512: SlideSparseFp8LinearMethod: cuSPARSELt sparsity=2:4, expand_ratio=2.000
+(EngineCore_DP0 pid=4140449) [2026-01-23 00:06:53] INFO SlideSparseLinearMethod_FP8.py:517: SlideSparseFp8LinearMethod initialized, kernel=cuSPARSELt
+(EngineCore_DP0 pid=4140449) 
+Loading safetensors checkpoint shards:   0% Completed | 0/1 [00:00<?, ?it/s]
+(EngineCore_DP0 pid=4140449) 
+Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  5.64it/s]
+(EngineCore_DP0 pid=4140449) 
+Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  5.63it/s]
+(EngineCore_DP0 pid=4140449) 
+(EngineCore_DP0 pid=4140449) [2026-01-23 00:06:53] INFO SlideSparseLinearMethod_FP8.py:617: cuSPARSELt compression: [2048, 1536] -> 1D uint8
+(EngineCore_DP0 pid=4140449) [2026-01-23 00:06:53] INFO SlideSparseLinearMethod_FP8.py:627: cuSPARSELt compression done: 1966080 bytes
+(EngineCore_DP0 pid=4140449) [2026-01-23 00:06:53] INFO SlideSparseLinearMethod_FP8.py:617: cuSPARSELt compression: [1536, 1536] -> 1D uint8
+(EngineCore_DP0 pid=4140449) [2026-01-23 00:06:53] INFO SlideSparseLinearMethod_FP8.py:627: cuSPARSELt compression done: 1474560 bytes
+(EngineCore_DP0 pid=4140449) [2026-01-23 00:06:53] INFO SlideSparseLinearMethod_FP8.py:617: cuSPARSELt compression: [17920, 1536] -> 1D uint8
+(EngineCore_DP0 pid=4140449) [2026-01-23 00:06:53] INFO SlideSparseLinearMethod_FP8.py:627: cuSPARSELt compression done: 17203200 bytes
+(EngineCore_DP0 pid=4140449) [2026-01-23 00:06:53] INFO SlideSparseLinearMethod_FP8.py:617: cuSPARSELt compression: [1536, 8960] -> 1D uint8
+(EngineCore_DP0 pid=4140449) [2026-01-23 00:06:53] INFO SlideSparseLinearMethod_FP8.py:627: cuSPARSELt compression done: 8601600 bytes
+(EngineCore_DP0 pid=4140449) [rank0]:W0123 00:07:02.469000 4140449 torch/_inductor/codegen/triton_combo_kernel.py:110] ComboKernels: 1 large pointwise nodes are separated
+(EngineCore_DP0 pid=4140449) [rank0]:W0123 00:07:02.606000 4140449 torch/_inductor/codegen/triton_combo_kernel.py:110] ComboKernels: 1 large pointwise nodes are separated
+(EngineCore_DP0 pid=4140449) [rank0]:W0123 00:07:18.870000 4140449 torch/_inductor/codegen/triton_combo_kernel.py:110] ComboKernels: 1 large pointwise nodes are separated
+(EngineCore_DP0 pid=4140449) [rank0]:W0123 00:07:18.925000 4140449 torch/_inductor/codegen/triton_combo_kernel.py:110] ComboKernels: 1 large pointwise nodes are separated
+(EngineCore_DP0 pid=4140449) 2026-01-23 00:07:19,950 - INFO - autotuner.py:256 - flashinfer.jit: [Autotuner]: Autotuning process starts ...
+(EngineCore_DP0 pid=4140449) 2026-01-23 00:07:19,958 - INFO - autotuner.py:262 - flashinfer.jit: [Autotuner]: Autotuning process ends
+(EngineCore_DP0 pid=4140449) 
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):   0%|          | 0/7 [00:00<?, ?it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):  71%|███████▏  | 5/7 [00:00<00:00, 47.33it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE): 100%|██████████| 7/7 [00:00<00:00, 45.40it/s]
+(EngineCore_DP0 pid=4140449) 
+Capturing CUDA graphs (decode, FULL):   0%|          | 0/5 [00:00<?, ?it/s]
+Capturing CUDA graphs (decode, FULL):  20%|██        | 1/5 [00:00<00:00,  8.39it/s]
+Capturing CUDA graphs (decode, FULL): 100%|██████████| 5/5 [00:00<00:00, 26.73it/s]
+
+Adding requests:   0%|          | 0/16 [00:00<?, ?it/s]
+Adding requests: 100%|██████████| 16/16 [00:00<00:00, 6042.58it/s]
+
+Processed prompts:   0%|          | 0/16 [00:00<?, ?it/s, est. speed input: 0.00 toks/s, output: 0.00 toks/s]
+Processed prompts:   6%|▋         | 1/16 [00:01<00:20,  1.34s/it, est. speed input: 11.93 toks/s, output: 190.81 toks/s]
+Processed prompts: 100%|██████████| 16/16 [00:01<00:00,  1.34s/it, est. speed input: 190.05 toks/s, output: 3040.76 toks/s]
+Processed prompts: 100%|██████████| 16/16 [00:01<00:00, 11.88it/s, est. speed input: 190.05 toks/s, output: 3040.76 toks/s]
+[rank0]:[W123 00:07:22.650700048 ProcessGroupNCCL.cpp:1524] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+
+
+========== M=128 ==========
+Time: 2026-01-23 00:07:24
+Backend: cuSPARSELt (2:4)
+Checkpoint: /root/vllmbench/checkpoints_slidesparse/Qwen2.5-1.5B-FP8-SlideSparse-2_4
+Params: prompt_len=16, output_len=256, num_prompts=128, max_num_seqs=128
+Command: vllm bench throughput --model /root/vllmbench/checkpoints_slidesparse/Qwen2.5-1.5B-FP8-SlideSparse-2_4 --dataset-name random --input-len 16 --output-len 256 --num-prompts 128 --max-num-seqs 128 --max-model-len 400 --max-num-batched-tokens 51200 --gpu-memory-utilization 0.8 --disable-log-stats --output-json /root/vllmbench/slidesparse/tools/throughput_benchmark_results/decode/RTX5080_cc120_FP8E4M3_py312_cu129_x86_64/cusparselt/2_4/json/Qwen2.5-1.5B-FP8_M128.json
+
+STDOUT:
+When dataset path is not set, it will default to random dataset
+INFO 01-23 00:07:27 [datasets.py:612] Sampling input_len from [16, 16] and output_len from [256, 256]
+INFO 01-23 00:07:27 [utils.py:253] non-default args: {'tokenizer': '/root/vllmbench/checkpoints_slidesparse/Qwen2.5-1.5B-FP8-SlideSparse-2_4', 'max_model_len': 400, 'gpu_memory_utilization': 0.8, 'max_num_batched_tokens': 51200, 'max_num_seqs': 128, 'disable_log_stats': True, 'enable_lora': None, 'reasoning_parser_plugin': '', 'model': '/root/vllmbench/checkpoints_slidesparse/Qwen2.5-1.5B-FP8-SlideSparse-2_4'}
+INFO 01-23 00:07:27 [model.py:514] Resolved architecture: Qwen2ForCausalLM
+INFO 01-23 00:07:27 [model.py:1661] Using max model len 400
+INFO 01-23 00:07:28 [scheduler.py:230] Chunked prefill is enabled with max_num_batched_tokens=51200.
+(EngineCore_DP0 pid=4141920) INFO 01-23 00:07:31 [core.py:93] Initializing a V1 LLM engine (v0.13.1.dev7+gd5e6597bf) with config: model='/root/vllmbench/checkpoints_slidesparse/Qwen2.5-1.5B-FP8-SlideSparse-2_4', speculative_config=None, tokenizer='/root/vllmbench/checkpoints_slidesparse/Qwen2.5-1.5B-FP8-SlideSparse-2_4', skip_tokenizer_init=False, tokenizer_mode=auto, revision=None, tokenizer_revision=None, trust_remote_code=False, dtype=torch.bfloat16, max_seq_len=400, download_dir=None, load_format=auto, tensor_parallel_size=1, pipeline_parallel_size=1, data_parallel_size=1, disable_custom_all_reduce=False, quantization=compressed-tensors, enforce_eager=False, kv_cache_dtype=auto, device_config=cuda, structured_outputs_config=StructuredOutputsConfig(backend='auto', disable_fallback=False, disable_any_whitespace=False, disable_additional_properties=False, reasoning_parser='', reasoning_parser_plugin='', enable_in_reasoning=False), observability_config=ObservabilityConfig(show_hidden_metrics_for_version=None, otlp_traces_endpoint=None, collect_detailed_traces=None, kv_cache_metrics=False, kv_cache_metrics_sample=0.01, cudagraph_metrics=False, enable_layerwise_nvtx_tracing=False), seed=0, served_model_name=/root/vllmbench/checkpoints_slidesparse/Qwen2.5-1.5B-FP8-SlideSparse-2_4, enable_prefix_caching=True, enable_chunked_prefill=True, pooler_config=None, compilation_config={'level': None, 'mode': <CompilationMode.VLLM_COMPILE: 3>, 'debug_dump_path': None, 'cache_dir': '', 'compile_cache_save_format': 'binary', 'backend': 'inductor', 'custom_ops': ['none'], 'splitting_ops': ['vllm::unified_attention', 'vllm::unified_attention_with_output', 'vllm::unified_mla_attention', 'vllm::unified_mla_attention_with_output', 'vllm::mamba_mixer2', 'vllm::mamba_mixer', 'vllm::short_conv', 'vllm::linear_attention', 'vllm::plamo2_mamba_mixer', 'vllm::gdn_attention_core', 'vllm::kda_attention', 'vllm::sparse_attn_indexer'], 'compile_mm_encoder': False, 'compile_sizes': [], 'compile_ranges_split_points': [51200], 'inductor_compile_config': {'enable_auto_functionalized_v2': False, 'combo_kernels': True, 'benchmark_combo_kernel': True}, 'inductor_passes': {}, 'cudagraph_mode': <CUDAGraphMode.FULL_AND_PIECEWISE: (2, 1)>, 'cudagraph_num_of_warmups': 1, 'cudagraph_capture_sizes': [1, 2, 4, 8, 16, 24, 32, 40, 48, 56, 64, 72, 80, 88, 96, 104, 112, 120, 128, 136, 144, 152, 160, 168, 176, 184, 192, 200, 208, 216, 224, 232, 240, 248, 256], 'cudagraph_copy_inputs': False, 'cudagraph_specialize_lora': True, 'use_inductor_graph_partition': False, 'pass_config': {'fuse_norm_quant': False, 'fuse_act_quant': False, 'fuse_attn_quant': False, 'eliminate_noops': True, 'enable_sp': False, 'fuse_gemm_comms': False, 'fuse_allreduce_rms': False}, 'max_cudagraph_capture_size': 256, 'dynamic_shapes_config': {'type': <DynamicShapesType.BACKED: 'backed'>, 'evaluate_guards': False}, 'local_cache_dir': None}
+(EngineCore_DP0 pid=4141920) INFO 01-23 00:07:31 [parallel_state.py:1203] world_size=1 rank=0 local_rank=0 distributed_init_method=tcp://10.172.141.44:59591 backend=nccl
+(EngineCore_DP0 pid=4141920) INFO 01-23 00:07:31 [parallel_state.py:1411] rank 0 in world size 1 is assigned as DP rank 0, PP rank 0, PCP rank 0, TP rank 0, EP rank 0
+(EngineCore_DP0 pid=4141920) INFO 01-23 00:07:32 [gpu_model_runner.py:3562] Starting to load model /root/vllmbench/checkpoints_slidesparse/Qwen2.5-1.5B-FP8-SlideSparse-2_4...
+(EngineCore_DP0 pid=4141920) INFO 01-23 00:07:32 [cuda.py:351] Using FLASH_ATTN attention backend out of potential backends: ('FLASH_ATTN', 'FLASHINFER', 'TRITON_ATTN', 'FLEX_ATTENTION')
+(EngineCore_DP0 pid=4141920) INFO 01-23 00:07:32 [default_loader.py:308] Loading weights took 0.21 seconds
+(EngineCore_DP0 pid=4141920) [INFO] Loading compress extension: cusparselt_compress_RTX5080_cc120_py312_cu129_x86_64.so
+(EngineCore_DP0 pid=4141920) INFO 01-23 00:07:33 [gpu_model_runner.py:3659] Model loading took 1.2166 GiB memory and 0.472189 seconds
+(EngineCore_DP0 pid=4141920) INFO 01-23 00:07:37 [backends.py:643] Using cache directory: /root/.cache/vllm/torch_compile_cache/a8ee922c3f/rank_0_0/backbone for vLLM's torch.compile
+(EngineCore_DP0 pid=4141920) INFO 01-23 00:07:37 [backends.py:703] Dynamo bytecode transform time: 4.43 s
+(EngineCore_DP0 pid=4141920) INFO 01-23 00:07:40 [backends.py:261] Cache the graph of compile range (1, 51200) for later use
+(EngineCore_DP0 pid=4141920) INFO 01-23 00:07:58 [backends.py:278] Compiling a graph for compile range (1, 51200) takes 18.93 s
+(EngineCore_DP0 pid=4141920) INFO 01-23 00:07:58 [monitor.py:34] torch.compile takes 23.36 s in total
+(EngineCore_DP0 pid=4141920) INFO 01-23 00:07:59 [gpu_worker.py:375] Available KV cache memory: 7.06 GiB
+(EngineCore_DP0 pid=4141920) INFO 01-23 00:07:59 [kv_cache_utils.py:1291] GPU KV cache size: 264,352 tokens
+(EngineCore_DP0 pid=4141920) INFO 01-23 00:07:59 [kv_cache_utils.py:1296] Maximum concurrency for 400 tokens per request: 660.88x
+(EngineCore_DP0 pid=4141920) INFO 01-23 00:08:02 [gpu_model_runner.py:4587] Graph capturing finished in 3 secs, took -5.75 GiB
+(EngineCore_DP0 pid=4141920) INFO 01-23 00:08:02 [core.py:259] init engine (profile, create kv cache, warmup model) took 28.90 seconds
+INFO 01-23 00:08:02 [llm.py:360] Supported tasks: ['generate']
+Throughput: 64.23 requests/s, 17470.24 total tokens/s, 16442.58 output tokens/s
+Total num prompt tokens:  2048
+Total num output tokens:  32768
+
+STDERR:
+[2026-01-23 00:07:27] INFO gemm_wrapper.py:362: cuBLASLt FP8 custom op registered: slidesparse::cublaslt_fp8_mm
+[2026-01-23 00:07:27] INFO gemm_wrapper.py:408: cuSPARSELt FP8 custom op registered: slidesparse::cusparselt_fp8_mm
+[2026-01-23 00:07:27] INFO gemm_wrapper.py:455: cuBLASLt INT8 custom op registered: slidesparse::cublaslt_int8_mm
+[2026-01-23 00:07:27] INFO gemm_wrapper.py:502: cuSPARSELt INT8 custom op registered: slidesparse::cusparselt_int8_mm
+[2026-01-23 00:07:31] INFO gemm_wrapper.py:362: cuBLASLt FP8 custom op registered: slidesparse::cublaslt_fp8_mm
+[2026-01-23 00:07:31] INFO gemm_wrapper.py:408: cuSPARSELt FP8 custom op registered: slidesparse::cusparselt_fp8_mm
+[2026-01-23 00:07:31] INFO gemm_wrapper.py:455: cuBLASLt INT8 custom op registered: slidesparse::cublaslt_int8_mm
+[2026-01-23 00:07:31] INFO gemm_wrapper.py:502: cuSPARSELt INT8 custom op registered: slidesparse::cusparselt_int8_mm
+(EngineCore_DP0 pid=4141920) [2026-01-23 00:07:32] INFO SlideSparseLinearMethod_FP8.py:691: Wrapping CompressedTensorsW8A8Fp8 with SlideSparse (cuSPARSELt)
+(EngineCore_DP0 pid=4141920) [2026-01-23 00:07:32] INFO gemm_wrapper.py:307: cusparselt GEMM extension loaded: cusparselt_gemm_RTX5080_cc120_py312_cu129_x86_64.so
+(EngineCore_DP0 pid=4141920) [2026-01-23 00:07:32] INFO kernels.py:223: FP8 quant+slide kernel loaded
+(EngineCore_DP0 pid=4141920) [2026-01-23 00:07:32] INFO kernels.py:115: Dequant+bias kernel loaded
+(EngineCore_DP0 pid=4141920) [2026-01-23 00:07:32] INFO SlideSparseLinearMethod_FP8.py:372: SlideSparseFp8LinearOp initialized (kernel=cuSPARSELt)
+(EngineCore_DP0 pid=4141920) [2026-01-23 00:07:32] INFO SlideSparseLinearMethod_FP8.py:512: SlideSparseFp8LinearMethod: cuSPARSELt sparsity=2:4, expand_ratio=2.000
+(EngineCore_DP0 pid=4141920) [2026-01-23 00:07:32] INFO SlideSparseLinearMethod_FP8.py:517: SlideSparseFp8LinearMethod initialized, kernel=cuSPARSELt
+(EngineCore_DP0 pid=4141920) 
+Loading safetensors checkpoint shards:   0% Completed | 0/1 [00:00<?, ?it/s]
+(EngineCore_DP0 pid=4141920) 
+Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  5.59it/s]
+(EngineCore_DP0 pid=4141920) 
+Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  5.59it/s]
+(EngineCore_DP0 pid=4141920) 
+(EngineCore_DP0 pid=4141920) [2026-01-23 00:07:32] INFO SlideSparseLinearMethod_FP8.py:617: cuSPARSELt compression: [2048, 1536] -> 1D uint8
+(EngineCore_DP0 pid=4141920) [2026-01-23 00:07:32] INFO SlideSparseLinearMethod_FP8.py:627: cuSPARSELt compression done: 1966080 bytes
+(EngineCore_DP0 pid=4141920) [2026-01-23 00:07:32] INFO SlideSparseLinearMethod_FP8.py:617: cuSPARSELt compression: [1536, 1536] -> 1D uint8
+(EngineCore_DP0 pid=4141920) [2026-01-23 00:07:32] INFO SlideSparseLinearMethod_FP8.py:627: cuSPARSELt compression done: 1474560 bytes
+(EngineCore_DP0 pid=4141920) [2026-01-23 00:07:32] INFO SlideSparseLinearMethod_FP8.py:617: cuSPARSELt compression: [17920, 1536] -> 1D uint8
+(EngineCore_DP0 pid=4141920) [2026-01-23 00:07:32] INFO SlideSparseLinearMethod_FP8.py:627: cuSPARSELt compression done: 17203200 bytes
+(EngineCore_DP0 pid=4141920) [2026-01-23 00:07:32] INFO SlideSparseLinearMethod_FP8.py:617: cuSPARSELt compression: [1536, 8960] -> 1D uint8
+(EngineCore_DP0 pid=4141920) [2026-01-23 00:07:32] INFO SlideSparseLinearMethod_FP8.py:627: cuSPARSELt compression done: 8601600 bytes
+(EngineCore_DP0 pid=4141920) [rank0]:W0123 00:07:40.284000 4141920 torch/_inductor/codegen/triton_combo_kernel.py:110] ComboKernels: 1 large pointwise nodes are separated
+(EngineCore_DP0 pid=4141920) [rank0]:W0123 00:07:40.364000 4141920 torch/_inductor/codegen/triton_combo_kernel.py:110] ComboKernels: 1 large pointwise nodes are separated
+(EngineCore_DP0 pid=4141920) [rank0]:W0123 00:07:40.424000 4141920 torch/_inductor/codegen/triton_combo_kernel.py:110] ComboKernels: 1 large pointwise nodes are separated
+(EngineCore_DP0 pid=4141920) [rank0]:W0123 00:07:41.836000 4141920 torch/_inductor/codegen/triton_combo_kernel.py:110] ComboKernels: 2 large pointwise nodes are separated
+(EngineCore_DP0 pid=4141920) [rank0]:W0123 00:07:41.862000 4141920 torch/_inductor/codegen/triton_combo_kernel.py:110] ComboKernels: 2 large pointwise nodes are separated
+(EngineCore_DP0 pid=4141920) [rank0]:W0123 00:07:41.918000 4141920 torch/_inductor/codegen/triton_combo_kernel.py:110] ComboKernels: 1 large pointwise nodes are separated
+(EngineCore_DP0 pid=4141920) [rank0]:W0123 00:07:41.947000 4141920 torch/_inductor/codegen/triton_combo_kernel.py:110] ComboKernels: 2 large pointwise nodes are separated
+(EngineCore_DP0 pid=4141920) [rank0]:W0123 00:07:41.997000 4141920 torch/_inductor/codegen/triton_combo_kernel.py:110] ComboKernels: 2 large pointwise nodes are separated
+(EngineCore_DP0 pid=4141920) [rank0]:W0123 00:07:42.032000 4141920 torch/_inductor/codegen/triton_combo_kernel.py:110] ComboKernels: 1 large pointwise nodes are separated
+(EngineCore_DP0 pid=4141920) [rank0]:W0123 00:07:58.317000 4141920 torch/_inductor/codegen/triton_combo_kernel.py:110] ComboKernels: 2 large pointwise nodes are separated
+(EngineCore_DP0 pid=4141920) [rank0]:W0123 00:07:58.328000 4141920 torch/_inductor/codegen/triton_combo_kernel.py:110] ComboKernels: 1 large pointwise nodes are separated
+(EngineCore_DP0 pid=4141920) [rank0]:W0123 00:07:58.340000 4141920 torch/_inductor/codegen/triton_combo_kernel.py:110] ComboKernels: 2 large pointwise nodes are separated
+(EngineCore_DP0 pid=4141920) [rank0]:W0123 00:07:58.383000 4141920 torch/_inductor/codegen/triton_combo_kernel.py:110] ComboKernels: 1 large pointwise nodes are separated
+(EngineCore_DP0 pid=4141920) 2026-01-23 00:07:59,455 - INFO - autotuner.py:256 - flashinfer.jit: [Autotuner]: Autotuning process starts ...
+(EngineCore_DP0 pid=4141920) 2026-01-23 00:07:59,465 - INFO - autotuner.py:262 - flashinfer.jit: [Autotuner]: Autotuning process ends
+(EngineCore_DP0 pid=4141920) 
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):   0%|          | 0/35 [00:00<?, ?it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):   3%|▎         | 1/35 [00:00<00:20,  1.68it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):   9%|▊         | 3/35 [00:00<00:06,  4.89it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):  11%|█▏        | 4/35 [00:00<00:05,  5.88it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):  14%|█▍        | 5/35 [00:00<00:04,  6.67it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):  29%|██▊       | 10/35 [00:01<00:01, 16.72it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):  43%|████▎     | 15/35 [00:01<00:00, 24.13it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):  57%|█████▋    | 20/35 [00:01<00:00, 29.88it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):  71%|███████▏  | 25/35 [00:01<00:00, 33.60it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):  86%|████████▌ | 30/35 [00:01<00:00, 36.99it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE): 100%|██████████| 35/35 [00:01<00:00, 39.08it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE): 100%|██████████| 35/35 [00:01<00:00, 21.59it/s]
+(EngineCore_DP0 pid=4141920) 
+Capturing CUDA graphs (decode, FULL):   0%|          | 0/19 [00:00<?, ?it/s]
+Capturing CUDA graphs (decode, FULL):   5%|▌         | 1/19 [00:00<00:02,  8.42it/s]
+Capturing CUDA graphs (decode, FULL):  37%|███▋      | 7/19 [00:00<00:00, 34.75it/s]
+Capturing CUDA graphs (decode, FULL):  68%|██████▊   | 13/19 [00:00<00:00, 43.93it/s]
+Capturing CUDA graphs (decode, FULL): 100%|██████████| 19/19 [00:00<00:00, 48.93it/s]
+Capturing CUDA graphs (decode, FULL): 100%|██████████| 19/19 [00:00<00:00, 42.98it/s]
+
+Adding requests:   0%|          | 0/128 [00:00<?, ?it/s]
+Adding requests: 100%|██████████| 128/128 [00:00<00:00, 4241.99it/s]
+
+Processed prompts:   0%|          | 0/128 [00:00<?, ?it/s, est. speed input: 0.00 toks/s, output: 0.00 toks/s]
+Processed prompts:   1%|          | 1/128 [00:01<04:07,  1.95s/it, est. speed input: 8.20 toks/s, output: 131.22 toks/s]
+Processed prompts: 100%|██████████| 128/128 [00:01<00:00,  1.95s/it, est. speed input: 1044.43 toks/s, output: 16710.88 toks/s]
+Processed prompts: 100%|██████████| 128/128 [00:01<00:00, 65.27it/s, est. speed input: 1044.43 toks/s, output: 16710.88 toks/s]
+[rank0]:[W123 00:08:04.544139244 ProcessGroupNCCL.cpp:1524] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+
+
+========== M=256 ==========
+Time: 2026-01-23 00:08:06
+Backend: cuSPARSELt (2:4)
+Checkpoint: /root/vllmbench/checkpoints_slidesparse/Qwen2.5-1.5B-FP8-SlideSparse-2_4
+Params: prompt_len=16, output_len=256, num_prompts=256, max_num_seqs=256
+Command: vllm bench throughput --model /root/vllmbench/checkpoints_slidesparse/Qwen2.5-1.5B-FP8-SlideSparse-2_4 --dataset-name random --input-len 16 --output-len 256 --num-prompts 256 --max-num-seqs 256 --max-model-len 400 --max-num-batched-tokens 102400 --gpu-memory-utilization 0.8 --disable-log-stats --output-json /root/vllmbench/slidesparse/tools/throughput_benchmark_results/decode/RTX5080_cc120_FP8E4M3_py312_cu129_x86_64/cusparselt/2_4/json/Qwen2.5-1.5B-FP8_M256.json
+
+STDOUT:
+When dataset path is not set, it will default to random dataset
+INFO 01-23 00:08:09 [datasets.py:612] Sampling input_len from [16, 16] and output_len from [256, 256]
+INFO 01-23 00:08:09 [utils.py:253] non-default args: {'tokenizer': '/root/vllmbench/checkpoints_slidesparse/Qwen2.5-1.5B-FP8-SlideSparse-2_4', 'max_model_len': 400, 'gpu_memory_utilization': 0.8, 'max_num_batched_tokens': 102400, 'max_num_seqs': 256, 'disable_log_stats': True, 'enable_lora': None, 'reasoning_parser_plugin': '', 'model': '/root/vllmbench/checkpoints_slidesparse/Qwen2.5-1.5B-FP8-SlideSparse-2_4'}
+INFO 01-23 00:08:09 [model.py:514] Resolved architecture: Qwen2ForCausalLM
+INFO 01-23 00:08:09 [model.py:1661] Using max model len 400
+INFO 01-23 00:08:10 [scheduler.py:230] Chunked prefill is enabled with max_num_batched_tokens=102400.
+(EngineCore_DP0 pid=4143377) INFO 01-23 00:08:13 [core.py:93] Initializing a V1 LLM engine (v0.13.1.dev7+gd5e6597bf) with config: model='/root/vllmbench/checkpoints_slidesparse/Qwen2.5-1.5B-FP8-SlideSparse-2_4', speculative_config=None, tokenizer='/root/vllmbench/checkpoints_slidesparse/Qwen2.5-1.5B-FP8-SlideSparse-2_4', skip_tokenizer_init=False, tokenizer_mode=auto, revision=None, tokenizer_revision=None, trust_remote_code=False, dtype=torch.bfloat16, max_seq_len=400, download_dir=None, load_format=auto, tensor_parallel_size=1, pipeline_parallel_size=1, data_parallel_size=1, disable_custom_all_reduce=False, quantization=compressed-tensors, enforce_eager=False, kv_cache_dtype=auto, device_config=cuda, structured_outputs_config=StructuredOutputsConfig(backend='auto', disable_fallback=False, disable_any_whitespace=False, disable_additional_properties=False, reasoning_parser='', reasoning_parser_plugin='', enable_in_reasoning=False), observability_config=ObservabilityConfig(show_hidden_metrics_for_version=None, otlp_traces_endpoint=None, collect_detailed_traces=None, kv_cache_metrics=False, kv_cache_metrics_sample=0.01, cudagraph_metrics=False, enable_layerwise_nvtx_tracing=False), seed=0, served_model_name=/root/vllmbench/checkpoints_slidesparse/Qwen2.5-1.5B-FP8-SlideSparse-2_4, enable_prefix_caching=True, enable_chunked_prefill=True, pooler_config=None, compilation_config={'level': None, 'mode': <CompilationMode.VLLM_COMPILE: 3>, 'debug_dump_path': None, 'cache_dir': '', 'compile_cache_save_format': 'binary', 'backend': 'inductor', 'custom_ops': ['none'], 'splitting_ops': ['vllm::unified_attention', 'vllm::unified_attention_with_output', 'vllm::unified_mla_attention', 'vllm::unified_mla_attention_with_output', 'vllm::mamba_mixer2', 'vllm::mamba_mixer', 'vllm::short_conv', 'vllm::linear_attention', 'vllm::plamo2_mamba_mixer', 'vllm::gdn_attention_core', 'vllm::kda_attention', 'vllm::sparse_attn_indexer'], 'compile_mm_encoder': False, 'compile_sizes': [], 'compile_ranges_split_points': [102400], 'inductor_compile_config': {'enable_auto_functionalized_v2': False, 'combo_kernels': True, 'benchmark_combo_kernel': True}, 'inductor_passes': {}, 'cudagraph_mode': <CUDAGraphMode.FULL_AND_PIECEWISE: (2, 1)>, 'cudagraph_num_of_warmups': 1, 'cudagraph_capture_sizes': [1, 2, 4, 8, 16, 24, 32, 40, 48, 56, 64, 72, 80, 88, 96, 104, 112, 120, 128, 136, 144, 152, 160, 168, 176, 184, 192, 200, 208, 216, 224, 232, 240, 248, 256, 272, 288, 304, 320, 336, 352, 368, 384, 400, 416, 432, 448, 464, 480, 496, 512], 'cudagraph_copy_inputs': False, 'cudagraph_specialize_lora': True, 'use_inductor_graph_partition': False, 'pass_config': {'fuse_norm_quant': False, 'fuse_act_quant': False, 'fuse_attn_quant': False, 'eliminate_noops': True, 'enable_sp': False, 'fuse_gemm_comms': False, 'fuse_allreduce_rms': False}, 'max_cudagraph_capture_size': 512, 'dynamic_shapes_config': {'type': <DynamicShapesType.BACKED: 'backed'>, 'evaluate_guards': False}, 'local_cache_dir': None}
+(EngineCore_DP0 pid=4143377) INFO 01-23 00:08:13 [parallel_state.py:1203] world_size=1 rank=0 local_rank=0 distributed_init_method=tcp://10.172.141.44:33205 backend=nccl
+(EngineCore_DP0 pid=4143377) INFO 01-23 00:08:13 [parallel_state.py:1411] rank 0 in world size 1 is assigned as DP rank 0, PP rank 0, PCP rank 0, TP rank 0, EP rank 0
+(EngineCore_DP0 pid=4143377) INFO 01-23 00:08:14 [gpu_model_runner.py:3562] Starting to load model /root/vllmbench/checkpoints_slidesparse/Qwen2.5-1.5B-FP8-SlideSparse-2_4...
+(EngineCore_DP0 pid=4143377) INFO 01-23 00:08:14 [cuda.py:351] Using FLASH_ATTN attention backend out of potential backends: ('FLASH_ATTN', 'FLASHINFER', 'TRITON_ATTN', 'FLEX_ATTENTION')
+(EngineCore_DP0 pid=4143377) INFO 01-23 00:08:14 [default_loader.py:308] Loading weights took 0.20 seconds
+(EngineCore_DP0 pid=4143377) [INFO] Loading compress extension: cusparselt_compress_RTX5080_cc120_py312_cu129_x86_64.so
+(EngineCore_DP0 pid=4143377) INFO 01-23 00:08:15 [gpu_model_runner.py:3659] Model loading took 1.2166 GiB memory and 0.437394 seconds
+(EngineCore_DP0 pid=4143377) INFO 01-23 00:08:19 [backends.py:643] Using cache directory: /root/.cache/vllm/torch_compile_cache/0d9fd14f1c/rank_0_0/backbone for vLLM's torch.compile
+(EngineCore_DP0 pid=4143377) INFO 01-23 00:08:19 [backends.py:703] Dynamo bytecode transform time: 4.43 s
+(EngineCore_DP0 pid=4143377) INFO 01-23 00:08:22 [backends.py:261] Cache the graph of compile range (1, 102400) for later use
+(EngineCore_DP0 pid=4143377) INFO 01-23 00:08:40 [backends.py:278] Compiling a graph for compile range (1, 102400) takes 19.03 s
+(EngineCore_DP0 pid=4143377) INFO 01-23 00:08:40 [monitor.py:34] torch.compile takes 23.46 s in total
+(EngineCore_DP0 pid=4143377) INFO 01-23 00:08:41 [gpu_worker.py:375] Available KV cache memory: 3.06 GiB
+(EngineCore_DP0 pid=4143377) INFO 01-23 00:08:41 [kv_cache_utils.py:1291] GPU KV cache size: 114,400 tokens
+(EngineCore_DP0 pid=4143377) INFO 01-23 00:08:41 [kv_cache_utils.py:1296] Maximum concurrency for 400 tokens per request: 286.00x
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866] EngineCore failed to start.
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866] Traceback (most recent call last):
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]   File "/root/vllmbench/vllm/v1/engine/core.py", line 857, in run_engine_core
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]     engine_core = EngineCoreProc(*args, **kwargs)
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]   File "/root/vllmbench/vllm/v1/engine/core.py", line 637, in __init__
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]     super().__init__(
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]   File "/root/vllmbench/vllm/v1/engine/core.py", line 109, in __init__
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]     num_gpu_blocks, num_cpu_blocks, kv_cache_config = self._initialize_kv_caches(
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]                                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]   File "/root/vllmbench/vllm/v1/engine/core.py", line 256, in _initialize_kv_caches
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]     self.model_executor.initialize_from_config(kv_cache_configs)
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]   File "/root/vllmbench/vllm/v1/executor/abstract.py", line 116, in initialize_from_config
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]     self.collective_rpc("compile_or_warm_up_model")
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]   File "/root/vllmbench/vllm/v1/executor/uniproc_executor.py", line 75, in collective_rpc
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]     result = run_method(self.driver_worker, method, args, kwargs)
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]   File "/root/vllmbench/vllm/v1/serial_utils.py", line 461, in run_method
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]     return func(*args, **kwargs)
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]   File "/root/vllmbench/vllm/v1/worker/gpu_worker.py", line 455, in compile_or_warm_up_model
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]     kernel_warmup(self)
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]   File "/root/vllmbench/vllm/model_executor/warmup/kernel_warmup.py", line 41, in kernel_warmup
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]     flashinfer_autotune(worker.model_runner)
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]   File "/root/vllmbench/vllm/model_executor/warmup/kernel_warmup.py", line 94, in flashinfer_autotune
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]     runner._dummy_run(
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/utils/_contextlib.py", line 120, in decorate_context
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]     return func(*args, **kwargs)
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]   File "/root/vllmbench/vllm/v1/worker/gpu_model_runner.py", line 4198, in _dummy_run
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]     outputs = self.model(
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]               ^^^^^^^^^^^
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]   File "/root/vllmbench/vllm/compilation/cuda_graph.py", line 220, in __call__
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]     return self.runnable(*args, **kwargs)
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py", line 1775, in _wrapped_call_impl
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]     return self._call_impl(*args, **kwargs)
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py", line 1786, in _call_impl
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]     return forward_call(*args, **kwargs)
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]   File "/root/vllmbench/vllm/model_executor/models/qwen2.py", line 583, in forward
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]     hidden_states = self.model(
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]                     ^^^^^^^^^^^
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]   File "/root/vllmbench/vllm/compilation/decorators.py", line 439, in __call__
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]     return TorchCompileWithNoGuardsWrapper.__call__(self, *args, **kwargs)
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]   File "/root/vllmbench/vllm/compilation/wrapper.py", line 223, in __call__
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]     return self._call_with_optional_nvtx_range(
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]   File "/root/vllmbench/vllm/compilation/wrapper.py", line 109, in _call_with_optional_nvtx_range
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]     return callable_fn(*args, **kwargs)
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]   File "/root/vllmbench/vllm/model_executor/models/qwen2.py", line 418, in forward
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]     def forward(
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/_dynamo/eval_frame.py", line 1044, in _fn
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]     return fn(*args, **kwargs)
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]            ^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]   File "/root/vllmbench/vllm/compilation/caching.py", line 54, in __call__
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]     return self.optimized_call(*args, **kwargs)
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/fx/graph_module.py", line 837, in call_wrapped
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]     return self._wrapped_call(self, *args, **kwargs)
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/fx/graph_module.py", line 413, in __call__
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]     raise e
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/fx/graph_module.py", line 400, in __call__
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]     return super(self.cls, obj).__call__(*args, **kwargs)  # type: ignore[misc]
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py", line 1775, in _wrapped_call_impl
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]     return self._call_impl(*args, **kwargs)
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py", line 1786, in _call_impl
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]     return forward_call(*args, **kwargs)
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]   File "<eval_with_key>.58", line 334, in forward
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]     submod_4 = self.submod_4(getitem_10, s72, getitem_4, l_self_modules_layers_modules_1_modules_self_attn_modules_o_proj_parameters_weight_, l_self_modules_layers_modules_1_modules_self_attn_modules_o_proj_parameters_weight_scale_, getitem_5, l_self_modules_layers_modules_1_modules_post_attention_layernorm_parameters_weight_, getitem_11, l_self_modules_layers_modules_1_modules_mlp_modules_gate_up_proj_parameters_weight_, l_self_modules_layers_modules_1_modules_mlp_modules_gate_up_proj_parameters_weight_scale_, l_self_modules_layers_modules_1_modules_mlp_modules_down_proj_parameters_weight_, l_self_modules_layers_modules_1_modules_mlp_modules_down_proj_parameters_weight_scale_, l_self_modules_layers_modules_2_modules_input_layernorm_parameters_weight_, l_self_modules_layers_modules_2_modules_self_attn_modules_qkv_proj_parameters_weight_, l_self_modules_layers_modules_2_modules_self_attn_modules_qkv_proj_parameters_weight_scale_, l_self_modules_layers_modules_2_modules_self_attn_modules_qkv_proj_parameters_bias_, l_positions_, l_self_modules_layers_modules_0_modules_self_attn_modules_rotary_emb_buffers_cos_sin_cache_);  getitem_10 = l_self_modules_layers_modules_1_modules_self_attn_modules_o_proj_parameters_weight_ = l_self_modules_layers_modules_1_modules_self_attn_modules_o_proj_parameters_weight_scale_ = l_self_modules_layers_modules_1_modules_post_attention_layernorm_parameters_weight_ = getitem_11 = l_self_modules_layers_modules_1_modules_mlp_modules_gate_up_proj_parameters_weight_ = l_self_modules_layers_modules_1_modules_mlp_modules_gate_up_proj_parameters_weight_scale_ = l_self_modules_layers_modules_1_modules_mlp_modules_down_proj_parameters_weight_ = l_self_modules_layers_modules_1_modules_mlp_modules_down_proj_parameters_weight_scale_ = l_self_modules_layers_modules_2_modules_input_layernorm_parameters_weight_ = l_self_modules_layers_modules_2_modules_self_attn_modules_qkv_proj_parameters_weight_ = l_self_modules_layers_modules_2_modules_self_attn_modules_qkv_proj_parameters_weight_scale_ = l_self_modules_layers_modules_2_modules_self_attn_modules_qkv_proj_parameters_bias_ = None
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]   File "/root/vllmbench/vllm/compilation/cuda_graph.py", line 220, in __call__
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]     return self.runnable(*args, **kwargs)
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]   File "/root/vllmbench/vllm/compilation/piecewise_backend.py", line 178, in __call__
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]     return range_entry.runnable(*args)
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/_inductor/standalone_compile.py", line 63, in __call__
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]     return self._compiled_fn(*args)
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/_dynamo/eval_frame.py", line 1044, in _fn
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]     return fn(*args, **kwargs)
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]            ^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/_functorch/aot_autograd.py", line 1130, in forward
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]     return compiled_fn(full_args)
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 353, in runtime_wrapper
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]     all_outs = call_func_at_runtime_with_args(
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/_functorch/_aot_autograd/utils.py", line 129, in call_func_at_runtime_with_args
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]     out = normalize_as_list(f(args))
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]                             ^^^^^^^
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 724, in inner_fn
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]     outs = compiled_fn(args)
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]            ^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 526, in wrapper
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]     return compiled_fn(runtime_args)
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/_inductor/output_code.py", line 613, in __call__
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]     return self.current_callable(inputs)
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/_inductor/utils.py", line 2962, in run
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]     out = model(new_inputs)
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]           ^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]   File "/tmp/torchinductor_root/lx/clxcnleawpqn5cck5buutm2y6ptizgofto4zdzrpxrmcpk6dyudu.py", line 2404, in call
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]     buf17 = empty_strided_cuda((s72, 17920), (17920, 1), torch.bfloat16)
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866]             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=4143377) ERROR 01-23 00:08:41 [core.py:866] torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 3.42 GiB. GPU 0 has a total capacity of 15.46 GiB of which 2.65 GiB is free. Including non-PyTorch memory, this process has 12.57 GiB memory in use. Of the allocated memory 8.88 GiB is allocated by PyTorch, and 3.31 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+
+STDERR:
+[2026-01-23 00:08:09] INFO gemm_wrapper.py:362: cuBLASLt FP8 custom op registered: slidesparse::cublaslt_fp8_mm
+[2026-01-23 00:08:09] INFO gemm_wrapper.py:408: cuSPARSELt FP8 custom op registered: slidesparse::cusparselt_fp8_mm
+[2026-01-23 00:08:09] INFO gemm_wrapper.py:455: cuBLASLt INT8 custom op registered: slidesparse::cublaslt_int8_mm
+[2026-01-23 00:08:09] INFO gemm_wrapper.py:502: cuSPARSELt INT8 custom op registered: slidesparse::cusparselt_int8_mm
+[2026-01-23 00:08:13] INFO gemm_wrapper.py:362: cuBLASLt FP8 custom op registered: slidesparse::cublaslt_fp8_mm
+[2026-01-23 00:08:13] INFO gemm_wrapper.py:408: cuSPARSELt FP8 custom op registered: slidesparse::cusparselt_fp8_mm
+[2026-01-23 00:08:13] INFO gemm_wrapper.py:455: cuBLASLt INT8 custom op registered: slidesparse::cublaslt_int8_mm
+[2026-01-23 00:08:13] INFO gemm_wrapper.py:502: cuSPARSELt INT8 custom op registered: slidesparse::cusparselt_int8_mm
+(EngineCore_DP0 pid=4143377) [2026-01-23 00:08:14] INFO SlideSparseLinearMethod_FP8.py:691: Wrapping CompressedTensorsW8A8Fp8 with SlideSparse (cuSPARSELt)
+(EngineCore_DP0 pid=4143377) [2026-01-23 00:08:14] INFO gemm_wrapper.py:307: cusparselt GEMM extension loaded: cusparselt_gemm_RTX5080_cc120_py312_cu129_x86_64.so
+(EngineCore_DP0 pid=4143377) [2026-01-23 00:08:14] INFO kernels.py:223: FP8 quant+slide kernel loaded
+(EngineCore_DP0 pid=4143377) [2026-01-23 00:08:14] INFO kernels.py:115: Dequant+bias kernel loaded
+(EngineCore_DP0 pid=4143377) [2026-01-23 00:08:14] INFO SlideSparseLinearMethod_FP8.py:372: SlideSparseFp8LinearOp initialized (kernel=cuSPARSELt)
+(EngineCore_DP0 pid=4143377) [2026-01-23 00:08:14] INFO SlideSparseLinearMethod_FP8.py:512: SlideSparseFp8LinearMethod: cuSPARSELt sparsity=2:4, expand_ratio=2.000
+(EngineCore_DP0 pid=4143377) [2026-01-23 00:08:14] INFO SlideSparseLinearMethod_FP8.py:517: SlideSparseFp8LinearMethod initialized, kernel=cuSPARSELt
+(EngineCore_DP0 pid=4143377) 
+Loading safetensors checkpoint shards:   0% Completed | 0/1 [00:00<?, ?it/s]
+(EngineCore_DP0 pid=4143377) 
+Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  5.73it/s]
+(EngineCore_DP0 pid=4143377) 
+Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  5.72it/s]
+(EngineCore_DP0 pid=4143377) 
+(EngineCore_DP0 pid=4143377) [2026-01-23 00:08:14] INFO SlideSparseLinearMethod_FP8.py:617: cuSPARSELt compression: [2048, 1536] -> 1D uint8
+(EngineCore_DP0 pid=4143377) [2026-01-23 00:08:14] INFO SlideSparseLinearMethod_FP8.py:627: cuSPARSELt compression done: 1966080 bytes
+(EngineCore_DP0 pid=4143377) [2026-01-23 00:08:14] INFO SlideSparseLinearMethod_FP8.py:617: cuSPARSELt compression: [1536, 1536] -> 1D uint8
+(EngineCore_DP0 pid=4143377) [2026-01-23 00:08:14] INFO SlideSparseLinearMethod_FP8.py:627: cuSPARSELt compression done: 1474560 bytes
+(EngineCore_DP0 pid=4143377) [2026-01-23 00:08:14] INFO SlideSparseLinearMethod_FP8.py:617: cuSPARSELt compression: [17920, 1536] -> 1D uint8
+(EngineCore_DP0 pid=4143377) [2026-01-23 00:08:14] INFO SlideSparseLinearMethod_FP8.py:627: cuSPARSELt compression done: 17203200 bytes
+(EngineCore_DP0 pid=4143377) [2026-01-23 00:08:14] INFO SlideSparseLinearMethod_FP8.py:617: cuSPARSELt compression: [1536, 8960] -> 1D uint8
+(EngineCore_DP0 pid=4143377) [2026-01-23 00:08:14] INFO SlideSparseLinearMethod_FP8.py:627: cuSPARSELt compression done: 8601600 bytes
+(EngineCore_DP0 pid=4143377) [rank0]:W0123 00:08:22.306000 4143377 torch/_inductor/codegen/triton_combo_kernel.py:110] ComboKernels: 1 large pointwise nodes are separated
+(EngineCore_DP0 pid=4143377) [rank0]:W0123 00:08:22.385000 4143377 torch/_inductor/codegen/triton_combo_kernel.py:110] ComboKernels: 1 large pointwise nodes are separated
+(EngineCore_DP0 pid=4143377) [rank0]:W0123 00:08:22.414000 4143377 torch/_inductor/codegen/triton_combo_kernel.py:110] ComboKernels: 1 large pointwise nodes are separated
+(EngineCore_DP0 pid=4143377) [rank0]:W0123 00:08:22.431000 4143377 torch/_inductor/codegen/triton_combo_kernel.py:110] ComboKernels: 1 large pointwise nodes are separated
+(EngineCore_DP0 pid=4143377) [rank0]:W0123 00:08:23.858000 4143377 torch/_inductor/codegen/triton_combo_kernel.py:110] ComboKernels: 2 large pointwise nodes are separated
+(EngineCore_DP0 pid=4143377) [rank0]:W0123 00:08:23.883000 4143377 torch/_inductor/codegen/triton_combo_kernel.py:110] ComboKernels: 2 large pointwise nodes are separated
+(EngineCore_DP0 pid=4143377) [rank0]:W0123 00:08:23.937000 4143377 torch/_inductor/codegen/triton_combo_kernel.py:110] ComboKernels: 1 large pointwise nodes are separated
+(EngineCore_DP0 pid=4143377) [rank0]:W0123 00:08:23.967000 4143377 torch/_inductor/codegen/triton_combo_kernel.py:110] ComboKernels: 2 large pointwise nodes are separated
+(EngineCore_DP0 pid=4143377) [rank0]:W0123 00:08:24.019000 4143377 torch/_inductor/codegen/triton_combo_kernel.py:110] ComboKernels: 2 large pointwise nodes are separated
+(EngineCore_DP0 pid=4143377) [rank0]:W0123 00:08:24.050000 4143377 torch/_inductor/codegen/triton_combo_kernel.py:110] ComboKernels: 1 large pointwise nodes are separated
+(EngineCore_DP0 pid=4143377) [rank0]:W0123 00:08:40.441000 4143377 torch/_inductor/codegen/triton_combo_kernel.py:110] ComboKernels: 2 large pointwise nodes are separated
+(EngineCore_DP0 pid=4143377) [rank0]:W0123 00:08:40.452000 4143377 torch/_inductor/codegen/triton_combo_kernel.py:110] ComboKernels: 1 large pointwise nodes are separated
+(EngineCore_DP0 pid=4143377) [rank0]:W0123 00:08:40.465000 4143377 torch/_inductor/codegen/triton_combo_kernel.py:110] ComboKernels: 2 large pointwise nodes are separated
+(EngineCore_DP0 pid=4143377) [rank0]:W0123 00:08:40.510000 4143377 torch/_inductor/codegen/triton_combo_kernel.py:110] ComboKernels: 1 large pointwise nodes are separated
+(EngineCore_DP0 pid=4143377) 2026-01-23 00:08:41,623 - INFO - autotuner.py:256 - flashinfer.jit: [Autotuner]: Autotuning process starts ...
+(EngineCore_DP0 pid=4143377) 2026-01-23 00:08:41,708 - INFO - autotuner.py:262 - flashinfer.jit: [Autotuner]: Autotuning process ends
+(EngineCore_DP0 pid=4143377) Process EngineCore_DP0:
+(EngineCore_DP0 pid=4143377) Traceback (most recent call last):
+(EngineCore_DP0 pid=4143377)   File "/usr/lib/python3.12/multiprocessing/process.py", line 314, in _bootstrap
+(EngineCore_DP0 pid=4143377)     self.run()
+(EngineCore_DP0 pid=4143377)   File "/usr/lib/python3.12/multiprocessing/process.py", line 108, in run
+(EngineCore_DP0 pid=4143377)     self._target(*self._args, **self._kwargs)
+(EngineCore_DP0 pid=4143377)   File "/root/vllmbench/vllm/v1/engine/core.py", line 870, in run_engine_core
+(EngineCore_DP0 pid=4143377)     raise e
+(EngineCore_DP0 pid=4143377)   File "/root/vllmbench/vllm/v1/engine/core.py", line 857, in run_engine_core
+(EngineCore_DP0 pid=4143377)     engine_core = EngineCoreProc(*args, **kwargs)
+(EngineCore_DP0 pid=4143377)                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=4143377)   File "/root/vllmbench/vllm/v1/engine/core.py", line 637, in __init__
+(EngineCore_DP0 pid=4143377)     super().__init__(
+(EngineCore_DP0 pid=4143377)   File "/root/vllmbench/vllm/v1/engine/core.py", line 109, in __init__
+(EngineCore_DP0 pid=4143377)     num_gpu_blocks, num_cpu_blocks, kv_cache_config = self._initialize_kv_caches(
+(EngineCore_DP0 pid=4143377)                                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=4143377)   File "/root/vllmbench/vllm/v1/engine/core.py", line 256, in _initialize_kv_caches
+(EngineCore_DP0 pid=4143377)     self.model_executor.initialize_from_config(kv_cache_configs)
+(EngineCore_DP0 pid=4143377)   File "/root/vllmbench/vllm/v1/executor/abstract.py", line 116, in initialize_from_config
+(EngineCore_DP0 pid=4143377)     self.collective_rpc("compile_or_warm_up_model")
+(EngineCore_DP0 pid=4143377)   File "/root/vllmbench/vllm/v1/executor/uniproc_executor.py", line 75, in collective_rpc
+(EngineCore_DP0 pid=4143377)     result = run_method(self.driver_worker, method, args, kwargs)
+(EngineCore_DP0 pid=4143377)              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=4143377)   File "/root/vllmbench/vllm/v1/serial_utils.py", line 461, in run_method
+(EngineCore_DP0 pid=4143377)     return func(*args, **kwargs)
+(EngineCore_DP0 pid=4143377)            ^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=4143377)   File "/root/vllmbench/vllm/v1/worker/gpu_worker.py", line 455, in compile_or_warm_up_model
+(EngineCore_DP0 pid=4143377)     kernel_warmup(self)
+(EngineCore_DP0 pid=4143377)   File "/root/vllmbench/vllm/model_executor/warmup/kernel_warmup.py", line 41, in kernel_warmup
+(EngineCore_DP0 pid=4143377)     flashinfer_autotune(worker.model_runner)
+(EngineCore_DP0 pid=4143377)   File "/root/vllmbench/vllm/model_executor/warmup/kernel_warmup.py", line 94, in flashinfer_autotune
+(EngineCore_DP0 pid=4143377)     runner._dummy_run(
+(EngineCore_DP0 pid=4143377)   File "/usr/local/lib/python3.12/dist-packages/torch/utils/_contextlib.py", line 120, in decorate_context
+(EngineCore_DP0 pid=4143377)     return func(*args, **kwargs)
+(EngineCore_DP0 pid=4143377)            ^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=4143377)   File "/root/vllmbench/vllm/v1/worker/gpu_model_runner.py", line 4198, in _dummy_run
+(EngineCore_DP0 pid=4143377)     outputs = self.model(
+(EngineCore_DP0 pid=4143377)               ^^^^^^^^^^^
+(EngineCore_DP0 pid=4143377)   File "/root/vllmbench/vllm/compilation/cuda_graph.py", line 220, in __call__
+(EngineCore_DP0 pid=4143377)     return self.runnable(*args, **kwargs)
+(EngineCore_DP0 pid=4143377)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=4143377)   File "/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py", line 1775, in _wrapped_call_impl
+(EngineCore_DP0 pid=4143377)     return self._call_impl(*args, **kwargs)
+(EngineCore_DP0 pid=4143377)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=4143377)   File "/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py", line 1786, in _call_impl
+(EngineCore_DP0 pid=4143377)     return forward_call(*args, **kwargs)
+(EngineCore_DP0 pid=4143377)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=4143377)   File "/root/vllmbench/vllm/model_executor/models/qwen2.py", line 583, in forward
+(EngineCore_DP0 pid=4143377)     hidden_states = self.model(
+(EngineCore_DP0 pid=4143377)                     ^^^^^^^^^^^
+(EngineCore_DP0 pid=4143377)   File "/root/vllmbench/vllm/compilation/decorators.py", line 439, in __call__
+(EngineCore_DP0 pid=4143377)     return TorchCompileWithNoGuardsWrapper.__call__(self, *args, **kwargs)
+(EngineCore_DP0 pid=4143377)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=4143377)   File "/root/vllmbench/vllm/compilation/wrapper.py", line 223, in __call__
+(EngineCore_DP0 pid=4143377)     return self._call_with_optional_nvtx_range(
+(EngineCore_DP0 pid=4143377)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=4143377)   File "/root/vllmbench/vllm/compilation/wrapper.py", line 109, in _call_with_optional_nvtx_range
+(EngineCore_DP0 pid=4143377)     return callable_fn(*args, **kwargs)
+(EngineCore_DP0 pid=4143377)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=4143377)   File "/root/vllmbench/vllm/model_executor/models/qwen2.py", line 418, in forward
+(EngineCore_DP0 pid=4143377)     def forward(
+(EngineCore_DP0 pid=4143377)   File "/usr/local/lib/python3.12/dist-packages/torch/_dynamo/eval_frame.py", line 1044, in _fn
+(EngineCore_DP0 pid=4143377)     return fn(*args, **kwargs)
+(EngineCore_DP0 pid=4143377)            ^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=4143377)   File "/root/vllmbench/vllm/compilation/caching.py", line 54, in __call__
+(EngineCore_DP0 pid=4143377)     return self.optimized_call(*args, **kwargs)
+(EngineCore_DP0 pid=4143377)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=4143377)   File "/usr/local/lib/python3.12/dist-packages/torch/fx/graph_module.py", line 837, in call_wrapped
+(EngineCore_DP0 pid=4143377)     return self._wrapped_call(self, *args, **kwargs)
+(EngineCore_DP0 pid=4143377)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=4143377)   File "/usr/local/lib/python3.12/dist-packages/torch/fx/graph_module.py", line 413, in __call__
+(EngineCore_DP0 pid=4143377)     raise e
+(EngineCore_DP0 pid=4143377)   File "/usr/local/lib/python3.12/dist-packages/torch/fx/graph_module.py", line 400, in __call__
+(EngineCore_DP0 pid=4143377)     return super(self.cls, obj).__call__(*args, **kwargs)  # type: ignore[misc]
+(EngineCore_DP0 pid=4143377)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=4143377)   File "/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py", line 1775, in _wrapped_call_impl
+(EngineCore_DP0 pid=4143377)     return self._call_impl(*args, **kwargs)
+(EngineCore_DP0 pid=4143377)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=4143377)   File "/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py", line 1786, in _call_impl
+(EngineCore_DP0 pid=4143377)     return forward_call(*args, **kwargs)
+(EngineCore_DP0 pid=4143377)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=4143377)   File "<eval_with_key>.58", line 334, in forward
+(EngineCore_DP0 pid=4143377)     submod_4 = self.submod_4(getitem_10, s72, getitem_4, l_self_modules_layers_modules_1_modules_self_attn_modules_o_proj_parameters_weight_, l_self_modules_layers_modules_1_modules_self_attn_modules_o_proj_parameters_weight_scale_, getitem_5, l_self_modules_layers_modules_1_modules_post_attention_layernorm_parameters_weight_, getitem_11, l_self_modules_layers_modules_1_modules_mlp_modules_gate_up_proj_parameters_weight_, l_self_modules_layers_modules_1_modules_mlp_modules_gate_up_proj_parameters_weight_scale_, l_self_modules_layers_modules_1_modules_mlp_modules_down_proj_parameters_weight_, l_self_modules_layers_modules_1_modules_mlp_modules_down_proj_parameters_weight_scale_, l_self_modules_layers_modules_2_modules_input_layernorm_parameters_weight_, l_self_modules_layers_modules_2_modules_self_attn_modules_qkv_proj_parameters_weight_, l_self_modules_layers_modules_2_modules_self_attn_modules_qkv_proj_parameters_weight_scale_, l_self_modules_layers_modules_2_modules_self_attn_modules_qkv_proj_parameters_bias_, l_positions_, l_self_modules_layers_modules_0_modules_self_attn_modules_rotary_emb_buffers_cos_sin_cache_);  getitem_10 = l_self_modules_layers_modules_1_modules_self_attn_modules_o_proj_parameters_weight_ = l_self_modules_layers_modules_1_modules_self_attn_modules_o_proj_parameters_weight_scale_ = l_self_modules_layers_modules_1_modules_post_attention_layernorm_parameters_weight_ = getitem_11 = l_self_modules_layers_modules_1_modules_mlp_modules_gate_up_proj_parameters_weight_ = l_self_modules_layers_modules_1_modules_mlp_modules_gate_up_proj_parameters_weight_scale_ = l_self_modules_layers_modules_1_modules_mlp_modules_down_proj_parameters_weight_ = l_self_modules_layers_modules_1_modules_mlp_modules_down_proj_parameters_weight_scale_ = l_self_modules_layers_modules_2_modules_input_layernorm_parameters_weight_ = l_self_modules_layers_modules_2_modules_self_attn_modules_qkv_proj_parameters_weight_ = l_self_modules_layers_modules_2_modules_self_attn_modules_qkv_proj_parameters_weight_scale_ = l_self_modules_layers_modules_2_modules_self_attn_modules_qkv_proj_parameters_bias_ = None
+(EngineCore_DP0 pid=4143377)                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=4143377)   File "/root/vllmbench/vllm/compilation/cuda_graph.py", line 220, in __call__
+(EngineCore_DP0 pid=4143377)     return self.runnable(*args, **kwargs)
+(EngineCore_DP0 pid=4143377)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=4143377)   File "/root/vllmbench/vllm/compilation/piecewise_backend.py", line 178, in __call__
+(EngineCore_DP0 pid=4143377)     return range_entry.runnable(*args)
+(EngineCore_DP0 pid=4143377)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=4143377)   File "/usr/local/lib/python3.12/dist-packages/torch/_inductor/standalone_compile.py", line 63, in __call__
+(EngineCore_DP0 pid=4143377)     return self._compiled_fn(*args)
+(EngineCore_DP0 pid=4143377)            ^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=4143377)   File "/usr/local/lib/python3.12/dist-packages/torch/_dynamo/eval_frame.py", line 1044, in _fn
+(EngineCore_DP0 pid=4143377)     return fn(*args, **kwargs)
+(EngineCore_DP0 pid=4143377)            ^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=4143377)   File "/usr/local/lib/python3.12/dist-packages/torch/_functorch/aot_autograd.py", line 1130, in forward
+(EngineCore_DP0 pid=4143377)     return compiled_fn(full_args)
+(EngineCore_DP0 pid=4143377)            ^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=4143377)   File "/usr/local/lib/python3.12/dist-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 353, in runtime_wrapper
+(EngineCore_DP0 pid=4143377)     all_outs = call_func_at_runtime_with_args(
+(EngineCore_DP0 pid=4143377)                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=4143377)   File "/usr/local/lib/python3.12/dist-packages/torch/_functorch/_aot_autograd/utils.py", line 129, in call_func_at_runtime_with_args
+(EngineCore_DP0 pid=4143377)     out = normalize_as_list(f(args))
+(EngineCore_DP0 pid=4143377)                             ^^^^^^^
+(EngineCore_DP0 pid=4143377)   File "/usr/local/lib/python3.12/dist-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 724, in inner_fn
+(EngineCore_DP0 pid=4143377)     outs = compiled_fn(args)
+(EngineCore_DP0 pid=4143377)            ^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=4143377)   File "/usr/local/lib/python3.12/dist-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 526, in wrapper
+(EngineCore_DP0 pid=4143377)     return compiled_fn(runtime_args)
+(EngineCore_DP0 pid=4143377)            ^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=4143377)   File "/usr/local/lib/python3.12/dist-packages/torch/_inductor/output_code.py", line 613, in __call__
+(EngineCore_DP0 pid=4143377)     return self.current_callable(inputs)
+(EngineCore_DP0 pid=4143377)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=4143377)   File "/usr/local/lib/python3.12/dist-packages/torch/_inductor/utils.py", line 2962, in run
+(EngineCore_DP0 pid=4143377)     out = model(new_inputs)
+(EngineCore_DP0 pid=4143377)           ^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=4143377)   File "/tmp/torchinductor_root/lx/clxcnleawpqn5cck5buutm2y6ptizgofto4zdzrpxrmcpk6dyudu.py", line 2404, in call
+(EngineCore_DP0 pid=4143377)     buf17 = empty_strided_cuda((s72, 17920), (17920, 1), torch.bfloat16)
+(EngineCore_DP0 pid=4143377)             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=4143377) torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 3.42 GiB. GPU 0 has a total capacity of 15.46 GiB of which 2.65 GiB is free. Including non-PyTorch memory, this process has 12.57 GiB memory in use. Of the allocated memory 8.88 GiB is allocated by PyTorch, and 3.31 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+[rank0]:[W123 00:08:42.053769120 ProcessGroupNCCL.cpp:1524] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+Traceback (most recent call last):
+  File "/usr/local/bin/vllm", line 7, in <module>
+    sys.exit(main())
+             ^^^^^^
+  File "/root/vllmbench/vllm/entrypoints/cli/main.py", line 73, in main
+    args.dispatch_function(args)
+  File "/root/vllmbench/vllm/entrypoints/cli/benchmark/throughput.py", line 21, in cmd
+    main(args)
+  File "/root/vllmbench/vllm/benchmarks/throughput.py", line 730, in main
+    elapsed_time, request_outputs = run_vllm(
+                                    ^^^^^^^^^
+  File "/root/vllmbench/vllm/benchmarks/throughput.py", line 51, in run_vllm
+    llm = LLM(**dataclasses.asdict(engine_args))
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/entrypoints/llm.py", line 351, in __init__
+    self.llm_engine = LLMEngine.from_engine_args(
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/v1/engine/llm_engine.py", line 183, in from_engine_args
+    return cls(
+           ^^^^
+  File "/root/vllmbench/vllm/v1/engine/llm_engine.py", line 109, in __init__
+    self.engine_core = EngineCoreClient.make_client(
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/v1/engine/core_client.py", line 93, in make_client
+    return SyncMPClient(vllm_config, executor_class, log_stats)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/v1/engine/core_client.py", line 648, in __init__
+    super().__init__(
+  File "/root/vllmbench/vllm/v1/engine/core_client.py", line 477, in __init__
+    with launch_core_engines(vllm_config, executor_class, log_stats) as (
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/contextlib.py", line 144, in __exit__
+    next(self.gen)
+  File "/root/vllmbench/vllm/v1/engine/utils.py", line 903, in launch_core_engines
+    wait_for_engine_startup(
+  File "/root/vllmbench/vllm/v1/engine/utils.py", line 960, in wait_for_engine_startup
+    raise RuntimeError(
+RuntimeError: Engine core initialization failed. See root cause above. Failed core proc(s): {}
+
+ERROR: Test failed for M=256

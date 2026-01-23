@@ -139,12 +139,13 @@ DEFAULT_Z = 2
 DEFAULT_L = 6  # 2:6 稀疏（默认），可通过 set_sparsity_config() 修改
 
 
-def set_sparsity_config(sparsity_str: str) -> None:
+def set_sparsity_config(sparsity_str: str, verbose: bool = True) -> None:
     """
     设置稀疏配置
     
     Args:
         sparsity_str: 稀疏格式字符串，如 "2_4", "2_6", "2_8", "2_10"
+        verbose: 是否打印配置信息（默认 True，但 CUTLASS/cuBLASLt 可传 False）
     """
     global DEFAULT_Z, DEFAULT_L
     
@@ -158,7 +159,8 @@ def set_sparsity_config(sparsity_str: str) -> None:
     except ValueError:
         raise ValueError(f"Invalid sparsity format: {sparsity_str}, Z and L must be integers")
     
-    print(f"Sparsity config set to {DEFAULT_Z}:{DEFAULT_L}")
+    if verbose:
+        print(f"Sparsity config set to {DEFAULT_Z}:{DEFAULT_L}")
 
 
 # ============================================================================
@@ -600,11 +602,22 @@ def run_batch_correctness_test(
               f"{'Max Diff':>10} | {'Mean Diff':>12} | {'Status':>8}")
         print("-" * 110)
     
-    # 检测 CUTLASS 是否支持当前 GPU
+    # 检测 CUTLASS FP8 是否支持当前 GPU
     cutlass_supported = EnvironmentChecker.supports_cutlass_fp8()
+    
+    # 如果 CUTLASS FP8 不支持，且没有使用 cuBLASLt 或 cuSPARSELt，则跳过整个测试
+    if not cutlass_supported and not use_cublaslt and not use_cusparselt:
+        if verbose:
+            reason = EnvironmentChecker.supports_cutlass_fp8_reason()
+            print(f"\n{Colors.yellow(f'注意: vLLM CUTLASS FP8 不支持当前 GPU')}")
+            print(f"{Colors.yellow(f'原因: {reason}')}")
+            print(f"{Colors.yellow('SlideSparse CUTLASS fallback 路径也依赖 vLLM FP8 量化函数，无法运行')}")
+            print(f"{Colors.yellow('请使用 --use-cublaslt 或 --use-cusparselt 进行测试')}\n")
+        return 0, 0, []  # 返回 0/0 表示跳过
+    
     if not cutlass_supported and verbose:
-        cc = EnvironmentChecker.cuda_compute_capability()
-        print(f"\n{Colors.yellow(f'注意: CUTLASS 不支持当前 GPU (sm_{cc[0]}{cc[1]})，跳过 baseline 对比')}")
+        reason = EnvironmentChecker.supports_cutlass_fp8_reason()
+        print(f"\n{Colors.yellow(f'注意: vLLM CUTLASS FP8 不支持当前 GPU ({reason})，跳过 baseline 对比')}")
         print(f"{Colors.yellow('只验证 SlideSparse 路径能正常运行')}\n")
     
     for case in test_cases:
@@ -701,6 +714,11 @@ def test_batch_correctness():
         verbose=True
     )
     
+    # 如果返回 0/0，表示因为硬件不支持而跳过
+    if total == 0:
+        reason = EnvironmentChecker.supports_cutlass_fp8_reason()
+        return True, f"vLLM CUTLASS FP8 不支持 ({reason})，请使用 --use-cublaslt 或 --use-cusparselt"
+    
     if passed == total:
         return True, f"全部 {total} 个测试通过"
     else:
@@ -749,6 +767,11 @@ def test_unaligned_correctness():
         verbose=True
     )
     
+    # 如果返回 0/0，表示因为硬件不支持而跳过
+    if total == 0:
+        reason = EnvironmentChecker.supports_cutlass_fp8_reason()
+        return True, f"vLLM CUTLASS FP8 不支持 ({reason})，请使用 --use-cublaslt 或 --use-cusparselt"
+    
     if passed == total:
         return True, f"全部 {total} 个非对齐测试通过"
     else:
@@ -773,17 +796,27 @@ def run_performance_comparison(
     backend_name = get_backend_name(use_cublaslt, use_cusparselt, inner_32, sparsity=sparsity_str)
     results = []
     
-    # 检测 CUTLASS 是否支持当前 GPU
+    # 检测 CUTLASS FP8 是否支持当前 GPU
     cutlass_supported = EnvironmentChecker.supports_cutlass_fp8()
+    
+    # 如果 CUTLASS FP8 不支持，且没有使用 cuBLASLt 或 cuSPARSELt，则跳过整个测试
+    if not cutlass_supported and not use_cublaslt and not use_cusparselt:
+        if verbose:
+            reason = EnvironmentChecker.supports_cutlass_fp8_reason()
+            print(f"\n{Colors.yellow(f'注意: vLLM CUTLASS FP8 不支持当前 GPU')}")
+            print(f"{Colors.yellow(f'原因: {reason}')}")
+            print(f"{Colors.yellow('SlideSparse CUTLASS fallback 路径也依赖 vLLM FP8 量化函数，无法运行')}")
+            print(f"{Colors.yellow('请使用 --use-cublaslt 或 --use-cusparselt 进行测试')}\n")
+        return []  # 返回空列表表示跳过
     
     if verbose:
         print("\n" + "=" * 130)
         if cutlass_supported:
             print(Colors.bold(f"vLLM 原生 vs {backend_name} 性能对比"))
         else:
-            cc = EnvironmentChecker.cuda_compute_capability()
+            reason = EnvironmentChecker.supports_cutlass_fp8_reason()
             print(Colors.bold(f"{backend_name} 性能测试"))
-            print(Colors.yellow(f"注意: CUTLASS 不支持当前 GPU (sm_{cc[0]}{cc[1]})，跳过 baseline 对比"))
+            print(Colors.yellow(f"注意: vLLM CUTLASS FP8 不支持当前 GPU ({reason})，跳过 baseline 对比"))
         print("=" * 130)
         print(f"Warmup: {warmup}, Repeat: {repeat}")
         print("-" * 130)
@@ -955,6 +988,11 @@ def test_performance_comparison():
         repeat=50
     )
     
+    # 如果返回空列表，表示因为硬件不支持而跳过
+    if not results:
+        reason = EnvironmentChecker.supports_cutlass_fp8_reason()
+        return True, f"vLLM CUTLASS FP8 不支持 ({reason})，请使用 --use-cublaslt 或 --use-cusparselt"
+    
     valid_results = [r for r in results if "speedup" in r]
     if valid_results:
         avg_speedup = sum(r["speedup"] for r in valid_results) / len(valid_results)
@@ -963,7 +1001,7 @@ def test_performance_comparison():
     # 无 baseline 时，只要 test 能运行就算通过
     test_results = [r for r in results if "test_ms" in r]
     if test_results:
-        return True, f"CUTLASS 不支持当前 GPU，已完成 {len(test_results)} 个性能测试"
+        return True, f"vLLM CUTLASS FP8 不支持当前 GPU，已完成 {len(test_results)} 个性能测试"
     return True, "测试完成"
 
 
@@ -1002,8 +1040,10 @@ if __name__ == "__main__":
     args = parser.parse_args()
     
     # 设置稀疏配置（优先于环境变量设置）
+    # 只在使用 cuSPARSELt 时才显示稀疏配置信息
     if hasattr(args, 'sparsity') and args.sparsity:
-        set_sparsity_config(args.sparsity)
+        use_cusparselt = hasattr(args, 'use_cusparselt') and args.use_cusparselt
+        set_sparsity_config(args.sparsity, verbose=use_cusparselt)
     
     apply_env_args(args)
     

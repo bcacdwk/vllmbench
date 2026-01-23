@@ -52,6 +52,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <iostream>
 
 // ============================================================================
 // 错误检查宏

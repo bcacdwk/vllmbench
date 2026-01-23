@@ -18,7 +18,7 @@ SlideSparse 默认启用，通过环境变量控制具体行为:
     vllm serve model_path --quantization compressed-tensors
 
 不需要修改 --quantization 参数，保持使用 compressed-tensors。
-SlideSparse 会在 CompressedTensorsW8A8Fp8 的基础上进行透明 hook。
+SlideSparse 会在 CompressedTensorsW8A8Fp8/Int8 的基础上进行透明 hook。
 
 环境变量:
 =========
@@ -29,10 +29,15 @@ SlideSparse 会在 CompressedTensorsW8A8Fp8 的基础上进行透明 hook。
 
 架构说明:
 =========
-- cuBLASLt_FP8_linear: 纯 cuBLASLt kernel 路径
-- cuSPARSELt_FP8_linear: 纯 cuSPARSELt kernel 路径
-- cutlass_FP8_linear: CUTLASS kernel fallback 路径
-- SlideSparseFp8LinearOp: 根据环境变量选择上述三个 kernel 之一
+FP8 路径:
+- cuBLASLt_FP8_linear: cuBLASLt FP8 GEMM + Triton dequant
+- cuSPARSELt_FP8_linear: cuSPARSELt 2:4 稀疏 FP8 GEMM + Triton dequant
+- cutlass_FP8_linear: vLLM CUTLASS kernel fallback
+
+INT8 路径:
+- cuBLASLt_INT8_linear: cuBLASLt INT8 GEMM（输出 INT32）+ Triton dequant
+- cuSPARSELt_INT8_linear: cuSPARSELt 2:4 稀疏 INT8 GEMM + Triton dequant
+- cutlass_INT8_linear: vLLM CUTLASS kernel fallback（支持非对称量化）
 """
 
 import os
@@ -52,6 +57,7 @@ if _SLIDESPARSE_PATH not in sys.path:
 
 # 从外挂模块导入
 try:
+    # 配置
     from slidesparse.core.config import (
         is_slidesparse_enabled,
         is_cublaslt_enabled,
@@ -62,18 +68,30 @@ try:
         get_sparsity_str,
         clear_sparsity_cache,
     )
+    
+    # FP8
     from slidesparse.core.SlideSparseLinearMethod_FP8 import (
         SlideSparseFp8LinearMethod,
         SlideSparseFp8LinearOp,
-        # 三个 kernel 函数
         cuBLASLt_FP8_linear,
         cuSPARSELt_FP8_linear,
         cutlass_FP8_linear,
-        # 统一工厂函数
         wrap_scheme_fp8,
-        # Extension 加载（测试用）
-        _get_gemm_extension,
     )
+    
+    # INT8
+    from slidesparse.core.SlideSparseLinearMethod_INT8 import (
+        SlideSparseInt8LinearMethod,
+        SlideSparseInt8LinearOp,
+        cuBLASLt_INT8_linear,
+        cuSPARSELt_INT8_linear,
+        cutlass_INT8_linear,
+        wrap_scheme_int8,
+    )
+    
+    # 共享组件
+    from slidesparse.core.gemm_wrapper import _get_gemm_extension
+    from slidesparse.core.profiler import print_profile_stats, reset_profile_stats
     
     _IMPORT_SUCCESS = True
 except ImportError as e:
@@ -84,7 +102,7 @@ except ImportError as e:
     )
     _IMPORT_SUCCESS = False
     
-    # Fallback stub functions
+    # Fallback stub functions - 配置
     def is_slidesparse_enabled():
         return False
     
@@ -109,20 +127,16 @@ except ImportError as e:
     def clear_sparsity_cache():
         pass
     
+    # Fallback stub functions - FP8
     def wrap_scheme_fp8(scheme):
         return scheme
     
-    def _get_gemm_extension(backend):
-        raise NotImplementedError("SlideSparse import failed")
-    
-    # Stub classes
     class SlideSparseFp8LinearMethod:
         pass
     
     class SlideSparseFp8LinearOp:
         pass
     
-    # Stub kernel functions
     def cuBLASLt_FP8_linear(*args, **kwargs):
         raise NotImplementedError("SlideSparse import failed")
     
@@ -131,6 +145,35 @@ except ImportError as e:
     
     def cutlass_FP8_linear(*args, **kwargs):
         raise NotImplementedError("SlideSparse import failed")
+    
+    # Fallback stub functions - INT8
+    def wrap_scheme_int8(scheme):
+        return scheme
+    
+    class SlideSparseInt8LinearMethod:
+        pass
+    
+    class SlideSparseInt8LinearOp:
+        pass
+    
+    def cuBLASLt_INT8_linear(*args, **kwargs):
+        raise NotImplementedError("SlideSparse import failed")
+    
+    def cuSPARSELt_INT8_linear(*args, **kwargs):
+        raise NotImplementedError("SlideSparse import failed")
+    
+    def cutlass_INT8_linear(*args, **kwargs):
+        raise NotImplementedError("SlideSparse import failed")
+    
+    # Fallback stub functions - 共享
+    def _get_gemm_extension(backend):
+        raise NotImplementedError("SlideSparse import failed")
+    
+    def print_profile_stats():
+        pass
+    
+    def reset_profile_stats():
+        pass
 
 __all__ = [
     # 配置相关
@@ -142,15 +185,25 @@ __all__ = [
     "get_sparsity_config",
     "get_sparsity_str",
     "clear_sparsity_cache",
-    # 线性层方法
+    
+    # FP8 线性层
     "SlideSparseFp8LinearMethod",
     "SlideSparseFp8LinearOp",
-    # 三个 kernel 函数
     "cuBLASLt_FP8_linear",
     "cuSPARSELt_FP8_linear",
     "cutlass_FP8_linear",
-    # 统一工厂函数
     "wrap_scheme_fp8",
-    # Extension 加载（测试用）
+    
+    # INT8 线性层
+    "SlideSparseInt8LinearMethod",
+    "SlideSparseInt8LinearOp",
+    "cuBLASLt_INT8_linear",
+    "cuSPARSELt_INT8_linear",
+    "cutlass_INT8_linear",
+    "wrap_scheme_int8",
+    
+    # 共享组件
     "_get_gemm_extension",
+    "print_profile_stats",
+    "reset_profile_stats",
 ]

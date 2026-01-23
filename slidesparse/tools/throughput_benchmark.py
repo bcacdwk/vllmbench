@@ -9,9 +9,9 @@ SlideSparse vLLM Throughput Benchmark 脚本 (重构版)
   Model → Backend → Sparsity → Stage → M
 
 Backend 支持:
-  - cutlass:    vLLM 原生 CUTLASS (baseline)
-  - cublaslt:   cuBLASLt dense GEMM
-  - cusparselt: cuSPARSELt 2:N sparse GEMM (需要预稀疏化的 checkpoint)
+  - cutlass:    SlideSparse CUTLASS fallback (baseline)
+  - cublaslt:   SlideSparse cuBLASLt dense GEMM
+  - cusparselt: SlideSparse cuSPARSELt 2:N sparse GEMM (需要预稀疏化的 checkpoint)
 
 核心设计思想:
   - Prefill 测试: 控制 M_prefill = max_num_seqs × prompt_length，最小化 Decode 开销
@@ -19,10 +19,7 @@ Backend 支持:
   - 动态计算 max-model-len 以最大化 KV Cache 利用率 (Tight Fit 策略)
   - 禁用 Chunked Prefill 以获得纯净的性能数据
 
-使用方法:
-    python3 throughput_benchmark.py [选项]
-
-示例:
+Usage 示例:
     # 默认测试 (使用 DEFAULT_MODEL_LIST)
     python3 throughput_benchmark.py
     
@@ -91,6 +88,52 @@ from slidesparse.tools.utils import (
     get_checkpoint_path,
     auto_convert_sparse_checkpoint,
 )
+
+
+# ============================================================================
+# Backend 支持检测
+# ============================================================================
+
+def check_backend_support(backend: str, quant: str) -> Tuple[bool, str]:
+    """
+    检查指定 backend 是否支持当前 GPU 和量化类型
+    
+    Args:
+        backend: "cutlass" / "cublaslt" / "cusparselt"
+        quant: "fp8" / "int8"
+    
+    Returns:
+        (supported, reason)
+    """
+    quant_upper = quant.upper()
+    
+    if backend == "cutlass":
+        # CUTLASS 是 SlideSparse 的 fallback 路径（内部调用 vLLM 的 cutlass_scaled_mm）
+        if quant_upper == "INT8":
+            supported, reason = hw_info.supports_vllm_cutlass_int8
+            if not supported:
+                return False, f"vLLM CUTLASS INT8 不支持: {reason}"
+        elif quant_upper == "FP8":
+            supported, reason = hw_info.supports_vllm_cutlass_fp8
+            if not supported:
+                return False, f"vLLM CUTLASS FP8 不支持: {reason}"
+        return True, "OK"
+    
+    elif backend == "cublaslt":
+        # cuBLASLt 支持 sm_70+
+        supported, reason = hw_info.supports_cublaslt
+        if not supported:
+            return False, f"cuBLASLt 不支持: {reason}"
+        return True, "OK"
+    
+    elif backend == "cusparselt":
+        # cuSPARSELt 支持 sm_80+
+        supported, reason = hw_info.supports_cusparselt
+        if not supported:
+            return False, f"cuSPARSELt 不支持: {reason}"
+        return True, "OK"
+    
+    return False, f"未知 backend: {backend}"
 
 
 # ============================================================================
@@ -238,6 +281,15 @@ def create_log_file(result_base: Path, args) -> Path:
         f.write(f"  CUDA: {hw_info.cuda_runtime_version}\n")
         f.write(f"  Python: {hw_info.python_tag}\n")
         f.write("\n")
+        
+        # Backend 环境变量（运行时设置，此处记录初始状态）
+        f.write("Backend 环境变量 (初始状态):\n")
+        f.write(f"  DISABLE_SLIDESPARSE: {os.environ.get('DISABLE_SLIDESPARSE', '未设置')}\n")
+        f.write(f"  USE_CUBLASLT: {os.environ.get('USE_CUBLASLT', '未设置')}\n")
+        f.write(f"  USE_CUSPARSELT: {os.environ.get('USE_CUSPARSELT', '未设置')}\n")
+        f.write(f"  SPARSITY: {os.environ.get('SPARSITY', '未设置')}\n")
+        f.write(f"  INNER_DTYPE_32: {os.environ.get('INNER_DTYPE_32', '未设置')}\n")
+        f.write("\n")
         f.write("=" * 70 + "\n\n")
     
     return log_file
@@ -321,26 +373,28 @@ def set_backend_env(
     """
     saved = {
         "DISABLE_SLIDESPARSE": os.environ.get("DISABLE_SLIDESPARSE"),
-        "USE_CUTLASS": os.environ.get("USE_CUTLASS"),
         "USE_CUBLASLT": os.environ.get("USE_CUBLASLT"),
         "USE_CUSPARSELT": os.environ.get("USE_CUSPARSELT"),
         "INNER_DTYPE_32": os.environ.get("INNER_DTYPE_32"),
         "SPARSITY": os.environ.get("SPARSITY"),
     }
     
+    # 所有 backend 都通过 SlideSparse 转发（DISABLE_SLIDESPARSE=0）
+    # - cutlass:    不设置 USE_CUBLASLT/USE_CUSPARSELT → SlideSparse CUTLASS fallback
+    # - cublaslt:   USE_CUBLASLT=1
+    # - cusparselt: USE_CUSPARSELT=1 + SPARSITY
+    os.environ["DISABLE_SLIDESPARSE"] = "0"
+    
     if backend == "cutlass":
-        os.environ["DISABLE_SLIDESPARSE"] = "0"
-        os.environ["USE_CUTLASS"] = "1"
+        # CUTLASS: 清除其他 backend 的环境变量，使用 SlideSparse 默认的 CUTLASS 路径
         os.environ.pop("USE_CUBLASLT", None)
         os.environ.pop("USE_CUSPARSELT", None)
         os.environ.pop("SPARSITY", None)
     elif backend == "cublaslt":
-        os.environ["DISABLE_SLIDESPARSE"] = "0"
         os.environ["USE_CUBLASLT"] = "1"
         os.environ.pop("USE_CUSPARSELT", None)
         os.environ.pop("SPARSITY", None)
     elif backend == "cusparselt":
-        os.environ["DISABLE_SLIDESPARSE"] = "0"
         os.environ["USE_CUSPARSELT"] = "1"
         os.environ.pop("USE_CUBLASLT", None)
         if sparsity:
@@ -366,6 +420,11 @@ def restore_env(saved: Dict[str, Optional[str]]) -> None:
 # ============================================================================
 # 辅助函数
 # ============================================================================
+
+def _truncate(s: str, max_len: int = 45) -> str:
+    """截断字符串以适应显示框"""
+    return s[:max_len-3] + "..." if len(s) > max_len else s
+
 
 def parse_m_list(m_str: Optional[str], stage: str) -> List[int]:
     """
@@ -467,7 +526,8 @@ def calculate_test_params(m_value: int, test_mode: str, n_repeat: Optional[int] 
             max_num_seqs = 1
         else:
             prompt_length = PROMPT_LENGTH_CAP_PREFILL
-            max_num_seqs = m_value // prompt_length
+            # 使用 ceiling 除法，确保 M_prefill >= m_value
+            max_num_seqs = (m_value + prompt_length - 1) // prompt_length
         
         num_prompts = n_prefill_val * max_num_seqs
         output_len = 1  # 最小化 Decode
@@ -514,11 +574,6 @@ def calculate_test_params(m_value: int, test_mode: str, n_repeat: Optional[int] 
 
 
 # ============================================================================
-# 测试执行核心
-# ============================================================================
-
-
-# ============================================================================
 # 核心测试函数
 # ============================================================================
 
@@ -562,13 +617,16 @@ def run_single_m_test(
     
     # 构建 backend 显示名
     if backend == "cutlass":
-        backend_display = "CUTLASS (vLLM native)"
+        backend_display = "CUTLASS (SlideSparse fallback)"
     elif backend == "cusparselt" and sparsity:
         backend_display = f"cuSPARSELt ({sparsity.replace('_', ':')})"
     else:
         backend_display = "cuBLASLt"
     
-    if inner_32:
+    # cuBLASLt INT8 输出固定为 INT32
+    if backend == "cublaslt" and entry.quant.lower() == "int8":
+        backend_display += " [INT32 output]"
+    elif inner_32:
         backend_display += " [inner32]"
     
     # 显示测试参数
@@ -576,9 +634,9 @@ def run_single_m_test(
     print("┌─────────────────────────────────────────────────────────────┐")
     print("│                    测试参数                                  │")
     print("├─────────────────────────────────────────────────────────────┤")
-    print(f"│ 模型:     {entry.local_name}")
-    print(f"│ Backend:  {backend_display}")
-    print(f"│ 阶段:     {test_mode}")
+    print(f"│ 模型:     {_truncate(entry.local_name, 48):<48}│")
+    print(f"│ Backend:  {_truncate(backend_display, 48):<48}│")
+    print(f"│ 阶段:     {test_mode:<48}│")
     print("├─────────────────────────────────────────────────────────────┤")
     print("│ GEMM M 维度:")
     print(f"│   M_prefill = {params.m_prefill} (= {params.max_num_seqs} x {params.prompt_length})")
@@ -649,9 +707,9 @@ def run_single_m_test(
         # Dry-run 模式
         if dry_run:
             print_info("[DRY-RUN] 将执行的命令:")
-            env_str = f"CUDA_VISIBLE_DEVICES={gpu_id}"
+            env_str = f"CUDA_VISIBLE_DEVICES={gpu_id} DISABLE_SLIDESPARSE=0"
             if backend == "cutlass":
-                env_str += " USE_CUTLASS=1"
+                pass  # CUTLASS: 不需要额外环境变量
             elif backend == "cublaslt":
                 env_str += " USE_CUBLASLT=1"
             elif backend == "cusparselt":
@@ -781,10 +839,9 @@ def generate_model_csv(
         
         for m_value in m_list:
             result_file = result_json_dir / f"{model_name}_M{m_value}.json"
+            params = calculate_test_params(m_value, test_mode, n_repeat)
             
             if result_file.exists():
-                params = calculate_test_params(m_value, test_mode, n_repeat)
-                
                 try:
                     with open(result_file, "r") as rf:
                         data = json.load(rf)
@@ -792,16 +849,21 @@ def generate_model_csv(
                     tok_s = data.get("tokens_per_second", 0)
                     elapsed = data.get("elapsed_time", 0)
                 except Exception:
-                    req_s = tok_s = elapsed = 0
-                
-                if test_mode == "prefill":
-                    f.write(f"{m_value},{params.prompt_length},{params.max_num_seqs},"
-                           f"{params.num_prompts},{params.n_prefill},"
-                           f"{req_s:.4f},{tok_s:.4f},{elapsed:.4f}\n")
-                else:
-                    f.write(f"{m_value},{params.prompt_length},{params.max_num_seqs},"
-                           f"{params.num_prompts},{params.n_decode},{params.output_len},"
-                           f"{req_s:.4f},{tok_s:.4f},{elapsed:.4f}\n")
+                    # JSON 解析失败，标记为 -1
+                    req_s = tok_s = elapsed = -1
+            else:
+                # 测试失败（result_file 不存在），标记为 -1
+                req_s = tok_s = elapsed = -1
+            
+            # 写入 CSV（包括失败的测试）
+            if test_mode == "prefill":
+                f.write(f"{m_value},{params.prompt_length},{params.max_num_seqs},"
+                       f"{params.num_prompts},{params.n_prefill},"
+                       f"{req_s:.4f},{tok_s:.4f},{elapsed:.4f}\n")
+            else:
+                f.write(f"{m_value},{params.prompt_length},{params.max_num_seqs},"
+                       f"{params.num_prompts},{params.n_decode},{params.output_len},"
+                       f"{req_s:.4f},{tok_s:.4f},{elapsed:.4f}\n")
     
     print_success(f"CSV 保存到: {csv_file}")
     
@@ -855,7 +917,9 @@ def run_stage_benchmark(
     log_file = output_dir / "benchmark.log"
     
     # 构建标题
-    if backend == "cusparselt" and sparsity:
+    if backend == "cutlass":
+        title = f"{entry.local_name} | CUTLASS | {stage}"
+    elif backend == "cusparselt" and sparsity:
         title = f"{entry.local_name} | cuSPARSELt ({sparsity}) | {stage}"
     else:
         title = f"{entry.local_name} | cuBLASLt | {stage}"
@@ -929,6 +993,14 @@ def run_full_benchmark(config: BenchmarkConfig) -> Tuple[int, int]:
             continue
         
         for backend in config.backends:
+            # ========== 预检测: Backend 支持 ==========
+            # 在尝试运行测试之前，检查当前 GPU 是否支持该 backend + quant 组合
+            backend_supported, backend_reason = check_backend_support(backend, entry.quant)
+            if not backend_supported:
+                print_warning(f"Backend 不支持，跳过: {entry.local_name} + {backend}")
+                print_warning(f"  原因: {backend_reason}")
+                continue
+            
             if backend == "cusparselt":
                 # cuSPARSELt: 遍历所有 sparsity
                 for sparsity in config.sparsities:
@@ -992,7 +1064,7 @@ def main():
   Model → Backend → Sparsity → Stage → M
 
 Backend 说明:
-  cutlass    - vLLM 原生 CUTLASS 路径 (SlideSparse的cutlass，作为 baseline)
+  cutlass    - SlideSparse CUTLASS fallback (作为 baseline)
   cublaslt   - SlideSparse cuBLASLt dense GEMM (使用原始 checkpoint)
   cusparselt - SlideSparse cuSPARSELt sparse GEMM (使用预稀疏化 checkpoint)
 
@@ -1008,7 +1080,7 @@ Sparsity 说明:
   python3 throughput_benchmark.py --model qwen2.5-0.5b-fp8  # 测试特定模型
   python3 throughput_benchmark.py --model fp8         # 测试所有 FP8 模型
   python3 throughput_benchmark.py --model all         # 测试所有模型
-  python3 throughput_benchmark.py --backend cutlass   # 只测试 vLLM 原生 (baseline)
+  python3 throughput_benchmark.py --backend cutlass   # 只测试 CUTLASS (baseline)
   python3 throughput_benchmark.py --backend cublaslt  # 只测试 cuBLASLt
   python3 throughput_benchmark.py --backend cusparselt --sparsity 2_8
   python3 throughput_benchmark.py --stage prefill     # 只测试 Prefill

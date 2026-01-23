@@ -971,19 +971,119 @@ class EnvironmentChecker:
         return cc >= (8, 9)
     
     @classmethod
+    def supports_int8(cls) -> bool:
+        """检查是否支持 INT8 (sm_75+, Turing 及以上)"""
+        cc = cls.cuda_compute_capability()
+        return cc >= (7, 5)
+    
+    @classmethod
     def supports_cutlass_fp8(cls) -> bool:
         """
         检查 vLLM CUTLASS FP8 kernel 是否支持当前 GPU
         
-        vLLM 的 CUTLASS kernel 目前只支持到 sm_90 (H100)，
-        更新的架构如 sm_120/sm_121 (Blackwell) 会报 "Error Internal"
+        vLLM 的 CUTLASS FP8 kernel 只支持 sm_89 ~ sm_120 (Ada ~ Blackwell RTX 50xx)
+        - sm_80~88: 会 fallback 到 Marlin W8A16 kernel（不是真正的 FP8 计算）
+        - sm_121+: vLLM CUTLASS kernel 未编译支持
+        
+        转发自 slidesparse.utils.hw_info.vllm_cutlass_fp8_supported
         """
         if "supports_cutlass_fp8" not in cls._cache:
-            cc = cls.cuda_compute_capability()
-            # CUTLASS FP8 支持: sm_89 <= cc <= sm_120
-            # sm_121+ (Blackwell) 目前不支持
-            cls._cache["supports_cutlass_fp8"] = (8, 9) <= cc <= (12, 0)
+            try:
+                from slidesparse.utils import hw_info
+                cls._cache["supports_cutlass_fp8"] = hw_info.vllm_cutlass_fp8_supported
+                cls._cache["supports_cutlass_fp8_reason"] = hw_info.supports_vllm_cutlass_fp8[1]
+            except ImportError:
+                # Fallback: 本地计算
+                cc = cls.cuda_compute_capability()
+                cls._cache["supports_cutlass_fp8"] = (8, 9) <= cc <= (12, 0)
+                cls._cache["supports_cutlass_fp8_reason"] = f"sm_{cc[0]}{cc[1]}"
         return cls._cache["supports_cutlass_fp8"]
+    
+    @classmethod
+    def supports_cutlass_fp8_reason(cls) -> str:
+        """获取 FP8 CUTLASS 支持/不支持的原因"""
+        cls.supports_cutlass_fp8()  # 确保缓存已填充
+        return cls._cache.get("supports_cutlass_fp8_reason", "unknown")
+    
+    @classmethod
+    def supports_cutlass_int8(cls) -> bool:
+        """
+        检查 vLLM CUTLASS INT8 kernel 是否支持当前 GPU
+        
+        vLLM 的 CUTLASS INT8 kernel 只支持 sm_75 ~ sm_90 (Turing ~ Hopper)
+        sm_100+ (Blackwell) 上 vLLM 会报错 "Int8 not supported on SM1xx"
+        
+        转发自 slidesparse.utils.hw_info.vllm_cutlass_int8_supported
+        """
+        if "supports_cutlass_int8" not in cls._cache:
+            try:
+                from slidesparse.utils import hw_info
+                cls._cache["supports_cutlass_int8"] = hw_info.vllm_cutlass_int8_supported
+                cls._cache["supports_cutlass_int8_reason"] = hw_info.supports_vllm_cutlass_int8[1]
+            except ImportError:
+                # Fallback: 本地计算
+                cc = cls.cuda_compute_capability()
+                cls._cache["supports_cutlass_int8"] = (7, 5) <= cc < (10, 0)
+                cls._cache["supports_cutlass_int8_reason"] = f"sm_{cc[0]}{cc[1]}"
+        return cls._cache["supports_cutlass_int8"]
+    
+    @classmethod
+    def supports_cutlass_int8_reason(cls) -> str:
+        """获取 INT8 CUTLASS 支持/不支持的原因"""
+        cls.supports_cutlass_int8()  # 确保缓存已填充
+        return cls._cache.get("supports_cutlass_int8_reason", "unknown")
+    
+    @classmethod
+    def supports_cublaslt(cls) -> bool:
+        """
+        检查 cuBLASLt 是否支持当前 GPU
+        
+        cuBLASLt 支持 sm_70+ (Volta 及更新架构)。
+        转发自 slidesparse.utils.hw_info.cublaslt_supported
+        """
+        if "supports_cublaslt" not in cls._cache:
+            try:
+                from slidesparse.utils import hw_info
+                cls._cache["supports_cublaslt"] = hw_info.cublaslt_supported
+                cls._cache["supports_cublaslt_reason"] = hw_info.supports_cublaslt[1]
+            except ImportError:
+                # Fallback: 本地计算
+                cc = cls.cuda_compute_capability()
+                cls._cache["supports_cublaslt"] = cc >= (7, 0)
+                cls._cache["supports_cublaslt_reason"] = f"sm_{cc[0]}{cc[1]}"
+        return cls._cache["supports_cublaslt"]
+    
+    @classmethod
+    def supports_cublaslt_reason(cls) -> str:
+        """获取 cuBLASLt 支持/不支持的原因"""
+        cls.supports_cublaslt()  # 确保缓存已填充
+        return cls._cache.get("supports_cublaslt_reason", "unknown")
+    
+    @classmethod
+    def supports_cusparselt(cls) -> bool:
+        """
+        检查 cuSPARSELt 是否支持当前 GPU
+        
+        cuSPARSELt 支持 sm_80+ (Ampere 及更新架构)。
+        转发自 slidesparse.utils.hw_info.cusparselt_supported
+        """
+        if "supports_cusparselt" not in cls._cache:
+            try:
+                from slidesparse.utils import hw_info
+                cls._cache["supports_cusparselt"] = hw_info.cusparselt_supported
+                cls._cache["supports_cusparselt_reason"] = hw_info.supports_cusparselt[1]
+            except ImportError:
+                # Fallback: 本地计算
+                cc = cls.cuda_compute_capability()
+                cls._cache["supports_cusparselt"] = cc >= (8, 0)
+                cls._cache["supports_cusparselt_reason"] = f"sm_{cc[0]}{cc[1]}"
+        return cls._cache["supports_cusparselt"]
+    
+    @classmethod
+    def supports_cusparselt_reason(cls) -> str:
+        """获取 cuSPARSELt 支持/不支持的原因"""
+        cls.supports_cusparselt()  # 确保缓存已填充
+        return cls._cache.get("supports_cusparselt_reason", "unknown")
     
     @classmethod
     def is_slidesparse_enabled(cls) -> bool:
@@ -1438,6 +1538,16 @@ def skip_if_no_fp8() -> Tuple[bool, str]:
     if not EnvironmentChecker.supports_fp8():
         cc = EnvironmentChecker.cuda_compute_capability()
         return (True, f"需要 sm_89+, 当前 sm_{cc[0]}{cc[1]}")
+    return (False, "")
+
+
+def skip_if_no_int8() -> Tuple[bool, str]:
+    """如果不支持 INT8 则跳过"""
+    if not EnvironmentChecker.has_cuda():
+        return (True, "需要 CUDA")
+    if not EnvironmentChecker.supports_int8():
+        cc = EnvironmentChecker.cuda_compute_capability()
+        return (True, f"需要 sm_75+, 当前 sm_{cc[0]}{cc[1]}")
     return (False, "")
 
 

@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 # SPDX-License-Identifier: Apache-2.0
 """
-test_04_throughput.py - 吞吐量对比测试
+test_04_throughput.py - 吞吐量对比测试（torch.compile mode）
 
 分离测试 Prefill 和 Decode 两个阶段的吞吐量：
   - Prefill: 长输入 + 短输出（测试 prompt 处理速度）
@@ -28,9 +28,10 @@ test_04_throughput.py - 吞吐量对比测试
     python3 test_04_throughput.py --use-cusparselt --sparsity 2_6 --inner-32
     python3 test_04_throughput.py --use-cusparselt --sparsity 2_8 --inner-32
 
-    SLIDESPARSE_PROFILE=1 python3 test_04_throughput.py --use-cutlass
-    SLIDESPARSE_PROFILE=1 python3 test_04_throughput.py --use-cublaslt
-    SLIDESPARSE_PROFILE=1 python3 test_04_throughput.py --use-cusparselt --sparsity 2_8    
+    启用 SlideSparse 计时诊断: 必须开启eager mode, 计时器本身也会带来明显开销
+    SLIDESPARSE_PROFILE=1 python3 test_04_throughput.py --use-cutlass --eager
+    SLIDESPARSE_PROFILE=1 python3 test_04_throughput.py --use-cublaslt --eager 
+    SLIDESPARSE_PROFILE=1 python3 test_04_throughput.py --use-cusparselt --sparsity 2_8 --eager
 """
 
 import os
@@ -304,19 +305,27 @@ def run_throughput_comparison(
     # 确定 baseline 模型路径
     baseline_path = baseline_model_path if baseline_model_path else model_path
     
-    # 不再跳过 baseline
-    skip_baseline = False
+    # 预检测 CUTLASS FP8 是否支持当前 GPU
+    # baseline 使用 vLLM 原生路径（CUTLASS），如果不支持则跳过 baseline
+    cutlass_supported = EnvironmentChecker.supports_cutlass_fp8()
     
     if verbose:
         print("\n" + "=" * 90)
-        print(Colors.bold("vLLM 原生路径 vs SlideSparse 吞吐量对比"))
+        if cutlass_supported:
+            print(Colors.bold("vLLM 原生路径 vs SlideSparse 吞吐量对比"))
+        else:
+            print(Colors.bold(f"SlideSparse 吞吐量测试 ({backend_name})"))
         print("=" * 90)
         if baseline_model_path:
             print(f"基准模型: {baseline_path.name}")
             print(f"测试模型: {model_path.name}")
         else:
             print(f"模型: {model_path.name}")
-        print(f"基准: vLLM 原生路径 (DISABLE_SLIDESPARSE=1)")
+        if cutlass_supported:
+            print(f"基准: vLLM 原生路径 (DISABLE_SLIDESPARSE=1)")
+        else:
+            reason = EnvironmentChecker.supports_cutlass_fp8_reason()
+            print(Colors.yellow(f"注意: CUTLASS FP8 不支持当前 GPU ({reason})，跳过 baseline"))
         print(f"测试: {backend_name}")
         print("=" * 90)
     
@@ -332,27 +341,31 @@ def run_throughput_comparison(
         print(f"M_prefill = {PREFILL_CONFIG['num_prompts'] * PREFILL_CONFIG['prompt_len']}")
         print(f"{Colors.cyan('━' * 50)}")
     
-    # 基准: vLLM 原生路径
+    # 基准: vLLM 原生路径 (仅当 CUTLASS 支持时)
     baseline_prefill_tps = None
-    if verbose:
-        print(f"\n  {Colors.blue('[基准] vLLM 原生路径...')}")
-    saved_env = set_env_for_baseline()
-    try:
-        baseline_prefill = run_phase_test(
-            baseline_path,
-            num_prompts=PREFILL_CONFIG["num_prompts"],
-            prompt_len=PREFILL_CONFIG["prompt_len"],
-            output_len=PREFILL_CONFIG["output_len"],
-            warmup=PREFILL_CONFIG["warmup"],
-            repeat=PREFILL_CONFIG["repeat"],
-            reset_profile=True,
-            enforce_eager=enforce_eager,
-        )
-        baseline_prefill_tps = baseline_prefill.input_tokens / baseline_prefill.total_time_s
-    except Exception as e:
+    if cutlass_supported:
         if verbose:
-            print(f"    {Colors.yellow(f'跳过 (CUTLASS 不支持当前 GPU): {e}')}")
-    restore_env(saved_env)
+            print(f"\n  {Colors.blue('[基准] vLLM 原生路径...')}")
+        saved_env = set_env_for_baseline()
+        try:
+            baseline_prefill = run_phase_test(
+                baseline_path,
+                num_prompts=PREFILL_CONFIG["num_prompts"],
+                prompt_len=PREFILL_CONFIG["prompt_len"],
+                output_len=PREFILL_CONFIG["output_len"],
+                warmup=PREFILL_CONFIG["warmup"],
+                repeat=PREFILL_CONFIG["repeat"],
+                reset_profile=True,
+                enforce_eager=enforce_eager,
+            )
+            baseline_prefill_tps = baseline_prefill.input_tokens / baseline_prefill.total_time_s
+        except Exception as e:
+            if verbose:
+                print(f"    {Colors.yellow(f'跳过 (运行时错误): {e}')}")
+        restore_env(saved_env)
+    else:
+        if verbose:
+            print(f"\n  {Colors.yellow('[基准] 跳过 (CUTLASS FP8 不支持当前 GPU)')}")
     
     # 测试: SlideSparse 后端
     if verbose:
@@ -403,27 +416,31 @@ def run_throughput_comparison(
         print(f"M_decode = {DECODE_CONFIG['num_prompts']}")
         print(f"{Colors.cyan('━' * 50)}")
     
-    # 基准: vLLM 原生路径
+    # 基准: vLLM 原生路径 (仅当 CUTLASS 支持时)
     baseline_decode_tps = None
-    if verbose:
-        print(f"\n  {Colors.blue('[基准] vLLM 原生路径...')}")
-    saved_env = set_env_for_baseline()
-    try:
-        baseline_decode = run_phase_test(
-            baseline_path,
-            num_prompts=DECODE_CONFIG["num_prompts"],
-            prompt_len=DECODE_CONFIG["prompt_len"],
-            output_len=DECODE_CONFIG["output_len"],
-            warmup=DECODE_CONFIG["warmup"],
-            repeat=1,  # Decode 只需运行一次（output_len 已经很长）
-            reset_profile=True,
-            enforce_eager=enforce_eager,
-        )
-        baseline_decode_tps = baseline_decode.output_tokens / baseline_decode.total_time_s
-    except Exception as e:
+    if cutlass_supported:
         if verbose:
-            print(f"    {Colors.yellow(f'跳过 (CUTLASS 不支持当前 GPU): {e}')}")
-    restore_env(saved_env)
+            print(f"\n  {Colors.blue('[基准] vLLM 原生路径...')}")
+        saved_env = set_env_for_baseline()
+        try:
+            baseline_decode = run_phase_test(
+                baseline_path,
+                num_prompts=DECODE_CONFIG["num_prompts"],
+                prompt_len=DECODE_CONFIG["prompt_len"],
+                output_len=DECODE_CONFIG["output_len"],
+                warmup=DECODE_CONFIG["warmup"],
+                repeat=1,  # Decode 只需运行一次（output_len 已经很长）
+                reset_profile=True,
+                enforce_eager=enforce_eager,
+            )
+            baseline_decode_tps = baseline_decode.output_tokens / baseline_decode.total_time_s
+        except Exception as e:
+            if verbose:
+                print(f"    {Colors.yellow(f'跳过 (运行时错误): {e}')}")
+        restore_env(saved_env)
+    else:
+        if verbose:
+            print(f"\n  {Colors.yellow('[基准] 跳过 (CUTLASS FP8 不支持当前 GPU)')}")
     
     # 测试: SlideSparse 后端
     if verbose:
@@ -533,6 +550,23 @@ if __name__ == "__main__":
     use_cusparselt = getattr(args, 'use_cusparselt', False)
     inner_32 = getattr(args, 'inner_32', False)
     sparsity = getattr(args, 'sparsity', None)
+    
+    # ========== 预拦截：CUTLASS 支持检测 ==========
+    # 当用户不指定 --use-cublaslt 或 --use-cusparselt 时，默认使用 CUTLASS
+    # 如果当前 GPU 不支持 vLLM CUTLASS FP8，需要提示用户切换后端
+    if not use_cublaslt and not use_cusparselt:
+        cutlass_supported = EnvironmentChecker.supports_cutlass_fp8()
+        if not cutlass_supported:
+            reason = EnvironmentChecker.supports_cutlass_fp8_reason()
+            print(Colors.yellow("\n" + "=" * 70))
+            print(Colors.yellow("预拦截: vLLM CUTLASS FP8 不支持当前 GPU"))
+            print(Colors.yellow("=" * 70))
+            print(Colors.yellow(f"原因: {reason}"))
+            print(Colors.yellow("\n请使用以下替代方案:"))
+            print(Colors.cyan("  python3 test_04_throughput.py --use-cublaslt"))
+            print(Colors.cyan("  python3 test_04_throughput.py --use-cusparselt --sparsity 2_8"))
+            print(Colors.yellow("=" * 70 + "\n"))
+            sys.exit(0)
     
     # 查找模型
     baseline_model_path = None

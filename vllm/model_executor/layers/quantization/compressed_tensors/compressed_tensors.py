@@ -68,6 +68,7 @@ from vllm.platforms import current_platform
 from vllm.model_executor.layers.quantization.slidesparse import (
     is_slidesparse_enabled,
     wrap_scheme_fp8,
+    wrap_scheme_int8,
 )
 
 if TYPE_CHECKING:
@@ -768,7 +769,12 @@ class CompressedTensorsConfig(QuantizationConfig):
         # SlideSparse: wrap scheme if SlideSparse is enabled
         # When DISABLE_SLIDESPARSE=1, this hook is bypassed and vLLM native path is used
         if is_slidesparse_enabled() and scheme is not None:
-            scheme = wrap_scheme_fp8(scheme)
+            # FP8 schemes
+            if isinstance(scheme, CompressedTensorsW8A8Fp8):
+                scheme = wrap_scheme_fp8(scheme)
+            # INT8 schemes
+            elif isinstance(scheme, CompressedTensorsW8A8Int8):
+                scheme = wrap_scheme_int8(scheme)
         
         logger.debug("Using scheme: %s for %s", scheme.__class__.__name__, layer_name)
         return scheme

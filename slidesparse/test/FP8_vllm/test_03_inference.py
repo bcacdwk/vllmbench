@@ -5,7 +5,7 @@
 test_03_inference.py - 端到端推理输出对比
 
 对于相同的 prompt，分别用 vLLM 原生路径 和 SlideSparse 后端运行推理，
-并排打印输出让用户直观比较精度差异。
+并排打印输出让用户直观比较精度差异。（eager mode）
 
 对比路径:
 =========
@@ -14,7 +14,7 @@ test_03_inference.py - 端到端推理输出对比
     [SlideSparse 后端]  根据参数选择不同 kernel    ← test
 
 使用方法:
-    python3 test_03_inference.py                            # 默认: vs CUTLASS fallback
+    python3 test_03_inference.py --use-cutlass              # 默认: vs CUTLASS fallback
     python3 test_03_inference.py --use-cublaslt             # vs cuBLASLt
     python3 test_03_inference.py --use-cublaslt --inner-32  # cuBLASLt + 高精度累加
 
@@ -257,6 +257,23 @@ if __name__ == "__main__":
     use_cusparselt = getattr(args, 'use_cusparselt', False)
     inner_32 = getattr(args, 'inner_32', False)
     sparsity = getattr(args, 'sparsity', '2_8')
+    
+    # ========== 预拦截：CUTLASS 支持检测 ==========
+    # 当用户不指定 --use-cublaslt 或 --use-cusparselt 时，默认使用 CUTLASS
+    # 如果当前 GPU 不支持 vLLM CUTLASS FP8，需要提示用户切换后端
+    if not use_cublaslt and not use_cusparselt:
+        cutlass_supported = EnvironmentChecker.supports_cutlass_fp8()
+        if not cutlass_supported:
+            reason = EnvironmentChecker.supports_cutlass_fp8_reason()
+            print(Colors.yellow("\n" + "=" * 70))
+            print(Colors.yellow("预拦截: vLLM CUTLASS FP8 不支持当前 GPU"))
+            print(Colors.yellow("=" * 70))
+            print(Colors.yellow(f"原因: {reason}"))
+            print(Colors.yellow("\n请使用以下替代方案:"))
+            print(Colors.cyan("  python3 test_03_inference.py --use-cublaslt"))
+            print(Colors.cyan("  python3 test_03_inference.py --use-cusparselt --sparsity 2_8"))
+            print(Colors.yellow("=" * 70 + "\n"))
+            sys.exit(0)
     
     # 查找模型
     baseline_model_path = None
