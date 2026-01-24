@@ -434,16 +434,11 @@ static PlanContext& get_or_create_plan(
                 &alg_id, sizeof(alg_id)));
         }
         
-        // 如果指定了 split_k，设置它
-        if (split_k > 0) {
-            int split_k_mode = 1;  // CUSPARSELT_SPLIT_K_MODE_ONE_KERNEL
+        // 如果指定了 split_k，设置它 (split_k != 1 时，包括 >1 的 Split-K 和 -1 的 Segment-K)
+        if (split_k != 1) {
             CHECK_CUSPARSE(cusparseLtMatmulAlgSetAttribute(
                 &handle, &ctx.alg,
-                CUSPARSELT_MATMUL_SPLIT_K_MODE,
-                &split_k_mode, sizeof(split_k_mode)));
-            CHECK_CUSPARSE(cusparseLtMatmulAlgSetAttribute(
-                &handle, &ctx.alg,
-                CUSPARSELT_MATMUL_SPLIT_K_BUFFERS,
+                CUSPARSELT_MATMUL_SPLIT_K,
                 &split_k, sizeof(split_k)));
         }
         alg_ok = true;
