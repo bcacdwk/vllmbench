@@ -425,7 +425,7 @@ def parse_args():
     p.add_argument("--M-quick", action="store_true", dest="m_quick", help="M-quick 模式: 使用固定 M 列表 [16, 128, 1024, 4096, 16384]")
     p.add_argument("--warmup", type=int, default=5)
     p.add_argument("--repeat", type=int, default=30)
-    p.add_argument("--verify", action="store_true", help="开启正确性校验")
+    p.add_argument("--verify", action="store_true", help="开启正确性校验，该程序没有实现")
     p.add_argument("--compile", action="store_true", help="强制重新编译 CUDA 扩展")
     p.add_argument("--no_segment_k", action="store_true", help="禁用 Segment-K 测试")
     p.add_argument("--out_dir", default=None, help="输出目录")
