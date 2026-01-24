@@ -35,7 +35,6 @@ from utils import (
     load_search_extension,
     # 模型工具
     get_nk_list_auto,
-    build_model_name_with_dtype,
     # 数据准备
     quantize_tensor,
     get_output_torch_dtype,
@@ -315,7 +314,7 @@ def main():
         args.dtype, args.outdtype, backend="cublaslt"
     )
     
-    model_name = build_model_name_with_dtype(args.model.split('/')[-1], args.dtype)
+    model_name = args.model.split('/')[-1]
     
     print("=" * 60, flush=True)
     print("cuBLASLt 布局离线搜索", flush=True)

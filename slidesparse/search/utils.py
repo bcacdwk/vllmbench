@@ -398,25 +398,6 @@ def get_nk_list_auto(
 
 
 # =============================================================================
-# 模型名称处理
-# =============================================================================
-
-def build_model_name_with_dtype(base_name: str, dtype: str) -> str:
-    """
-    构建带 dtype 后缀的模型名称。
-    
-    Args:
-        base_name: 基础模型名称（如 "BitNet-2B4T"）
-        dtype: 数据类型（如 "int8", "fp8e4m3"）
-    
-    Returns:
-        带后缀的模型名称（如 "BitNet-2B4T-INT8"）
-    """
-    dtype_suffix = normalize_dtype(dtype)
-    return f"{base_name}-{dtype_suffix}"
-
-
-# =============================================================================
 # 输出目录与文件命名
 # =============================================================================
 
@@ -846,7 +827,6 @@ __all__ = [
     # 模型 NK 工具
     "get_nk_list_from_model",
     "get_nk_list_auto",
-    "build_model_name_with_dtype",
     # 输出命名
     "build_output_dir_name",
     "build_result_filename",
@@ -1029,25 +1009,22 @@ def save_alg_search_results(
             
             if results:
                 m_thresholds.append(M)
+                r = results[0]  # 只保留 top1
                 if has_split_k:
                     # cuSPARSELt: 保存 alg_id, split_k, workspace
-                    top3_info = [{
+                    alg_by_m[str(M)] = {
                         "alg_id": r["alg_id"],
                         "split_k": r.get("split_k", 1),
                         "workspace": r.get("workspace", 0),
-                    } for r in results[:3]]
-                    alg_by_m[str(M)] = top3_info
+                    }
                 else:
                     # cuBLASLt: 保存 base64 编码的 algo_data 和 workspace
-                    top3_entries = []
-                    for r in results[:3]:
-                        if "algo_data" in r:
-                            algo_b64 = base64.b64encode(r["algo_data"]).decode('ascii')
-                            top3_entries.append({
-                                "algo_data": algo_b64,
-                                "workspace": r.get("workspace", 0),
-                            })
-                    alg_by_m[str(M)] = top3_entries
+                    if "algo_data" in r:
+                        algo_b64 = base64.b64encode(r["algo_data"]).decode('ascii')
+                        alg_by_m[str(M)] = {
+                            "algo_data": algo_b64,
+                            "workspace": r.get("workspace", 0),
+                        }
         
         nk_entries[nk_key] = {
             "m_thresholds": m_thresholds,

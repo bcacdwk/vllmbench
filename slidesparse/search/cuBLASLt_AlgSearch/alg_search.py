@@ -40,7 +40,6 @@ from utils import (
     load_search_extension,
     # 模型 NK 工具
     get_nk_list_auto,
-    build_model_name_with_dtype,
     # 数据准备
     quantize_tensor,
     get_output_torch_dtype,
@@ -337,8 +336,8 @@ def main():
         args.dtype, args.outdtype, backend="cublaslt"
     )
     
-    # 构建模型名称
-    model_name = build_model_name_with_dtype(args.model.split('/')[-1], args.dtype)
+    # 模型名称（取最后一个路径分量）
+    model_name = args.model.split('/')[-1]
     
     # === 显示配置信息 ===
     print("=" * 60)

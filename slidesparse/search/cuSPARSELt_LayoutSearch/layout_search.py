@@ -45,7 +45,6 @@ from utils import (
     load_search_extension,
     # 模型工具
     get_nk_list_auto,
-    build_model_name_with_dtype,
     # 数据准备
     quantize_int8,
     to_fp8_e4m3,
@@ -446,7 +445,7 @@ def main():
         args.dtype, args.outdtype, backend="cusparselt"
     )
     
-    model_name = build_model_name_with_dtype(args.model.split('/')[-1], args.dtype)
+    model_name = args.model.split('/')[-1]
     
     test_segment_k = not args.no_segment_k
     
