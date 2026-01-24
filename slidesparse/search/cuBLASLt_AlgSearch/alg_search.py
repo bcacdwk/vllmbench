@@ -348,8 +348,8 @@ def main():
     print(f"参数: dtype={args.dtype}, outdtype={actual_outdtype}, warmup={args.warmup}, repeat={args.repeat}")
     print()
     
-    # 输出目录
-    out_dir = Path(args.out_dir) if args.out_dir else Path("./alg_search_results")
+    # 输出目录 (脚本所在目录下)
+    out_dir = Path(args.out_dir) if args.out_dir else SCRIPT_DIR / "alg_search_results"
     
     # 编译 CUDA 扩展
     print("[1/4] 编译 CUDA 扩展...")

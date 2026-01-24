@@ -15,82 +15,76 @@ def _get_config(M: int, K: int) -> tuple:
     """Returns (BLOCK_GROUPS, num_warps, num_stages)"""
     if K == 2048:
         if M <= 16:
-            return 512, 16, 3
+            return 256, 8, 1
         elif M <= 128:
-            return 128, 4, 1
+            return 64, 2, 2
         elif M <= 1024:
             return 512, 8, 2
         elif M <= 4096:
-            return 128, 4, 2
+            return 128, 2, 1
         else:
-            return 256, 8, 1
+            return 512, 8, 2
     elif K == 2752:
         if M <= 16:
             return 1024, 16, 2
         elif M <= 128:
-            return 512, 16, 3
-        elif M <= 1024:
-            return 512, 8, 2
-        elif M <= 4096:
-            return 256, 8, 2
+            return 128, 4, 3
         else:
-            return 256, 8, 3
-    elif K == 3072:
-        if M <= 16:
-            return 256, 8, 1
-        elif M <= 128:
-            return 64, 4, 2
-        elif M <= 1024:
             return 256, 8, 2
+    elif K == 3072:
+        if M <= 128:
+            return 128, 4, 3
         elif M <= 4096:
-            return 512, 8, 2
+            return 256, 8, 1
         else:
             return 512, 8, 3
     elif K == 3296:
-        if M <= 4096:
+        if M <= 16:
+            return 128, 4, 1
+        elif M <= 128:
+            return 256, 8, 1
+        elif M <= 4096:
             return 256, 8, 3
         else:
-            return 512, 8, 2
+            return 512, 16, 3
     elif K == 8192:
         if M <= 16:
-            return 256, 4, 1
+            return 512, 8, 2
         elif M <= 128:
-            return 1024, 8, 2
+            return 256, 8, 1
+        elif M <= 4096:
+            return 1024, 16, 2
+        else:
+            return 1024, 16, 3
+    elif K == 10944:
+        if M <= 16:
+            return 512, 16, 3
+        elif M <= 128:
+            return 128, 4, 1
         elif M <= 1024:
             return 1024, 16, 2
         elif M <= 4096:
-            return 1024, 16, 3
-        else:
-            return 512, 16, 2
-    elif K == 10944:
-        if M <= 128:
-            return 512, 8, 3
-        elif M <= 1024:
-            return 1024, 16, 2
-        else:
             return 256, 8, 3
+        else:
+            return 1024, 16, 3
     elif K == 12288:
         if M <= 16:
-            return 256, 8, 1
-        elif M <= 128:
-            return 256, 8, 3
-        elif M <= 1024:
-            return 512, 16, 3
-        elif M <= 4096:
             return 256, 8, 2
+        elif M <= 128:
+            return 512, 16, 3
+        elif M <= 1024:
+            return 512, 16, 2
         else:
             return 256, 8, 3
     elif K == 13120:
-        if M <= 16:
-            return 256, 8, 3
-        elif M <= 128:
-            return 512, 8, 3
+        if M <= 128:
+            return 256, 8, 2
         elif M <= 1024:
-            return 1024, 16, 3
+            return 1024, 16, 2
         elif M <= 4096:
-            return 256, 8, 3
-        else:
             return 256, 8, 1
+        else:
+            return 1024, 16, 2
     # Default fallback
     if K <= 4096:
         return 256, 8, 2

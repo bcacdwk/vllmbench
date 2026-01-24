@@ -655,7 +655,8 @@ def main():
     print(f"API 搜索对比: {'开启' if do_api_search else '关闭'}")
     print()
     
-    out_dir = Path(args.out_dir) if args.out_dir else Path("./alg_search_results")
+    # 输出目录 (脚本所在目录下)
+    out_dir = Path(args.out_dir) if args.out_dir else SCRIPT_DIR / "alg_search_results"
     
     print("[1/4] 编译 CUDA 扩展...")
     src_path = SCRIPT_DIR / "alg_search_cusparselt.cu"

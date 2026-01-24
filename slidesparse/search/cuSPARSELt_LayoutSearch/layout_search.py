@@ -458,7 +458,8 @@ def main():
     print(f"Segment-K 测试: {'开启' if test_segment_k else '关闭'}", flush=True)
     print(flush=True)
     
-    out_dir = Path(args.out_dir) if args.out_dir else Path("./layout_search_results")
+    # 输出目录 (脚本所在目录下)
+    out_dir = Path(args.out_dir) if args.out_dir else SCRIPT_DIR / "layout_search_results"
     
     print("[1/4] 编译 CUDA 扩展...", flush=True)
     src_path = SCRIPT_DIR / "layout_search_cusparselt.cu"

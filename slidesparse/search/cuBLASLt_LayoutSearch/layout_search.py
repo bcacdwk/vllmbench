@@ -324,7 +324,8 @@ def main():
     print(f"参数: dtype={args.dtype}, outdtype={actual_outdtype}", flush=True)
     print(flush=True)
     
-    out_dir = Path(args.out_dir) if args.out_dir else Path("./layout_search_results")
+    # 输出目录 (脚本所在目录下)
+    out_dir = Path(args.out_dir) if args.out_dir else SCRIPT_DIR / "layout_search_results"
     
     print("[1/4] 编译 CUDA 扩展...", flush=True)
     src_path = SCRIPT_DIR / "layout_search_cublaslt.cu"

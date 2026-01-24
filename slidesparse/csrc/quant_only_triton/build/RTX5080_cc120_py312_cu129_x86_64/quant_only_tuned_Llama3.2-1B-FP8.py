@@ -18,22 +18,22 @@ def _get_config(M: int, K: int) -> tuple:
         elif M <= 128:
             return 2048, 4, 4
         elif M <= 1024:
-            return 4096, 2, 2
+            return 8192, 4, 1
         elif M <= 4096:
             return 8192, 16, 1
         else:
-            return 8192, 2, 1
+            return 4096, 4, 3
     elif K == 8192:
         if M <= 16:
-            return 8192, 16, 3
+            return 8192, 32, 2
         elif M <= 128:
-            return 8192, 8, 2
+            return 8192, 16, 2
         elif M <= 1024:
             return 8192, 1, 1
         elif M <= 4096:
-            return 8192, 8, 2
+            return 8192, 8, 3
         else:
-            return 8192, 32, 4
+            return 8192, 32, 1
     # Default fallback
     if K <= 4096:
         return 4096, 8, 2

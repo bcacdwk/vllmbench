@@ -26,25 +26,25 @@ def _get_config(M: int, N: int) -> tuple:
         if M < 128:
             return 32, 128, 8, 3
         elif M < 1024:
-            return 32, 32, 4, 3
+            return 32, 32, 4, 2
         elif M < 4096:
-            return 64, 128, 8, 2
-        elif M < 16384:
-            return 32, 128, 2, 2
+            return 64, 128, 8, 3
         return 64, 256, 8, 3
     elif N == 3072:
         if M < 128:
             return 64, 64, 4, 3
         elif M < 1024:
-            return 32, 64, 8, 2
+            return 16, 64, 4, 2
         elif M < 4096:
-            return 64, 128, 8, 4
-        return 32, 256, 8, 3
+            return 64, 128, 8, 2
+        elif M < 16384:
+            return 32, 256, 8, 4
+        return 64, 256, 8, 3
     elif N == 16384:
         if M < 128:
-            return 32, 64, 4, 2
+            return 32, 64, 8, 3
         elif M < 1024:
-            return 128, 128, 16, 3
+            return 32, 128, 4, 2
         elif M < 4096:
             return 128, 128, 8, 3
         return 64, 256, 8, 3
