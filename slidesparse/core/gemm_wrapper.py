@@ -257,6 +257,17 @@ class AlgorithmConfigManager:
         """
         查找 cuBLASLt 最优配置
         
+        策略：使用 M_upper（大于等于 M 的最小阈值）的配置
+        
+        原因：cublasLtMatmulAlgo_t 中的 split_k 和 workspace 与 M 相关。
+        ws>0 的配置只能执行 M_exec <= M_from，因此必须用 M_upper 配置。
+        
+        区间划分（左开右闭）：
+          (0, M_list[0]]        -> M_list[0] 配置
+          (M_list[0], M_list[1]]-> M_list[1] 配置
+          ...
+          > M_list[-1]          -> fallback 到默认启发式
+        
         Args:
             N: 权重的 N 维度
             K: 内维度
@@ -282,11 +293,17 @@ class AlgorithmConfigManager:
         if nk_entry is None:
             return (None, 0)
         
-        # 二分查找 M 阈值
+        # 使用 M_upper 策略：找 M_upper = min{M_i ∈ thresholds | M_i >= M}
         thresholds = nk_entry["m_thresholds"]
-        idx = bisect.bisect_right(thresholds, M) - 1
-        if idx < 0:
-            idx = 0
+        idx = bisect.bisect_left(thresholds, M)
+        
+        # 如果 M 超过最大阈值，fallback 到默认启发式
+        if idx >= len(thresholds):
+            logger.warning(
+                f"cuBLASLt: M={M} exceeds max searched M={thresholds[-1]} for "
+                f"(N={N}, K={K}), falling back to default heuristic"
+            )
+            return (None, 0)
         
         m_key = str(thresholds[idx])
         algo_config = nk_entry["alg_by_m"].get(m_key)
@@ -302,6 +319,9 @@ class AlgorithmConfigManager:
     def lookup_cusparselt(self, N: int, K: int, M: int) -> Tuple[int, int, int]:
         """
         查找 cuSPARSELt 最优配置
+        
+        使用 M_upper 策略：找到 M_upper = min{M_i | M_i >= M}，使用该配置。
+        这确保 split_k > 1 的配置能够正确执行（workspace 足够）。
         
         Args:
             N: 权重的 N 维度
@@ -329,9 +349,16 @@ class AlgorithmConfigManager:
             return (-1, -1, 0)
         
         thresholds = nk_entry["m_thresholds"]
-        idx = bisect.bisect_right(thresholds, M) - 1
-        if idx < 0:
-            idx = 0
+        
+        # M_upper 策略：使用 bisect_left 找到第一个 >= M 的位置
+        # 这样保证 workspace 足够（split_k > 1 时 ws ≈ M * N * split_k * dtype_size）
+        idx = bisect.bisect_left(thresholds, M)
+        if idx >= len(thresholds):
+            # M 超过了所有离线搜索的 M 值，使用最大的配置
+            # 注意：如果最大配置使用 split_k > 1，可能无法执行
+            logger.warning(f"cuSPARSELt: M={M} exceeds max offline M={thresholds[-1]}, "
+                         f"using largest config (may fail if split_k > 1)")
+            idx = len(thresholds) - 1
         
         m_key = str(thresholds[idx])
         algo_config = nk_entry["alg_by_m"].get(m_key)
