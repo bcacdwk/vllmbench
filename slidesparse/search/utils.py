@@ -199,6 +199,57 @@ def get_output_torch_dtype(outdtype: str) -> torch.dtype:
         raise ValueError(f"不支持的输出类型: {outdtype}")
 
 
+def analyze_algo_structure(algo_data: bytes) -> dict:
+    """
+    详细分析 cublasLtMatmulAlgo_t 结构体（64 字节不透明数据）。
+    
+    根据 cuBLAS 文档和实验推断的字段布局：
+    - uint32[0] = alg_id (CUBLASLT_ALGO_CONFIG_ID)
+    - uint32[1] = tile_id (CUBLASLT_ALGO_CONFIG_TILE_ID)
+    - uint32[2] = stages_id (CUBLASLT_ALGO_CONFIG_STAGES_ID)
+    - uint32[3] = split_k_num (CUBLASLT_ALGO_CONFIG_SPLITK_NUM)
+    - uint32[4] = reduction_scheme (CUBLASLT_ALGO_CONFIG_REDUCTION_SCHEME)
+    - uint32[5] = cta_swizzle (CUBLASLT_ALGO_CONFIG_CTA_SWIZZLING)
+    - uint32[6:12] = custom options
+    
+    关键发现：
+    - 当 split_k_num > 1 时，算法需要 workspace 存储中间结果
+    - workspace 大小 ≈ M × N × split_k × dtype_size
+    
+    Args:
+        algo_data: 64 字节的不透明算法数据
+    
+    Returns:
+        dict 包含解析后的字段:
+            - raw_u32: 原始 16 个 uint32 值
+            - alg_id: 算法 ID
+            - tile_id: Tile 配置 ID
+            - stages_id: Pipeline stages ID
+            - split_k_num: Split-K 分割数（关键！）
+            - reduction_scheme: 规约方案 ID
+            - cta_swizzle: CTA 重排配置
+            - custom_opts: 自定义选项 (uint32[6:12])
+    """
+    import struct
+    
+    if len(algo_data) < 64:
+        # 补齐到 64 字节
+        algo_data = algo_data + b'\x00' * (64 - len(algo_data))
+    
+    u32 = struct.unpack("<16I", algo_data)
+    
+    return {
+        "raw_u32": u32,
+        "alg_id": u32[0],
+        "tile_id": u32[1],
+        "stages_id": u32[2],
+        "split_k_num": u32[3],  # 关键！
+        "reduction_scheme": u32[4],  # 关键！
+        "cta_swizzle": u32[5],
+        "custom_opts": u32[6:12],
+    }
+
+
 # =============================================================================
 # 支持的数据类型
 # =============================================================================
@@ -849,6 +900,8 @@ __all__ = [
     "to_fp8_e4m3",
     "quantize_tensor",
     "get_output_torch_dtype",
+    # algo_data 解析
+    "analyze_algo_structure",
     # 结果保存
     "save_alg_search_results",
     "save_layout_search_results",
@@ -929,11 +982,8 @@ def save_alg_search_results(
     
     csv_lines = list(header_lines)
     
-    # 根据是否有 split_k 决定列格式
-    if has_split_k:
-        csv_lines.append("M,N,K,alg_count,config_count,tops1,lat_us1,id1,sk1,ws1,tops2,lat_us2,id2,sk2,ws2,tops3,lat_us3,id3,sk3,ws3")
-    else:
-        csv_lines.append("M,N,K,alg_count,config_count,tops1,lat_us1,id1,ws1,waves1,tops2,lat_us2,id2,ws2,waves2,tops3,lat_us3,id3,ws3,waves3")
+    # 统一列格式: tops, lat_us, alg_id, split_k, workspace (top3)
+    csv_lines.append("M,N,K,alg_count,config_count,tops_1,lat_us_1,alg_id_1,split_k_1,workspace_1,tops_2,lat_us_2,alg_id_2,split_k_2,workspace_2,tops_3,lat_us_3,alg_id_3,split_k_3,workspace_3")
     
     csv_rows = []
     
@@ -949,22 +999,27 @@ def save_alg_search_results(
             for k in range(3):
                 if k < len(results):
                     r = results[k]
+                    # 统一获取 split_k：
+                    # - cuSPARSELt (has_split_k=True): 直接使用 r['split_k']
+                    # - cuBLASLt (has_split_k=False): 从 algo_data 解析
                     if has_split_k:
-                        values.extend([
-                            f"{r['tops']:.6f}",
-                            f"{r['lat_us']:.3f}",
-                            str(r['alg_id']),
-                            str(r.get('split_k', 1)),
-                            str(r['workspace']),
-                        ])
+                        split_k = r.get('split_k', 1)
                     else:
-                        values.extend([
-                            f"{r['tops']:.6f}",
-                            f"{r['lat_us']:.3f}",
-                            str(r['alg_id']),
-                            str(r['workspace']),
-                            f"{r.get('waves_count', 0):.4f}",
-                        ])
+                        # cuBLASLt: 从 algo_data 解析 split_k_num
+                        algo_data = r.get('algo_data')
+                        if algo_data:
+                            algo_info = analyze_algo_structure(algo_data)
+                            split_k = algo_info['split_k_num']
+                        else:
+                            split_k = 1
+                    
+                    values.extend([
+                        f"{r['tops']:.6f}",
+                        f"{r['lat_us']:.3f}",
+                        str(r['alg_id']),
+                        str(split_k),
+                        str(r['workspace']),
+                    ])
                 else:
                     values.extend(["", "", "", "", ""])
             
@@ -1105,11 +1160,8 @@ def save_layout_search_results(
     
     csv_lines = list(header_lines)
     
-    # CSV 列格式：根据是否稀疏决定是否包含 split_k
-    if is_sparse:
-        csv_lines.append("M,N,K,layout,tops,lat_us,best_alg_id,best_split_k,workspace")
-    else:
-        csv_lines.append("M,N,K,layout,tops,lat_us,best_alg_id,workspace,waves_count")
+    # CSV 列格式：统一使用 tops, lat_us, alg_id, split_k, workspace
+    csv_lines.append("M,N,K,layout,tops,lat_us,alg_id,split_k,workspace")
     
     csv_rows = []
     
@@ -1125,26 +1177,15 @@ def save_layout_search_results(
                 if not r.get("valid", False):
                     continue
                 
-                if is_sparse:
-                    values = [
-                        str(M), str(N), str(K),
-                        r["layout_name"],
-                        f"{r['tops']:.6f}",
-                        f"{r['lat_us']:.3f}",
-                        str(r.get("best_alg_id", -1)),
-                        str(r.get("best_split_k", 1)),
-                        str(r.get("workspace", 0)),
-                    ]
-                else:
-                    values = [
-                        str(M), str(N), str(K),
-                        r["layout_name"],
-                        f"{r['tops']:.6f}",
-                        f"{r['lat_us']:.3f}",
-                        str(r.get("best_alg_id", -1)),
-                        str(r.get("workspace", 0)),
-                        f"{r.get('waves_count', 0.0):.4f}",
-                    ]
+                values = [
+                    str(M), str(N), str(K),
+                    r["layout_name"],
+                    f"{r['tops']:.6f}",
+                    f"{r['lat_us']:.3f}",
+                    str(r.get("alg_id", -1)),
+                    str(r.get("split_k", 1)),
+                    str(r.get("workspace", 0)),
+                ]
                 csv_rows.append((M, N, K, r["layout_name"], ",".join(values)))
     
     # 排序：先按 M 升序，再按 N, K 升序，最后按 layout_name
@@ -1174,17 +1215,14 @@ def save_layout_search_results(
                     continue
                 
                 layout_name = r["layout_name"]
+                
                 m_results[layout_name] = {
                     "tops": r["tops"],
                     "lat_us": r["lat_us"],
-                    "best_alg_id": r.get("best_alg_id", -1),
+                    "alg_id": r.get("alg_id", -1),
+                    "split_k": r.get("split_k", 1),
                     "workspace": r.get("workspace", 0),
                 }
-                
-                if is_sparse:
-                    m_results[layout_name]["best_split_k"] = r.get("best_split_k", 1)
-                else:
-                    m_results[layout_name]["waves_count"] = r.get("waves_count", 0.0)
             
             json_results[nk_key][str(M)] = m_results
     

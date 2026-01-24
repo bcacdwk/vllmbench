@@ -1062,6 +1062,56 @@ int cusparselt_search_single_m(
         }
     }
     
+    // === 使用最优算法重新执行一次 matmul，以便 Python 端验证 ===
+    // 这解决了 R_ptr 被多次覆盖导致验证失败的问题
+    if (!records.empty()) {
+        const AlgRecord& best = records[0];
+        
+        // 重新创建 plan 并压缩
+        cusparseLtMatmulAlgSelection_t alg_sel_verify;
+        cusparseStatus_t sel_st = cusparseLtMatmulAlgSelectionInit(
+            &g_handle, &alg_sel_verify, &matmul, CUSPARSELT_MATMUL_ALG_DEFAULT);
+        
+        if (sel_st == CUSPARSE_STATUS_SUCCESS) {
+            cusparseLtMatmulAlgSetAttribute(
+                &g_handle, &alg_sel_verify, CUSPARSELT_MATMUL_ALG_CONFIG_ID,
+                &best.alg_id, sizeof(best.alg_id));
+            cusparseLtMatmulAlgSetAttribute(
+                &g_handle, &alg_sel_verify, CUSPARSELT_MATMUL_SPLIT_K,
+                &best.split_k, sizeof(best.split_k));
+            
+            cusparseLtMatmulPlan_t plan_verify;
+            cusparseStatus_t plan_st = cusparseLtMatmulPlanInit(
+                &g_handle, &plan_verify, &matmul, &alg_sel_verify);
+            
+            if (plan_st == CUSPARSE_STATUS_SUCCESS) {
+                // 压缩权重
+                size_t comp_size = 0, comp_buf_size = 0;
+                cusparseLtSpMMACompressedSize(&g_handle, &plan_verify, &comp_size, &comp_buf_size);
+                
+                void* W_comp_verify = nullptr;
+                void* comp_buf_verify = nullptr;
+                cudaMalloc(&W_comp_verify, comp_size);
+                if (comp_buf_size > 0) cudaMalloc(&comp_buf_verify, comp_buf_size);
+                
+                cusparseStatus_t compress_st = cusparseLtSpMMACompress(
+                    &g_handle, &plan_verify, W_pruned_ptr, W_comp_verify, comp_buf_verify, cu_stream);
+                
+                if (compress_st == CUSPARSE_STATUS_SUCCESS) {
+                    // 执行一次 matmul 写入 R_ptr
+                    cusparseLtMatmul(&g_handle, &plan_verify, &alpha, W_comp_verify, A_ptr,
+                                     &beta, R_ptr, R_ptr, shared_workspace, &cu_stream, 1);
+                    cudaStreamSynchronize(cu_stream);
+                }
+                
+                if (W_comp_verify) cudaFree(W_comp_verify);
+                if (comp_buf_verify) cudaFree(comp_buf_verify);
+                cusparseLtMatmulPlanDestroy(&plan_verify);
+            }
+            cusparseLtMatmulAlgSelectionDestroy(&alg_sel_verify);
+        }
+    }
+    
     // 清理
     cudaFree(shared_workspace);
     cusparseLtMatDescriptorDestroy(&matW);

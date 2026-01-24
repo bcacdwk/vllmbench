@@ -59,27 +59,6 @@
 #include <tuple>
 
 // ============================================================================
-// 调试工具
-// ============================================================================
-
-static bool debug_enabled() {
-    static bool flag = []() {
-        const char* env = std::getenv("CUSPARSELT_GEMM_DEBUG");
-        return env && std::strcmp(env, "1") == 0;
-    }();
-    return flag;
-}
-
-#define DEBUG_LOG(msg)                                                         \
-    do {                                                                       \
-        if (debug_enabled()) {                                                 \
-            std::ostringstream oss;                                            \
-            oss << "[cuSPARSELt-GEMM] " << msg << std::endl;                    \
-            std::cerr << oss.str();                                            \
-        }                                                                      \
-    } while (0)
-
-// ============================================================================
 // 错误检查宏
 // ============================================================================
 
@@ -222,14 +201,12 @@ static cusparseLtHandle_t get_cusparselt_handle() {
                     std::to_string(static_cast<int>(status)));
             }
             g_cusparselt_initialized = true;
-            DEBUG_LOG("cuSPARSELt handle initialized");
             
             // 注册程序退出时的清理函数
             std::atexit([]() {
                 if (g_cusparselt_initialized) {
                     cusparseLtDestroy(&g_cusparselt_handle);
                     g_cusparselt_initialized = false;
-                    DEBUG_LOG("cuSPARSELt handle destroyed");
                 }
             });
         }
@@ -289,7 +266,6 @@ static void cleanup_all_plans() {
         destroy_plan(kv.second);
     }
     g_plan_cache.clear();
-    DEBUG_LOG("All plans cleaned up");
 }
 
 // ============================================================================
@@ -322,7 +298,6 @@ static void* get_workspace(size_t required_size) {
                 std::string(cudaGetErrorString(err)));
         }
         t_workspace_size = alloc_size;
-        DEBUG_LOG("Allocated workspace: " << alloc_size << " bytes");
     }
     
     return t_workspace;
@@ -368,8 +343,6 @@ static PlanContext& get_or_create_plan(
     
     auto it = g_plan_cache.find(key);
     if (it != g_plan_cache.end()) {
-        DEBUG_LOG("Plan cache hit: M=" << M << " N=" << N << " K=" << K
-                  << " alg_id=" << alg_id << " split_k=" << split_k);
         return it->second;
     }
     
@@ -378,10 +351,6 @@ static PlanContext& get_or_create_plan(
         std::atexit(cleanup_all_plans);
         g_cleanup_registered = true;
     }
-    
-    DEBUG_LOG("Creating plan: M=" << M << " N=" << N << " K=" << K
-              << " input=" << input_dtype << " inner=" << inner_dtype
-              << " alg_id=" << alg_id << " split_k=" << split_k);
     
     auto [iter, inserted] = g_plan_cache.try_emplace(key);
     PlanContext& ctx = iter->second;
@@ -430,7 +399,6 @@ static PlanContext& get_or_create_plan(
             alignment, cuda_input_dtype, order_col,
             CUSPARSELT_SPARSITY_50_PERCENT));
         matW_ok = true;
-        DEBUG_LOG("  matW (sparse): [" << num_W_rows << "," << num_W_cols << "] ld=" << ldW);
         
         // A: 稠密激活，Col-Major [K,M]
         CHECK_CUSPARSE(cusparseLtDenseDescriptorInit(
@@ -438,7 +406,6 @@ static PlanContext& get_or_create_plan(
             num_A_rows, num_A_cols, ldA,
             alignment, cuda_input_dtype, order_col));
         matA_ok = true;
-        DEBUG_LOG("  matA (dense): [" << num_A_rows << "," << num_A_cols << "] ld=" << ldA);
         
         // D: 输出，Col-Major [N,M]
         CHECK_CUSPARSE(cusparseLtDenseDescriptorInit(
@@ -446,7 +413,6 @@ static PlanContext& get_or_create_plan(
             num_D_rows, num_D_cols, ldD,
             alignment, cuda_inner_dtype, order_col));
         matD_ok = true;
-        DEBUG_LOG("  matD (output): [" << num_D_rows << "," << num_D_cols << "] ld=" << ldD);
         
         // 矩阵乘描述符：D = op(W) × op(A) = W^T × A
         CHECK_CUSPARSE(cusparseLtMatmulDescriptorInit(
@@ -454,7 +420,6 @@ static PlanContext& get_or_create_plan(
             opW, opA,
             &ctx.matW, &ctx.matA, &ctx.matD, &ctx.matD,
             compute_type));
-        DEBUG_LOG("  matmul descriptor created, compute_type=" << static_cast<int>(compute_type));
         
         // 算法选择（初始化为默认算法）
         CHECK_CUSPARSE(cusparseLtMatmulAlgSelectionInit(
@@ -467,9 +432,6 @@ static PlanContext& get_or_create_plan(
                 &handle, &ctx.alg,
                 CUSPARSELT_MATMUL_ALG_CONFIG_ID,
                 &alg_id, sizeof(alg_id)));
-            DEBUG_LOG("  algorithm selection: alg_id=" << alg_id);
-        } else {
-            DEBUG_LOG("  algorithm selection: using default");
         }
         
         // 如果指定了 split_k，设置它
@@ -483,7 +445,6 @@ static PlanContext& get_or_create_plan(
                 &handle, &ctx.alg,
                 CUSPARSELT_MATMUL_SPLIT_K_BUFFERS,
                 &split_k, sizeof(split_k)));
-            DEBUG_LOG("  split_k enabled: mode=1, buffers=" << split_k);
         }
         alg_ok = true;
         
@@ -491,7 +452,6 @@ static PlanContext& get_or_create_plan(
         CHECK_CUSPARSE(cusparseLtMatmulPlanInit(
             &handle, &ctx.plan, &ctx.matmul, &ctx.alg));
         plan_ok = true;
-        DEBUG_LOG("  plan initialized");
         
         // 查询 workspace 大小
         ctx.workspace_size = 0;
@@ -501,7 +461,6 @@ static PlanContext& get_or_create_plan(
             ws_status != CUSPARSE_STATUS_NOT_SUPPORTED) {
             CHECK_CUSPARSE(ws_status);
         }
-        DEBUG_LOG("  workspace_size=" << ctx.workspace_size);
         
         ctx.initialized = true;
         return ctx;
@@ -550,10 +509,6 @@ static void cusparselt_mm_impl(
     int split_k,
     cudaStream_t stream)
 {
-    DEBUG_LOG("cusparselt_mm_impl: M=" << M << " N=" << N << " K=" << K
-              << " input=" << input_dtype << " inner=" << inner_dtype
-              << " alg_id=" << alg_id << " split_k=" << split_k);
-    
     // 获取句柄和计划
     cusparseLtHandle_t handle = get_cusparselt_handle();
     PlanContext& ctx = get_or_create_plan(handle, M, N, K, input_dtype, inner_dtype,
@@ -591,8 +546,6 @@ static void cusparselt_mm_impl(
         workspace,
         stream ? &stream : nullptr,
         stream ? 1 : 0));
-    
-    DEBUG_LOG("cusparselt_mm_impl completed");
 }
 
 // =============================================================================

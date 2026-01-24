@@ -312,8 +312,8 @@ def search_single_nk(
             "lat_us": out_lat_us[i],
             "tops": out_tops[i],
             "workspace": out_workspace[i],
-            "best_alg_id": out_best_alg_id[i],
-            "best_split_k": out_best_split_k[i],
+            "alg_id": out_best_alg_id[i],
+            "split_k": out_best_split_k[i],
             "alg_count": out_alg_count[i],
             "config_count": out_config_count[i],
             "valid": bool(out_valid[i]),
@@ -391,7 +391,7 @@ def run_search(
                 print(f"      有效布局 ({len(valid_layouts)}/{NUM_LAYOUTS}):", flush=True)
                 for r in first_result["results"]:
                     if r["valid"]:
-                        print(f"        {r['layout_name']:15} | {r['lat_us']:8.2f} us | {r['tops']:6.2f} TOPS | alg={r['best_alg_id']}, split_k={r['best_split_k']}", flush=True)
+                        print(f"        {r['layout_name']:15} | {r['lat_us']:8.2f} us | {r['tops']:6.2f} TOPS | alg={r['alg_id']}, split_k={r['split_k']}", flush=True)
             else:
                 print(f"      → 无有效布局", flush=True)
         

@@ -202,7 +202,7 @@ struct LayoutResult {
     float tops;                 // 吞吐量 (TOPS)
     int best_alg_id;            // 最佳算法 ID
     int64_t workspace;          // workspace 大小
-    float waves_count;          // wave count
+    int split_k;                // split_k 参数
     uint8_t algo_data[64];      // 算法序列化数据
     uint8_t valid;              // 是否有效
 };
@@ -350,7 +350,7 @@ static int test_single_layout(
     // 遍历所有算法找到最优的
     float best_lat_us = 1e12f;
     int best_algo_idx = -1;
-    float best_waves_count = 0.0f;
+    int best_split_k = 1;
     size_t best_ws_size = 0;
     
     cudaEvent_t start, stop;
@@ -408,8 +408,12 @@ static int test_single_layout(
         if (lat_us < best_lat_us) {
             best_lat_us = lat_us;
             best_algo_idx = alg_idx;
-            best_waves_count = heurResult[alg_idx].wavesCount;
             best_ws_size = ws_size;
+            // 获取 split_k 参数
+            int splitK = 1;
+            cublasLtMatmulAlgoConfigGetAttribute(&algo, CUBLASLT_ALGO_CONFIG_SPLITK_NUM,
+                                                  &splitK, sizeof(splitK), nullptr);
+            best_split_k = splitK;
         }
     }
     
@@ -438,7 +442,7 @@ static int test_single_layout(
     result->tops = tops;
     result->best_alg_id = algo_id;
     result->workspace = (int64_t)best_ws_size;
-    result->waves_count = best_waves_count;
+    result->split_k = best_split_k;
     memcpy(result->algo_data, &heurResult[best_algo_idx].algo, 
            sizeof(cublasLtMatmulAlgo_t) < 64 ? sizeof(cublasLtMatmulAlgo_t) : 64);
     result->valid = 1;
@@ -480,7 +484,7 @@ extern "C" {
  * @param out_tops           吞吐量 (TOPS)
  * @param out_workspace      workspace 大小
  * @param out_best_alg_id    最佳算法 ID
- * @param out_waves_count    GPU 利用率 (waves count)
+ * @param out_split_k        split_k 参数
  * @param out_valid          是否有效
  * @param out_num_valid      有效布局数量
  * @param stream             CUDA 流 (可为 nullptr)
@@ -499,7 +503,7 @@ int cublaslt_layout_search_single(
     float* out_tops,
     int64_t* out_workspace,
     int* out_best_alg_id,
-    float* out_waves_count,
+    int* out_split_k,
     uint8_t* out_valid,
     int* out_num_valid,
     void* stream)
@@ -535,7 +539,7 @@ int cublaslt_layout_search_single(
         out_tops[i] = result.tops;
         out_workspace[i] = result.workspace;
         out_best_alg_id[i] = result.best_alg_id;
-        out_waves_count[i] = result.waves_count;
+        out_split_k[i] = result.split_k;
         out_valid[i] = result.valid;
         
         if (result.valid) {

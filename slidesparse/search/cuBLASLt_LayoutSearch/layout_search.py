@@ -106,7 +106,7 @@ def setup_lib_signatures(lib: ctypes.CDLL) -> None:
         ctypes.POINTER(ctypes.c_float),      # out_tops
         ctypes.POINTER(ctypes.c_int64),      # out_workspace
         ctypes.POINTER(ctypes.c_int),        # out_best_alg_id
-        ctypes.POINTER(ctypes.c_float),      # out_waves_count
+        ctypes.POINTER(ctypes.c_int),        # out_split_k
         ctypes.POINTER(ctypes.c_uint8),      # out_valid
         ctypes.POINTER(ctypes.c_int),        # out_num_valid
         ctypes.c_void_p,   # stream
@@ -153,7 +153,7 @@ def search_single_nk(
     out_tops = (ctypes.c_float * NUM_LAYOUTS)()
     out_workspace = (ctypes.c_int64 * NUM_LAYOUTS)()
     out_best_alg_id = (ctypes.c_int * NUM_LAYOUTS)()
-    out_waves_count = (ctypes.c_float * NUM_LAYOUTS)()
+    out_split_k = (ctypes.c_int * NUM_LAYOUTS)()
     out_valid = (ctypes.c_uint8 * NUM_LAYOUTS)()
     out_num_valid = ctypes.c_int(0)
     
@@ -173,7 +173,7 @@ def search_single_nk(
         out_tops,
         out_workspace,
         out_best_alg_id,
-        out_waves_count,
+        out_split_k,
         out_valid,
         ctypes.byref(out_num_valid),
         None,
@@ -195,8 +195,8 @@ def search_single_nk(
             "lat_us": out_lat_us[i],
             "tops": out_tops[i],
             "workspace": out_workspace[i],
-            "best_alg_id": out_best_alg_id[i],
-            "waves_count": out_waves_count[i],
+            "alg_id": out_best_alg_id[i],
+            "split_k": out_split_k[i],
             "valid": bool(out_valid[i]),
         })
     
@@ -263,7 +263,7 @@ def run_search(
                 print(f"      有效布局 ({len(valid_layouts)}/{NUM_LAYOUTS}):", flush=True)
                 for r in first_result["results"]:
                     if r["valid"]:
-                        print(f"        {r['layout_name']:15} | {r['lat_us']:8.2f} us | {r['tops']:6.2f} TOPS | alg={r['best_alg_id']}", flush=True)
+                        print(f"        {r['layout_name']:15} | {r['lat_us']:8.2f} us | {r['tops']:6.2f} TOPS | alg={r['alg_id']} sk={r['split_k']}", flush=True)
             else:
                 print(f"      → 无有效布局", flush=True)
         

@@ -164,8 +164,8 @@ def prepare_and_prune_weight(
     else:
         raise ValueError(f"不支持的数据类型: {dtype}")
     
-    # 转置为 K x N (列主序存储)
-    W_t = W_q.t().contiguous()
+    # 转置为 K x N (列主序存储)。保持转置视图的列主序 stride，避免 contiguous 破坏布局
+    W_t = W_q.t()
     
     # Prune 2:4
     W_pruned = torch.empty_like(W_t)
@@ -229,7 +229,7 @@ def prepare_activation(
         raise ValueError(f"不支持的数据类型: {dtype}")
     
     # 转置为 K x M (列主序)
-    A_transposed = A_q.t().contiguous()
+    A_transposed = A_q.t()
     
     return A_transposed, A_q
 
@@ -365,8 +365,9 @@ def search_single_nk(
     """搜索单个 (N, K, M) 组合的最佳算法"""
     # 分配输出缓冲
     R_torch_dtype = get_output_torch_dtype(outdtype)
-    # Column Major [N, M] 在 PyTorch Row Major 中存储为 [M, N]
-    R_out = torch.zeros(M, N, dtype=R_torch_dtype, device=A_transposed.device)
+    # Column Major [N, M]：直接用列主序 stride 分配，避免行主序写入错位
+    R_out = torch.empty_strided((N, M), (1, N), dtype=R_torch_dtype, device=A_transposed.device)
+    R_out.zero_()
     
     # 分配输出数组
     out_alg_ids = (ctypes.c_int * topk)()
@@ -445,7 +446,8 @@ def search_single_nk(
             A_q=A_q_for_verify,
             R_out=R_out,
             M=M,
-            is_col_major=True,  # cuSPARSELt AlgSearch 固定使用 Column Major
+            # R_out 已按列主序 stride 分配为 [N, M]，直接与参考对齐
+            is_col_major=False,
         )
         if verify_result["critical"]:
             print(f"    [CRITICAL] M={M}: {verify_result['message']}")
@@ -524,7 +526,7 @@ def run_search(
         
         for M in m_list:
             # 切片 (A_transposed 是 K x M_max, 切片得到 K x M)
-            A_slice = A_transposed[:, :M].contiguous()
+            A_slice = A_transposed[:, :M]
             # verify 用的 A_q 切片 (M, K) -> (M_slice, K)
             A_q_slice = A_q[:M, :].contiguous() if verify else None
             

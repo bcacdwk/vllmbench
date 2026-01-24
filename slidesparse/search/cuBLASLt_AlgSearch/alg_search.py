@@ -105,8 +105,8 @@ def setup_lib_signatures(lib: ctypes.CDLL) -> None:
 def search_single_nk(
     lib: ctypes.CDLL,
     N: int, K: int, M: int,
-    W_q: torch.Tensor,
-    A_q: torch.Tensor,
+    W_q_col: torch.Tensor,
+    A_q_col: torch.Tensor,
     dtype: str,
     outdtype: str,
     warmup: int,
@@ -119,10 +119,10 @@ def search_single_nk(
     """
     搜索单个 (N, K, M) 组合的最佳算法。
     """
-    # 分配输出缓冲
+    # 分配输出缓冲：直接按列主序 stride 分配 [N, M]，避免行主序写入错位
     R_torch_dtype = get_output_torch_dtype(outdtype)
-    # Column Major [N, M] 在 PyTorch Row Major 中存储为 [M, N]
-    R_out = torch.zeros(M, N, dtype=R_torch_dtype, device=W_q.device)
+    R_out = torch.empty_strided((N, M), (1, N), dtype=R_torch_dtype, device=W_q_col.device)
+    R_out.zero_()
     
     # 分配输出数组
     out_alg_ids = (ctypes.c_int * topk)()
@@ -137,8 +137,8 @@ def search_single_nk(
     
     # 调用 C 函数
     ret = lib.cublaslt_search_single_m(
-        W_q.data_ptr(),
-        A_q.data_ptr(),
+        W_q_col.data_ptr(),
+        A_q_col.data_ptr(),
         R_out.data_ptr(),
         N, K, M,
         dtype.encode(),
@@ -184,7 +184,8 @@ def search_single_nk(
             A_q=A_q_for_verify,
             R_out=R_out,
             M=M,
-            is_col_major=True,  # cuBLASLt AlgSearch 固定使用 Column Major
+            # R_out 已按列主序 stride 分配为 [N, M]，直接与参考对齐
+            is_col_major=False,
         )
         if verify_result["critical"]:
             print(f"    [CRITICAL] M={M}: {verify_result['message']}")
@@ -231,9 +232,11 @@ def run_search(
         W = torch.randn(N, K, device="cuda", dtype=torch.bfloat16)
         A = torch.randn(max_M, K, device="cuda", dtype=torch.bfloat16)
         
-        # 量化
+        # 量化 (行主序)。随后通过转置视图提供列主序给 cuBLASLt
         W_q = quantize_tensor(W, dtype)
         A_q = quantize_tensor(A, dtype)
+        W_q_col = W_q.t()          # [K, N], stride (1, K) 列主序
+        A_q_col = A_q.t()          # [K, Mmax], stride (1, K) 列主序
         
         nk_results = {
             "nk_id": nk_id,
@@ -243,14 +246,14 @@ def run_search(
         }
         
         for M in m_list:
-            # 切片
-            A_slice = A_q[:M].contiguous()
-            # verify 用的 A_q 切片
-            A_q_slice = A_slice if verify else None
+            # 列主序切片供 CUDA 使用；保持转置视图的列主序 stride
+            A_slice_col = A_q_col[:, :M]
+            # verify 用的行主序切片 (M, K)
+            A_q_slice = A_q[:M].contiguous() if verify else None
             
             out = search_single_nk(
                 lib, N, K, M,
-                W_q, A_slice,
+                W_q_col, A_slice_col,
                 dtype, outdtype,
                 warmup, repeat, topk,
                 verify=verify,
