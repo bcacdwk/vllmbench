@@ -241,17 +241,19 @@ static cusparseLtHandle_t get_cusparselt_handle() {
 // 计划缓存管理
 // ============================================================================
 // cuSPARSELt 计划创建开销很大，必须缓存以获得最佳性能
-// 缓存 key 由 (M, N, K, dtype_id) 组成
+// 缓存 key 由 (M, N, K, dtype_id, alg_id, split_k) 组成
 
 struct PlanKey {
     int64_t M;          // 激活行数
     int64_t N;          // 权重行数 (out_features)
     int64_t K;          // 内维度 (in_features, slide 后)
     int dtype_id;       // 数据类型组合 ID
+    int alg_id;         // 算法 ID（-1 表示使用默认）
+    int split_k;        // split_k 设置（-1 表示不设置）
     
     bool operator<(const PlanKey& other) const {
-        return std::tie(M, N, K, dtype_id) < 
-               std::tie(other.M, other.N, other.K, other.dtype_id);
+        return std::tie(M, N, K, dtype_id, alg_id, split_k) < 
+               std::tie(other.M, other.N, other.K, other.dtype_id, other.alg_id, other.split_k);
     }
 };
 
@@ -342,12 +344,17 @@ static void* get_workspace(size_t required_size) {
  * - matW: StructuredDescriptor, rows=K, cols=N, ld=K (列主序视角)
  * - matA: DenseDescriptor, rows=K, cols=M, ld=K (列主序视角)
  * - matD: DenseDescriptor, rows=N, cols=M, ld=N (列主序视角)
+ * 
+ * @param alg_id   算法 ID，-1 表示使用默认算法
+ * @param split_k  split_k 设置，-1 表示不设置
  */
 static PlanContext& get_or_create_plan(
     cusparseLtHandle_t handle,
     int64_t M, int64_t N, int64_t K,
     const std::string& input_dtype,
-    const std::string& inner_dtype)
+    const std::string& inner_dtype,
+    int alg_id,
+    int split_k)
 {
     int dtype_id = get_dtype_id(input_dtype, inner_dtype);
     if (dtype_id < 0) {
@@ -355,13 +362,14 @@ static PlanContext& get_or_create_plan(
             "Invalid dtype combination: " + input_dtype + ", " + inner_dtype);
     }
     
-    PlanKey key{M, N, K, dtype_id};
+    PlanKey key{M, N, K, dtype_id, alg_id, split_k};
     
     std::lock_guard<std::mutex> lock(g_plan_mutex);
     
     auto it = g_plan_cache.find(key);
     if (it != g_plan_cache.end()) {
-        DEBUG_LOG("Plan cache hit: M=" << M << " N=" << N << " K=" << K);
+        DEBUG_LOG("Plan cache hit: M=" << M << " N=" << N << " K=" << K
+                  << " alg_id=" << alg_id << " split_k=" << split_k);
         return it->second;
     }
     
@@ -372,7 +380,8 @@ static PlanContext& get_or_create_plan(
     }
     
     DEBUG_LOG("Creating plan: M=" << M << " N=" << N << " K=" << K
-              << " input=" << input_dtype << " inner=" << inner_dtype);
+              << " input=" << input_dtype << " inner=" << inner_dtype
+              << " alg_id=" << alg_id << " split_k=" << split_k);
     
     auto [iter, inserted] = g_plan_cache.try_emplace(key);
     PlanContext& ctx = iter->second;
@@ -447,19 +456,36 @@ static PlanContext& get_or_create_plan(
             compute_type));
         DEBUG_LOG("  matmul descriptor created, compute_type=" << static_cast<int>(compute_type));
         
-        // 算法选择（使用默认算法）
+        // 算法选择（初始化为默认算法）
         CHECK_CUSPARSE(cusparseLtMatmulAlgSelectionInit(
             &handle, &ctx.alg, &ctx.matmul,
             CUSPARSELT_MATMUL_ALG_DEFAULT));
         
-        // 可以设置固定算法 ID（如果需要）
-        int alg_id = 0;
-        CHECK_CUSPARSE(cusparseLtMatmulAlgSetAttribute(
-            &handle, &ctx.alg,
-            CUSPARSELT_MATMUL_ALG_CONFIG_ID,
-            &alg_id, sizeof(alg_id)));
+        // 如果指定了 alg_id，设置它
+        if (alg_id >= 0) {
+            CHECK_CUSPARSE(cusparseLtMatmulAlgSetAttribute(
+                &handle, &ctx.alg,
+                CUSPARSELT_MATMUL_ALG_CONFIG_ID,
+                &alg_id, sizeof(alg_id)));
+            DEBUG_LOG("  algorithm selection: alg_id=" << alg_id);
+        } else {
+            DEBUG_LOG("  algorithm selection: using default");
+        }
+        
+        // 如果指定了 split_k，设置它
+        if (split_k > 0) {
+            int split_k_mode = 1;  // CUSPARSELT_SPLIT_K_MODE_ONE_KERNEL
+            CHECK_CUSPARSE(cusparseLtMatmulAlgSetAttribute(
+                &handle, &ctx.alg,
+                CUSPARSELT_MATMUL_SPLIT_K_MODE,
+                &split_k_mode, sizeof(split_k_mode)));
+            CHECK_CUSPARSE(cusparseLtMatmulAlgSetAttribute(
+                &handle, &ctx.alg,
+                CUSPARSELT_MATMUL_SPLIT_K_BUFFERS,
+                &split_k, sizeof(split_k)));
+            DEBUG_LOG("  split_k enabled: mode=1, buffers=" << split_k);
+        }
         alg_ok = true;
-        DEBUG_LOG("  algorithm selection initialized (alg_id=" << alg_id << ")");
         
         // 初始化计划
         CHECK_CUSPARSE(cusparseLtMatmulPlanInit(
@@ -509,6 +535,8 @@ static PlanContext& get_or_create_plan(
  * @param K                 内维度（slide 后的 K'）
  * @param input_dtype       输入数据类型字符串："fp8e4m3" 或 "int8"
  * @param inner_dtype       输出数据类型字符串："bf16" 或 "fp32"
+ * @param alg_id            算法 ID，-1 表示使用默认算法
+ * @param split_k           split_k 设置，-1 表示不设置
  * @param stream            CUDA 流（可为 nullptr 使用默认流）
  */
 static void cusparselt_mm_impl(
@@ -518,14 +546,18 @@ static void cusparselt_mm_impl(
     int64_t M, int64_t N, int64_t K,
     const std::string& input_dtype,
     const std::string& inner_dtype,
+    int alg_id,
+    int split_k,
     cudaStream_t stream)
 {
     DEBUG_LOG("cusparselt_mm_impl: M=" << M << " N=" << N << " K=" << K
-              << " input=" << input_dtype << " inner=" << inner_dtype);
+              << " input=" << input_dtype << " inner=" << inner_dtype
+              << " alg_id=" << alg_id << " split_k=" << split_k);
     
     // 获取句柄和计划
     cusparseLtHandle_t handle = get_cusparselt_handle();
-    PlanContext& ctx = get_or_create_plan(handle, M, N, K, input_dtype, inner_dtype);
+    PlanContext& ctx = get_or_create_plan(handle, M, N, K, input_dtype, inner_dtype,
+                                          alg_id, split_k);
     
     // 获取 workspace
     void* workspace = get_workspace(ctx.workspace_size);
@@ -605,6 +637,9 @@ const char* cusparselt_gemm_get_last_error() {
  * @param N                 W 的行数（输出列数）
  * @param K                 内维度（slide 后的 K'）
  * @param inner_dtype       输出数据类型字符串："bf16" 或 "fp32"
+ * @param alg_id            算法 ID，-1 表示使用默认算法
+ * @param split_k           split_k 设置，-1 表示不设置
+ * @param algo_workspace    算法配置中指定的 workspace 大小（预留，当前未使用）
  * @param stream            CUDA 流（可为 NULL 使用默认流）
  * @return                  0 成功，-1 失败
  */
@@ -614,6 +649,9 @@ int cusparselt_fp8_mm(
     void* D_ptr,
     int64_t M, int64_t N, int64_t K,
     const char* inner_dtype,
+    int alg_id,
+    int split_k,
+    size_t algo_workspace,
     cudaStream_t stream
 ) {
     clear_error();
@@ -631,8 +669,12 @@ int cusparselt_fp8_mm(
             return -1;
         }
         
+        // algo_workspace 参数预留，当前 cuSPARSELt 的 workspace 由 plan 自动管理
+        (void)algo_workspace;
+        
         cusparselt_mm_impl(W_compressed_ptr, A_ptr, D_ptr, M, N, K,
-                           "fp8e4m3", std::string(inner_dtype), stream);
+                           "fp8e4m3", std::string(inner_dtype),
+                           alg_id, split_k, stream);
         return 0;
     } catch (const std::exception& e) {
         set_error(e.what());
@@ -658,6 +700,9 @@ int cusparselt_fp8_mm(
  * @param N                 W 的行数（输出列数）
  * @param K                 内维度（slide 后的 K'）
  * @param inner_dtype       输出数据类型字符串："bf16" 或 "int32"
+ * @param alg_id            算法 ID，-1 表示使用默认算法
+ * @param split_k           split_k 设置，-1 表示不设置
+ * @param algo_workspace    算法配置中指定的 workspace 大小（预留，当前未使用）
  * @param stream            CUDA 流（可为 NULL 使用默认流）
  * @return                  0 成功，-1 失败
  */
@@ -667,6 +712,9 @@ int cusparselt_int8_mm(
     void* D_ptr,
     int64_t M, int64_t N, int64_t K,
     const char* inner_dtype,
+    int alg_id,
+    int split_k,
+    size_t algo_workspace,
     cudaStream_t stream
 ) {
     clear_error();
@@ -691,8 +739,12 @@ int cusparselt_int8_mm(
             return -1;
         }
         
+        // algo_workspace 参数预留，当前 cuSPARSELt 的 workspace 由 plan 自动管理
+        (void)algo_workspace;
+        
         cusparselt_mm_impl(W_compressed_ptr, A_ptr, D_ptr, M, N, K,
-                           "int8", dtype_str, stream);
+                           "int8", dtype_str,
+                           alg_id, split_k, stream);
         return 0;
     } catch (const std::exception& e) {
         set_error(e.what());
@@ -711,6 +763,8 @@ int cusparselt_int8_mm(
  * @param K                 内维度
  * @param input_dtype       输入数据类型："fp8e4m3" 或 "int8"
  * @param inner_dtype       输出数据类型："bf16" 或 "fp32"
+ * @param alg_id            算法 ID，-1 表示使用默认算法
+ * @param split_k           split_k 设置，-1 表示不设置
  * @param workspace_size    [out] workspace 大小（字节）
  * @return                  0 成功，-1 失败
  */
@@ -718,6 +772,8 @@ int cusparselt_get_workspace_size(
     int64_t M, int64_t N, int64_t K,
     const char* input_dtype,
     const char* inner_dtype,
+    int alg_id,
+    int split_k,
     size_t* workspace_size
 ) {
     clear_error();
@@ -730,7 +786,8 @@ int cusparselt_get_workspace_size(
         cusparseLtHandle_t handle = get_cusparselt_handle();
         PlanContext& ctx = get_or_create_plan(handle, M, N, K,
                                                std::string(input_dtype),
-                                               std::string(inner_dtype));
+                                               std::string(inner_dtype),
+                                               alg_id, split_k);
         *workspace_size = ctx.workspace_size;
         return 0;
     } catch (const std::exception& e) {

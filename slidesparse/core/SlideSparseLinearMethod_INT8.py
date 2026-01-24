@@ -87,18 +87,36 @@ from .gemm_wrapper import (
     cublaslt_int8_mm_op,
     cusparselt_int8_mm_op,
     _get_gemm_extension,
+    get_algo_config_manager,
 )
 from .kernels import (
     dequant_bias_kernel,
-    _load_dequant_bias_kernel,
     quant_only_int8_kernel,
-    _load_quant_only_int8_kernel,
     quant_slide_int8_kernel,
-    _load_quant_slide_int8_kernel,
 )
 
 
 logger = init_logger(__name__)
+
+
+# ============================================================================
+# 辅助函数：获取当前模型名
+# ============================================================================
+
+def _get_current_model_name() -> str:
+    """
+    从 AlgorithmConfigManager 获取当前模型名
+    
+    如果没有设置，抛出明确的错误提示
+    """
+    manager = get_algo_config_manager()
+    model_name = manager.get_model()
+    if model_name is None:
+        raise ValueError(
+            "Model name not set. Call slidesparse.init_slidesparse(model_name) first.\n"
+            "Example: from slidesparse import init_slidesparse; init_slidesparse('Llama3.2-1B-FP8')"
+        )
+    return model_name
 
 
 # ============================================================================
@@ -129,6 +147,7 @@ def cuBLASLt_INT8_linear(
     bias: Optional[torch.Tensor],
     output_shape: list,
     inner_dtype_str: str,
+    model_name: str,
     input_scale: Optional[torch.Tensor] = None,
     input_zero_point: Optional[torch.Tensor] = None,
     azp_adj: Optional[torch.Tensor] = None,
@@ -165,7 +184,7 @@ def cuBLASLt_INT8_linear(
     # cuBLASLt 路径使用 Triton INT8 quant kernel（对称量化）
     if input.dtype != torch.int8:
         with ProfileTimer("cuBLASLt.quant"):
-            qinput, scale_a_pad = quant_only_int8_kernel(input)
+            qinput, scale_a_pad = quant_only_int8_kernel(input, model_name)
     else:
         # 静态量化：input 已是 INT8，但没有 padding
         raise NotImplementedError(
@@ -185,7 +204,7 @@ def cuBLASLt_INT8_linear(
         
         # Dequant + Bias: INT32 -> out_dtype
         with ProfileTimer("cuBLASLt.dequant"):
-            output = dequant_bias_kernel(gemm_out, scale_a, weight_scale, bias, out_dtype)
+            output = dequant_bias_kernel(gemm_out, scale_a, weight_scale, bias, out_dtype, model_name)
         
         with ProfileTimer("cuBLASLt.view"):
             result = output.view(*output_shape)
@@ -205,6 +224,7 @@ def cuSPARSELt_INT8_linear(
     bias: Optional[torch.Tensor],
     output_shape: list,
     inner_dtype_str: str,
+    model_name: str,
     input_scale: Optional[torch.Tensor] = None,
     input_zero_point: Optional[torch.Tensor] = None,
     azp_adj: Optional[torch.Tensor] = None,
@@ -262,7 +282,7 @@ def cuSPARSELt_INT8_linear(
     # Quant + Slide: [M, K] -> [M_pad, K_slide_pad]
     if input.dtype != torch.int8:
         with ProfileTimer("cuSPARSELt.quant_slide"):
-            qinput, scale_a_pad = quant_slide_int8_kernel(input, L)
+            qinput, scale_a_pad = quant_slide_int8_kernel(input, model_name, L)
     else:
         raise NotImplementedError(
             "cuSPARSELt with static quantization is not supported yet."
@@ -294,7 +314,7 @@ def cuSPARSELt_INT8_linear(
         
         # Dequant + Bias
         with ProfileTimer("cuSPARSELt.dequant"):
-            output = dequant_bias_kernel(gemm_out, scale_a, weight_scale, bias, out_dtype)
+            output = dequant_bias_kernel(gemm_out, scale_a, weight_scale, bias, out_dtype, model_name)
         
         with ProfileTimer("cuSPARSELt.view"):
             result = output.view(*output_shape)
@@ -419,17 +439,11 @@ class SlideSparseInt8LinearOp:
         if self._use_cublaslt:
             self._kernel_name = "cuBLASLt"
             self._linear_fn = cuBLASLt_INT8_linear
-            # 预加载 extension 和 kernel
             _get_gemm_extension("cublaslt")
-            _load_quant_only_int8_kernel()
-            _load_dequant_bias_kernel()
         elif self._use_cusparselt:
             self._kernel_name = "cuSPARSELt"
             self._linear_fn = cuSPARSELt_INT8_linear
-            # 预加载 extension 和 kernel
             _get_gemm_extension("cusparselt")
-            _load_quant_slide_int8_kernel()
-            _load_dequant_bias_kernel()
         else:
             self._kernel_name = "CUTLASS"
             self._linear_fn = cutlass_INT8_linear
@@ -514,21 +528,28 @@ class SlideSparseInt8LinearOp:
         
         # 调用选定的 kernel 路径
         if self._use_cusparselt:
+            # cuSPARSELt 需要 model_name 加载 Triton kernels
+            model_name = _get_current_model_name()
             return self._linear_fn(
                 **common_args,
                 slide_weight_compressed=weight,
                 inner_dtype_str=self._inner_dtype_str,
+                model_name=model_name,
                 slide_weight_N=slide_weight_N,
                 slide_weight_K=slide_weight_K,
                 L=L,
             )
         elif self._use_cublaslt:
+            # cuBLASLt 需要 model_name 加载 Triton kernels
+            model_name = _get_current_model_name()
             return self._linear_fn(
                 **common_args,
                 weight=weight,
                 inner_dtype_str=self._inner_dtype_str,
+                model_name=model_name,
             )
         else:
+            # CUTLASS 路径不需要 model_name（使用 vLLM 原生 kernel）
             return self._linear_fn(
                 **common_args,
                 weight=weight,

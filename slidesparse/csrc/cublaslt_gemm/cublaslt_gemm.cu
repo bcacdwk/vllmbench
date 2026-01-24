@@ -54,6 +54,11 @@
 #include <string>
 #include <iostream>
 
+// 编译期检查：确保 cublasLtMatmulAlgo_t 不超过我们预期的大小（64 字节）
+// 算法搜索脚本生成的 algo_data 缓冲区大小为 64 字节
+static_assert(sizeof(cublasLtMatmulAlgo_t) <= 64,
+              "cublasLtMatmulAlgo_t size exceeds 64 bytes");
+
 // ============================================================================
 // 错误检查宏
 // ============================================================================
@@ -221,6 +226,21 @@ static cublasComputeType_t get_compute_type(const std::string& input_dtype) {
 }
 
 // ============================================================================
+// 辅助函数
+// ============================================================================
+
+/**
+ * 检查字节数组是否全为零
+ */
+static bool is_all_zeros(const uint8_t* data, size_t len) {
+  if (data == nullptr) return true;
+  for (size_t i = 0; i < len; ++i) {
+    if (data[i] != 0) return false;
+  }
+  return true;
+}
+
+// ============================================================================
 // cuBLASLt GEMM 核心实现（内部函数）
 // ============================================================================
 
@@ -236,8 +256,10 @@ static cublasComputeType_t get_compute_type(const std::string& input_dtype) {
  * @param N           W 的行数（输出列数）
  * @param K           内维度
  * @param input_dtype 输入数据类型字符串："fp8e4m3" 或 "int8"
- * @param inner_dtype 输出数据类型字符串："bf16" 或 "fp32"
- * @param stream      CUDA 流（可为 nullptr 使用默认流）
+ * @param inner_dtype   输出数据类型字符串："bf16" 或 "fp32"
+ * @param algo_data     算法配置数据（64字节），NULL或全零表示使用默认启发式
+ * @param algo_workspace 算法配置中指定的 workspace 大小
+ * @param stream        CUDA 流（可为 nullptr 使用默认流）
  * 
  * 实现细节：
  * - W 放在 cuBLASLt 的 A 位置（左矩阵），使用 opA=CUBLAS_OP_T
@@ -252,6 +274,8 @@ static void cublaslt_mm_impl(
     int64_t M, int64_t N, int64_t K,
     const std::string& input_dtype,
     const std::string& inner_dtype,
+    const uint8_t* algo_data,
+    size_t algo_workspace,
     cudaStream_t stream)
 {
   // ========== 获取数据类型配置 ==========
@@ -330,41 +354,58 @@ static void cublaslt_mm_impl(
   CHECK_CUBLASLT(cublasLtMatrixLayoutSetAttribute(
       layoutD, CUBLASLT_MATRIX_LAYOUT_ORDER, &order, sizeof(order)));
   
-  // ========== 创建 Matmul Preference（算法选择） ==========
-  cublasLtMatmulPreference_t preference = nullptr;
-  CHECK_CUBLASLT(cublasLtMatmulPreferenceCreate(&preference));
-  
-  // 设置最大 workspace 大小
-  size_t max_workspace_size = WORKSPACE_SIZE;
-  CHECK_CUBLASLT(cublasLtMatmulPreferenceSetAttribute(
-      preference, CUBLASLT_MATMUL_PREF_MAX_WORKSPACE_BYTES,
-      &max_workspace_size, sizeof(max_workspace_size)));
-  
-  // ========== 获取最优算法 ==========
-  cublasLtMatmulHeuristicResult_t heuristicResult = {};
-  int returnedAlgoCount = 0;
-  
-  cublasStatus_t heuristic_status = cublasLtMatmulAlgoGetHeuristic(
-      handle,
-      matmulDesc,
-      layoutW,
-      layoutA,
-      layoutD,  // C 和 D 使用相同布局（in-place）
-      layoutD,
-      preference,
-      1,  // 只请求 1 个算法
-      &heuristicResult,
-      &returnedAlgoCount);
-  
-  // 如果启发式搜索失败，使用 algo=NULL（让 cuBLASLt 内部选择）
+  // ========== 算法选择 ==========
+  cublasLtMatmulAlgo_t custom_algo;
   const cublasLtMatmulAlgo_t* algo = nullptr;
   size_t workspace_size = 0;
   
-  if (heuristic_status == CUBLAS_STATUS_SUCCESS && returnedAlgoCount > 0) {
-    algo = &heuristicResult.algo;
-    workspace_size = heuristicResult.workspaceSize;
+  // 检查是否有有效的自定义配置
+  bool use_custom = (algo_data != nullptr && !is_all_zeros(algo_data, 64));
+  
+  if (use_custom) {
+    // 从 algo_data 恢复算法配置
+    std::memcpy(&custom_algo, algo_data, sizeof(custom_algo));
+    algo = &custom_algo;
+    workspace_size = algo_workspace;
   } else {
-    workspace_size = WORKSPACE_SIZE;
+    // 使用启发式搜索（默认逻辑）
+    cublasLtMatmulPreference_t preference = nullptr;
+    CHECK_CUBLASLT(cublasLtMatmulPreferenceCreate(&preference));
+    
+    // 设置最大 workspace 大小
+    size_t max_workspace_size = WORKSPACE_SIZE;
+    CHECK_CUBLASLT(cublasLtMatmulPreferenceSetAttribute(
+        preference, CUBLASLT_MATMUL_PREF_MAX_WORKSPACE_BYTES,
+        &max_workspace_size, sizeof(max_workspace_size)));
+    
+    // 获取最优算法
+    cublasLtMatmulHeuristicResult_t heuristicResult = {};
+    int returnedAlgoCount = 0;
+    
+    cublasStatus_t heuristic_status = cublasLtMatmulAlgoGetHeuristic(
+        handle,
+        matmulDesc,
+        layoutW,
+        layoutA,
+        layoutD,  // C 和 D 使用相同布局（in-place）
+        layoutD,
+        preference,
+        1,  // 只请求 1 个算法
+        &heuristicResult,
+        &returnedAlgoCount);
+    
+    // 如果启发式搜索成功，使用返回的算法
+    if (heuristic_status == CUBLAS_STATUS_SUCCESS && returnedAlgoCount > 0) {
+      custom_algo = heuristicResult.algo;
+      algo = &custom_algo;
+      workspace_size = heuristicResult.workspaceSize;
+    } else {
+      // 启发式搜索失败，使用 algo=NULL（让 cuBLASLt 内部选择）
+      algo = nullptr;
+      workspace_size = WORKSPACE_SIZE;
+    }
+    
+    cublasLtMatmulPreferenceDestroy(preference);
   }
   
   // ========== 获取 Workspace ==========
@@ -406,7 +447,6 @@ static void cublaslt_mm_impl(
       stream));
   
   // ========== 清理资源 ==========
-  cublasLtMatmulPreferenceDestroy(preference);
   cublasLtMatrixLayoutDestroy(layoutW);
   cublasLtMatrixLayoutDestroy(layoutA);
   cublasLtMatrixLayoutDestroy(layoutD);
@@ -448,15 +488,17 @@ const char* cublaslt_gemm_get_last_error() {
  * cuBLASLt FP8 Matrix Multiplication
  * 
  * 
- * @param W_ptr       权重矩阵指针 [N, K]，FP8E4M3，行主序（GPU 内存）
- * @param A_ptr       输入矩阵指针 [M, K]，FP8E4M3，行主序（GPU 内存）
- * @param D_ptr       输出矩阵指针 [M, N]，BF16/FP32，行主序（GPU 内存，调用方预分配）
- * @param M           A 的行数
- * @param N           W 的行数（输出列数）
- * @param K           内维度
- * @param inner_dtype 输出数据类型字符串："bf16" 或 "fp32"
- * @param stream      CUDA 流（可为 NULL 使用默认流）
- * @return            0 成功，-1 失败
+ * @param W_ptr         权重矩阵指针 [N, K]，FP8E4M3，行主序（GPU 内存）
+ * @param A_ptr         输入矩阵指针 [M, K]，FP8E4M3，行主序（GPU 内存）
+ * @param D_ptr         输出矩阵指针 [M, N]，BF16/FP32，行主序（GPU 内存，调用方预分配）
+ * @param M             A 的行数
+ * @param N             W 的行数（输出列数）
+ * @param K             内维度
+ * @param inner_dtype   输出数据类型字符串："bf16" 或 "fp32"
+ * @param algo_data     算法配置数据（64字节），NULL或全零表示使用默认启发式
+ * @param algo_workspace 算法配置中指定的 workspace 大小
+ * @param stream        CUDA 流（可为 NULL 使用默认流）
+ * @return              0 成功，-1 失败
  */
 int cublaslt_fp8_mm(
     const void* W_ptr,
@@ -464,6 +506,8 @@ int cublaslt_fp8_mm(
     void* D_ptr,
     int64_t M, int64_t N, int64_t K,
     const char* inner_dtype,
+    const uint8_t* algo_data,
+    size_t algo_workspace,
     cudaStream_t stream
 ) {
     clear_error();
@@ -478,7 +522,8 @@ int cublaslt_fp8_mm(
         }
         
         cublaslt_mm_impl(W_ptr, A_ptr, D_ptr, M, N, K, 
-                         "fp8e4m3", std::string(inner_dtype), stream);
+                         "fp8e4m3", std::string(inner_dtype),
+                         algo_data, algo_workspace, stream);
         return 0;
     } catch (const std::exception& e) {
         set_error(e.what());
@@ -511,15 +556,17 @@ static void print_int8_info_once() {
  * 注意: cuBLASLt INT8 GEMM 仅支持 INT32 输出（CUBLAS_COMPUTE_32I）
  *       inner_dtype 参数被忽略，总是使用 "int32"
  * 
- * @param W_ptr       权重矩阵指针 [N, K]，INT8，行主序（GPU 内存）
- * @param A_ptr       输入矩阵指针 [M, K]，INT8，行主序（GPU 内存）
- * @param D_ptr       输出矩阵指针 [M, N]，INT32，行主序（GPU 内存，调用方预分配）
- * @param M           A 的行数
- * @param N           W 的行数（输出列数）
- * @param K           内维度
- * @param inner_dtype 被忽略，总是使用 "int32"
- * @param stream      CUDA 流（可为 NULL 使用默认流）
- * @return            0 成功，-1 失败
+ * @param W_ptr         权重矩阵指针 [N, K]，INT8，行主序（GPU 内存）
+ * @param A_ptr         输入矩阵指针 [M, K]，INT8，行主序（GPU 内存）
+ * @param D_ptr         输出矩阵指针 [M, N]，INT32，行主序（GPU 内存，调用方预分配）
+ * @param M             A 的行数
+ * @param N             W 的行数（输出列数）
+ * @param K             内维度
+ * @param inner_dtype   被忽略，总是使用 "int32"
+ * @param algo_data     算法配置数据（64字节），NULL或全零表示使用默认启发式
+ * @param algo_workspace 算法配置中指定的 workspace 大小
+ * @param stream        CUDA 流（可为 NULL 使用默认流）
+ * @return              0 成功，-1 失败
  */
 int cublaslt_int8_mm(
     const void* W_ptr,
@@ -527,6 +574,8 @@ int cublaslt_int8_mm(
     void* D_ptr,
     int64_t M, int64_t N, int64_t K,
     const char* inner_dtype,
+    const uint8_t* algo_data,
+    size_t algo_workspace,
     cudaStream_t stream
 ) {
     clear_error();
@@ -541,7 +590,8 @@ int cublaslt_int8_mm(
         
         // 忽略 inner_dtype 参数，强制使用 int32
         cublaslt_mm_impl(W_ptr, A_ptr, D_ptr, M, N, K,
-                         "int8", "int32", stream);
+                         "int8", "int32",
+                         algo_data, algo_workspace, stream);
         return 0;
     } catch (const std::exception& e) {
         set_error(e.what());

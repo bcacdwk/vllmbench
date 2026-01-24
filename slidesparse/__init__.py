@@ -13,9 +13,24 @@ SlideSparse 外挂模块 - vLLM 集成
 - offline/: 离线工具链 (prune, slide, compress)
 - test/: 测试脚本
 - utils.py: 统一工具库（硬件检测、文件命名、模块加载）
+
+快速开始:
+=========
+在使用 cuBLASLt 或 cuSPARSELt kernel 之前，必须先初始化：
+
+    from slidesparse import init_slidesparse
+    init_slidesparse("Llama3.2-1B-FP8")  # 设置当前模型名
+    
+    # 然后使用 SlideSparse kernel...
 """
 
 __version__ = "0.1.0"
+
+# 核心初始化函数（从 core 导入）
+from .core import (
+    init_slidesparse,
+    get_algo_config_manager,
+)
 
 # 导出统一工具库的核心功能
 from .utils import (

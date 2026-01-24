@@ -1910,6 +1910,98 @@ def clear_module_cache():
     _module_cache.clear()
 
 
+# Tuned module 缓存（按 prefix + model_name 缓存）
+_tuned_module_cache: Dict[str, Any] = {}
+
+
+def load_tuned_module(
+    prefix: str,
+    model_name: Optional[str],
+    build_dir: Union[str, Path],
+    *,
+    ext: str = ".py",
+    cache: bool = True,
+) -> Any:
+    """
+    加载 tuned kernel module。
+
+    新的目录结构：
+        build_dir/{hw_dir_name}/{prefix}_{model_name}.py
+
+    例如:
+        build/RTX5080_cc120_py312_cu129_x86_64/dequant_bias_tuned_Llama3.2-1B-FP8.py
+
+    Args:
+        prefix: 模块前缀（如 "dequant_bias_tuned"）
+        model_name: 模型名称（如 "Llama3.2-1B-FP8"）
+        build_dir: kernel build 目录（如 csrc/fused_dequant_bias_triton/build）
+        ext: 文件扩展名，默认 ".py"
+        cache: 是否缓存模块
+
+    Returns:
+        加载的 Python 模块
+
+    Raises:
+        FileNotFoundError: 模块文件不存在
+        ImportError: 模块加载失败
+    """
+    build_dir = Path(build_dir)
+    
+    # 构建缓存键
+    cache_key = f"{prefix}_{model_name}_{build_dir}"
+    
+    if cache and cache_key in _tuned_module_cache:
+        return _tuned_module_cache[cache_key]
+    
+    # 进入 hw_dir_name 子目录
+    hw_dir_name = build_hw_dir_name()
+    search_dir = build_dir / hw_dir_name
+    
+    if not search_dir.exists():
+        raise FileNotFoundError(
+            f"Hardware-specific directory not found: {search_dir}\n"
+            f"Expected format: {build_dir}/{hw_dir_name}/"
+        )
+    
+    # 构建文件名: {prefix}_{model_name}.{ext}
+    filename = build_tuned_filename(prefix, model_name, ext=ext)
+    module_path = search_dir / filename
+    
+    if not module_path.exists():
+        raise FileNotFoundError(
+            f"Tuned kernel not found: {module_path}\n"
+            f"Run autotune for model '{model_name}' first."
+        )
+    
+    # 添加目录到 sys.path
+    if str(search_dir.absolute()) not in sys.path:
+        sys.path.insert(0, str(search_dir.absolute()))
+    
+    # 加载模块
+    module_name = module_path.stem
+    
+    if module_path.suffix == ".py":
+        spec = importlib.util.spec_from_file_location(module_name, module_path)
+        if spec is None or spec.loader is None:
+            raise ImportError(f"无法加载模块: {module_path}")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+    else:
+        # .so 文件
+        module = importlib.import_module(module_name)
+    
+    if cache:
+        _tuned_module_cache[cache_key] = module
+    
+    return module
+
+
+def clear_tuned_module_cache():
+    """清除 tuned module 缓存"""
+    global _tuned_module_cache
+    _tuned_module_cache.clear()
+
+
 # =============================================================================
 # 算法查表（运行时使用）
 # =============================================================================
@@ -3199,6 +3291,7 @@ def get_slidesparse_checkpoints_dir() -> Path:
 def resolve_slidesparse_model_path(
     base_model_path: Union[str, Path],
     sparsity: str = None,
+    auto_convert: bool = True,
 ) -> Optional[Path]:
     """
     根据基础模型路径和稀疏配置，解析对应的 SlideSparse 模型路径
@@ -3210,6 +3303,7 @@ def resolve_slidesparse_model_path(
     Args:
         base_model_path: 基础模型路径（如 checkpoints/Qwen2.5-0.5B-FP8）
         sparsity: 稀疏配置（如 "2_8"），默认从环境变量读取
+        auto_convert: 是否在找不到时自动转换（默认 True）
     
     Returns:
         SlideSparse 模型路径，如果不存在返回 None
@@ -3227,7 +3321,92 @@ def resolve_slidesparse_model_path(
     if slidesparse_path.exists() and slidesparse_path.is_dir():
         return slidesparse_path
     
+    # 未找到，尝试自动转换
+    if auto_convert and base_path.exists():
+        converted = _try_auto_convert_specific_model(base_path, sparsity)
+        if converted:
+            return converted
+    
     return None
+
+
+def _try_auto_convert_specific_model(
+    base_model_path: Path,
+    sparsity: str,
+) -> Optional[Path]:
+    """
+    尝试自动转换指定的基础模型为 SlideSparse 格式
+    
+    Args:
+        base_model_path: 基础模型路径
+        sparsity: 稀疏配置
+    
+    Returns:
+        转换后的模型路径，失败返回 None
+    """
+    import sys
+    import subprocess
+    
+    model_name = base_model_path.name
+    
+    print(f"\n{'='*70}")
+    print(f"[SlideSparse] 未找到 {model_name}-SlideSparse-{sparsity} checkpoint")
+    print(f"[SlideSparse] 发现基础模型: {model_name}")
+    print(f"[SlideSparse] 自动转换中...")
+    
+    # 解析 sparsity
+    parts = sparsity.split("_")
+    if len(parts) != 2:
+        print(f"[SlideSparse] 无效的稀疏配置: {sparsity}")
+        return None
+    
+    Z, L = int(parts[0]), int(parts[1])
+    
+    # 调用 entry.py 进行转换
+    project_root = Path(__file__).parent.parent
+    entry_script = project_root / "slidesparse" / "weight_convert" / "entry.py"
+    if not entry_script.exists():
+        print(f"[SlideSparse] 转换脚本不存在: {entry_script}")
+        return None
+    
+    print(f"[SlideSparse] 开始转换: {model_name} -> SlideSparse-{sparsity}")
+    print(f"{'='*70}")
+    
+    try:
+        # 使用 subprocess 调用转换脚本
+        cmd = [
+            sys.executable, str(entry_script),
+            "--input", str(base_model_path),
+            "--Z", str(Z),
+            "--L", str(L),
+        ]
+        
+        result = subprocess.run(
+            cmd,
+            cwd=str(entry_script.parent),
+            capture_output=False,  # 显示输出
+        )
+        
+        if result.returncode != 0:
+            print(f"[SlideSparse] 转换失败 (exit code: {result.returncode})")
+            return None
+        
+        # 转换成功，返回新路径
+        slidesparse_dir = get_slidesparse_checkpoints_dir()
+        expected_name = f"{model_name}-SlideSparse-{sparsity}"
+        converted_path = slidesparse_dir / expected_name
+        
+        if converted_path.exists():
+            print(f"\n[SlideSparse] 转换成功: {converted_path.name}")
+            print(f"{'='*70}\n")
+            return converted_path
+        else:
+            print(f"[SlideSparse] 转换完成但未找到输出目录: {expected_name}")
+            return None
+            
+    except Exception as e:
+        print(f"[SlideSparse] 转换异常: {e}")
+        return None
 
 
 def find_slidesparse_model(
@@ -3637,6 +3816,8 @@ __all__ = [
     # 模块加载
     "load_module",
     "clear_module_cache",
+    "load_tuned_module",
+    "clear_tuned_module_cache",
     # 算法查表
     "lookup_best_cublaslt_alg",
     "decode_cublaslt_algo_data",

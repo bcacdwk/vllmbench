@@ -65,8 +65,42 @@ from slidesparse.core.SlideSparseLinearMethod_INT8 import (
 )
 
 # 共享组件
-from slidesparse.core.gemm_wrapper import _get_gemm_extension
+from slidesparse.core.gemm_wrapper import (
+    _get_gemm_extension,
+    get_algo_config_manager,
+    AlgorithmConfigManager,
+)
 from slidesparse.core.profiler import print_profile_stats, reset_profile_stats
+
+
+# ============================================================================
+# 初始化函数
+# ============================================================================
+
+def init_slidesparse(model_name: str) -> None:
+    """
+    初始化 SlideSparse 系统
+    
+    必须在使用任何 SlideSparse GEMM kernel 之前调用（CUTLASS fallback 除外）。
+    通常在模型加载时调用，或在测试开始前调用。
+    
+    此函数会：
+    1. 设置当前模型名称（用于加载 model-specific 的 tuned kernels）
+    2. 预加载 GEMM 算法配置（如果有离线搜索结果）
+    
+    Args:
+        model_name: 模型名称，例如 "Qwen2.5-0.5B-FP8", "Llama3.2-1B-INT8"
+                    应与 checkpoints 目录名一致
+    
+    Example:
+        >>> from slidesparse.core import init_slidesparse
+        >>> init_slidesparse("Llama3.2-1B-FP8")
+        >>> # 现在可以使用 cuBLASLt/cuSPARSELt kernel 了
+    """
+    manager = get_algo_config_manager()
+    manager.set_model(model_name)
+    # load_all_configs 在 get_algo_config_manager() 中已自动调用
+
 
 __all__ = [
     # 配置相关
@@ -99,4 +133,9 @@ __all__ = [
     "_get_gemm_extension",
     "print_profile_stats",
     "reset_profile_stats",
+    
+    # 初始化
+    "init_slidesparse",
+    "get_algo_config_manager",
+    "AlgorithmConfigManager",
 ]

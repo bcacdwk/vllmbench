@@ -370,7 +370,9 @@ def run_throughput_comparison(
     # 测试: SlideSparse 后端
     if verbose:
         print(f"  {Colors.green(f'[测试] {backend_name}...')}")
-    saved_env = set_env_for_test(use_cublaslt, use_cusparselt, inner_32, sparsity)
+    # 从 model_path 提取 model_name 用于加载 model-specific kernels
+    model_name = model_path.name  # e.g., "Qwen2.5-0.5B-FP8"
+    saved_env = set_env_for_test(use_cublaslt, use_cusparselt, inner_32, sparsity, model_name)
     test_prefill = run_phase_test(
         model_path,
         num_prompts=PREFILL_CONFIG["num_prompts"],
@@ -445,7 +447,7 @@ def run_throughput_comparison(
     # 测试: SlideSparse 后端
     if verbose:
         print(f"  {Colors.green(f'[测试] {backend_name}...')}")
-    saved_env = set_env_for_test(use_cublaslt, use_cusparselt, inner_32, sparsity)
+    saved_env = set_env_for_test(use_cublaslt, use_cusparselt, inner_32, sparsity, model_name)
     test_decode = run_phase_test(
         model_path,
         num_prompts=DECODE_CONFIG["num_prompts"],
@@ -570,27 +572,48 @@ if __name__ == "__main__":
     
     # 查找模型
     baseline_model_path = None
+    model_arg = getattr(args, 'model', None)
     
     if use_cusparselt:
         # 先找原始 FP8 模型作为 baseline
-        baseline_model_path = ModelFinder.find_small_model("FP8")
+        if model_arg:
+            baseline_model_path = ModelFinder.resolve_model_path(model_arg, "FP8")
+        else:
+            baseline_model_path = ModelFinder.find_small_model("FP8")
         if baseline_model_path is None:
             print(Colors.red("错误: 未找到 FP8 模型 (用于 baseline)"))
             sys.exit(1)
         
         # cuSPARSELt 需要 SlideSparse checkpoint（已预先稀疏化）
-        model_path = ModelFinder.find_slidesparse_model("FP8", sparsity)
+        # 如果用户指定了模型，基于该模型查找对应的 SlideSparse checkpoint
+        if model_arg:
+            model_path = ModelFinder.resolve_slidesparse_model_path(
+                baseline_model_path, sparsity
+            )
+        else:
+            model_path = ModelFinder.find_slidesparse_model("FP8", sparsity)
+            if model_path is None:
+                model_path = ModelFinder.resolve_slidesparse_model_path(
+                    baseline_model_path, sparsity
+                )
         if model_path is None:
             print(Colors.red(f"错误: 未找到 SlideSparse checkpoint (sparsity={sparsity or '2_8'})"))
+            print(Colors.yellow(f"期望路径: checkpoints_slidesparse/{baseline_model_path.name}-SlideSparse-{sparsity or '2_8'}"))
             sys.exit(1)
         print(Colors.cyan(f"Baseline: {baseline_model_path.name}"))
         print(Colors.cyan(f"Test:     {model_path.name}"))
     else:
-        # 其他后端使用普通 FP8 checkpoint
-        model_path = ModelFinder.find_small_model("FP8")
-        if model_path is None:
-            print(Colors.red("错误: 未找到 FP8 模型"))
-            sys.exit(1)
+        # CUTLASS 或 cuBLASLt 路径：使用普通 FP8 checkpoint
+        if model_arg:
+            model_path = ModelFinder.resolve_model_path(model_arg, "FP8")
+            if model_path is None:
+                print(Colors.red(f"错误: 未找到模型 {model_arg}"))
+                sys.exit(1)
+        else:
+            model_path = ModelFinder.find_small_model("FP8")
+            if model_path is None:
+                print(Colors.red("错误: 未找到 FP8 模型"))
+                sys.exit(1)
     
     # 获取 eager 参数
     enforce_eager = getattr(args, 'eager', False)

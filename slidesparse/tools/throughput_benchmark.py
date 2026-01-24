@@ -359,6 +359,7 @@ def set_backend_env(
     backend: str,
     sparsity: Optional[str] = None,
     inner_32: bool = False,
+    model_name: Optional[str] = None,
 ) -> Dict[str, Optional[str]]:
     """
     设置 Backend 对应的环境变量
@@ -367,6 +368,7 @@ def set_backend_env(
         backend: "cutlass" / "cublaslt" / "cusparselt"
         sparsity: 稀疏配置 (仅 cusparselt)
         inner_32: 是否使用高精度累加
+        model_name: 模型名称，用于加载 model-specific 的 tuned kernels
     
     Returns:
         保存的原环境变量，用于恢复
@@ -377,6 +379,7 @@ def set_backend_env(
         "USE_CUSPARSELT": os.environ.get("USE_CUSPARSELT"),
         "INNER_DTYPE_32": os.environ.get("INNER_DTYPE_32"),
         "SPARSITY": os.environ.get("SPARSITY"),
+        "SLIDESPARSE_MODEL_NAME": os.environ.get("SLIDESPARSE_MODEL_NAME"),
     }
     
     # 所有 backend 都通过 SlideSparse 转发（DISABLE_SLIDESPARSE=0）
@@ -390,15 +393,22 @@ def set_backend_env(
         os.environ.pop("USE_CUBLASLT", None)
         os.environ.pop("USE_CUSPARSELT", None)
         os.environ.pop("SPARSITY", None)
+        os.environ.pop("SLIDESPARSE_MODEL_NAME", None)  # CUTLASS 不需要
     elif backend == "cublaslt":
         os.environ["USE_CUBLASLT"] = "1"
         os.environ.pop("USE_CUSPARSELT", None)
         os.environ.pop("SPARSITY", None)
+        # cuBLASLt 需要 model_name 来加载 tuned kernels
+        if model_name:
+            os.environ["SLIDESPARSE_MODEL_NAME"] = model_name
     elif backend == "cusparselt":
         os.environ["USE_CUSPARSELT"] = "1"
         os.environ.pop("USE_CUBLASLT", None)
         if sparsity:
             os.environ["SPARSITY"] = sparsity
+        # cuSPARSELt 需要 model_name 来加载 tuned kernels
+        if model_name:
+            os.environ["SLIDESPARSE_MODEL_NAME"] = model_name
     
     if inner_32:
         os.environ["INNER_DTYPE_32"] = "1"
@@ -658,8 +668,9 @@ def run_single_m_test(
     print("└─────────────────────────────────────────────────────────────┘")
     print()
     
-    # 设置环境变量
-    saved_env = set_backend_env(backend, sparsity, inner_32)
+    # 设置环境变量（从 checkpoint_path 提取 model_name）
+    model_name = checkpoint_path.name if checkpoint_path else None
+    saved_env = set_backend_env(backend, sparsity, inner_32, model_name)
     
     try:
         # 构建环境变量

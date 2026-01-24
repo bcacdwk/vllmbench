@@ -1392,6 +1392,42 @@ class ModelFinder:
         """
         _import_slidesparse_utils()
         return _find_slidesparse_model(model_type, sparsity)
+    
+    @classmethod
+    def resolve_model_path(cls, model_arg: str, quant: str = "FP8") -> Optional[Path]:
+        """
+        解析模型路径参数
+        
+        支持以下格式：
+        - 完整路径: checkpoints/Llama3.2-1B-FP8
+        - 模型名称: Llama3.2-1B-FP8
+        - 模型名称不带量化后缀: Llama3.2-1B (会自动添加 -FP8 或 -INT8)
+        
+        Args:
+            model_arg: 模型路径或名称
+            quant: 量化类型 ("FP8" 或 "INT8")
+        
+        Returns:
+            解析后的模型路径，如果找不到返回 None
+        """
+        if model_arg is None:
+            return None
+        
+        p = Path(model_arg)
+        if p.exists():
+            return p
+        
+        # 尝试在 checkpoints 目录下查找
+        checkpoints_dir = cls.get_checkpoints_dir()
+        candidates = [
+            checkpoints_dir / model_arg,
+            checkpoints_dir / f"{model_arg}-{quant}",
+        ]
+        for c in candidates:
+            if c.exists():
+                return c
+        
+        return None
 
 
 # ============================================================================
@@ -1657,14 +1693,26 @@ def parse_common_args(description: str) -> argparse.ArgumentParser:
         help="稀疏格式，如 2_8, 2_6, 2_10（仅 cuSPARSELt 时生效，默认 2_8）"
     )
     
+    # 模型路径选项
+    parser.add_argument(
+        "--model",
+        type=str,
+        default=None,
+        help="模型路径或名称（如 checkpoints/Llama3.2-1B-FP8 或 Llama3.2-1B-FP8）"
+    )
+    
     return parser
 
 
-def apply_env_args(args: argparse.Namespace) -> None:
+def apply_env_args(args: argparse.Namespace, model_name: str = None) -> None:
     """
     应用环境变量参数
     
     根据命令行参数设置对应的环境变量
+    
+    Args:
+        args: 命令行参数
+        model_name: 模型名称（用于初始化 SlideSparse），默认 "Llama3.2-1B-FP8"
     """
     # 第一层：DISABLE_SLIDESPARSE
     if getattr(args, 'disable_slidesparse', False):
@@ -1696,6 +1744,18 @@ def apply_env_args(args: argparse.Namespace) -> None:
     
     # 清除缓存以重新读取环境变量
     EnvironmentChecker.clear_cache()
+    
+    # 初始化 SlideSparse（设置 model_name）
+    # 只有在使用 cuBLASLt 或 cuSPARSELt 时才需要
+    use_cublaslt = getattr(args, 'use_cublaslt', False)
+    use_cusparselt = getattr(args, 'use_cusparselt', False)
+    if not getattr(args, 'disable_slidesparse', False) and (use_cublaslt or use_cusparselt):
+        try:
+            from slidesparse.core import init_slidesparse
+            effective_model_name = model_name or "Llama3.2-1B-FP8"
+            init_slidesparse(effective_model_name)
+        except ImportError:
+            pass
 
 
 def get_backend_name(use_cublaslt: bool = False, use_cusparselt: bool = False, 
@@ -1747,7 +1807,8 @@ def set_env_for_baseline() -> Dict[str, Optional[str]]:
 
 
 def set_env_for_test(use_cublaslt: bool = False, use_cusparselt: bool = False,
-                     inner_32: bool = False, sparsity: str = None) -> Dict[str, Optional[str]]:
+                     inner_32: bool = False, sparsity: str = None,
+                     model_name: str = None) -> Dict[str, Optional[str]]:
     """
     设置环境变量为测试配置
     
@@ -1756,6 +1817,8 @@ def set_env_for_test(use_cublaslt: bool = False, use_cusparselt: bool = False,
         use_cusparselt: 使用 cuSPARSELt kernel
         inner_32: 使用高精度累加（FP8→FP32, INT8→INT32）
         sparsity: 稀疏格式（仅 cuSPARSELt 时生效），默认 "2_8"
+        model_name: 模型名称（用于加载 model-specific 的 tuned kernels）
+                    默认使用 "Llama3.2-1B-FP8"
     
     Returns:
         保存的原环境变量，用于恢复
@@ -1795,6 +1858,18 @@ def set_env_for_test(use_cublaslt: bool = False, use_cusparselt: bool = False,
         clear_sparsity_cache()
     except ImportError:
         pass
+    
+    # 初始化 SlideSparse（设置 model_name）
+    # 只有在使用 cuBLASLt 或 cuSPARSELt 时才需要
+    if use_cublaslt or use_cusparselt:
+        try:
+            from slidesparse.core import init_slidesparse
+            # 使用提供的 model_name 或默认值
+            effective_model_name = model_name or "Llama3.2-1B-FP8"
+            init_slidesparse(effective_model_name)
+        except ImportError:
+            pass
+    
     return saved
 
 
