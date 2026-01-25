@@ -1943,6 +1943,7 @@ def load_tuned_module(
     *,
     ext: str = ".py",
     cache: bool = True,
+    fuzzy_match: bool = True,
 ) -> Any:
     """
     加载 tuned kernel module。
@@ -1951,14 +1952,21 @@ def load_tuned_module(
         build_dir/{hw_dir_name}/{prefix}_{model_name}.py
 
     例如:
-        build/RTX5080_cc120_py312_cu129_x86_64/dequant_bias_tuned_Llama3.2-1B-FP8.py
+        build/RTX5080_cc120_py312_cu129_x86_64/dequant_bias_tuned_Llama3.2-1B.py
+
+    模糊匹配（fuzzy_match=True，默认）：
+        如果 model_name 是完整名称（如 "Llama3.2-1B-FP8"），会先尝试精确匹配，
+        如果失败则尝试用 base name（"Llama3.2-1B"）匹配。
+        这是因为 Triton kernel 的 autotune 结果对 INT8/FP8 相同，
+        生成的文件只使用 base name。
 
     Args:
         prefix: 模块前缀（如 "dequant_bias_tuned"）
-        model_name: 模型名称（如 "Llama3.2-1B-FP8"）
+        model_name: 模型名称（如 "Llama3.2-1B-FP8" 或 "Llama3.2-1B"）
         build_dir: kernel build 目录（如 csrc/fused_dequant_bias_triton/build）
         ext: 文件扩展名，默认 ".py"
         cache: 是否缓存模块
+        fuzzy_match: 是否启用模糊匹配（默认 True）
 
     Returns:
         加载的 Python 模块
@@ -1969,7 +1977,7 @@ def load_tuned_module(
     """
     build_dir = Path(build_dir)
     
-    # 构建缓存键
+    # 构建缓存键（使用原始 model_name）
     cache_key = f"{prefix}_{model_name}_{build_dir}"
     
     if cache and cache_key in _tuned_module_cache:
@@ -1985,13 +1993,34 @@ def load_tuned_module(
             f"Expected format: {build_dir}/{hw_dir_name}/"
         )
     
-    # 构建文件名: {prefix}_{model_name}.{ext}
-    filename = build_tuned_filename(prefix, model_name, ext=ext)
-    module_path = search_dir / filename
+    # 尝试查找文件的候选列表
+    candidates = []
     
-    if not module_path.exists():
+    # 1. 精确匹配：使用原始 model_name
+    filename_exact = build_tuned_filename(prefix, model_name, ext=ext)
+    candidates.append(filename_exact)
+    
+    # 2. 模糊匹配：使用 base name（去掉 -INT8/-FP8 等后缀）
+    if fuzzy_match and model_name:
+        base_name = model_base_name(model_name)
+        if base_name != model_name:
+            filename_base = build_tuned_filename(prefix, base_name, ext=ext)
+            candidates.append(filename_base)
+    
+    # 尝试每个候选文件
+    module_path = None
+    for filename in candidates:
+        candidate_path = search_dir / filename
+        if candidate_path.exists():
+            module_path = candidate_path
+            break
+    
+    if module_path is None:
+        # 生成友好的错误信息
+        tried_files = [str(search_dir / f) for f in candidates]
         raise FileNotFoundError(
-            f"Tuned kernel not found: {module_path}\n"
+            f"Tuned kernel not found. Tried:\n"
+            f"  {chr(10).join(tried_files)}\n"
             f"Run autotune for model '{model_name}' first."
         )
     
@@ -4002,6 +4031,11 @@ def get_nk_list_for_search(
     
     # 构建搜索路径列表
     project_root = Path(__file__).parent.parent
+    if checkpoints_dir:
+        ckpt_dir = Path(checkpoints_dir)
+    else:
+        ckpt_dir = project_root / "checkpoints"
+    
     search_paths = []
     
     # 1. 直接路径（用户可能传入绝对或相对路径）
@@ -4009,11 +4043,14 @@ def get_nk_list_for_search(
     if direct_path.exists() and direct_path.is_dir():
         search_paths.append(direct_path)
     
-    # 2. checkpoints 目录下查找
-    if checkpoints_dir:
-        search_paths.append(Path(checkpoints_dir) / model)
-    else:
-        search_paths.append(project_root / "checkpoints" / model)
+    # 2. checkpoints 目录下精确匹配
+    search_paths.append(ckpt_dir / model)
+    
+    # 3. 模糊匹配：如果 model 是 base name（不带后缀），尝试添加 -INT8/-FP8 后缀
+    base = model_base_name(model)
+    if base == model:  # model 本身就是 base name（没有量化后缀）
+        for suffix in ["INT8", "FP8", "BF16"]:
+            search_paths.append(ckpt_dir / f"{model}-{suffix}")
     
     # 查找有效路径
     model_path = None
@@ -4023,20 +4060,22 @@ def get_nk_list_for_search(
             break
     
     if model_path is None:
-        # 列出可用的模型目录帮助用户
-        default_ckpt_dir = project_root / "checkpoints"
+        # 列出可用的模型目录帮助用户（显示 base name）
         available_models = []
-        if default_ckpt_dir.exists():
-            available_models = sorted([
-                d.name for d in default_ckpt_dir.iterdir() 
-                if d.is_dir() and not d.name.startswith('.')
-            ])
+        if ckpt_dir.exists():
+            seen_bases = set()
+            for d in sorted(ckpt_dir.iterdir()):
+                if d.is_dir() and not d.name.startswith('.'):
+                    b = model_base_name(d.name)
+                    if b not in seen_bases:
+                        seen_bases.add(b)
+                        available_models.append(b)
         
         error_msg = f"未找到模型 '{model}'。"
         if available_models:
-            error_msg += f"\n可用的模型: {', '.join(available_models)}"
+            error_msg += f"\n可用的模型 (base name): {', '.join(available_models)}"
         else:
-            error_msg += f"\ncheckpoints 目录 ({default_ckpt_dir}) 为空或不存在。"
+            error_msg += f"\ncheckpoints 目录 ({ckpt_dir}) 为空或不存在。"
         raise ValueError(error_msg)
     
     # 提取模型名称（用于文件命名，使用实际找到的目录名）

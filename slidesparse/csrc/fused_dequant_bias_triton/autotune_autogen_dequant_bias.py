@@ -46,6 +46,7 @@ from slidesparse.utils import (
     get_gpu_name,
     get_nk_list_for_search,
     get_unique_n_values,
+    model_base_name,
     DEFAULT_M_LIST,
     M_QUICK_LIST,
 )
@@ -58,8 +59,15 @@ from utils import get_dequant_autotune_configs
 
 
 def get_output_filename(model_name: Optional[str] = None) -> str:
-    """Generate output filename: dequant_bias_tuned[_{model}].py"""
-    return build_tuned_filename("dequant_bias_tuned", model_name, ext=".py")
+    """Generate output filename: dequant_bias_tuned[_{base_model}].py
+    
+    使用 base name（去掉 -INT8/-FP8 后缀），因为 Triton autotune 结果
+    对 INT8/FP8 相同，一个文件可以被两种量化类型共用。
+    """
+    if model_name:
+        base_name = model_base_name(model_name)
+        return build_tuned_filename("dequant_bias_tuned", base_name, ext=".py")
+    return build_tuned_filename("dequant_bias_tuned", None, ext=".py")
 
 
 # Get autotune configs from utils
