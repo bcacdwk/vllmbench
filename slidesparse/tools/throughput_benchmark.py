@@ -632,8 +632,13 @@ def run_single_m_test(
     # 结果文件名
     result_file = result_json_dir / f"{entry.local_name}_M{m_value}.json"
     
-    # max-num-batched-tokens (禁用 chunking)
-    max_num_batched_tokens = params.max_num_seqs * params.max_model_len
+    # - max_num_batched_tokens: 设置为目标 M 值，控制每次迭代处理的最大 token 数
+    #   - Prefill: M = max_num_seqs * prompt_length
+    #   - Decode:  M = max_num_seqs (batch size)
+    if test_mode == "prefill":
+        max_num_batched_tokens = params.m_prefill  # = max_num_seqs * prompt_length
+    else:
+        max_num_batched_tokens = params.m_decode   # = max_num_seqs
     
     # 构建 backend 显示名
     if backend == "cutlass":
@@ -658,16 +663,20 @@ def run_single_m_test(
     print(f"│ Backend:  {_truncate(backend_display, 48):<48}│")
     print(f"│ 阶段:     {test_mode:<48}│")
     print("├─────────────────────────────────────────────────────────────┤")
-    print("│ GEMM M 维度:")
-    print(f"│   M_prefill = {params.m_prefill} (= {params.max_num_seqs} x {params.prompt_length})")
-    print(f"│   M_decode  = {params.m_decode}")
+    print("│ GEMM M 维度 (精确控制):")
+    print(f"│   目标 M        = {m_value}")
+    print(f"│   M_prefill     = {params.m_prefill} (= {params.max_num_seqs} x {params.prompt_length})")
+    print(f"│   M_decode      = {params.m_decode}")
+    print(f"│   batched_tokens = {max_num_batched_tokens} (控制 M 的关键参数)")
     print("├─────────────────────────────────────────────────────────────┤")
     print("│ vLLM 参数:")
-    print(f"│   --input-len       = {params.prompt_length}")
-    print(f"│   --output-len      = {params.output_len}")
-    print(f"│   --num-prompts     = {params.num_prompts}")
-    print(f"│   --max-num-seqs    = {params.max_num_seqs}")
-    print(f"│   --max-model-len   = {params.max_model_len}")
+    print(f"│   --input-len              = {params.prompt_length}")
+    print(f"│   --output-len             = {params.output_len}")
+    print(f"│   --num-prompts            = {params.num_prompts}")
+    print(f"│   --max-num-seqs           = {params.max_num_seqs}")
+    print(f"│   --max-model-len          = {params.max_model_len}")
+    print(f"│   --max-num-batched-tokens = {max_num_batched_tokens}")
+    print(f"│   --no-enable-chunked-prefill")
     print("├─────────────────────────────────────────────────────────────┤")
     print("│ 迭代次数:")
     print(f"│   N_prefill = {params.n_prefill}")
@@ -695,6 +704,10 @@ def run_single_m_test(
             env["PYTHONPATH"] = str(_PROJECT_ROOT)
         
         # 构建命令
+        # 关键参数说明:
+        # - --max-num-batched-tokens: 精确控制每次迭代的 M 值
+        # - --max-num-seqs: 控制每次迭代的最大序列数
+        # - --no-enable-chunked-prefill: 禁用 chunked prefill，确保 prompt 不被分片
         cmd = [
             "vllm", "bench", "throughput",
             "--model", str(checkpoint_path),
@@ -705,6 +718,7 @@ def run_single_m_test(
             "--max-num-seqs", str(params.max_num_seqs),
             "--max-model-len", str(params.max_model_len),
             "--max-num-batched-tokens", str(max_num_batched_tokens),
+            "--no-enable-chunked-prefill",  # 禁用 chunked prefill 以精确控制 M
             "--gpu-memory-utilization", str(gpu_memory_util),
             "--disable-log-stats",
             "--output-json", str(result_file),

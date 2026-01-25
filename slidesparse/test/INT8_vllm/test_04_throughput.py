@@ -182,12 +182,17 @@ config = {config}
 enforce_eager = {enforce_eager}
 
 # 创建 LLM
+# 计算目标 M 值：Prefill 阶段 M = num_prompts * prompt_len，Decode 阶段 M = num_prompts
+target_M = config["num_prompts"] * config["prompt_len"] if config["output_len"] == 1 else config["num_prompts"]
 llm = LLM(
     model=model_path,
     max_model_len=config["prompt_len"] + config["output_len"] + 64,
     gpu_memory_utilization=0.8,
     disable_log_stats=True,
     enforce_eager=enforce_eager,
+    max_num_batched_tokens=target_M,  # 限制每次迭代的最大 token 数
+    max_num_seqs=config["num_prompts"],  # 限制最大并发序列数
+    enable_chunked_prefill=False,  # 禁用 chunked prefill，确保整个 prompt 一起处理
 )
 
 # 生成 prompts
