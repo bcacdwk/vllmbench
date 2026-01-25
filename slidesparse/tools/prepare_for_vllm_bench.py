@@ -29,14 +29,23 @@ Usage:
     python3 prepare_for_vllm_bench.py --info
 
     
-    # 使用 tmux 防止断连
-    tmux new -s vllm_bench && cd /root/vllmbench/slidesparse/tools && python3 prepare_for_vllm_bench.py --task 1,1,1,1,1,1,1
-    # Ctrl+B 后 按 D 退出保持运行
+    # 1. 创建 tmux 会话并进入
+    tmux new -s vllm_bench
 
-    # 重新连接 tmux 会话
+    # 2. 在 tmux 里运行脚本
+    cd /root/vllmbench/slidesparse/tools && python3 prepare_for_vllm_bench.py --task 1,1,1,1,1,1,1 --gpu 0 
+    
+    # 3. 脚本开始运行后，可以按下以下组合键将其放到后台运行
+    # Ctrl+B 后 按 D 退出保持运行
+    或者
+    tmux detach
+
+    # 4. 重新连接 tmux 会话
     tmux attach -t vllm_bench
     # 查看日志
     cat /root/vllmbench/slidesparse/tools/prepare_bench_*.log
+
+    tmux kill-session -t vllm_bench
 """
 
 import argparse
