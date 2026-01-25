@@ -199,7 +199,8 @@ target_M = config["num_prompts"] * config["prompt_len"] if config["output_len"] 
 # - enable_chunked_prefill=False 确保 prompt 不被分片
 #
 # 因此，即使 effective_max_num_batched_tokens > target_M，实际 M 仍然等于 target_M
-min_model_len = config["prompt_len"] + config["output_len"]
+MODEL_LEN_BUFFER = 16  # 预留 buffer 处理 BOS token 等额外开销
+min_model_len = config["prompt_len"] + config["output_len"] + MODEL_LEN_BUFFER
 effective_max_model_len = min_model_len
 effective_max_num_batched_tokens = max(target_M, min_model_len)  # 仅用于通过配置验证
 

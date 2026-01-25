@@ -50,25 +50,6 @@ _CSRC_DIR = Path(__file__).parent.parent / "csrc"
 
 
 # ============================================================================
-# 模型名辅助函数
-# ============================================================================
-
-def _extract_base_model_name(model_name: str) -> str:
-    """
-    从完整模型名中提取基础模型名
-    
-    例如:
-        Llama3.2-1B-FP8-SlideSparse-2_8 -> Llama3.2-1B-FP8
-        Qwen2.5-0.5B-INT8-SlideSparse-2_10 -> Qwen2.5-0.5B-INT8
-        Llama3.2-1B-FP8 -> Llama3.2-1B-FP8 (不变)
-    """
-    marker = "-SlideSparse-"
-    if marker in model_name:
-        return model_name.split(marker)[0]
-    return model_name
-
-
-# ============================================================================
 # Kernel 搜索配置
 # ============================================================================
 
@@ -108,36 +89,30 @@ def _search_kernel(
     搜索并加载 kernel 模块
     
     搜索顺序:
-    1. 首先尝试加载 tuned kernel: build/{hw_dir}/{tuned_prefix}_{base_model}.py
+    1. 首先尝试加载 tuned kernel: build/{hw_dir}/{tuned_prefix}_{model_name}.py
     2. 如果找不到，fallback 到 basic kernel: basic_{kernel_type}_triton.py
     
     Args:
         kernel_dir: kernel 目录（如 csrc/fused_dequant_bias_triton）
         kernel_type: kernel 类型（dequant_bias, quant_only, quant_slide）
         tuned_prefix: tuned 文件前缀（如 dequant_bias_tuned）
-        model_name: 模型名称（可能包含 -SlideSparse-2_L 后缀）
+        model_name: 模型名称（应为基础名，不带 -SlideSparse- 后缀）
     
     Returns:
         加载的模块对象
     """
     build_dir = kernel_dir / "build"
     
-    # 提取基础模型名用于查找 tuned kernel
-    base_model = _extract_base_model_name(model_name)
-    
     # 1. 尝试加载 tuned kernel
     try:
-        module = load_tuned_module(tuned_prefix, base_model, build_dir)
-        if base_model != model_name:
-            logger.info_once(f"Loaded tuned kernel for base model: {base_model} (from {model_name})")
-        else:
-            logger.info_once(f"Loaded tuned kernel for model: {model_name}")
+        module = load_tuned_module(tuned_prefix, model_name, build_dir)
+        logger.info_once(f"Loaded tuned kernel for model: {model_name}")
         return module
     except FileNotFoundError:
         pass
     
     # 2. Fallback 到 basic kernel
-    logger.warning(f"Tuned kernel not found for {base_model}, using basic kernel")
+    logger.warning(f"Tuned kernel not found for {model_name}, using basic kernel")
     return _load_basic_kernel(kernel_dir, kernel_type)
 
 
@@ -642,44 +617,45 @@ def _preload_all_kernels() -> None:
 
 
 def _preload_target_model_kernels(target_model_name: str) -> None:
-    """针对特定模型的定向预加载"""
-    # 提取 base model name (因为文件名是基于 base model 的)
-    # 例如: Llama3.2-1B-FP8-SlideSparse-2_8 -> Llama3.2-1B-FP8
-    base_model = _extract_base_model_name(target_model_name)
-    logger.info(f"Optimization enabled: Only preloading kernels for base model '{base_model}'")
+    """针对特定模型的定向预加载
+    
+    Args:
+        target_model_name: 基础模型名（SLIDESPARSE_MODEL_NAME 现在严格不带 slide 后缀）
+    """
+    # target_model_name 现在已经是基础名，无需再提取
+    model_name = target_model_name
+    logger.info(f"Optimization enabled: Only preloading kernels for model '{model_name}'")
     
     # 尝试加载各类 kernel
-    # 注意: _load_xxx 函数内部会再次调用 _extract_base_model_name，所以传 full name 或 base name 均可
-    # 但为了逻辑清晰，我们这里传 base_model
     
     # 1. Dequant Bias
     try:
-        _load_dequant_bias_kernel(base_model)
+        _load_dequant_bias_kernel(model_name)
     except Exception as e:
         # 不要 fallback，明确警告
-        logger.warning(f"Target dequant_bias kernel for '{base_model}' not found: {e}")
+        logger.warning(f"Target dequant_bias kernel for '{model_name}' not found: {e}")
 
     # 2. Quant Only (FP8 & INT8)
     try:
-        _load_quant_only_fp8_kernel(base_model)
+        _load_quant_only_fp8_kernel(model_name)
     except Exception as e:
-        logger.warning(f"Target quant_only_fp8 kernel for '{base_model}' not found: {e}")
+        logger.warning(f"Target quant_only_fp8 kernel for '{model_name}' not found: {e}")
         
     try:
-        _load_quant_only_int8_kernel(base_model)
+        _load_quant_only_int8_kernel(model_name)
     except Exception as e:
-        logger.warning(f"Target quant_only_int8 kernel for '{base_model}' not found: {e}")
+        logger.warning(f"Target quant_only_int8 kernel for '{model_name}' not found: {e}")
 
     # 3. Quant Slide (FP8 & INT8)
     try:
-        _load_quant_slide_fp8_kernel(base_model)
+        _load_quant_slide_fp8_kernel(model_name)
     except Exception as e:
-        logger.warning(f"Target quant_slide_fp8 kernel for '{base_model}' not found: {e}")
+        logger.warning(f"Target quant_slide_fp8 kernel for '{model_name}' not found: {e}")
 
     try:
-        _load_quant_slide_int8_kernel(base_model)
+        _load_quant_slide_int8_kernel(model_name)
     except Exception as e:
-        logger.warning(f"Target quant_slide_int8 kernel for '{base_model}' not found: {e}")
+        logger.warning(f"Target quant_slide_int8 kernel for '{model_name}' not found: {e}")
 
 
 def _preload_scan_all_kernels(hw_dir: str) -> None:

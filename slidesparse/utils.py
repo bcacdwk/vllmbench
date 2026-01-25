@@ -3591,6 +3591,147 @@ def _try_auto_convert_model(
 
 
 # =============================================================================
+# 模型名称处理工具
+# =============================================================================
+
+def extract_model_name(model_name_with_slide: str) -> str:
+    """
+    从完整模型名中提取基础模型名（去除 -SlideSparse-Z_L 后缀）
+    
+    这是全局统一的模型名提取函数，供 core/ 和其他模块使用。
+    
+    命名约定:
+        - model_name: 基础模型名，严格不带 -SlideSparse- 后缀
+        - model_name_with_slide: 可能包含 -SlideSparse- 后缀的完整 checkpoint 名
+    
+    示例:
+        >>> extract_model_name("Llama3.2-1B-FP8-SlideSparse-2_8")
+        'Llama3.2-1B-FP8'
+        >>> extract_model_name("Qwen2.5-0.5B-INT8")
+        'Qwen2.5-0.5B-INT8'
+        >>> extract_model_name("BitNet-2B-BF16-SlideSparse-2_10")
+        'BitNet-2B-BF16'
+    
+    Args:
+        model_name_with_slide: 可能包含 -SlideSparse- 后缀的模型名
+    
+    Returns:
+        不带 slide 后缀的基础模型名
+    """
+    marker = "-SlideSparse-"
+    if marker in model_name_with_slide:
+        return model_name_with_slide.split(marker)[0]
+    return model_name_with_slide
+
+
+def resolve_model_path_from_arg(
+    model_arg: Optional[str],
+    quant: Optional[str] = None,
+    checkpoint_dir: Optional[Union[str, Path]] = None,
+    fallback_model: str = "BitNet-2B-BF16",
+    warn_on_fallback: bool = True,
+) -> Tuple[Path, str]:
+    """
+    从命令行参数解析模型路径（统一接口）
+    
+    供测试脚本、工具脚本统一使用。解决各处重复实现模型查找逻辑的问题。
+    
+    支持的输入格式:
+      - None → 使用 fallback_model 并打印警告
+      - 目录名 (如 "Qwen2.5-0.5B-FP8") → 在 checkpoint_dir 下查找
+      - 完整路径 (如 "/path/to/model") → 直接使用
+      - 不带量化后缀 (如 "Llama3.2-1B") → 需指定 quant 参数补全为 "Llama3.2-1B-FP8"
+    
+    Args:
+        model_arg: 命令行 --model 参数值
+        quant: 量化类型（用于补全，如 "FP8", "INT8"），默认 None
+        checkpoint_dir: checkpoint 目录，默认 PROJECT_ROOT/checkpoints
+        fallback_model: 当 model_arg 为 None 时的默认模型名
+        warn_on_fallback: 是否在使用默认模型时打印警告
+    
+    Returns:
+        (model_path, model_name): 
+            - model_path: 模型目录的 Path 对象
+            - model_name: 模型名称（目录名，如 "Qwen2.5-0.5B-FP8"）
+    
+    Raises:
+        ValueError: 模型目录不存在
+    
+    Example:
+        >>> # 使用默认模型（会打印警告）
+        >>> path, name = resolve_model_path_from_arg(None)
+        >>> print(name)  # "BitNet-2B-BF16"
+        
+        >>> # 指定模型名
+        >>> path, name = resolve_model_path_from_arg("Qwen2.5-0.5B-FP8")
+        
+        >>> # 补全量化后缀
+        >>> path, name = resolve_model_path_from_arg("Llama3.2-1B", quant="FP8")
+    """
+    # 默认 checkpoint 目录
+    if checkpoint_dir is None:
+        project_root = Path(__file__).parent.parent
+        checkpoint_dir = project_root / "checkpoints"
+    else:
+        checkpoint_dir = Path(checkpoint_dir)
+    
+    # 如果未指定模型，使用 fallback
+    if model_arg is None:
+        if warn_on_fallback:
+            print(f"[Warning] 未指定 --model，使用默认模型: {fallback_model}")
+        
+        model_path = checkpoint_dir / fallback_model
+        if not model_path.exists():
+            raise ValueError(
+                f"默认模型 '{fallback_model}' 不存在。\n"
+                f"请下载模型或使用 --model 参数指定其他模型。\n"
+                f"期望路径: {model_path}"
+            )
+        return model_path, fallback_model
+    
+    # 1. 尝试作为完整路径
+    direct_path = Path(model_arg)
+    if direct_path.exists() and direct_path.is_dir():
+        return direct_path, direct_path.name
+    
+    # 2. 在 checkpoint_dir 下查找
+    candidates = [
+        checkpoint_dir / model_arg,
+    ]
+    
+    # 如果指定了 quant，尝试补全
+    if quant:
+        quant_upper = quant.upper()
+        # 避免重复添加后缀
+        if not model_arg.upper().endswith(f"-{quant_upper}"):
+            candidates.append(checkpoint_dir / f"{model_arg}-{quant_upper}")
+    
+    for candidate in candidates:
+        if candidate.exists() and candidate.is_dir():
+            return candidate, candidate.name
+    
+    # 未找到，生成友好的错误信息
+    available_models = []
+    if checkpoint_dir.exists():
+        available_models = sorted([
+            d.name for d in checkpoint_dir.iterdir() 
+            if d.is_dir() and not d.name.startswith('.')
+        ])
+    
+    error_msg = f"未找到模型 '{model_arg}'。"
+    if candidates:
+        error_msg += f"\n尝试的路径: {[str(c) for c in candidates]}"
+    if available_models:
+        error_msg += f"\n可用的模型: {', '.join(available_models[:10])}"
+        if len(available_models) > 10:
+            error_msg += f" ... (共 {len(available_models)} 个)"
+    else:
+        error_msg += f"\ncheckpoints 目录 ({checkpoint_dir}) 为空或不存在。"
+    
+    raise ValueError(error_msg)
+
+
+# =============================================================================
 # 统一的 NK 尺寸获取工具（供搜索/调优脚本使用）
 # =============================================================================
 
@@ -3891,6 +4032,9 @@ __all__ = [
     "get_slidesparse_checkpoints_dir",
     "resolve_slidesparse_model_path",
     "find_slidesparse_model",
+    # 模型名称处理工具
+    "extract_model_name",
+    "resolve_model_path_from_arg",
 ]
 
 

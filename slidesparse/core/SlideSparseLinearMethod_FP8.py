@@ -107,12 +107,16 @@ logger = init_logger(__name__)
 
 def _get_current_model_name() -> str:
     """
-    从 AlgorithmConfigManager 获取当前模型名
+    从 AlgorithmConfigManager 获取当前基础模型名（不带 -SlideSparse- 后缀）
+    
+    返回的名字直接对应:
+    - Triton kernel 文件名后缀
+    - GEMM 配置 JSON 中的 model_name
     
     如果没有设置，抛出明确的错误提示
     """
     manager = get_algo_config_manager()
-    model_name = manager.get_model()
+    model_name = manager.get_model_name()
     if model_name is None:
         raise ValueError(
             "Model name not set. Call slidesparse.init_slidesparse(model_name) first.\n"

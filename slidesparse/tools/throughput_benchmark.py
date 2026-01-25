@@ -69,6 +69,7 @@ from slidesparse.utils import (
     get_model_local_path,
     hw_info,
     build_stem,
+    extract_model_name,
 )
 from slidesparse.tools.utils import (
     Colors,
@@ -162,7 +163,7 @@ PROMPT_LENGTH_CAP_PREFILL = 1024  # Prefill 模式下 prompt_length 的上限
 PROMPT_LENGTH_FIXED_DECODE = 16   # Decode 模式下固定的 prompt_length
 
 # max-model-len 计算的 Buffer
-MODEL_LEN_BUFFER = 128
+MODEL_LEN_BUFFER = 16
 
 # 默认稀疏度列表 (仅 cusparselt)
 DEFAULT_SPARSITY_LIST = ["2_4", "2_6", "2_8", "2_10", "2_12"]
@@ -373,8 +374,6 @@ def set_backend_env(
     Returns:
         保存的原环境变量，用于恢复
     """
-    from slidesparse.core.gemm_wrapper import AlgorithmConfigManager
-    
     saved = {
         "DISABLE_SLIDESPARSE": os.environ.get("DISABLE_SLIDESPARSE"),
         "USE_CUBLASLT": os.environ.get("USE_CUBLASLT"),
@@ -382,7 +381,7 @@ def set_backend_env(
         "INNER_DTYPE_32": os.environ.get("INNER_DTYPE_32"),
         "SPARSITY": os.environ.get("SPARSITY"),
         "SLIDESPARSE_MODEL_NAME": os.environ.get("SLIDESPARSE_MODEL_NAME"),
-        "SLIDESPARSE_BASE_MODEL_NAME": os.environ.get("SLIDESPARSE_BASE_MODEL_NAME"),
+        "SLIDESPARSE_MODEL_NAME_WITH_SLIDE": os.environ.get("SLIDESPARSE_MODEL_NAME_WITH_SLIDE"),
     }
     
     # 所有 backend 都通过 SlideSparse 转发（DISABLE_SLIDESPARSE=0）
@@ -397,17 +396,18 @@ def set_backend_env(
         os.environ.pop("USE_CUSPARSELT", None)
         os.environ.pop("SPARSITY", None)
         os.environ.pop("SLIDESPARSE_MODEL_NAME", None)  # CUTLASS 不需要
-        os.environ.pop("SLIDESPARSE_BASE_MODEL_NAME", None)
+        os.environ.pop("SLIDESPARSE_MODEL_NAME_WITH_SLIDE", None)
     elif backend == "cublaslt":
         os.environ["USE_CUBLASLT"] = "1"
         os.environ.pop("USE_CUSPARSELT", None)
         os.environ.pop("SPARSITY", None)
         # cuBLASLt 需要 model_name 来加载 tuned kernels
         if model_name:
-            os.environ["SLIDESPARSE_MODEL_NAME"] = model_name
-            # 同时设置 base model name（去除 -SlideSparse-2_L 后缀）
-            base_model = AlgorithmConfigManager._extract_base_model_name(model_name)
-            os.environ["SLIDESPARSE_BASE_MODEL_NAME"] = base_model
+            # 设置完整 checkpoint 名 (可能带 -SlideSparse- 后缀)
+            os.environ["SLIDESPARSE_MODEL_NAME_WITH_SLIDE"] = model_name
+            # 设置基础模型名（去除 -SlideSparse-2_L 后缀），用于 kernel 查找
+            base_model = extract_model_name(model_name)
+            os.environ["SLIDESPARSE_MODEL_NAME"] = base_model
     elif backend == "cusparselt":
         os.environ["USE_CUSPARSELT"] = "1"
         os.environ.pop("USE_CUBLASLT", None)
@@ -415,10 +415,11 @@ def set_backend_env(
             os.environ["SPARSITY"] = sparsity
         # cuSPARSELt 需要 model_name 来加载 tuned kernels
         if model_name:
-            os.environ["SLIDESPARSE_MODEL_NAME"] = model_name
-            # 同时设置 base model name（去除 -SlideSparse-2_L 后缀）
-            base_model = AlgorithmConfigManager._extract_base_model_name(model_name)
-            os.environ["SLIDESPARSE_BASE_MODEL_NAME"] = base_model
+            # 设置完整 checkpoint 名 (可能带 -SlideSparse- 后缀)
+            os.environ["SLIDESPARSE_MODEL_NAME_WITH_SLIDE"] = model_name
+            # 设置基础模型名（去除 -SlideSparse-2_L 后缀），用于 kernel 查找
+            base_model = extract_model_name(model_name)
+            os.environ["SLIDESPARSE_MODEL_NAME"] = base_model
     
     if inner_32:
         os.environ["INNER_DTYPE_32"] = "1"

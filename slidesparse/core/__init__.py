@@ -77,7 +77,7 @@ from slidesparse.core.profiler import print_profile_stats, reset_profile_stats
 # 初始化函数
 # ============================================================================
 
-def init_slidesparse(model_name: str) -> None:
+def init_slidesparse(model_name_with_slide: str) -> None:
     """
     初始化 SlideSparse 系统
     
@@ -93,14 +93,21 @@ def init_slidesparse(model_name: str) -> None:
     - 所有 kernel 在此函数中预加载到缓存
     - forward 路径只从缓存读取，无文件系统操作
     
+    命名约定:
+    - model_name: 基础模型名（如 "Qwen2.5-0.5B-FP8"），用于 kernel/配置文件查找
+    - model_name_with_slide: 完整 checkpoint 名（可能包含 -SlideSparse-2_L 后缀）
+    
     Args:
-        model_name: 模型名称，例如 "Qwen2.5-0.5B-FP8", "Llama3.2-1B-INT8"
-                    应与 checkpoints 目录名一致
+        model_name_with_slide: 模型名称，例如 "Qwen2.5-0.5B-FP8" 或 
+                               "Qwen2.5-0.5B-FP8-SlideSparse-2_8"
+                               应与 checkpoints/checkpoints_slidesparse 目录名一致
     
     Example:
         >>> from slidesparse.core import init_slidesparse
+        >>> # Dense 模型
         >>> init_slidesparse("Llama3.2-1B-FP8")
-        >>> # 现在可以使用 cuBLASLt/cuSPARSELt kernel 了
+        >>> # SlideSparse 稀疏模型
+        >>> init_slidesparse("Llama3.2-1B-FP8-SlideSparse-2_8")
     """
     from slidesparse.core.kernels import (
         _load_dequant_bias_kernel,
@@ -113,9 +120,13 @@ def init_slidesparse(model_name: str) -> None:
     logger = init_logger(__name__)
     
     # 1. 设置模型名称和加载 GEMM 算法配置
+    # set_model 会自动提取基础模型名并设置环境变量
     manager = get_algo_config_manager()
-    manager.set_model(model_name)
+    manager.set_model(model_name_with_slide)
     # load_all_configs 在 AlgorithmConfigManager.__init__ 中已自动调用
+    
+    # 获取基础模型名用于加载 kernel
+    model_name = manager.get_model_name()
     
     # 2. 预加载 Triton kernel（根据启用的后端）
     # 这确保 forward 路径上不会有 kernel 加载（文件系统操作）

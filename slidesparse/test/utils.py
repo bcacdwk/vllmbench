@@ -91,6 +91,9 @@ _resolve_slidesparse_model_path = None
 _find_slidesparse_model = None
 _get_sparsity_str = None
 _clear_sparsity_cache = None
+# 新增：统一的模型路径解析工具
+_extract_model_name = None
+_resolve_model_path_from_arg = None
 
 
 def _import_slidesparse_utils():
@@ -98,11 +101,13 @@ def _import_slidesparse_utils():
     global _hw_info, _build_filename, _build_stem, _build_dir_name, _normalize_dtype
     global _get_slidesparse_checkpoints_dir, _resolve_slidesparse_model_path
     global _find_slidesparse_model, _get_sparsity_str, _clear_sparsity_cache
+    global _extract_model_name, _resolve_model_path_from_arg
     if _hw_info is None:
         from slidesparse.utils import (
             hw_info, build_filename, build_stem, build_dir_name, normalize_dtype,
             get_slidesparse_checkpoints_dir, resolve_slidesparse_model_path,
             find_slidesparse_model, get_sparsity_str, clear_sparsity_cache,
+            extract_model_name, resolve_model_path_from_arg,
         )
         _hw_info = hw_info
         _build_filename = build_filename
@@ -114,6 +119,8 @@ def _import_slidesparse_utils():
         _find_slidesparse_model = find_slidesparse_model
         _get_sparsity_str = get_sparsity_str
         _clear_sparsity_cache = clear_sparsity_cache
+        _extract_model_name = extract_model_name
+        _resolve_model_path_from_arg = resolve_model_path_from_arg
 
 
 def get_hw_info() -> "HardwareInfo":
@@ -167,6 +174,37 @@ def get_normalize_dtype(dtype: str) -> str:
     """标准化数据类型名称（代理函数）"""
     _import_slidesparse_utils()
     return _normalize_dtype(dtype)
+
+
+def extract_model_name(model_name_with_slide: str) -> str:
+    """
+    从完整模型名中提取基础模型名（代理函数）
+    
+    委托给顶层 slidesparse.utils.extract_model_name
+    """
+    _import_slidesparse_utils()
+    return _extract_model_name(model_name_with_slide)
+
+
+def resolve_model_path_from_arg(
+    model_arg,
+    quant=None,
+    checkpoint_dir=None,
+    fallback_model="BitNet-2B-BF16",
+    warn_on_fallback=True,
+):
+    """
+    从命令行参数解析模型路径（代理函数）
+    
+    委托给顶层 slidesparse.utils.resolve_model_path_from_arg
+    
+    Returns:
+        (model_path, model_name) 元组
+    """
+    _import_slidesparse_utils()
+    return _resolve_model_path_from_arg(
+        model_arg, quant, checkpoint_dir, fallback_model, warn_on_fallback
+    )
 
 
 # ============================================================================
@@ -1248,11 +1286,6 @@ class ModelFinder:
         return PROJECT_ROOT / "checkpoints"
     
     @classmethod
-    def get_slidesparse_checkpoints_dir(cls) -> Path:
-        """获取 SlideSparse 转换后的 checkpoints 目录路径"""
-        return PROJECT_ROOT / "checkpoints_slidesparse"
-    
-    @classmethod
     def find_models(cls, model_type: str = None) -> List[Path]:
         """
         查找可用模型
@@ -1396,7 +1429,7 @@ class ModelFinder:
     @classmethod
     def resolve_model_path(cls, model_arg: str, quant: str = "FP8") -> Optional[Path]:
         """
-        解析模型路径参数
+        解析模型路径参数（委托给顶层 slidesparse.utils.resolve_model_path_from_arg）
         
         支持以下格式：
         - 完整路径: checkpoints/Llama3.2-1B-FP8
@@ -1409,25 +1442,24 @@ class ModelFinder:
         
         Returns:
             解析后的模型路径，如果找不到返回 None
+        
+        Note:
+            此方法保留向后兼容，但内部委托给顶层统一实现。
+            新代码应直接使用 slidesparse.utils.resolve_model_path_from_arg。
         """
         if model_arg is None:
             return None
         
-        p = Path(model_arg)
-        if p.exists():
-            return p
-        
-        # 尝试在 checkpoints 目录下查找
-        checkpoints_dir = cls.get_checkpoints_dir()
-        candidates = [
-            checkpoints_dir / model_arg,
-            checkpoints_dir / f"{model_arg}-{quant}",
-        ]
-        for c in candidates:
-            if c.exists():
-                return c
-        
-        return None
+        _import_slidesparse_utils()
+        try:
+            path, _ = _resolve_model_path_from_arg(
+                model_arg, 
+                quant=quant, 
+                warn_on_fallback=False  # 这里不需要 fallback 警告
+            )
+            return path
+        except ValueError:
+            return None
 
 
 # ============================================================================

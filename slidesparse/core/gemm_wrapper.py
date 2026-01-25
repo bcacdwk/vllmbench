@@ -45,6 +45,7 @@ from slidesparse.utils import (
     ensure_cublaslt_loaded,
     ensure_cusparselt_loaded,
     build_hw_dir_name,
+    extract_model_name,
 )
 from .kernels import _CSRC_DIR
 
@@ -129,29 +130,17 @@ class AlgorithmConfigManager:
         self._cublaslt_configs: Dict[str, Dict] = {}
         # cuSPARSELt: {model_name: {(N,K): {"m_thresholds": [...], "alg_by_m": {m_str: (alg_id, split_k, workspace)}}}}
         self._cusparselt_configs: Dict[str, Dict] = {}
-        self._current_model: Optional[str] = None      # 原始模型名（checkpoint 名）
-        self._base_model: Optional[str] = None         # 基础模型名（用于查表和 kernel 加载）
+        # 模型名命名约定:
+        # - _model_name: 基础模型名（严格不带 -SlideSparse- 后缀），用于查表和 kernel 加载
+        # - _model_name_with_slide: 完整 checkpoint 名（可能带 -SlideSparse- 后缀）
+        self._model_name: Optional[str] = None
+        self._model_name_with_slide: Optional[str] = None
         self._loaded = False
         self._cublaslt_warned_models: set = set()  # 避免 cuBLASLt 重复警告
         self._cusparselt_warned_models: set = set()  # 避免 cuSPARSELt 重复警告
         
         # eager加载配置（在模块导入时完成，非热路径）
         self.load_all_configs()
-    
-    @staticmethod
-    def _extract_base_model_name(model_name: str) -> str:
-        """
-        从完整模型名中提取基础模型名
-        
-        例如:
-            Llama3.2-1B-FP8-SlideSparse-2_8 -> Llama3.2-1B-FP8
-            Qwen2.5-0.5B-INT8-SlideSparse-2_10 -> Qwen2.5-0.5B-INT8
-            Llama3.2-1B-FP8 -> Llama3.2-1B-FP8 (不变)
-        """
-        marker = "-SlideSparse-"
-        if marker in model_name:
-            return model_name.split(marker)[0]
-        return model_name
     
     def load_all_configs(self) -> None:
         """加载当前硬件目录下所有 JSON 配置"""
@@ -161,29 +150,29 @@ class AlgorithmConfigManager:
         hw_folder = build_hw_dir_name()  # e.g., RTX5080_cc120_py312_cu129_x86_64
         
         # 优化: 如果设置了 SLIDESPARSE_MODEL_NAME，只加载该模型的配置
-        target_model = os.environ.get("SLIDESPARSE_MODEL_NAME")
-        target_base = self._extract_base_model_name(target_model) if target_model else None
+        # 注意: SLIDESPARSE_MODEL_NAME 现在是严格不带 slide 后缀的基础名
+        target_model_name = os.environ.get("SLIDESPARSE_MODEL_NAME")
         
-        if target_base:
-            logger.info(f"Optimization enabled: Only loading GEMM configs for base model '{target_base}'")
+        if target_model_name:
+            logger.info(f"Optimization enabled: Only loading GEMM configs for model '{target_model_name}'")
         
         # cuBLASLt 配置
         cublaslt_dir = _SEARCH_DIR / "cuBLASLt_AlgSearch" / "alg_search_results" / hw_folder
         if cublaslt_dir.exists():
             for json_file in cublaslt_dir.glob("alg_search_*.json"):
-                self._load_single_config("cublaslt", json_file, target_base)
+                self._load_single_config("cublaslt", json_file, target_model_name)
         
         # cuSPARSELt 配置
         cusparselt_dir = _SEARCH_DIR / "cuSPARSELt_AlgSearch" / "alg_search_results" / hw_folder
         if cusparselt_dir.exists():
             for json_file in cusparselt_dir.glob("alg_search_*.json"):
-                self._load_single_config("cusparselt", json_file, target_base)
+                self._load_single_config("cusparselt", json_file, target_model_name)
         
         self._loaded = True
         logger.info(f"Loaded algorithm configs: cuBLASLt={len(self._cublaslt_configs)}, "
                    f"cuSPARSELt={len(self._cusparselt_configs)} models")
     
-    def _load_single_config(self, backend: str, json_path: Path, target_base: Optional[str] = None) -> None:
+    def _load_single_config(self, backend: str, json_path: Path, target_model_name: Optional[str] = None) -> None:
         """加载单个 JSON 配置文件，并预解码 Base64 数据"""
         try:
             with open(json_path, "r") as f:
@@ -191,8 +180,8 @@ class AlgorithmConfigManager:
             
             model_name = data["meta"]["model_name"]
             
-            # 过滤逻辑：如果指定了 target_base，且当前 model_name 不匹配，则跳过
-            if target_base and model_name != target_base:
+            # 过滤逻辑：如果指定了 target_model_name，且当前 model_name 不匹配，则跳过
+            if target_model_name and model_name != target_model_name:
                 return
 
             nk_entries = data.get("nk_entries", {})
@@ -232,73 +221,82 @@ class AlgorithmConfigManager:
         except Exception as e:
             logger.warning(f"Failed to load {json_path}: {e}")
     
-    def set_model(self, model_name: str) -> None:
-        """设置当前模型（由 LinearMethod 调用）
+    def set_model(self, model_name_with_slide: str) -> None:
+        """设置当前模型（由 init_slidesparse 调用）
         
         自动提取基础模型名用于查表和 kernel 加载。
         同时设置环境变量，以便子进程（如 vLLM EngineCore）也能获取到。
         
         注意：此方法应在 torch.compile 之前调用（通常在 init_slidesparse 中）。
         
-        Args:
-            model_name: 完整模型名（可能包含 -SlideSparse-2_L 后缀）
-        """
-        self._current_model = model_name
-        self._base_model = self._extract_base_model_name(model_name)
-        os.environ["SLIDESPARSE_MODEL_NAME"] = model_name
-        os.environ["SLIDESPARSE_BASE_MODEL_NAME"] = self._base_model
+        环境变量命名约定:
+        - SLIDESPARSE_MODEL_NAME: 基础模型名（严格不带 -SlideSparse- 后缀）
+        - SLIDESPARSE_MODEL_NAME_WITH_SLIDE: 完整 checkpoint 名（可能带后缀）
         
-        if self._base_model != model_name:
-            logger.info(f"Model name mapping: {model_name} -> {self._base_model}")
+        Args:
+            model_name_with_slide: 完整模型名（可能包含 -SlideSparse-2_L 后缀）
+        """
+        self._model_name_with_slide = model_name_with_slide
+        self._model_name = extract_model_name(model_name_with_slide)
+        
+        # 设置环境变量（供子进程使用）
+        os.environ["SLIDESPARSE_MODEL_NAME"] = self._model_name
+        os.environ["SLIDESPARSE_MODEL_NAME_WITH_SLIDE"] = self._model_name_with_slide
+        
+        if self._model_name != model_name_with_slide:
+            logger.info(f"Model name mapping: {model_name_with_slide} -> {self._model_name}")
     
-    def get_model(self) -> Optional[str]:
-        """获取当前完整模型名（checkpoint 名）
+    def get_model_name_with_slide(self) -> Optional[str]:
+        """获取完整 checkpoint 名（可能带 -SlideSparse- 后缀）
         
         优先返回实例变量，其次从环境变量读取（支持子进程场景）。
         
         torch.compile 兼容：
-        - 如果 _current_model 已设置，直接返回（无写操作）
+        - 如果 _model_name_with_slide 已设置，直接返回（无写操作）
         - 如果需要从环境变量读取，在非编译模式下缓存到实例变量
         """
-        if self._current_model is not None:
-            return self._current_model
+        if self._model_name_with_slide is not None:
+            return self._model_name_with_slide
         # 子进程场景：从环境变量读取
-        env_model = os.environ.get("SLIDESPARSE_MODEL_NAME")
+        env_model = os.environ.get("SLIDESPARSE_MODEL_NAME_WITH_SLIDE")
         if env_model:
             # 只在非 torch.compile 追踪时缓存（避免 setattr 副作用）
             if not torch.compiler.is_compiling():
-                self._current_model = env_model
-                self._base_model = self._extract_base_model_name(env_model)
+                self._model_name_with_slide = env_model
+                self._model_name = extract_model_name(env_model)
             return env_model
         return None
     
-    def get_base_model(self) -> Optional[str]:
-        """获取基础模型名（用于查表和 kernel 加载）
+    def get_model_name(self) -> Optional[str]:
+        """获取基础模型名（严格不带 -SlideSparse- 后缀，用于查表和 kernel 加载）
         
-        基础模型名去除了 -SlideSparse-2_L 后缀。
-        优先返回实例变量，其次从环境变量读取。
+        这是最常用的接口，返回的名字直接对应:
+        - GEMM 配置 JSON 中的 model_name
+        - Triton kernel 文件名后缀
+        
+        优先返回实例变量，其次从环境变量读取（支持子进程场景）。
         
         torch.compile 兼容：
-        - 如果 _base_model 已设置，直接返回（无写操作）
+        - 如果 _model_name 已设置，直接返回（无写操作）
         - 如果需要从环境变量读取，在非编译模式下缓存到实例变量
         """
-        if self._base_model is not None:
-            return self._base_model
+        if self._model_name is not None:
+            return self._model_name
         # 子进程场景：从环境变量读取
-        env_base = os.environ.get("SLIDESPARSE_BASE_MODEL_NAME")
-        if env_base:
+        env_name = os.environ.get("SLIDESPARSE_MODEL_NAME")
+        if env_name:
             # 只在非 torch.compile 追踪时缓存
             if not torch.compiler.is_compiling():
-                self._base_model = env_base
-            return env_base
-        # 如果没有 base，尝试从完整名称提取
-        full_model = self.get_model()
+                self._model_name = env_name
+            return env_name
+        # 如果没有 model_name，尝试从完整名称提取
+        full_model = self.get_model_name_with_slide()
         if full_model:
-            base = self._extract_base_model_name(full_model)
+            name = extract_model_name(full_model)
             # 只在非 torch.compile 追踪时缓存
             if not torch.compiler.is_compiling():
-                self._base_model = base
-            return base
+                self._model_name = name
+            return name
         return None
     
     def lookup_cublaslt(self, N: int, K: int, M: int) -> Tuple[Optional[bytes], int]:
@@ -325,18 +323,18 @@ class AlgorithmConfigManager:
             (algo_data_bytes, workspace)
             找不到返回 (None, 0)
         """
-        base_model = self.get_base_model()
-        if base_model is None:
+        model_name = self.get_model_name()
+        if model_name is None:
             return (None, 0)
         
-        model_config = self._cublaslt_configs.get(base_model)
+        model_config = self._cublaslt_configs.get(model_name)
         if model_config is None:
             # 只在非 torch.compile 追踪时打印警告（避免 set.add 副作用）
             if not torch.compiler.is_compiling():
-                if base_model not in self._cublaslt_warned_models:
-                    logger.warning(f"No cuBLASLt config for model '{base_model}', "
+                if model_name not in self._cublaslt_warned_models:
+                    logger.warning(f"No cuBLASLt config for model '{model_name}', "
                                  f"using default algorithm")
-                    self._cublaslt_warned_models.add(base_model)
+                    self._cublaslt_warned_models.add(model_name)
             return (None, 0)
         
         nk_entry = model_config.get((N, K))
@@ -381,18 +379,18 @@ class AlgorithmConfigManager:
             (alg_id, split_k, workspace)
             找不到返回 (-1, -1, 0)
         """
-        base_model = self.get_base_model()
-        if base_model is None:
+        model_name = self.get_model_name()
+        if model_name is None:
             return (-1, -1, 0)
         
-        model_config = self._cusparselt_configs.get(base_model)
+        model_config = self._cusparselt_configs.get(model_name)
         if model_config is None:
             # 只在非 torch.compile 追踪时打印警告（避免 set.add 副作用）
             if not torch.compiler.is_compiling():
-                if base_model not in self._cusparselt_warned_models:
-                    logger.warning(f"No cuSPARSELt config for model '{base_model}', "
+                if model_name not in self._cusparselt_warned_models:
+                    logger.warning(f"No cuSPARSELt config for model '{model_name}', "
                                  f"using default algorithm")
-                    self._cusparselt_warned_models.add(base_model)
+                    self._cusparselt_warned_models.add(model_name)
             return (-1, -1, 0)
         
         nk_entry = model_config.get((N, K))
