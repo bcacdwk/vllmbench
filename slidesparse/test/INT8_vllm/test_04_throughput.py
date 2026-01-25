@@ -623,11 +623,13 @@ if __name__ == "__main__":
         "--eager",
         action="store_true",
         help="强制使用 eager mode（禁用 torch.compile）"
-    )    parser.add_argument(
+    )
+    parser.add_argument(
         "--show-subprocess-output",
         action="store_true",
         help="显示子进程的完整输出（调试用，包含模型加载日志等）"
-    )    args = parser.parse_args()
+    )
+    args = parser.parse_args()
     
     # 注意：不调用 apply_env_args(args)
     # 因为 run_throughput_comparison 会自己管理环境变量

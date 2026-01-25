@@ -1,0 +1,1332 @@
+======================================================================
+SlideSparse vLLM Throughput Benchmark Log
+Created: 2026-01-25 00:22:47
+======================================================================
+
+原始命令:
+  slidesparse/tools/throughput_benchmark.py --backend all --sparsity 2_4,2_6,2_10 --M quick
+
+命令行参数:
+  --model: None
+  --backend: all
+  --sparsity: 2_4,2_6,2_10
+  --stage: None
+  --M: quick
+  --N: None
+  --inner-32: False
+  --eager: False
+  --gpu-id: 1
+  --gpu-mem: 0.8
+  --dry-run: False
+  --list-models: False
+
+硬件信息:
+  GPU: RTX5080
+  Compute Capability: cc120
+  VRAM: 15.5 GB
+  CUDA: 12.9
+  Python: py312
+
+Backend 环境变量 (初始状态):
+  DISABLE_SLIDESPARSE: 未设置
+  USE_CUBLASLT: 未设置
+  USE_CUSPARSELT: 未设置
+  SPARSITY: 未设置
+  INNER_DTYPE_32: 未设置
+
+======================================================================
+
+[WARNING] Backend 不支持，跳过: Llama3.2-1B-INT8 + cutlass
+[WARNING]   原因: vLLM CUTLASS INT8 不支持: sm_120 >= sm_100
+
+============================================================
+  Llama3.2-1B-INT8 | cuBLASLt | prefill
+============================================================
+
+[INFO] Checkpoint: /root/vllmbench/checkpoints/Llama3.2-1B-INT8
+[INFO] Output: /root/vllmbench/slidesparse/tools/throughput_benchmark_results/prefill/RTX5080_cc120_INT8_py312_cu129_x86_64/cublaslt
+
+============================================================
+[1/3] 测试 M=16
+============================================================
+
+┌─────────────────────────────────────────────────────────────┐
+│                    测试参数                                  │
+├─────────────────────────────────────────────────────────────┤
+│ 模型:     Llama3.2-1B-INT8                                │
+│ Backend:  cuBLASLt [INT32 output]                         │
+│ 阶段:     prefill                                         │
+├─────────────────────────────────────────────────────────────┤
+│ GEMM M 维度:
+│   M_prefill = 16 (= 1 x 16)
+│   M_decode  = 1
+├─────────────────────────────────────────────────────────────┤
+│ vLLM 参数:
+│   --input-len       = 16
+│   --output-len      = 1
+│   --num-prompts     = 128
+│   --max-num-seqs    = 1
+│   --max-model-len   = 145
+├─────────────────────────────────────────────────────────────┤
+│ 迭代次数:
+│   N_prefill = 128
+│   N_decode  = 0
+└─────────────────────────────────────────────────────────────┘
+
+[INFO] 开始测试...
+
+─── STDOUT ───
+When dataset path is not set, it will default to random dataset
+INFO 01-25 00:22:51 [datasets.py:612] Sampling input_len from [15, 15] and output_len from [1, 1]
+INFO 01-25 00:22:51 [utils.py:253] non-default args: {'tokenizer': '/root/vllmbench/checkpoints/Llama3.2-1B-INT8', 'max_model_len': 145, 'gpu_memory_utilization': 0.8, 'max_num_batched_tokens': 145, 'max_num_seqs': 1, 'disable_log_stats': True, 'enable_lora': None, 'reasoning_parser_plugin': '', 'model': '/root/vllmbench/checkpoints/Llama3.2-1B-INT8'}
+INFO 01-25 00:22:51 [model.py:514] Resolved architecture: LlamaForCausalLM
+INFO 01-25 00:22:51 [model.py:1661] Using max model len 145
+INFO 01-25 00:22:51 [scheduler.py:230] Chunked prefill is enabled with max_num_batched_tokens=145.
+(EngineCore_DP0 pid=861992) INFO 01-25 00:22:55 [core.py:93] Initializing a V1 LLM engine (v0.13.1.dev7+gd5e6597bf) with config: model='/root/vllmbench/checkpoints/Llama3.2-1B-INT8', speculative_config=None, tokenizer='/root/vllmbench/checkpoints/Llama3.2-1B-INT8', skip_tokenizer_init=False, tokenizer_mode=auto, revision=None, tokenizer_revision=None, trust_remote_code=False, dtype=torch.bfloat16, max_seq_len=145, download_dir=None, load_format=auto, tensor_parallel_size=1, pipeline_parallel_size=1, data_parallel_size=1, disable_custom_all_reduce=False, quantization=compressed-tensors, enforce_eager=False, kv_cache_dtype=auto, device_config=cuda, structured_outputs_config=StructuredOutputsConfig(backend='auto', disable_fallback=False, disable_any_whitespace=False, disable_additional_properties=False, reasoning_parser='', reasoning_parser_plugin='', enable_in_reasoning=False), observability_config=ObservabilityConfig(show_hidden_metrics_for_version=None, otlp_traces_endpoint=None, collect_detailed_traces=None, kv_cache_metrics=False, kv_cache_metrics_sample=0.01, cudagraph_metrics=False, enable_layerwise_nvtx_tracing=False), seed=0, served_model_name=/root/vllmbench/checkpoints/Llama3.2-1B-INT8, enable_prefix_caching=True, enable_chunked_prefill=True, pooler_config=None, compilation_config={'level': None, 'mode': <CompilationMode.VLLM_COMPILE: 3>, 'debug_dump_path': None, 'cache_dir': '', 'compile_cache_save_format': 'binary', 'backend': 'inductor', 'custom_ops': ['none'], 'splitting_ops': ['vllm::unified_attention', 'vllm::unified_attention_with_output', 'vllm::unified_mla_attention', 'vllm::unified_mla_attention_with_output', 'vllm::mamba_mixer2', 'vllm::mamba_mixer', 'vllm::short_conv', 'vllm::linear_attention', 'vllm::plamo2_mamba_mixer', 'vllm::gdn_attention_core', 'vllm::kda_attention', 'vllm::sparse_attn_indexer'], 'compile_mm_encoder': False, 'compile_sizes': [], 'compile_ranges_split_points': [145], 'inductor_compile_config': {'enable_auto_functionalized_v2': False, 'combo_kernels': True, 'benchmark_combo_kernel': True}, 'inductor_passes': {}, 'cudagraph_mode': <CUDAGraphMode.FULL_AND_PIECEWISE: (2, 1)>, 'cudagraph_num_of_warmups': 1, 'cudagraph_capture_sizes': [1, 2], 'cudagraph_copy_inputs': False, 'cudagraph_specialize_lora': True, 'use_inductor_graph_partition': False, 'pass_config': {'fuse_norm_quant': False, 'fuse_act_quant': False, 'fuse_attn_quant': False, 'eliminate_noops': True, 'enable_sp': False, 'fuse_gemm_comms': False, 'fuse_allreduce_rms': False}, 'max_cudagraph_capture_size': 2, 'dynamic_shapes_config': {'type': <DynamicShapesType.BACKED: 'backed'>, 'evaluate_guards': False}, 'local_cache_dir': None}
+(EngineCore_DP0 pid=861992) INFO 01-25 00:22:55 [parallel_state.py:1203] world_size=1 rank=0 local_rank=0 distributed_init_method=tcp://10.172.141.44:57935 backend=nccl
+(EngineCore_DP0 pid=861992) INFO 01-25 00:22:55 [parallel_state.py:1411] rank 0 in world size 1 is assigned as DP rank 0, PP rank 0, PCP rank 0, TP rank 0, EP rank 0
+(EngineCore_DP0 pid=861992) INFO 01-25 00:22:55 [gpu_model_runner.py:3562] Starting to load model /root/vllmbench/checkpoints/Llama3.2-1B-INT8...
+(EngineCore_DP0 pid=861992) INFO 01-25 00:22:55 [compressed_tensors_w8a8_int8.py:62] Using CutlassScaledMMLinearKernel for CompressedTensorsW8A8Int8
+(EngineCore_DP0 pid=861992) INFO 01-25 00:22:56 [cuda.py:351] Using FLASH_ATTN attention backend out of potential backends: ('FLASH_ATTN', 'FLASHINFER', 'TRITON_ATTN', 'FLEX_ATTENTION')
+(EngineCore_DP0 pid=861992) INFO 01-25 00:22:56 [default_loader.py:308] Loading weights took 0.25 seconds
+(EngineCore_DP0 pid=861992) INFO 01-25 00:22:56 [gpu_model_runner.py:3659] Model loading took 1.4137 GiB memory and 0.432883 seconds
+(EngineCore_DP0 pid=861992) WARNING 01-25 00:22:58 [backends.py:609] Failed to read file <frozen os>
+(EngineCore_DP0 pid=861992) INFO 01-25 00:22:58 [backends.py:643] Using cache directory: /root/.cache/vllm/torch_compile_cache/73a128f3ed/rank_0_0/backbone for vLLM's torch.compile
+(EngineCore_DP0 pid=861992) INFO 01-25 00:22:58 [backends.py:703] Dynamo bytecode transform time: 2.03 s
+(EngineCore_DP0 pid=861992) INFO 01-25 00:23:00 [backends.py:226] Directly load the compiled graph(s) for compile range (1, 145) from the cache, took 0.447 s
+(EngineCore_DP0 pid=861992) INFO 01-25 00:23:00 [monitor.py:34] torch.compile takes 2.48 s in total
+(EngineCore_DP0 pid=861992) INFO 01-25 00:23:00 [gpu_worker.py:375] Available KV cache memory: 10.83 GiB
+(EngineCore_DP0 pid=861992) INFO 01-25 00:23:01 [kv_cache_utils.py:1291] GPU KV cache size: 355,008 tokens
+(EngineCore_DP0 pid=861992) INFO 01-25 00:23:01 [kv_cache_utils.py:1296] Maximum concurrency for 145 tokens per request: 2218.80x
+(EngineCore_DP0 pid=861992) INFO 01-25 00:23:01 [gpu_model_runner.py:4587] Graph capturing finished in 1 secs, took -0.01 GiB
+(EngineCore_DP0 pid=861992) INFO 01-25 00:23:01 [core.py:259] init engine (profile, create kv cache, warmup model) took 5.03 seconds
+INFO 01-25 00:23:02 [llm.py:360] Supported tasks: ['generate']
+Throughput: 75.70 requests/s, 1286.91 total tokens/s, 75.70 output tokens/s
+Total num prompt tokens:  2048
+Total num output tokens:  128
+
+
+─── STDERR ───
+[2026-01-25 00:22:51] INFO kernels.py:603: Triton kernel custom ops registered
+[2026-01-25 00:22:51] INFO kernels.py:649: Optimization enabled: Only preloading kernels for base model 'Llama3.2-1B-INT8'
+[2026-01-25 00:22:51] INFO kernels.py:134: Loaded tuned kernel for model: Llama3.2-1B-INT8
+[2026-01-25 00:22:51] INFO kernels.py:180: Dequant+bias kernel loaded for model: Llama3.2-1B-INT8
+[2026-01-25 00:22:51] INFO kernels.py:249: FP8 quant kernel loaded for model: Llama3.2-1B-INT8
+[2026-01-25 00:22:51] INFO kernels.py:373: INT8 quant kernel loaded for model: Llama3.2-1B-INT8
+[2026-01-25 00:22:51] INFO kernels.py:309: FP8 quant+slide kernel loaded for model: Llama3.2-1B-INT8
+[2026-01-25 00:22:51] INFO kernels.py:433: INT8 quant+slide kernel loaded for model: Llama3.2-1B-INT8
+[2026-01-25 00:22:51] INFO gemm_wrapper.py:168: Optimization enabled: Only loading GEMM configs for base model 'Llama3.2-1B-INT8'
+[2026-01-25 00:22:51] INFO gemm_wrapper.py:183: Loaded algorithm configs: cuBLASLt=1, cuSPARSELt=1 models
+[2026-01-25 00:22:51] INFO gemm_wrapper.py:946: cuBLASLt FP8 custom op registered: slidesparse::cublaslt_fp8_mm
+[2026-01-25 00:22:51] INFO gemm_wrapper.py:1011: cuSPARSELt FP8 custom op registered: slidesparse::cusparselt_fp8_mm
+[2026-01-25 00:22:51] INFO gemm_wrapper.py:1077: cuBLASLt INT8 custom op registered: slidesparse::cublaslt_int8_mm
+[2026-01-25 00:22:51] INFO gemm_wrapper.py:1143: cuSPARSELt INT8 custom op registered: slidesparse::cusparselt_int8_mm
+[2026-01-25 00:22:55] INFO kernels.py:603: Triton kernel custom ops registered
+[2026-01-25 00:22:55] INFO kernels.py:649: Optimization enabled: Only preloading kernels for base model 'Llama3.2-1B-INT8'
+[2026-01-25 00:22:55] INFO kernels.py:134: Loaded tuned kernel for model: Llama3.2-1B-INT8
+[2026-01-25 00:22:55] INFO kernels.py:180: Dequant+bias kernel loaded for model: Llama3.2-1B-INT8
+[2026-01-25 00:22:55] INFO kernels.py:249: FP8 quant kernel loaded for model: Llama3.2-1B-INT8
+[2026-01-25 00:22:55] INFO kernels.py:373: INT8 quant kernel loaded for model: Llama3.2-1B-INT8
+[2026-01-25 00:22:55] INFO kernels.py:309: FP8 quant+slide kernel loaded for model: Llama3.2-1B-INT8
+[2026-01-25 00:22:55] INFO kernels.py:433: INT8 quant+slide kernel loaded for model: Llama3.2-1B-INT8
+[2026-01-25 00:22:55] INFO gemm_wrapper.py:168: Optimization enabled: Only loading GEMM configs for base model 'Llama3.2-1B-INT8'
+[2026-01-25 00:22:55] INFO gemm_wrapper.py:183: Loaded algorithm configs: cuBLASLt=1, cuSPARSELt=1 models
+[2026-01-25 00:22:55] INFO gemm_wrapper.py:946: cuBLASLt FP8 custom op registered: slidesparse::cublaslt_fp8_mm
+[2026-01-25 00:22:55] INFO gemm_wrapper.py:1011: cuSPARSELt FP8 custom op registered: slidesparse::cusparselt_fp8_mm
+[2026-01-25 00:22:55] INFO gemm_wrapper.py:1077: cuBLASLt INT8 custom op registered: slidesparse::cublaslt_int8_mm
+[2026-01-25 00:22:55] INFO gemm_wrapper.py:1143: cuSPARSELt INT8 custom op registered: slidesparse::cusparselt_int8_mm
+(EngineCore_DP0 pid=861992) [2026-01-25 00:22:55] INFO SlideSparseLinearMethod_INT8.py:801: Wrapping CompressedTensorsW8A8Int8 with SlideSparse (cuBLASLt)
+(EngineCore_DP0 pid=861992) [2026-01-25 00:22:55] INFO gemm_wrapper.py:872: cublaslt GEMM extension loaded: cublaslt_gemm_RTX5080_cc120_py312_cu129_x86_64.so
+(EngineCore_DP0 pid=861992) [2026-01-25 00:22:55] INFO SlideSparseLinearMethod_INT8.py:448: SlideSparseInt8LinearOp initialized (kernel=cuBLASLt)
+(EngineCore_DP0 pid=861992) [2026-01-25 00:22:55] INFO SlideSparseLinearMethod_INT8.py:617: Preloaded INT8 Triton kernels for model: Llama3.2-1B-INT8
+(EngineCore_DP0 pid=861992) [2026-01-25 00:22:55] INFO SlideSparseLinearMethod_INT8.py:621: SlideSparseInt8LinearMethod initialized, kernel=cuBLASLt, symmetric=True
+(EngineCore_DP0 pid=861992) 
+Loading safetensors checkpoint shards:   0% Completed | 0/1 [00:00<?, ?it/s]
+(EngineCore_DP0 pid=861992) 
+Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  4.26it/s]
+(EngineCore_DP0 pid=861992) 
+Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  4.26it/s]
+(EngineCore_DP0 pid=861992) 
+[cuBLASLt] INFO: INT8 GEMM only supports INT32 output. inner_dtype parameter is ignored, always using int32.
+(EngineCore_DP0 pid=861992) 2026-01-25 00:23:01,104 - INFO - autotuner.py:256 - flashinfer.jit: [Autotuner]: Autotuning process starts ...
+(EngineCore_DP0 pid=861992) 2026-01-25 00:23:01,118 - INFO - autotuner.py:262 - flashinfer.jit: [Autotuner]: Autotuning process ends
+(EngineCore_DP0 pid=861992) 
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):   0%|          | 0/2 [00:00<?, ?it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE): 100%|██████████| 2/2 [00:00<00:00, 25.79it/s]
+(EngineCore_DP0 pid=861992) 
+Capturing CUDA graphs (decode, FULL):   0%|          | 0/1 [00:00<?, ?it/s]
+Capturing CUDA graphs (decode, FULL): 100%|██████████| 1/1 [00:00<00:00,  7.01it/s]
+Capturing CUDA graphs (decode, FULL): 100%|██████████| 1/1 [00:00<00:00,  7.00it/s]
+
+Adding requests:   0%|          | 0/128 [00:00<?, ?it/s]
+Adding requests: 100%|██████████| 128/128 [00:00<00:00, 8945.02it/s]
+
+Processed prompts:   0%|          | 0/128 [00:00<?, ?it/s, est. speed input: 0.00 toks/s, output: 0.00 toks/s]
+Processed prompts:   5%|▍         | 6/128 [00:00<00:02, 53.38it/s, est. speed input: 854.17 toks/s, output: 53.38 toks/s]
+Processed prompts:  11%|█         | 14/128 [00:00<00:01, 65.37it/s, est. speed input: 1016.66 toks/s, output: 63.54 toks/s]
+Processed prompts:  17%|█▋        | 22/128 [00:00<00:01, 68.58it/s, est. speed input: 1063.80 toks/s, output: 66.49 toks/s]
+Processed prompts:  24%|██▍       | 31/128 [00:00<00:01, 73.34it/s, est. speed input: 1120.56 toks/s, output: 70.03 toks/s]
+Processed prompts:  30%|███       | 39/128 [00:00<00:01, 75.29it/s, est. speed input: 1147.46 toks/s, output: 71.72 toks/s]
+Processed prompts:  37%|███▋      | 47/128 [00:00<00:01, 76.00it/s, est. speed input: 1162.04 toks/s, output: 72.63 toks/s]
+Processed prompts:  43%|████▎     | 55/128 [00:00<00:00, 77.11it/s, est. speed input: 1176.86 toks/s, output: 73.55 toks/s]
+Processed prompts:  49%|████▉     | 63/128 [00:00<00:00, 77.71it/s, est. speed input: 1187.30 toks/s, output: 74.21 toks/s]
+Processed prompts:  55%|█████▌    | 71/128 [00:00<00:00, 76.71it/s, est. speed input: 1188.01 toks/s, output: 74.25 toks/s]
+Processed prompts:  62%|██████▏   | 79/128 [00:01<00:00, 76.45it/s, est. speed input: 1190.58 toks/s, output: 74.41 toks/s]
+Processed prompts:  68%|██████▊   | 87/128 [00:01<00:00, 77.08it/s, est. speed input: 1196.38 toks/s, output: 74.77 toks/s]
+Processed prompts:  75%|███████▌  | 96/128 [00:01<00:00, 78.15it/s, est. speed input: 1204.31 toks/s, output: 75.27 toks/s]
+Processed prompts:  81%|████████▏ | 104/128 [00:01<00:00, 78.65it/s, est. speed input: 1209.65 toks/s, output: 75.60 toks/s]
+Processed prompts:  88%|████████▊ | 113/128 [00:01<00:00, 79.15it/s, est. speed input: 1215.23 toks/s, output: 75.95 toks/s]
+Processed prompts:  95%|█████████▌| 122/128 [00:01<00:00, 79.50it/s, est. speed input: 1220.10 toks/s, output: 76.26 toks/s]
+Processed prompts: 100%|██████████| 128/128 [00:01<00:00, 79.50it/s, est. speed input: 1222.17 toks/s, output: 76.39 toks/s]
+Processed prompts: 100%|██████████| 128/128 [00:01<00:00, 76.38it/s, est. speed input: 1222.17 toks/s, output: 76.39 toks/s]
+[rank0]:[W125 00:23:04.921276721 ProcessGroupNCCL.cpp:1524] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+
+[SUCCESS] 测试完成! 耗时: 17.3s
+
+测试结果:
+  Requests/s:   75.70
+  Tokens/s:     1286.91
+  Total Reqs:   128
+  Elapsed:      1.69s
+
+  [Prefill 分析]
+  Total Prefill Tokens: 2048
+  Prefill Tokens/s:     1211.21
+
+============================================================
+[2/3] 测试 M=128
+============================================================
+
+┌─────────────────────────────────────────────────────────────┐
+│                    测试参数                                  │
+├─────────────────────────────────────────────────────────────┤
+│ 模型:     Llama3.2-1B-INT8                                │
+│ Backend:  cuBLASLt [INT32 output]                         │
+│ 阶段:     prefill                                         │
+├─────────────────────────────────────────────────────────────┤
+│ GEMM M 维度:
+│   M_prefill = 128 (= 1 x 128)
+│   M_decode  = 1
+├─────────────────────────────────────────────────────────────┤
+│ vLLM 参数:
+│   --input-len       = 128
+│   --output-len      = 1
+│   --num-prompts     = 128
+│   --max-num-seqs    = 1
+│   --max-model-len   = 257
+├─────────────────────────────────────────────────────────────┤
+│ 迭代次数:
+│   N_prefill = 128
+│   N_decode  = 0
+└─────────────────────────────────────────────────────────────┘
+
+[INFO] 开始测试...
+
+─── STDOUT ───
+When dataset path is not set, it will default to random dataset
+INFO 01-25 00:23:08 [datasets.py:612] Sampling input_len from [127, 127] and output_len from [1, 1]
+INFO 01-25 00:23:08 [utils.py:253] non-default args: {'tokenizer': '/root/vllmbench/checkpoints/Llama3.2-1B-INT8', 'max_model_len': 257, 'gpu_memory_utilization': 0.8, 'max_num_batched_tokens': 257, 'max_num_seqs': 1, 'disable_log_stats': True, 'enable_lora': None, 'reasoning_parser_plugin': '', 'model': '/root/vllmbench/checkpoints/Llama3.2-1B-INT8'}
+INFO 01-25 00:23:08 [model.py:514] Resolved architecture: LlamaForCausalLM
+INFO 01-25 00:23:08 [model.py:1661] Using max model len 257
+INFO 01-25 00:23:09 [scheduler.py:230] Chunked prefill is enabled with max_num_batched_tokens=257.
+(EngineCore_DP0 pid=862314) INFO 01-25 00:23:12 [core.py:93] Initializing a V1 LLM engine (v0.13.1.dev7+gd5e6597bf) with config: model='/root/vllmbench/checkpoints/Llama3.2-1B-INT8', speculative_config=None, tokenizer='/root/vllmbench/checkpoints/Llama3.2-1B-INT8', skip_tokenizer_init=False, tokenizer_mode=auto, revision=None, tokenizer_revision=None, trust_remote_code=False, dtype=torch.bfloat16, max_seq_len=257, download_dir=None, load_format=auto, tensor_parallel_size=1, pipeline_parallel_size=1, data_parallel_size=1, disable_custom_all_reduce=False, quantization=compressed-tensors, enforce_eager=False, kv_cache_dtype=auto, device_config=cuda, structured_outputs_config=StructuredOutputsConfig(backend='auto', disable_fallback=False, disable_any_whitespace=False, disable_additional_properties=False, reasoning_parser='', reasoning_parser_plugin='', enable_in_reasoning=False), observability_config=ObservabilityConfig(show_hidden_metrics_for_version=None, otlp_traces_endpoint=None, collect_detailed_traces=None, kv_cache_metrics=False, kv_cache_metrics_sample=0.01, cudagraph_metrics=False, enable_layerwise_nvtx_tracing=False), seed=0, served_model_name=/root/vllmbench/checkpoints/Llama3.2-1B-INT8, enable_prefix_caching=True, enable_chunked_prefill=True, pooler_config=None, compilation_config={'level': None, 'mode': <CompilationMode.VLLM_COMPILE: 3>, 'debug_dump_path': None, 'cache_dir': '', 'compile_cache_save_format': 'binary', 'backend': 'inductor', 'custom_ops': ['none'], 'splitting_ops': ['vllm::unified_attention', 'vllm::unified_attention_with_output', 'vllm::unified_mla_attention', 'vllm::unified_mla_attention_with_output', 'vllm::mamba_mixer2', 'vllm::mamba_mixer', 'vllm::short_conv', 'vllm::linear_attention', 'vllm::plamo2_mamba_mixer', 'vllm::gdn_attention_core', 'vllm::kda_attention', 'vllm::sparse_attn_indexer'], 'compile_mm_encoder': False, 'compile_sizes': [], 'compile_ranges_split_points': [257], 'inductor_compile_config': {'enable_auto_functionalized_v2': False, 'combo_kernels': True, 'benchmark_combo_kernel': True}, 'inductor_passes': {}, 'cudagraph_mode': <CUDAGraphMode.FULL_AND_PIECEWISE: (2, 1)>, 'cudagraph_num_of_warmups': 1, 'cudagraph_capture_sizes': [1, 2], 'cudagraph_copy_inputs': False, 'cudagraph_specialize_lora': True, 'use_inductor_graph_partition': False, 'pass_config': {'fuse_norm_quant': False, 'fuse_act_quant': False, 'fuse_attn_quant': False, 'eliminate_noops': True, 'enable_sp': False, 'fuse_gemm_comms': False, 'fuse_allreduce_rms': False}, 'max_cudagraph_capture_size': 2, 'dynamic_shapes_config': {'type': <DynamicShapesType.BACKED: 'backed'>, 'evaluate_guards': False}, 'local_cache_dir': None}
+(EngineCore_DP0 pid=862314) INFO 01-25 00:23:12 [parallel_state.py:1203] world_size=1 rank=0 local_rank=0 distributed_init_method=tcp://10.172.141.44:47415 backend=nccl
+(EngineCore_DP0 pid=862314) INFO 01-25 00:23:12 [parallel_state.py:1411] rank 0 in world size 1 is assigned as DP rank 0, PP rank 0, PCP rank 0, TP rank 0, EP rank 0
+(EngineCore_DP0 pid=862314) INFO 01-25 00:23:13 [gpu_model_runner.py:3562] Starting to load model /root/vllmbench/checkpoints/Llama3.2-1B-INT8...
+(EngineCore_DP0 pid=862314) INFO 01-25 00:23:13 [compressed_tensors_w8a8_int8.py:62] Using CutlassScaledMMLinearKernel for CompressedTensorsW8A8Int8
+(EngineCore_DP0 pid=862314) INFO 01-25 00:23:13 [cuda.py:351] Using FLASH_ATTN attention backend out of potential backends: ('FLASH_ATTN', 'FLASHINFER', 'TRITON_ATTN', 'FLEX_ATTENTION')
+(EngineCore_DP0 pid=862314) INFO 01-25 00:23:13 [default_loader.py:308] Loading weights took 0.24 seconds
+(EngineCore_DP0 pid=862314) INFO 01-25 00:23:14 [gpu_model_runner.py:3659] Model loading took 1.4137 GiB memory and 0.436673 seconds
+(EngineCore_DP0 pid=862314) WARNING 01-25 00:23:16 [backends.py:609] Failed to read file <frozen os>
+(EngineCore_DP0 pid=862314) INFO 01-25 00:23:16 [backends.py:643] Using cache directory: /root/.cache/vllm/torch_compile_cache/425b3d75ef/rank_0_0/backbone for vLLM's torch.compile
+(EngineCore_DP0 pid=862314) INFO 01-25 00:23:16 [backends.py:703] Dynamo bytecode transform time: 2.01 s
+(EngineCore_DP0 pid=862314) INFO 01-25 00:23:17 [backends.py:226] Directly load the compiled graph(s) for compile range (1, 257) from the cache, took 0.406 s
+(EngineCore_DP0 pid=862314) INFO 01-25 00:23:17 [monitor.py:34] torch.compile takes 2.41 s in total
+(EngineCore_DP0 pid=862314) INFO 01-25 00:23:18 [gpu_worker.py:375] Available KV cache memory: 10.82 GiB
+(EngineCore_DP0 pid=862314) INFO 01-25 00:23:18 [kv_cache_utils.py:1291] GPU KV cache size: 354,528 tokens
+(EngineCore_DP0 pid=862314) INFO 01-25 00:23:18 [kv_cache_utils.py:1296] Maximum concurrency for 257 tokens per request: 1303.41x
+(EngineCore_DP0 pid=862314) INFO 01-25 00:23:19 [gpu_model_runner.py:4587] Graph capturing finished in 1 secs, took -0.03 GiB
+(EngineCore_DP0 pid=862314) INFO 01-25 00:23:19 [core.py:259] init engine (profile, create kv cache, warmup model) took 5.00 seconds
+INFO 01-25 00:23:19 [llm.py:360] Supported tasks: ['generate']
+Throughput: 76.39 requests/s, 9854.54 total tokens/s, 76.39 output tokens/s
+Total num prompt tokens:  16384
+Total num output tokens:  128
+
+
+─── STDERR ───
+[2026-01-25 00:23:09] INFO kernels.py:603: Triton kernel custom ops registered
+[2026-01-25 00:23:09] INFO kernels.py:649: Optimization enabled: Only preloading kernels for base model 'Llama3.2-1B-INT8'
+[2026-01-25 00:23:09] INFO kernels.py:134: Loaded tuned kernel for model: Llama3.2-1B-INT8
+[2026-01-25 00:23:09] INFO kernels.py:180: Dequant+bias kernel loaded for model: Llama3.2-1B-INT8
+[2026-01-25 00:23:09] INFO kernels.py:249: FP8 quant kernel loaded for model: Llama3.2-1B-INT8
+[2026-01-25 00:23:09] INFO kernels.py:373: INT8 quant kernel loaded for model: Llama3.2-1B-INT8
+[2026-01-25 00:23:09] INFO kernels.py:309: FP8 quant+slide kernel loaded for model: Llama3.2-1B-INT8
+[2026-01-25 00:23:09] INFO kernels.py:433: INT8 quant+slide kernel loaded for model: Llama3.2-1B-INT8
+[2026-01-25 00:23:09] INFO gemm_wrapper.py:168: Optimization enabled: Only loading GEMM configs for base model 'Llama3.2-1B-INT8'
+[2026-01-25 00:23:09] INFO gemm_wrapper.py:183: Loaded algorithm configs: cuBLASLt=1, cuSPARSELt=1 models
+[2026-01-25 00:23:09] INFO gemm_wrapper.py:946: cuBLASLt FP8 custom op registered: slidesparse::cublaslt_fp8_mm
+[2026-01-25 00:23:09] INFO gemm_wrapper.py:1011: cuSPARSELt FP8 custom op registered: slidesparse::cusparselt_fp8_mm
+[2026-01-25 00:23:09] INFO gemm_wrapper.py:1077: cuBLASLt INT8 custom op registered: slidesparse::cublaslt_int8_mm
+[2026-01-25 00:23:09] INFO gemm_wrapper.py:1143: cuSPARSELt INT8 custom op registered: slidesparse::cusparselt_int8_mm
+[2026-01-25 00:23:12] INFO kernels.py:603: Triton kernel custom ops registered
+[2026-01-25 00:23:12] INFO kernels.py:649: Optimization enabled: Only preloading kernels for base model 'Llama3.2-1B-INT8'
+[2026-01-25 00:23:12] INFO kernels.py:134: Loaded tuned kernel for model: Llama3.2-1B-INT8
+[2026-01-25 00:23:12] INFO kernels.py:180: Dequant+bias kernel loaded for model: Llama3.2-1B-INT8
+[2026-01-25 00:23:12] INFO kernels.py:249: FP8 quant kernel loaded for model: Llama3.2-1B-INT8
+[2026-01-25 00:23:12] INFO kernels.py:373: INT8 quant kernel loaded for model: Llama3.2-1B-INT8
+[2026-01-25 00:23:12] INFO kernels.py:309: FP8 quant+slide kernel loaded for model: Llama3.2-1B-INT8
+[2026-01-25 00:23:12] INFO kernels.py:433: INT8 quant+slide kernel loaded for model: Llama3.2-1B-INT8
+[2026-01-25 00:23:12] INFO gemm_wrapper.py:168: Optimization enabled: Only loading GEMM configs for base model 'Llama3.2-1B-INT8'
+[2026-01-25 00:23:12] INFO gemm_wrapper.py:183: Loaded algorithm configs: cuBLASLt=1, cuSPARSELt=1 models
+[2026-01-25 00:23:12] INFO gemm_wrapper.py:946: cuBLASLt FP8 custom op registered: slidesparse::cublaslt_fp8_mm
+[2026-01-25 00:23:12] INFO gemm_wrapper.py:1011: cuSPARSELt FP8 custom op registered: slidesparse::cusparselt_fp8_mm
+[2026-01-25 00:23:12] INFO gemm_wrapper.py:1077: cuBLASLt INT8 custom op registered: slidesparse::cublaslt_int8_mm
+[2026-01-25 00:23:12] INFO gemm_wrapper.py:1143: cuSPARSELt INT8 custom op registered: slidesparse::cusparselt_int8_mm
+(EngineCore_DP0 pid=862314) [2026-01-25 00:23:13] INFO SlideSparseLinearMethod_INT8.py:801: Wrapping CompressedTensorsW8A8Int8 with SlideSparse (cuBLASLt)
+(EngineCore_DP0 pid=862314) [2026-01-25 00:23:13] INFO gemm_wrapper.py:872: cublaslt GEMM extension loaded: cublaslt_gemm_RTX5080_cc120_py312_cu129_x86_64.so
+(EngineCore_DP0 pid=862314) [2026-01-25 00:23:13] INFO SlideSparseLinearMethod_INT8.py:448: SlideSparseInt8LinearOp initialized (kernel=cuBLASLt)
+(EngineCore_DP0 pid=862314) [2026-01-25 00:23:13] INFO SlideSparseLinearMethod_INT8.py:617: Preloaded INT8 Triton kernels for model: Llama3.2-1B-INT8
+(EngineCore_DP0 pid=862314) [2026-01-25 00:23:13] INFO SlideSparseLinearMethod_INT8.py:621: SlideSparseInt8LinearMethod initialized, kernel=cuBLASLt, symmetric=True
+(EngineCore_DP0 pid=862314) 
+Loading safetensors checkpoint shards:   0% Completed | 0/1 [00:00<?, ?it/s]
+(EngineCore_DP0 pid=862314) 
+Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  4.29it/s]
+(EngineCore_DP0 pid=862314) 
+Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  4.29it/s]
+(EngineCore_DP0 pid=862314) 
+[cuBLASLt] INFO: INT8 GEMM only supports INT32 output. inner_dtype parameter is ignored, always using int32.
+(EngineCore_DP0 pid=862314) 2026-01-25 00:23:18,436 - INFO - autotuner.py:256 - flashinfer.jit: [Autotuner]: Autotuning process starts ...
+(EngineCore_DP0 pid=862314) 2026-01-25 00:23:18,451 - INFO - autotuner.py:262 - flashinfer.jit: [Autotuner]: Autotuning process ends
+(EngineCore_DP0 pid=862314) 
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):   0%|          | 0/2 [00:00<?, ?it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE): 100%|██████████| 2/2 [00:00<00:00, 26.61it/s]
+(EngineCore_DP0 pid=862314) 
+Capturing CUDA graphs (decode, FULL):   0%|          | 0/1 [00:00<?, ?it/s]
+Capturing CUDA graphs (decode, FULL): 100%|██████████| 1/1 [00:00<00:00,  6.90it/s]
+Capturing CUDA graphs (decode, FULL): 100%|██████████| 1/1 [00:00<00:00,  6.90it/s]
+
+Adding requests:   0%|          | 0/128 [00:00<?, ?it/s]
+Adding requests:  14%|█▍        | 18/128 [00:00<00:00, 119.38it/s]
+Adding requests: 100%|██████████| 128/128 [00:00<00:00, 703.39it/s]
+
+Processed prompts:   0%|          | 0/128 [00:00<?, ?it/s, est. speed input: 0.00 toks/s, output: 0.00 toks/s]
+Processed prompts:  13%|█▎        | 17/128 [00:00<00:00, 169.13it/s, est. speed input: 21650.64 toks/s, output: 169.13 toks/s]
+Processed prompts:  27%|██▋       | 34/128 [00:00<00:00, 102.30it/s, est. speed input: 13919.85 toks/s, output: 108.75 toks/s]
+Processed prompts:  36%|███▌      | 46/128 [00:00<00:00, 92.86it/s, est. speed input: 12744.74 toks/s, output: 99.57 toks/s]  
+Processed prompts:  45%|████▍     | 57/128 [00:00<00:00, 88.64it/s, est. speed input: 12207.42 toks/s, output: 95.37 toks/s]
+Processed prompts:  52%|█████▏    | 67/128 [00:00<00:00, 85.96it/s, est. speed input: 11874.38 toks/s, output: 92.77 toks/s]
+Processed prompts:  59%|█████▉    | 76/128 [00:00<00:00, 84.08it/s, est. speed input: 11645.09 toks/s, output: 90.98 toks/s]
+Processed prompts:  66%|██████▋   | 85/128 [00:00<00:00, 82.50it/s, est. speed input: 11456.86 toks/s, output: 89.51 toks/s]
+Processed prompts:  73%|███████▎  | 94/128 [00:01<00:00, 81.58it/s, est. speed input: 11318.88 toks/s, output: 88.43 toks/s]
+Processed prompts:  80%|████████  | 103/128 [00:01<00:00, 81.22it/s, est. speed input: 11220.31 toks/s, output: 87.66 toks/s]
+Processed prompts:  88%|████████▊ | 112/128 [00:01<00:00, 79.94it/s, est. speed input: 11097.45 toks/s, output: 86.70 toks/s]
+Processed prompts:  95%|█████████▍| 121/128 [00:01<00:00, 79.91it/s, est. speed input: 11026.75 toks/s, output: 86.15 toks/s]
+Processed prompts: 100%|██████████| 128/128 [00:01<00:00, 79.91it/s, est. speed input: 10983.59 toks/s, output: 85.81 toks/s]
+Processed prompts: 100%|██████████| 128/128 [00:01<00:00, 85.80it/s, est. speed input: 10983.59 toks/s, output: 85.81 toks/s]
+[rank0]:[W125 00:23:21.110762871 ProcessGroupNCCL.cpp:1524] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+
+[SUCCESS] 测试完成! 耗时: 17.2s
+
+测试结果:
+  Requests/s:   76.39
+  Tokens/s:     9854.54
+  Total Reqs:   128
+  Elapsed:      1.68s
+
+  [Prefill 分析]
+  Total Prefill Tokens: 16384
+  Prefill Tokens/s:     9778.14
+
+============================================================
+[3/3] 测试 M=256
+============================================================
+
+┌─────────────────────────────────────────────────────────────┐
+│                    测试参数                                  │
+├─────────────────────────────────────────────────────────────┤
+│ 模型:     Llama3.2-1B-INT8                                │
+│ Backend:  cuBLASLt [INT32 output]                         │
+│ 阶段:     prefill                                         │
+├─────────────────────────────────────────────────────────────┤
+│ GEMM M 维度:
+│   M_prefill = 256 (= 1 x 256)
+│   M_decode  = 1
+├─────────────────────────────────────────────────────────────┤
+│ vLLM 参数:
+│   --input-len       = 256
+│   --output-len      = 1
+│   --num-prompts     = 128
+│   --max-num-seqs    = 1
+│   --max-model-len   = 385
+├─────────────────────────────────────────────────────────────┤
+│ 迭代次数:
+│   N_prefill = 128
+│   N_decode  = 0
+└─────────────────────────────────────────────────────────────┘
+
+[INFO] 开始测试...
+
+─── STDOUT ───
+When dataset path is not set, it will default to random dataset
+INFO 01-25 00:23:26 [datasets.py:612] Sampling input_len from [255, 255] and output_len from [1, 1]
+INFO 01-25 00:23:26 [utils.py:253] non-default args: {'tokenizer': '/root/vllmbench/checkpoints/Llama3.2-1B-INT8', 'max_model_len': 385, 'gpu_memory_utilization': 0.8, 'max_num_batched_tokens': 385, 'max_num_seqs': 1, 'disable_log_stats': True, 'enable_lora': None, 'reasoning_parser_plugin': '', 'model': '/root/vllmbench/checkpoints/Llama3.2-1B-INT8'}
+INFO 01-25 00:23:26 [model.py:514] Resolved architecture: LlamaForCausalLM
+INFO 01-25 00:23:26 [model.py:1661] Using max model len 385
+INFO 01-25 00:23:26 [scheduler.py:230] Chunked prefill is enabled with max_num_batched_tokens=385.
+(EngineCore_DP0 pid=862666) INFO 01-25 00:23:30 [core.py:93] Initializing a V1 LLM engine (v0.13.1.dev7+gd5e6597bf) with config: model='/root/vllmbench/checkpoints/Llama3.2-1B-INT8', speculative_config=None, tokenizer='/root/vllmbench/checkpoints/Llama3.2-1B-INT8', skip_tokenizer_init=False, tokenizer_mode=auto, revision=None, tokenizer_revision=None, trust_remote_code=False, dtype=torch.bfloat16, max_seq_len=385, download_dir=None, load_format=auto, tensor_parallel_size=1, pipeline_parallel_size=1, data_parallel_size=1, disable_custom_all_reduce=False, quantization=compressed-tensors, enforce_eager=False, kv_cache_dtype=auto, device_config=cuda, structured_outputs_config=StructuredOutputsConfig(backend='auto', disable_fallback=False, disable_any_whitespace=False, disable_additional_properties=False, reasoning_parser='', reasoning_parser_plugin='', enable_in_reasoning=False), observability_config=ObservabilityConfig(show_hidden_metrics_for_version=None, otlp_traces_endpoint=None, collect_detailed_traces=None, kv_cache_metrics=False, kv_cache_metrics_sample=0.01, cudagraph_metrics=False, enable_layerwise_nvtx_tracing=False), seed=0, served_model_name=/root/vllmbench/checkpoints/Llama3.2-1B-INT8, enable_prefix_caching=True, enable_chunked_prefill=True, pooler_config=None, compilation_config={'level': None, 'mode': <CompilationMode.VLLM_COMPILE: 3>, 'debug_dump_path': None, 'cache_dir': '', 'compile_cache_save_format': 'binary', 'backend': 'inductor', 'custom_ops': ['none'], 'splitting_ops': ['vllm::unified_attention', 'vllm::unified_attention_with_output', 'vllm::unified_mla_attention', 'vllm::unified_mla_attention_with_output', 'vllm::mamba_mixer2', 'vllm::mamba_mixer', 'vllm::short_conv', 'vllm::linear_attention', 'vllm::plamo2_mamba_mixer', 'vllm::gdn_attention_core', 'vllm::kda_attention', 'vllm::sparse_attn_indexer'], 'compile_mm_encoder': False, 'compile_sizes': [], 'compile_ranges_split_points': [385], 'inductor_compile_config': {'enable_auto_functionalized_v2': False, 'combo_kernels': True, 'benchmark_combo_kernel': True}, 'inductor_passes': {}, 'cudagraph_mode': <CUDAGraphMode.FULL_AND_PIECEWISE: (2, 1)>, 'cudagraph_num_of_warmups': 1, 'cudagraph_capture_sizes': [1, 2], 'cudagraph_copy_inputs': False, 'cudagraph_specialize_lora': True, 'use_inductor_graph_partition': False, 'pass_config': {'fuse_norm_quant': False, 'fuse_act_quant': False, 'fuse_attn_quant': False, 'eliminate_noops': True, 'enable_sp': False, 'fuse_gemm_comms': False, 'fuse_allreduce_rms': False}, 'max_cudagraph_capture_size': 2, 'dynamic_shapes_config': {'type': <DynamicShapesType.BACKED: 'backed'>, 'evaluate_guards': False}, 'local_cache_dir': None}
+(EngineCore_DP0 pid=862666) INFO 01-25 00:23:30 [parallel_state.py:1203] world_size=1 rank=0 local_rank=0 distributed_init_method=tcp://10.172.141.44:47895 backend=nccl
+(EngineCore_DP0 pid=862666) INFO 01-25 00:23:30 [parallel_state.py:1411] rank 0 in world size 1 is assigned as DP rank 0, PP rank 0, PCP rank 0, TP rank 0, EP rank 0
+(EngineCore_DP0 pid=862666) INFO 01-25 00:23:30 [gpu_model_runner.py:3562] Starting to load model /root/vllmbench/checkpoints/Llama3.2-1B-INT8...
+(EngineCore_DP0 pid=862666) INFO 01-25 00:23:31 [compressed_tensors_w8a8_int8.py:62] Using CutlassScaledMMLinearKernel for CompressedTensorsW8A8Int8
+(EngineCore_DP0 pid=862666) INFO 01-25 00:23:31 [cuda.py:351] Using FLASH_ATTN attention backend out of potential backends: ('FLASH_ATTN', 'FLASHINFER', 'TRITON_ATTN', 'FLEX_ATTENTION')
+(EngineCore_DP0 pid=862666) INFO 01-25 00:23:31 [default_loader.py:308] Loading weights took 0.24 seconds
+(EngineCore_DP0 pid=862666) INFO 01-25 00:23:31 [gpu_model_runner.py:3659] Model loading took 1.4137 GiB memory and 0.428217 seconds
+(EngineCore_DP0 pid=862666) WARNING 01-25 00:23:33 [backends.py:609] Failed to read file <frozen os>
+(EngineCore_DP0 pid=862666) INFO 01-25 00:23:33 [backends.py:643] Using cache directory: /root/.cache/vllm/torch_compile_cache/1ab92f29b4/rank_0_0/backbone for vLLM's torch.compile
+(EngineCore_DP0 pid=862666) INFO 01-25 00:23:33 [backends.py:703] Dynamo bytecode transform time: 2.02 s
+(EngineCore_DP0 pid=862666) INFO 01-25 00:23:35 [backends.py:226] Directly load the compiled graph(s) for compile range (1, 385) from the cache, took 0.240 s
+(EngineCore_DP0 pid=862666) INFO 01-25 00:23:35 [monitor.py:34] torch.compile takes 2.26 s in total
+(EngineCore_DP0 pid=862666) INFO 01-25 00:23:35 [gpu_worker.py:375] Available KV cache memory: 10.81 GiB
+(EngineCore_DP0 pid=862666) INFO 01-25 00:23:35 [kv_cache_utils.py:1291] GPU KV cache size: 354,112 tokens
+(EngineCore_DP0 pid=862666) INFO 01-25 00:23:35 [kv_cache_utils.py:1296] Maximum concurrency for 385 tokens per request: 885.28x
+(EngineCore_DP0 pid=862666) INFO 01-25 00:23:36 [gpu_model_runner.py:4587] Graph capturing finished in 1 secs, took -0.03 GiB
+(EngineCore_DP0 pid=862666) INFO 01-25 00:23:36 [core.py:259] init engine (profile, create kv cache, warmup model) took 4.91 seconds
+INFO 01-25 00:23:37 [llm.py:360] Supported tasks: ['generate']
+Throughput: 76.07 requests/s, 19549.85 total tokens/s, 76.07 output tokens/s
+Total num prompt tokens:  32768
+Total num output tokens:  128
+
+
+─── STDERR ───
+[2026-01-25 00:23:26] INFO kernels.py:603: Triton kernel custom ops registered
+[2026-01-25 00:23:26] INFO kernels.py:649: Optimization enabled: Only preloading kernels for base model 'Llama3.2-1B-INT8'
+[2026-01-25 00:23:26] INFO kernels.py:134: Loaded tuned kernel for model: Llama3.2-1B-INT8
+[2026-01-25 00:23:26] INFO kernels.py:180: Dequant+bias kernel loaded for model: Llama3.2-1B-INT8
+[2026-01-25 00:23:26] INFO kernels.py:249: FP8 quant kernel loaded for model: Llama3.2-1B-INT8
+[2026-01-25 00:23:26] INFO kernels.py:373: INT8 quant kernel loaded for model: Llama3.2-1B-INT8
+[2026-01-25 00:23:26] INFO kernels.py:309: FP8 quant+slide kernel loaded for model: Llama3.2-1B-INT8
+[2026-01-25 00:23:26] INFO kernels.py:433: INT8 quant+slide kernel loaded for model: Llama3.2-1B-INT8
+[2026-01-25 00:23:26] INFO gemm_wrapper.py:168: Optimization enabled: Only loading GEMM configs for base model 'Llama3.2-1B-INT8'
+[2026-01-25 00:23:26] INFO gemm_wrapper.py:183: Loaded algorithm configs: cuBLASLt=1, cuSPARSELt=1 models
+[2026-01-25 00:23:26] INFO gemm_wrapper.py:946: cuBLASLt FP8 custom op registered: slidesparse::cublaslt_fp8_mm
+[2026-01-25 00:23:26] INFO gemm_wrapper.py:1011: cuSPARSELt FP8 custom op registered: slidesparse::cusparselt_fp8_mm
+[2026-01-25 00:23:26] INFO gemm_wrapper.py:1077: cuBLASLt INT8 custom op registered: slidesparse::cublaslt_int8_mm
+[2026-01-25 00:23:26] INFO gemm_wrapper.py:1143: cuSPARSELt INT8 custom op registered: slidesparse::cusparselt_int8_mm
+[2026-01-25 00:23:30] INFO kernels.py:603: Triton kernel custom ops registered
+[2026-01-25 00:23:30] INFO kernels.py:649: Optimization enabled: Only preloading kernels for base model 'Llama3.2-1B-INT8'
+[2026-01-25 00:23:30] INFO kernels.py:134: Loaded tuned kernel for model: Llama3.2-1B-INT8
+[2026-01-25 00:23:30] INFO kernels.py:180: Dequant+bias kernel loaded for model: Llama3.2-1B-INT8
+[2026-01-25 00:23:30] INFO kernels.py:249: FP8 quant kernel loaded for model: Llama3.2-1B-INT8
+[2026-01-25 00:23:30] INFO kernels.py:373: INT8 quant kernel loaded for model: Llama3.2-1B-INT8
+[2026-01-25 00:23:30] INFO kernels.py:309: FP8 quant+slide kernel loaded for model: Llama3.2-1B-INT8
+[2026-01-25 00:23:30] INFO kernels.py:433: INT8 quant+slide kernel loaded for model: Llama3.2-1B-INT8
+[2026-01-25 00:23:30] INFO gemm_wrapper.py:168: Optimization enabled: Only loading GEMM configs for base model 'Llama3.2-1B-INT8'
+[2026-01-25 00:23:30] INFO gemm_wrapper.py:183: Loaded algorithm configs: cuBLASLt=1, cuSPARSELt=1 models
+[2026-01-25 00:23:30] INFO gemm_wrapper.py:946: cuBLASLt FP8 custom op registered: slidesparse::cublaslt_fp8_mm
+[2026-01-25 00:23:30] INFO gemm_wrapper.py:1011: cuSPARSELt FP8 custom op registered: slidesparse::cusparselt_fp8_mm
+[2026-01-25 00:23:30] INFO gemm_wrapper.py:1077: cuBLASLt INT8 custom op registered: slidesparse::cublaslt_int8_mm
+[2026-01-25 00:23:30] INFO gemm_wrapper.py:1143: cuSPARSELt INT8 custom op registered: slidesparse::cusparselt_int8_mm
+(EngineCore_DP0 pid=862666) [2026-01-25 00:23:31] INFO SlideSparseLinearMethod_INT8.py:801: Wrapping CompressedTensorsW8A8Int8 with SlideSparse (cuBLASLt)
+(EngineCore_DP0 pid=862666) [2026-01-25 00:23:31] INFO gemm_wrapper.py:872: cublaslt GEMM extension loaded: cublaslt_gemm_RTX5080_cc120_py312_cu129_x86_64.so
+(EngineCore_DP0 pid=862666) [2026-01-25 00:23:31] INFO SlideSparseLinearMethod_INT8.py:448: SlideSparseInt8LinearOp initialized (kernel=cuBLASLt)
+(EngineCore_DP0 pid=862666) [2026-01-25 00:23:31] INFO SlideSparseLinearMethod_INT8.py:617: Preloaded INT8 Triton kernels for model: Llama3.2-1B-INT8
+(EngineCore_DP0 pid=862666) [2026-01-25 00:23:31] INFO SlideSparseLinearMethod_INT8.py:621: SlideSparseInt8LinearMethod initialized, kernel=cuBLASLt, symmetric=True
+(EngineCore_DP0 pid=862666) 
+Loading safetensors checkpoint shards:   0% Completed | 0/1 [00:00<?, ?it/s]
+(EngineCore_DP0 pid=862666) 
+Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  4.29it/s]
+(EngineCore_DP0 pid=862666) 
+Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  4.28it/s]
+(EngineCore_DP0 pid=862666) 
+[cuBLASLt] INFO: INT8 GEMM only supports INT32 output. inner_dtype parameter is ignored, always using int32.
+(EngineCore_DP0 pid=862666) 2026-01-25 00:23:35,963 - INFO - autotuner.py:256 - flashinfer.jit: [Autotuner]: Autotuning process starts ...
+(EngineCore_DP0 pid=862666) 2026-01-25 00:23:35,978 - INFO - autotuner.py:262 - flashinfer.jit: [Autotuner]: Autotuning process ends
+(EngineCore_DP0 pid=862666) 
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):   0%|          | 0/2 [00:00<?, ?it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE): 100%|██████████| 2/2 [00:00<00:00, 14.59it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE): 100%|██████████| 2/2 [00:00<00:00, 14.58it/s]
+(EngineCore_DP0 pid=862666) 
+Capturing CUDA graphs (decode, FULL):   0%|          | 0/1 [00:00<?, ?it/s]
+Capturing CUDA graphs (decode, FULL): 100%|██████████| 1/1 [00:00<00:00,  6.86it/s]
+Capturing CUDA graphs (decode, FULL): 100%|██████████| 1/1 [00:00<00:00,  6.85it/s]
+
+Adding requests:   0%|          | 0/128 [00:00<?, ?it/s]
+Adding requests: 100%|██████████| 128/128 [00:00<00:00, 1984.92it/s]
+
+Processed prompts:   0%|          | 0/128 [00:00<?, ?it/s, est. speed input: 0.00 toks/s, output: 0.00 toks/s]
+Processed prompts:   7%|▋         | 9/128 [00:00<00:01, 83.99it/s, est. speed input: 21503.27 toks/s, output: 83.99 toks/s]
+Processed prompts:  14%|█▍        | 18/128 [00:00<00:01, 80.97it/s, est. speed input: 20842.84 toks/s, output: 81.41 toks/s]
+Processed prompts:  21%|██        | 27/128 [00:00<00:01, 80.51it/s, est. speed input: 20716.64 toks/s, output: 80.92 toks/s]
+Processed prompts:  28%|██▊       | 36/128 [00:00<00:01, 79.75it/s, est. speed input: 20565.95 toks/s, output: 80.33 toks/s]
+Processed prompts:  34%|███▍      | 44/128 [00:00<00:01, 79.50it/s, est. speed input: 20503.39 toks/s, output: 80.09 toks/s]
+Processed prompts:  41%|████      | 52/128 [00:00<00:00, 79.64it/s, est. speed input: 20497.77 toks/s, output: 80.07 toks/s]
+Processed prompts:  47%|████▋     | 60/128 [00:00<00:00, 79.73it/s, est. speed input: 20492.54 toks/s, output: 80.05 toks/s]
+Processed prompts:  53%|█████▎    | 68/128 [00:00<00:00, 79.29it/s, est. speed input: 20439.38 toks/s, output: 79.84 toks/s]
+Processed prompts:  59%|█████▉    | 76/128 [00:00<00:00, 79.19it/s, est. speed input: 20415.95 toks/s, output: 79.75 toks/s]
+Processed prompts:  66%|██████▌   | 84/128 [00:01<00:00, 78.68it/s, est. speed input: 20360.52 toks/s, output: 79.53 toks/s]
+Processed prompts:  72%|███████▏  | 92/128 [00:01<00:00, 78.43it/s, est. speed input: 20322.60 toks/s, output: 79.38 toks/s]
+Processed prompts:  78%|███████▊  | 100/128 [00:01<00:00, 78.09it/s, est. speed input: 20279.02 toks/s, output: 79.21 toks/s]
+Processed prompts:  85%|████████▌ | 109/128 [00:01<00:00, 78.94it/s, est. speed input: 20311.13 toks/s, output: 79.34 toks/s]
+Processed prompts:  91%|█████████▏| 117/128 [00:01<00:00, 78.50it/s, est. speed input: 20277.67 toks/s, output: 79.21 toks/s]
+Processed prompts:  98%|█████████▊| 125/128 [00:01<00:00, 78.60it/s, est. speed input: 20271.68 toks/s, output: 79.19 toks/s]
+Processed prompts: 100%|██████████| 128/128 [00:01<00:00, 78.60it/s, est. speed input: 20275.89 toks/s, output: 79.20 toks/s]
+Processed prompts: 100%|██████████| 128/128 [00:01<00:00, 79.20it/s, est. speed input: 20275.89 toks/s, output: 79.20 toks/s]
+[rank0]:[W125 00:23:38.694281391 ProcessGroupNCCL.cpp:1524] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+
+[SUCCESS] 测试完成! 耗时: 17.6s
+
+测试结果:
+  Requests/s:   76.07
+  Tokens/s:     19549.85
+  Total Reqs:   128
+  Elapsed:      1.68s
+
+  [Prefill 分析]
+  Total Prefill Tokens: 32768
+  Prefill Tokens/s:     19473.78
+
+
+------------------------------------------------------------
+  生成 CSV: Llama3.2-1B-INT8
+------------------------------------------------------------
+[SUCCESS] CSV 保存到: /root/vllmbench/slidesparse/tools/throughput_benchmark_results/prefill/RTX5080_cc120_INT8_py312_cu129_x86_64/cublaslt/Llama3.2-1B-INT8_prefill.csv
+
+预览:
+------------------------------------------------------------
+M_prefill,prompt_len,max_num_seqs,num_prompts,N_prefill,requests_per_s,tokens_per_s,elapsed_time_s
+16,16,1,128,128,75.7009,1286.9146,1.6909
+128,128,1,128,128,76.3917,9854.5354,1.6756
+256,256,1,128,128,76.0695,19549.8531,1.6827
+
+------------------------------------------------------------
+
+[INFO] 完成: 3 成功, 0 失败
+
+============================================================
+  Llama3.2-1B-INT8 | cuBLASLt | decode
+============================================================
+
+[INFO] Checkpoint: /root/vllmbench/checkpoints/Llama3.2-1B-INT8
+[INFO] Output: /root/vllmbench/slidesparse/tools/throughput_benchmark_results/decode/RTX5080_cc120_INT8_py312_cu129_x86_64/cublaslt
+
+============================================================
+[1/3] 测试 M=16
+============================================================
+
+┌─────────────────────────────────────────────────────────────┐
+│                    测试参数                                  │
+├─────────────────────────────────────────────────────────────┤
+│ 模型:     Llama3.2-1B-INT8                                │
+│ Backend:  cuBLASLt [INT32 output]                         │
+│ 阶段:     decode                                          │
+├─────────────────────────────────────────────────────────────┤
+│ GEMM M 维度:
+│   M_prefill = 256 (= 16 x 16)
+│   M_decode  = 16
+├─────────────────────────────────────────────────────────────┤
+│ vLLM 参数:
+│   --input-len       = 16
+│   --output-len      = 256
+│   --num-prompts     = 16
+│   --max-num-seqs    = 16
+│   --max-model-len   = 400
+├─────────────────────────────────────────────────────────────┤
+│ 迭代次数:
+│   N_prefill = 1
+│   N_decode  = 256
+└─────────────────────────────────────────────────────────────┘
+
+[INFO] 开始测试...
+
+─── STDOUT ───
+When dataset path is not set, it will default to random dataset
+INFO 01-25 00:23:43 [datasets.py:612] Sampling input_len from [15, 15] and output_len from [256, 256]
+INFO 01-25 00:23:43 [utils.py:253] non-default args: {'tokenizer': '/root/vllmbench/checkpoints/Llama3.2-1B-INT8', 'max_model_len': 400, 'gpu_memory_utilization': 0.8, 'max_num_batched_tokens': 6400, 'max_num_seqs': 16, 'disable_log_stats': True, 'enable_lora': None, 'reasoning_parser_plugin': '', 'model': '/root/vllmbench/checkpoints/Llama3.2-1B-INT8'}
+INFO 01-25 00:23:43 [model.py:514] Resolved architecture: LlamaForCausalLM
+INFO 01-25 00:23:43 [model.py:1661] Using max model len 400
+INFO 01-25 00:23:43 [scheduler.py:230] Chunked prefill is enabled with max_num_batched_tokens=6400.
+(EngineCore_DP0 pid=863009) INFO 01-25 00:23:47 [core.py:93] Initializing a V1 LLM engine (v0.13.1.dev7+gd5e6597bf) with config: model='/root/vllmbench/checkpoints/Llama3.2-1B-INT8', speculative_config=None, tokenizer='/root/vllmbench/checkpoints/Llama3.2-1B-INT8', skip_tokenizer_init=False, tokenizer_mode=auto, revision=None, tokenizer_revision=None, trust_remote_code=False, dtype=torch.bfloat16, max_seq_len=400, download_dir=None, load_format=auto, tensor_parallel_size=1, pipeline_parallel_size=1, data_parallel_size=1, disable_custom_all_reduce=False, quantization=compressed-tensors, enforce_eager=False, kv_cache_dtype=auto, device_config=cuda, structured_outputs_config=StructuredOutputsConfig(backend='auto', disable_fallback=False, disable_any_whitespace=False, disable_additional_properties=False, reasoning_parser='', reasoning_parser_plugin='', enable_in_reasoning=False), observability_config=ObservabilityConfig(show_hidden_metrics_for_version=None, otlp_traces_endpoint=None, collect_detailed_traces=None, kv_cache_metrics=False, kv_cache_metrics_sample=0.01, cudagraph_metrics=False, enable_layerwise_nvtx_tracing=False), seed=0, served_model_name=/root/vllmbench/checkpoints/Llama3.2-1B-INT8, enable_prefix_caching=True, enable_chunked_prefill=True, pooler_config=None, compilation_config={'level': None, 'mode': <CompilationMode.VLLM_COMPILE: 3>, 'debug_dump_path': None, 'cache_dir': '', 'compile_cache_save_format': 'binary', 'backend': 'inductor', 'custom_ops': ['none'], 'splitting_ops': ['vllm::unified_attention', 'vllm::unified_attention_with_output', 'vllm::unified_mla_attention', 'vllm::unified_mla_attention_with_output', 'vllm::mamba_mixer2', 'vllm::mamba_mixer', 'vllm::short_conv', 'vllm::linear_attention', 'vllm::plamo2_mamba_mixer', 'vllm::gdn_attention_core', 'vllm::kda_attention', 'vllm::sparse_attn_indexer'], 'compile_mm_encoder': False, 'compile_sizes': [], 'compile_ranges_split_points': [6400], 'inductor_compile_config': {'enable_auto_functionalized_v2': False, 'combo_kernels': True, 'benchmark_combo_kernel': True}, 'inductor_passes': {}, 'cudagraph_mode': <CUDAGraphMode.FULL_AND_PIECEWISE: (2, 1)>, 'cudagraph_num_of_warmups': 1, 'cudagraph_capture_sizes': [1, 2, 4, 8, 16, 24, 32], 'cudagraph_copy_inputs': False, 'cudagraph_specialize_lora': True, 'use_inductor_graph_partition': False, 'pass_config': {'fuse_norm_quant': False, 'fuse_act_quant': False, 'fuse_attn_quant': False, 'eliminate_noops': True, 'enable_sp': False, 'fuse_gemm_comms': False, 'fuse_allreduce_rms': False}, 'max_cudagraph_capture_size': 32, 'dynamic_shapes_config': {'type': <DynamicShapesType.BACKED: 'backed'>, 'evaluate_guards': False}, 'local_cache_dir': None}
+(EngineCore_DP0 pid=863009) INFO 01-25 00:23:47 [parallel_state.py:1203] world_size=1 rank=0 local_rank=0 distributed_init_method=tcp://10.172.141.44:54109 backend=nccl
+(EngineCore_DP0 pid=863009) INFO 01-25 00:23:47 [parallel_state.py:1411] rank 0 in world size 1 is assigned as DP rank 0, PP rank 0, PCP rank 0, TP rank 0, EP rank 0
+(EngineCore_DP0 pid=863009) INFO 01-25 00:23:47 [gpu_model_runner.py:3562] Starting to load model /root/vllmbench/checkpoints/Llama3.2-1B-INT8...
+(EngineCore_DP0 pid=863009) INFO 01-25 00:23:48 [compressed_tensors_w8a8_int8.py:62] Using CutlassScaledMMLinearKernel for CompressedTensorsW8A8Int8
+(EngineCore_DP0 pid=863009) INFO 01-25 00:23:48 [cuda.py:351] Using FLASH_ATTN attention backend out of potential backends: ('FLASH_ATTN', 'FLASHINFER', 'TRITON_ATTN', 'FLEX_ATTENTION')
+(EngineCore_DP0 pid=863009) INFO 01-25 00:23:48 [default_loader.py:308] Loading weights took 0.24 seconds
+(EngineCore_DP0 pid=863009) INFO 01-25 00:23:48 [gpu_model_runner.py:3659] Model loading took 1.4137 GiB memory and 0.473077 seconds
+(EngineCore_DP0 pid=863009) WARNING 01-25 00:23:50 [backends.py:609] Failed to read file <frozen os>
+(EngineCore_DP0 pid=863009) INFO 01-25 00:23:50 [backends.py:643] Using cache directory: /root/.cache/vllm/torch_compile_cache/24aa14d19a/rank_0_0/backbone for vLLM's torch.compile
+(EngineCore_DP0 pid=863009) INFO 01-25 00:23:50 [backends.py:703] Dynamo bytecode transform time: 2.04 s
+(EngineCore_DP0 pid=863009) INFO 01-25 00:23:52 [backends.py:226] Directly load the compiled graph(s) for compile range (1, 6400) from the cache, took 0.409 s
+(EngineCore_DP0 pid=863009) INFO 01-25 00:23:52 [monitor.py:34] torch.compile takes 2.45 s in total
+(EngineCore_DP0 pid=863009) INFO 01-25 00:23:53 [gpu_worker.py:375] Available KV cache memory: 10.19 GiB
+(EngineCore_DP0 pid=863009) INFO 01-25 00:23:53 [kv_cache_utils.py:1291] GPU KV cache size: 333,824 tokens
+(EngineCore_DP0 pid=863009) INFO 01-25 00:23:53 [kv_cache_utils.py:1296] Maximum concurrency for 400 tokens per request: 834.56x
+(EngineCore_DP0 pid=863009) INFO 01-25 00:23:54 [gpu_model_runner.py:4587] Graph capturing finished in 1 secs, took -0.70 GiB
+(EngineCore_DP0 pid=863009) INFO 01-25 00:23:54 [core.py:259] init engine (profile, create kv cache, warmup model) took 5.43 seconds
+INFO 01-25 00:23:54 [llm.py:360] Supported tasks: ['generate']
+Throughput: 15.91 requests/s, 4327.19 total tokens/s, 4072.65 output tokens/s
+Total num prompt tokens:  256
+Total num output tokens:  4096
+
+
+─── STDERR ───
+[2026-01-25 00:23:43] INFO kernels.py:603: Triton kernel custom ops registered
+[2026-01-25 00:23:43] INFO kernels.py:649: Optimization enabled: Only preloading kernels for base model 'Llama3.2-1B-INT8'
+[2026-01-25 00:23:43] INFO kernels.py:134: Loaded tuned kernel for model: Llama3.2-1B-INT8
+[2026-01-25 00:23:43] INFO kernels.py:180: Dequant+bias kernel loaded for model: Llama3.2-1B-INT8
+[2026-01-25 00:23:43] INFO kernels.py:249: FP8 quant kernel loaded for model: Llama3.2-1B-INT8
+[2026-01-25 00:23:43] INFO kernels.py:373: INT8 quant kernel loaded for model: Llama3.2-1B-INT8
+[2026-01-25 00:23:43] INFO kernels.py:309: FP8 quant+slide kernel loaded for model: Llama3.2-1B-INT8
+[2026-01-25 00:23:43] INFO kernels.py:433: INT8 quant+slide kernel loaded for model: Llama3.2-1B-INT8
+[2026-01-25 00:23:43] INFO gemm_wrapper.py:168: Optimization enabled: Only loading GEMM configs for base model 'Llama3.2-1B-INT8'
+[2026-01-25 00:23:43] INFO gemm_wrapper.py:183: Loaded algorithm configs: cuBLASLt=1, cuSPARSELt=1 models
+[2026-01-25 00:23:43] INFO gemm_wrapper.py:946: cuBLASLt FP8 custom op registered: slidesparse::cublaslt_fp8_mm
+[2026-01-25 00:23:43] INFO gemm_wrapper.py:1011: cuSPARSELt FP8 custom op registered: slidesparse::cusparselt_fp8_mm
+[2026-01-25 00:23:43] INFO gemm_wrapper.py:1077: cuBLASLt INT8 custom op registered: slidesparse::cublaslt_int8_mm
+[2026-01-25 00:23:43] INFO gemm_wrapper.py:1143: cuSPARSELt INT8 custom op registered: slidesparse::cusparselt_int8_mm
+[2026-01-25 00:23:47] INFO kernels.py:603: Triton kernel custom ops registered
+[2026-01-25 00:23:47] INFO kernels.py:649: Optimization enabled: Only preloading kernels for base model 'Llama3.2-1B-INT8'
+[2026-01-25 00:23:47] INFO kernels.py:134: Loaded tuned kernel for model: Llama3.2-1B-INT8
+[2026-01-25 00:23:47] INFO kernels.py:180: Dequant+bias kernel loaded for model: Llama3.2-1B-INT8
+[2026-01-25 00:23:47] INFO kernels.py:249: FP8 quant kernel loaded for model: Llama3.2-1B-INT8
+[2026-01-25 00:23:47] INFO kernels.py:373: INT8 quant kernel loaded for model: Llama3.2-1B-INT8
+[2026-01-25 00:23:47] INFO kernels.py:309: FP8 quant+slide kernel loaded for model: Llama3.2-1B-INT8
+[2026-01-25 00:23:47] INFO kernels.py:433: INT8 quant+slide kernel loaded for model: Llama3.2-1B-INT8
+[2026-01-25 00:23:47] INFO gemm_wrapper.py:168: Optimization enabled: Only loading GEMM configs for base model 'Llama3.2-1B-INT8'
+[2026-01-25 00:23:47] INFO gemm_wrapper.py:183: Loaded algorithm configs: cuBLASLt=1, cuSPARSELt=1 models
+[2026-01-25 00:23:47] INFO gemm_wrapper.py:946: cuBLASLt FP8 custom op registered: slidesparse::cublaslt_fp8_mm
+[2026-01-25 00:23:47] INFO gemm_wrapper.py:1011: cuSPARSELt FP8 custom op registered: slidesparse::cusparselt_fp8_mm
+[2026-01-25 00:23:47] INFO gemm_wrapper.py:1077: cuBLASLt INT8 custom op registered: slidesparse::cublaslt_int8_mm
+[2026-01-25 00:23:47] INFO gemm_wrapper.py:1143: cuSPARSELt INT8 custom op registered: slidesparse::cusparselt_int8_mm
+(EngineCore_DP0 pid=863009) [2026-01-25 00:23:48] INFO SlideSparseLinearMethod_INT8.py:801: Wrapping CompressedTensorsW8A8Int8 with SlideSparse (cuBLASLt)
+(EngineCore_DP0 pid=863009) [2026-01-25 00:23:48] INFO gemm_wrapper.py:872: cublaslt GEMM extension loaded: cublaslt_gemm_RTX5080_cc120_py312_cu129_x86_64.so
+(EngineCore_DP0 pid=863009) [2026-01-25 00:23:48] INFO SlideSparseLinearMethod_INT8.py:448: SlideSparseInt8LinearOp initialized (kernel=cuBLASLt)
+(EngineCore_DP0 pid=863009) [2026-01-25 00:23:48] INFO SlideSparseLinearMethod_INT8.py:617: Preloaded INT8 Triton kernels for model: Llama3.2-1B-INT8
+(EngineCore_DP0 pid=863009) [2026-01-25 00:23:48] INFO SlideSparseLinearMethod_INT8.py:621: SlideSparseInt8LinearMethod initialized, kernel=cuBLASLt, symmetric=True
+(EngineCore_DP0 pid=863009) 
+Loading safetensors checkpoint shards:   0% Completed | 0/1 [00:00<?, ?it/s]
+(EngineCore_DP0 pid=863009) 
+Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  4.28it/s]
+(EngineCore_DP0 pid=863009) 
+Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  4.28it/s]
+(EngineCore_DP0 pid=863009) 
+[cuBLASLt] INFO: INT8 GEMM only supports INT32 output. inner_dtype parameter is ignored, always using int32.
+(EngineCore_DP0 pid=863009) 2026-01-25 00:23:53,322 - INFO - autotuner.py:256 - flashinfer.jit: [Autotuner]: Autotuning process starts ...
+(EngineCore_DP0 pid=863009) 2026-01-25 00:23:53,338 - INFO - autotuner.py:262 - flashinfer.jit: [Autotuner]: Autotuning process ends
+(EngineCore_DP0 pid=863009) 
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):   0%|          | 0/7 [00:00<?, ?it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):  43%|████▎     | 3/7 [00:00<00:00, 26.82it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE): 100%|██████████| 7/7 [00:00<00:00, 27.84it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE): 100%|██████████| 7/7 [00:00<00:00, 27.70it/s]
+(EngineCore_DP0 pid=863009) 
+Capturing CUDA graphs (decode, FULL):   0%|          | 0/5 [00:00<?, ?it/s]
+Capturing CUDA graphs (decode, FULL):  20%|██        | 1/5 [00:00<00:00,  6.81it/s]
+Capturing CUDA graphs (decode, FULL): 100%|██████████| 5/5 [00:00<00:00, 21.41it/s]
+Capturing CUDA graphs (decode, FULL): 100%|██████████| 5/5 [00:00<00:00, 18.96it/s]
+
+Adding requests:   0%|          | 0/16 [00:00<?, ?it/s]
+Adding requests:  94%|█████████▍| 15/16 [00:00<00:00, 102.46it/s]
+Adding requests: 100%|██████████| 16/16 [00:00<00:00, 108.95it/s]
+
+Processed prompts:   0%|          | 0/16 [00:00<?, ?it/s, est. speed input: 0.00 toks/s, output: 0.00 toks/s]
+Processed prompts:   6%|▋         | 1/16 [00:00<00:11,  1.27it/s, est. speed input: 20.30 toks/s, output: 324.85 toks/s]
+Processed prompts: 100%|██████████| 16/16 [00:00<00:00,  1.27it/s, est. speed input: 298.69 toks/s, output: 4779.03 toks/s]
+Processed prompts: 100%|██████████| 16/16 [00:00<00:00, 18.67it/s, est. speed input: 298.69 toks/s, output: 4779.03 toks/s]
+[rank0]:[W125 00:23:55.673719534 ProcessGroupNCCL.cpp:1524] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+
+[SUCCESS] 测试完成! 耗时: 17.0s
+
+测试结果:
+  Requests/s:   15.91
+  Tokens/s:     4327.19
+  Total Reqs:   16
+  Elapsed:      1.01s
+
+  [Decode 分析]
+  Total Decode Tokens:  4096
+  Decode Tokens/s:      4072.65
+
+============================================================
+[2/3] 测试 M=128
+============================================================
+
+┌─────────────────────────────────────────────────────────────┐
+│                    测试参数                                  │
+├─────────────────────────────────────────────────────────────┤
+│ 模型:     Llama3.2-1B-INT8                                │
+│ Backend:  cuBLASLt [INT32 output]                         │
+│ 阶段:     decode                                          │
+├─────────────────────────────────────────────────────────────┤
+│ GEMM M 维度:
+│   M_prefill = 2048 (= 128 x 16)
+│   M_decode  = 128
+├─────────────────────────────────────────────────────────────┤
+│ vLLM 参数:
+│   --input-len       = 16
+│   --output-len      = 256
+│   --num-prompts     = 128
+│   --max-num-seqs    = 128
+│   --max-model-len   = 400
+├─────────────────────────────────────────────────────────────┤
+│ 迭代次数:
+│   N_prefill = 1
+│   N_decode  = 256
+└─────────────────────────────────────────────────────────────┘
+
+[INFO] 开始测试...
+
+─── STDOUT ───
+When dataset path is not set, it will default to random dataset
+INFO 01-25 00:24:00 [datasets.py:612] Sampling input_len from [15, 15] and output_len from [256, 256]
+INFO 01-25 00:24:00 [utils.py:253] non-default args: {'tokenizer': '/root/vllmbench/checkpoints/Llama3.2-1B-INT8', 'max_model_len': 400, 'gpu_memory_utilization': 0.8, 'max_num_batched_tokens': 51200, 'max_num_seqs': 128, 'disable_log_stats': True, 'enable_lora': None, 'reasoning_parser_plugin': '', 'model': '/root/vllmbench/checkpoints/Llama3.2-1B-INT8'}
+INFO 01-25 00:24:00 [model.py:514] Resolved architecture: LlamaForCausalLM
+INFO 01-25 00:24:00 [model.py:1661] Using max model len 400
+INFO 01-25 00:24:00 [scheduler.py:230] Chunked prefill is enabled with max_num_batched_tokens=51200.
+(EngineCore_DP0 pid=863408) INFO 01-25 00:24:04 [core.py:93] Initializing a V1 LLM engine (v0.13.1.dev7+gd5e6597bf) with config: model='/root/vllmbench/checkpoints/Llama3.2-1B-INT8', speculative_config=None, tokenizer='/root/vllmbench/checkpoints/Llama3.2-1B-INT8', skip_tokenizer_init=False, tokenizer_mode=auto, revision=None, tokenizer_revision=None, trust_remote_code=False, dtype=torch.bfloat16, max_seq_len=400, download_dir=None, load_format=auto, tensor_parallel_size=1, pipeline_parallel_size=1, data_parallel_size=1, disable_custom_all_reduce=False, quantization=compressed-tensors, enforce_eager=False, kv_cache_dtype=auto, device_config=cuda, structured_outputs_config=StructuredOutputsConfig(backend='auto', disable_fallback=False, disable_any_whitespace=False, disable_additional_properties=False, reasoning_parser='', reasoning_parser_plugin='', enable_in_reasoning=False), observability_config=ObservabilityConfig(show_hidden_metrics_for_version=None, otlp_traces_endpoint=None, collect_detailed_traces=None, kv_cache_metrics=False, kv_cache_metrics_sample=0.01, cudagraph_metrics=False, enable_layerwise_nvtx_tracing=False), seed=0, served_model_name=/root/vllmbench/checkpoints/Llama3.2-1B-INT8, enable_prefix_caching=True, enable_chunked_prefill=True, pooler_config=None, compilation_config={'level': None, 'mode': <CompilationMode.VLLM_COMPILE: 3>, 'debug_dump_path': None, 'cache_dir': '', 'compile_cache_save_format': 'binary', 'backend': 'inductor', 'custom_ops': ['none'], 'splitting_ops': ['vllm::unified_attention', 'vllm::unified_attention_with_output', 'vllm::unified_mla_attention', 'vllm::unified_mla_attention_with_output', 'vllm::mamba_mixer2', 'vllm::mamba_mixer', 'vllm::short_conv', 'vllm::linear_attention', 'vllm::plamo2_mamba_mixer', 'vllm::gdn_attention_core', 'vllm::kda_attention', 'vllm::sparse_attn_indexer'], 'compile_mm_encoder': False, 'compile_sizes': [], 'compile_ranges_split_points': [51200], 'inductor_compile_config': {'enable_auto_functionalized_v2': False, 'combo_kernels': True, 'benchmark_combo_kernel': True}, 'inductor_passes': {}, 'cudagraph_mode': <CUDAGraphMode.FULL_AND_PIECEWISE: (2, 1)>, 'cudagraph_num_of_warmups': 1, 'cudagraph_capture_sizes': [1, 2, 4, 8, 16, 24, 32, 40, 48, 56, 64, 72, 80, 88, 96, 104, 112, 120, 128, 136, 144, 152, 160, 168, 176, 184, 192, 200, 208, 216, 224, 232, 240, 248, 256], 'cudagraph_copy_inputs': False, 'cudagraph_specialize_lora': True, 'use_inductor_graph_partition': False, 'pass_config': {'fuse_norm_quant': False, 'fuse_act_quant': False, 'fuse_attn_quant': False, 'eliminate_noops': True, 'enable_sp': False, 'fuse_gemm_comms': False, 'fuse_allreduce_rms': False}, 'max_cudagraph_capture_size': 256, 'dynamic_shapes_config': {'type': <DynamicShapesType.BACKED: 'backed'>, 'evaluate_guards': False}, 'local_cache_dir': None}
+(EngineCore_DP0 pid=863408) INFO 01-25 00:24:04 [parallel_state.py:1203] world_size=1 rank=0 local_rank=0 distributed_init_method=tcp://10.172.141.44:47219 backend=nccl
+(EngineCore_DP0 pid=863408) INFO 01-25 00:24:04 [parallel_state.py:1411] rank 0 in world size 1 is assigned as DP rank 0, PP rank 0, PCP rank 0, TP rank 0, EP rank 0
+(EngineCore_DP0 pid=863408) INFO 01-25 00:24:05 [gpu_model_runner.py:3562] Starting to load model /root/vllmbench/checkpoints/Llama3.2-1B-INT8...
+(EngineCore_DP0 pid=863408) INFO 01-25 00:24:05 [compressed_tensors_w8a8_int8.py:62] Using CutlassScaledMMLinearKernel for CompressedTensorsW8A8Int8
+(EngineCore_DP0 pid=863408) INFO 01-25 00:24:05 [cuda.py:351] Using FLASH_ATTN attention backend out of potential backends: ('FLASH_ATTN', 'FLASHINFER', 'TRITON_ATTN', 'FLEX_ATTENTION')
+(EngineCore_DP0 pid=863408) INFO 01-25 00:24:05 [default_loader.py:308] Loading weights took 0.25 seconds
+(EngineCore_DP0 pid=863408) INFO 01-25 00:24:05 [gpu_model_runner.py:3659] Model loading took 1.4137 GiB memory and 0.434030 seconds
+(EngineCore_DP0 pid=863408) WARNING 01-25 00:24:08 [backends.py:609] Failed to read file <frozen os>
+(EngineCore_DP0 pid=863408) INFO 01-25 00:24:08 [backends.py:643] Using cache directory: /root/.cache/vllm/torch_compile_cache/3ed2235d34/rank_0_0/backbone for vLLM's torch.compile
+(EngineCore_DP0 pid=863408) INFO 01-25 00:24:08 [backends.py:703] Dynamo bytecode transform time: 2.04 s
+(EngineCore_DP0 pid=863408) INFO 01-25 00:24:10 [backends.py:261] Cache the graph of compile range (1, 51200) for later use
+(EngineCore_DP0 pid=863408) INFO 01-25 00:24:12 [backends.py:278] Compiling a graph for compile range (1, 51200) takes 3.34 s
+(EngineCore_DP0 pid=863408) INFO 01-25 00:24:12 [monitor.py:34] torch.compile takes 5.38 s in total
+(EngineCore_DP0 pid=863408) INFO 01-25 00:24:13 [gpu_worker.py:375] Available KV cache memory: 5.58 GiB
+(EngineCore_DP0 pid=863408) INFO 01-25 00:24:13 [kv_cache_utils.py:1291] GPU KV cache size: 182,720 tokens
+(EngineCore_DP0 pid=863408) INFO 01-25 00:24:13 [kv_cache_utils.py:1296] Maximum concurrency for 400 tokens per request: 456.80x
+(EngineCore_DP0 pid=863408) INFO 01-25 00:24:16 [gpu_model_runner.py:4587] Graph capturing finished in 3 secs, took -5.85 GiB
+(EngineCore_DP0 pid=863408) INFO 01-25 00:24:16 [core.py:259] init engine (profile, create kv cache, warmup model) took 10.38 seconds
+INFO 01-25 00:24:16 [llm.py:360] Supported tasks: ['generate']
+Throughput: 70.80 requests/s, 19258.39 total tokens/s, 18125.54 output tokens/s
+Total num prompt tokens:  2048
+Total num output tokens:  32768
+
+
+─── STDERR ───
+[2026-01-25 00:24:00] INFO kernels.py:603: Triton kernel custom ops registered
+[2026-01-25 00:24:00] INFO kernels.py:649: Optimization enabled: Only preloading kernels for base model 'Llama3.2-1B-INT8'
+[2026-01-25 00:24:00] INFO kernels.py:134: Loaded tuned kernel for model: Llama3.2-1B-INT8
+[2026-01-25 00:24:00] INFO kernels.py:180: Dequant+bias kernel loaded for model: Llama3.2-1B-INT8
+[2026-01-25 00:24:00] INFO kernels.py:249: FP8 quant kernel loaded for model: Llama3.2-1B-INT8
+[2026-01-25 00:24:00] INFO kernels.py:373: INT8 quant kernel loaded for model: Llama3.2-1B-INT8
+[2026-01-25 00:24:00] INFO kernels.py:309: FP8 quant+slide kernel loaded for model: Llama3.2-1B-INT8
+[2026-01-25 00:24:00] INFO kernels.py:433: INT8 quant+slide kernel loaded for model: Llama3.2-1B-INT8
+[2026-01-25 00:24:00] INFO gemm_wrapper.py:168: Optimization enabled: Only loading GEMM configs for base model 'Llama3.2-1B-INT8'
+[2026-01-25 00:24:00] INFO gemm_wrapper.py:183: Loaded algorithm configs: cuBLASLt=1, cuSPARSELt=1 models
+[2026-01-25 00:24:00] INFO gemm_wrapper.py:946: cuBLASLt FP8 custom op registered: slidesparse::cublaslt_fp8_mm
+[2026-01-25 00:24:00] INFO gemm_wrapper.py:1011: cuSPARSELt FP8 custom op registered: slidesparse::cusparselt_fp8_mm
+[2026-01-25 00:24:00] INFO gemm_wrapper.py:1077: cuBLASLt INT8 custom op registered: slidesparse::cublaslt_int8_mm
+[2026-01-25 00:24:00] INFO gemm_wrapper.py:1143: cuSPARSELt INT8 custom op registered: slidesparse::cusparselt_int8_mm
+[2026-01-25 00:24:04] INFO kernels.py:603: Triton kernel custom ops registered
+[2026-01-25 00:24:04] INFO kernels.py:649: Optimization enabled: Only preloading kernels for base model 'Llama3.2-1B-INT8'
+[2026-01-25 00:24:04] INFO kernels.py:134: Loaded tuned kernel for model: Llama3.2-1B-INT8
+[2026-01-25 00:24:04] INFO kernels.py:180: Dequant+bias kernel loaded for model: Llama3.2-1B-INT8
+[2026-01-25 00:24:04] INFO kernels.py:249: FP8 quant kernel loaded for model: Llama3.2-1B-INT8
+[2026-01-25 00:24:04] INFO kernels.py:373: INT8 quant kernel loaded for model: Llama3.2-1B-INT8
+[2026-01-25 00:24:04] INFO kernels.py:309: FP8 quant+slide kernel loaded for model: Llama3.2-1B-INT8
+[2026-01-25 00:24:04] INFO kernels.py:433: INT8 quant+slide kernel loaded for model: Llama3.2-1B-INT8
+[2026-01-25 00:24:04] INFO gemm_wrapper.py:168: Optimization enabled: Only loading GEMM configs for base model 'Llama3.2-1B-INT8'
+[2026-01-25 00:24:04] INFO gemm_wrapper.py:183: Loaded algorithm configs: cuBLASLt=1, cuSPARSELt=1 models
+[2026-01-25 00:24:04] INFO gemm_wrapper.py:946: cuBLASLt FP8 custom op registered: slidesparse::cublaslt_fp8_mm
+[2026-01-25 00:24:04] INFO gemm_wrapper.py:1011: cuSPARSELt FP8 custom op registered: slidesparse::cusparselt_fp8_mm
+[2026-01-25 00:24:04] INFO gemm_wrapper.py:1077: cuBLASLt INT8 custom op registered: slidesparse::cublaslt_int8_mm
+[2026-01-25 00:24:04] INFO gemm_wrapper.py:1143: cuSPARSELt INT8 custom op registered: slidesparse::cusparselt_int8_mm
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:05] INFO SlideSparseLinearMethod_INT8.py:801: Wrapping CompressedTensorsW8A8Int8 with SlideSparse (cuBLASLt)
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:05] INFO gemm_wrapper.py:872: cublaslt GEMM extension loaded: cublaslt_gemm_RTX5080_cc120_py312_cu129_x86_64.so
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:05] INFO SlideSparseLinearMethod_INT8.py:448: SlideSparseInt8LinearOp initialized (kernel=cuBLASLt)
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:05] INFO SlideSparseLinearMethod_INT8.py:617: Preloaded INT8 Triton kernels for model: Llama3.2-1B-INT8
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:05] INFO SlideSparseLinearMethod_INT8.py:621: SlideSparseInt8LinearMethod initialized, kernel=cuBLASLt, symmetric=True
+(EngineCore_DP0 pid=863408) 
+Loading safetensors checkpoint shards:   0% Completed | 0/1 [00:00<?, ?it/s]
+(EngineCore_DP0 pid=863408) 
+Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  4.27it/s]
+(EngineCore_DP0 pid=863408) 
+Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  4.27it/s]
+(EngineCore_DP0 pid=863408) 
+(EngineCore_DP0 pid=863408) [rank0]:W0125 00:24:10.186000 863408 torch/_inductor/codegen/triton_combo_kernel.py:110] ComboKernels: 1 large pointwise nodes are separated
+(EngineCore_DP0 pid=863408) [rank0]:W0125 00:24:10.234000 863408 torch/_inductor/codegen/triton_combo_kernel.py:110] ComboKernels: 1 large pointwise nodes are separated
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:10] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=3072, K=2048), falling back to default heuristic
+[cuBLASLt] INFO: INT8 GEMM only supports INT32 output. inner_dtype parameter is ignored, always using int32.
+(EngineCore_DP0 pid=863408) [rank0]:W0125 00:24:10.703000 863408 torch/_inductor/codegen/triton_combo_kernel.py:110] ComboKernels: 1 large pointwise nodes are separated
+(EngineCore_DP0 pid=863408) [rank0]:W0125 00:24:10.760000 863408 torch/_inductor/codegen/triton_combo_kernel.py:110] ComboKernels: 1 large pointwise nodes are separated
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:11] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=2048, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:11] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=16384, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:11] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=2048, K=8192), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:11] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=3072, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:11] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=2048, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:11] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=16384, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:11] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=2048, K=8192), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:11] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=3072, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:11] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=2048, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:11] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=16384, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:11] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=2048, K=8192), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:11] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=3072, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:11] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=2048, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:11] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=16384, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:11] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=2048, K=8192), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:11] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=3072, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:11] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=2048, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:11] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=16384, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:11] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=2048, K=8192), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:11] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=3072, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:11] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=2048, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:11] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=16384, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:11] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=2048, K=8192), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:11] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=3072, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:12] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=2048, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:12] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=16384, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:12] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=2048, K=8192), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:12] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=3072, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:12] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=2048, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:12] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=16384, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:12] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=2048, K=8192), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:12] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=3072, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:12] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=2048, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:12] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=16384, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:12] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=2048, K=8192), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:12] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=3072, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:12] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=2048, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:12] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=16384, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:12] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=2048, K=8192), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:12] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=3072, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:12] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=2048, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:12] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=16384, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:12] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=2048, K=8192), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:12] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=3072, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:12] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=2048, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:12] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=16384, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:12] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=2048, K=8192), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:12] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=3072, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:12] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=2048, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:12] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=16384, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:12] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=2048, K=8192), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:12] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=3072, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:12] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=2048, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:12] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=16384, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:12] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=2048, K=8192), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:12] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=3072, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:12] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=2048, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:12] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=16384, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:12] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=2048, K=8192), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:12] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=3072, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:12] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=2048, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:12] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=16384, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:12] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=2048, K=8192), falling back to default heuristic
+(EngineCore_DP0 pid=863408) 2026-01-25 00:24:13,522 - INFO - autotuner.py:256 - flashinfer.jit: [Autotuner]: Autotuning process starts ...
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:13] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=3072, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:13] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=2048, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:13] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=16384, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:13] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=2048, K=8192), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:13] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=3072, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:13] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=2048, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:13] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=16384, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:13] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=2048, K=8192), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:13] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=3072, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:13] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=2048, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:13] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=16384, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:13] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=2048, K=8192), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:13] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=3072, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:13] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=2048, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:13] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=16384, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:13] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=2048, K=8192), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:13] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=3072, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:13] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=2048, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:13] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=16384, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:13] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=2048, K=8192), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:13] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=3072, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:13] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=2048, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:13] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=16384, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:13] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=2048, K=8192), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:13] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=3072, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:13] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=2048, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:13] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=16384, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:13] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=2048, K=8192), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:13] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=3072, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:13] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=2048, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:13] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=16384, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:13] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=2048, K=8192), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:13] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=3072, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:13] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=2048, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:13] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=16384, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:13] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=2048, K=8192), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:13] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=3072, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:13] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=2048, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:13] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=16384, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:13] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=2048, K=8192), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:13] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=3072, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:13] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=2048, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:13] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=16384, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:13] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=2048, K=8192), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:13] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=3072, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:13] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=2048, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:13] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=16384, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:13] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=2048, K=8192), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:13] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=3072, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:13] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=2048, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:13] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=16384, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:13] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=2048, K=8192), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:13] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=3072, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:13] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=2048, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:13] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=16384, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:13] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=2048, K=8192), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:13] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=3072, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:13] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=2048, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:13] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=16384, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:13] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=2048, K=8192), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:13] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=3072, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:13] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=2048, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:13] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=16384, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=863408) [2026-01-25 00:24:13] WARNING gemm_wrapper.py:354: cuBLASLt: M=51200 exceeds max searched M=16384 for (N=2048, K=8192), falling back to default heuristic
+(EngineCore_DP0 pid=863408) 2026-01-25 00:24:13,539 - INFO - autotuner.py:262 - flashinfer.jit: [Autotuner]: Autotuning process ends
+(EngineCore_DP0 pid=863408) 
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):   0%|          | 0/35 [00:00<?, ?it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):   3%|▎         | 1/35 [00:00<00:12,  2.68it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):  14%|█▍        | 5/35 [00:00<00:02, 12.28it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):  26%|██▌       | 9/35 [00:00<00:01, 19.11it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):  37%|███▋      | 13/35 [00:00<00:00, 23.94it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):  49%|████▊     | 17/35 [00:00<00:00, 26.67it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):  60%|██████    | 21/35 [00:00<00:00, 28.78it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):  71%|███████▏  | 25/35 [00:01<00:00, 30.43it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):  83%|████████▎ | 29/35 [00:01<00:00, 32.17it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):  94%|█████████▍| 33/35 [00:01<00:00, 28.79it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE): 100%|██████████| 35/35 [00:01<00:00, 23.90it/s]
+(EngineCore_DP0 pid=863408) 
+Capturing CUDA graphs (decode, FULL):   0%|          | 0/19 [00:00<?, ?it/s]
+Capturing CUDA graphs (decode, FULL):   5%|▌         | 1/19 [00:00<00:02,  6.01it/s]
+Capturing CUDA graphs (decode, FULL):  21%|██        | 4/19 [00:00<00:00, 16.45it/s]
+Capturing CUDA graphs (decode, FULL):  42%|████▏     | 8/19 [00:00<00:00, 24.31it/s]
+Capturing CUDA graphs (decode, FULL):  58%|█████▊    | 11/19 [00:00<00:00, 19.03it/s]
+Capturing CUDA graphs (decode, FULL):  79%|███████▉  | 15/19 [00:00<00:00, 22.89it/s]
+Capturing CUDA graphs (decode, FULL): 100%|██████████| 19/19 [00:00<00:00, 26.46it/s]
+Capturing CUDA graphs (decode, FULL): 100%|██████████| 19/19 [00:00<00:00, 22.64it/s]
+
+Adding requests:   0%|          | 0/128 [00:00<?, ?it/s]
+Adding requests: 100%|██████████| 128/128 [00:00<00:00, 8170.68it/s]
+
+Processed prompts:   0%|          | 0/128 [00:00<?, ?it/s, est. speed input: 0.00 toks/s, output: 0.00 toks/s]
+Processed prompts:   1%|          | 1/128 [00:01<03:46,  1.78s/it, est. speed input: 8.97 toks/s, output: 143.54 toks/s]
+Processed prompts: 100%|██████████| 128/128 [00:01<00:00,  1.78s/it, est. speed input: 1143.20 toks/s, output: 18291.10 toks/s]
+Processed prompts: 100%|██████████| 128/128 [00:01<00:00, 71.45it/s, est. speed input: 1143.20 toks/s, output: 18291.10 toks/s]
+[rank0]:[W125 00:24:18.599753237 ProcessGroupNCCL.cpp:1524] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+
+[SUCCESS] 测试完成! 耗时: 22.9s
+
+测试结果:
+  Requests/s:   70.80
+  Tokens/s:     19258.39
+  Total Reqs:   128
+  Elapsed:      1.81s
+
+  [Decode 分析]
+  Total Decode Tokens:  32768
+  Decode Tokens/s:      18125.54
+
+============================================================
+[3/3] 测试 M=256
+============================================================
+
+┌─────────────────────────────────────────────────────────────┐
+│                    测试参数                                  │
+├─────────────────────────────────────────────────────────────┤
+│ 模型:     Llama3.2-1B-INT8                                │
+│ Backend:  cuBLASLt [INT32 output]                         │
+│ 阶段:     decode                                          │
+├─────────────────────────────────────────────────────────────┤
+│ GEMM M 维度:
+│   M_prefill = 4096 (= 256 x 16)
+│   M_decode  = 256
+├─────────────────────────────────────────────────────────────┤
+│ vLLM 参数:
+│   --input-len       = 16
+│   --output-len      = 256
+│   --num-prompts     = 256
+│   --max-num-seqs    = 256
+│   --max-model-len   = 400
+├─────────────────────────────────────────────────────────────┤
+│ 迭代次数:
+│   N_prefill = 1
+│   N_decode  = 256
+└─────────────────────────────────────────────────────────────┘
+
+[INFO] 开始测试...
+
+─── STDOUT ───
+When dataset path is not set, it will default to random dataset
+INFO 01-25 00:24:23 [datasets.py:612] Sampling input_len from [15, 15] and output_len from [256, 256]
+INFO 01-25 00:24:23 [utils.py:253] non-default args: {'tokenizer': '/root/vllmbench/checkpoints/Llama3.2-1B-INT8', 'max_model_len': 400, 'gpu_memory_utilization': 0.8, 'max_num_batched_tokens': 102400, 'max_num_seqs': 256, 'disable_log_stats': True, 'enable_lora': None, 'reasoning_parser_plugin': '', 'model': '/root/vllmbench/checkpoints/Llama3.2-1B-INT8'}
+INFO 01-25 00:24:23 [model.py:514] Resolved architecture: LlamaForCausalLM
+INFO 01-25 00:24:23 [model.py:1661] Using max model len 400
+INFO 01-25 00:24:23 [scheduler.py:230] Chunked prefill is enabled with max_num_batched_tokens=102400.
+(EngineCore_DP0 pid=864116) INFO 01-25 00:24:27 [core.py:93] Initializing a V1 LLM engine (v0.13.1.dev7+gd5e6597bf) with config: model='/root/vllmbench/checkpoints/Llama3.2-1B-INT8', speculative_config=None, tokenizer='/root/vllmbench/checkpoints/Llama3.2-1B-INT8', skip_tokenizer_init=False, tokenizer_mode=auto, revision=None, tokenizer_revision=None, trust_remote_code=False, dtype=torch.bfloat16, max_seq_len=400, download_dir=None, load_format=auto, tensor_parallel_size=1, pipeline_parallel_size=1, data_parallel_size=1, disable_custom_all_reduce=False, quantization=compressed-tensors, enforce_eager=False, kv_cache_dtype=auto, device_config=cuda, structured_outputs_config=StructuredOutputsConfig(backend='auto', disable_fallback=False, disable_any_whitespace=False, disable_additional_properties=False, reasoning_parser='', reasoning_parser_plugin='', enable_in_reasoning=False), observability_config=ObservabilityConfig(show_hidden_metrics_for_version=None, otlp_traces_endpoint=None, collect_detailed_traces=None, kv_cache_metrics=False, kv_cache_metrics_sample=0.01, cudagraph_metrics=False, enable_layerwise_nvtx_tracing=False), seed=0, served_model_name=/root/vllmbench/checkpoints/Llama3.2-1B-INT8, enable_prefix_caching=True, enable_chunked_prefill=True, pooler_config=None, compilation_config={'level': None, 'mode': <CompilationMode.VLLM_COMPILE: 3>, 'debug_dump_path': None, 'cache_dir': '', 'compile_cache_save_format': 'binary', 'backend': 'inductor', 'custom_ops': ['none'], 'splitting_ops': ['vllm::unified_attention', 'vllm::unified_attention_with_output', 'vllm::unified_mla_attention', 'vllm::unified_mla_attention_with_output', 'vllm::mamba_mixer2', 'vllm::mamba_mixer', 'vllm::short_conv', 'vllm::linear_attention', 'vllm::plamo2_mamba_mixer', 'vllm::gdn_attention_core', 'vllm::kda_attention', 'vllm::sparse_attn_indexer'], 'compile_mm_encoder': False, 'compile_sizes': [], 'compile_ranges_split_points': [102400], 'inductor_compile_config': {'enable_auto_functionalized_v2': False, 'combo_kernels': True, 'benchmark_combo_kernel': True}, 'inductor_passes': {}, 'cudagraph_mode': <CUDAGraphMode.FULL_AND_PIECEWISE: (2, 1)>, 'cudagraph_num_of_warmups': 1, 'cudagraph_capture_sizes': [1, 2, 4, 8, 16, 24, 32, 40, 48, 56, 64, 72, 80, 88, 96, 104, 112, 120, 128, 136, 144, 152, 160, 168, 176, 184, 192, 200, 208, 216, 224, 232, 240, 248, 256, 272, 288, 304, 320, 336, 352, 368, 384, 400, 416, 432, 448, 464, 480, 496, 512], 'cudagraph_copy_inputs': False, 'cudagraph_specialize_lora': True, 'use_inductor_graph_partition': False, 'pass_config': {'fuse_norm_quant': False, 'fuse_act_quant': False, 'fuse_attn_quant': False, 'eliminate_noops': True, 'enable_sp': False, 'fuse_gemm_comms': False, 'fuse_allreduce_rms': False}, 'max_cudagraph_capture_size': 512, 'dynamic_shapes_config': {'type': <DynamicShapesType.BACKED: 'backed'>, 'evaluate_guards': False}, 'local_cache_dir': None}
+(EngineCore_DP0 pid=864116) INFO 01-25 00:24:27 [parallel_state.py:1203] world_size=1 rank=0 local_rank=0 distributed_init_method=tcp://10.172.141.44:57543 backend=nccl
+(EngineCore_DP0 pid=864116) INFO 01-25 00:24:27 [parallel_state.py:1411] rank 0 in world size 1 is assigned as DP rank 0, PP rank 0, PCP rank 0, TP rank 0, EP rank 0
+(EngineCore_DP0 pid=864116) INFO 01-25 00:24:28 [gpu_model_runner.py:3562] Starting to load model /root/vllmbench/checkpoints/Llama3.2-1B-INT8...
+(EngineCore_DP0 pid=864116) INFO 01-25 00:24:28 [compressed_tensors_w8a8_int8.py:62] Using CutlassScaledMMLinearKernel for CompressedTensorsW8A8Int8
+(EngineCore_DP0 pid=864116) INFO 01-25 00:24:28 [cuda.py:351] Using FLASH_ATTN attention backend out of potential backends: ('FLASH_ATTN', 'FLASHINFER', 'TRITON_ATTN', 'FLEX_ATTENTION')
+(EngineCore_DP0 pid=864116) INFO 01-25 00:24:28 [default_loader.py:308] Loading weights took 0.24 seconds
+(EngineCore_DP0 pid=864116) INFO 01-25 00:24:28 [gpu_model_runner.py:3659] Model loading took 1.4137 GiB memory and 0.432481 seconds
+(EngineCore_DP0 pid=864116) WARNING 01-25 00:24:31 [backends.py:609] Failed to read file <frozen os>
+(EngineCore_DP0 pid=864116) INFO 01-25 00:24:31 [backends.py:643] Using cache directory: /root/.cache/vllm/torch_compile_cache/18e67068f8/rank_0_0/backbone for vLLM's torch.compile
+(EngineCore_DP0 pid=864116) INFO 01-25 00:24:31 [backends.py:703] Dynamo bytecode transform time: 2.04 s
+(EngineCore_DP0 pid=864116) INFO 01-25 00:24:33 [backends.py:261] Cache the graph of compile range (1, 102400) for later use
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866] EngineCore failed to start.
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866] Traceback (most recent call last):
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]   File "/root/vllmbench/vllm/v1/engine/core.py", line 857, in run_engine_core
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]     engine_core = EngineCoreProc(*args, **kwargs)
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]   File "/root/vllmbench/vllm/v1/engine/core.py", line 637, in __init__
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]     super().__init__(
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]   File "/root/vllmbench/vllm/v1/engine/core.py", line 109, in __init__
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]     num_gpu_blocks, num_cpu_blocks, kv_cache_config = self._initialize_kv_caches(
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]                                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]   File "/root/vllmbench/vllm/v1/engine/core.py", line 240, in _initialize_kv_caches
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]     available_gpu_memory = self.model_executor.determine_available_memory()
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]   File "/root/vllmbench/vllm/v1/executor/abstract.py", line 126, in determine_available_memory
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]     return self.collective_rpc("determine_available_memory")
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]   File "/root/vllmbench/vllm/v1/executor/uniproc_executor.py", line 75, in collective_rpc
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]     result = run_method(self.driver_worker, method, args, kwargs)
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]   File "/root/vllmbench/vllm/v1/serial_utils.py", line 461, in run_method
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]     return func(*args, **kwargs)
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/utils/_contextlib.py", line 120, in decorate_context
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]     return func(*args, **kwargs)
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]   File "/root/vllmbench/vllm/v1/worker/gpu_worker.py", line 340, in determine_available_memory
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]     self.model_runner.profile_run()
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]   File "/root/vllmbench/vllm/v1/worker/gpu_model_runner.py", line 4474, in profile_run
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]     hidden_states, last_hidden_states = self._dummy_run(
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]                                         ^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/utils/_contextlib.py", line 120, in decorate_context
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]     return func(*args, **kwargs)
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]   File "/root/vllmbench/vllm/v1/worker/gpu_model_runner.py", line 4198, in _dummy_run
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]     outputs = self.model(
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]               ^^^^^^^^^^^
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]   File "/root/vllmbench/vllm/compilation/cuda_graph.py", line 220, in __call__
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]     return self.runnable(*args, **kwargs)
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py", line 1775, in _wrapped_call_impl
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]     return self._call_impl(*args, **kwargs)
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py", line 1786, in _call_impl
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]     return forward_call(*args, **kwargs)
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]   File "/root/vllmbench/vllm/model_executor/models/llama.py", line 623, in forward
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]     model_output = self.model(
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]                    ^^^^^^^^^^^
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]   File "/root/vllmbench/vllm/compilation/decorators.py", line 526, in __call__
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]     output = TorchCompileWithNoGuardsWrapper.__call__(self, *args, **kwargs)
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]   File "/root/vllmbench/vllm/compilation/wrapper.py", line 218, in __call__
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]     return self._call_with_optional_nvtx_range(
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]   File "/root/vllmbench/vllm/compilation/wrapper.py", line 109, in _call_with_optional_nvtx_range
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]     return callable_fn(*args, **kwargs)
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/_dynamo/eval_frame.py", line 832, in compile_wrapper
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]     return fn(*args, **kwargs)
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]            ^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]   File "/root/vllmbench/vllm/model_executor/models/llama.py", line 412, in forward
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]     def forward(
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/_dynamo/eval_frame.py", line 1044, in _fn
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]     return fn(*args, **kwargs)
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]            ^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]   File "/root/vllmbench/vllm/compilation/caching.py", line 54, in __call__
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]     return self.optimized_call(*args, **kwargs)
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/fx/graph_module.py", line 837, in call_wrapped
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]     return self._wrapped_call(self, *args, **kwargs)
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/fx/graph_module.py", line 413, in __call__
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]     raise e
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/fx/graph_module.py", line 400, in __call__
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]     return super(self.cls, obj).__call__(*args, **kwargs)  # type: ignore[misc]
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py", line 1775, in _wrapped_call_impl
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]     return self._call_impl(*args, **kwargs)
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py", line 1786, in _call_impl
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]     return forward_call(*args, **kwargs)
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]   File "<eval_with_key>.34", line 184, in forward
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]     submod_4 = self.submod_4(getitem_8, s72, l_self_modules_layers_modules_1_modules_self_attn_modules_o_proj_parameters_weight_, l_self_modules_layers_modules_1_modules_self_attn_modules_o_proj_parameters_weight_scale_, l_self_modules_layers_modules_1_modules_post_attention_layernorm_parameters_weight_, getitem_9, l_self_modules_layers_modules_1_modules_mlp_modules_gate_up_proj_parameters_weight_, l_self_modules_layers_modules_1_modules_mlp_modules_gate_up_proj_parameters_weight_scale_, l_self_modules_layers_modules_1_modules_mlp_modules_down_proj_parameters_weight_, l_self_modules_layers_modules_1_modules_mlp_modules_down_proj_parameters_weight_scale_, l_self_modules_layers_modules_2_modules_input_layernorm_parameters_weight_, l_self_modules_layers_modules_2_modules_self_attn_modules_qkv_proj_parameters_weight_, l_self_modules_layers_modules_2_modules_self_attn_modules_qkv_proj_parameters_weight_scale_, l_positions_, l_self_modules_layers_modules_0_modules_self_attn_modules_rotary_emb_buffers_cos_sin_cache_);  getitem_8 = l_self_modules_layers_modules_1_modules_self_attn_modules_o_proj_parameters_weight_ = l_self_modules_layers_modules_1_modules_self_attn_modules_o_proj_parameters_weight_scale_ = l_self_modules_layers_modules_1_modules_post_attention_layernorm_parameters_weight_ = getitem_9 = l_self_modules_layers_modules_1_modules_mlp_modules_gate_up_proj_parameters_weight_ = l_self_modules_layers_modules_1_modules_mlp_modules_gate_up_proj_parameters_weight_scale_ = l_self_modules_layers_modules_1_modules_mlp_modules_down_proj_parameters_weight_ = l_self_modules_layers_modules_1_modules_mlp_modules_down_proj_parameters_weight_scale_ = l_self_modules_layers_modules_2_modules_input_layernorm_parameters_weight_ = l_self_modules_layers_modules_2_modules_self_attn_modules_qkv_proj_parameters_weight_ = l_self_modules_layers_modules_2_modules_self_attn_modules_qkv_proj_parameters_weight_scale_ = None
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]   File "/root/vllmbench/vllm/compilation/cuda_graph.py", line 220, in __call__
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]     return self.runnable(*args, **kwargs)
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]   File "/root/vllmbench/vllm/compilation/piecewise_backend.py", line 178, in __call__
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]     return range_entry.runnable(*args)
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/_inductor/standalone_compile.py", line 63, in __call__
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]     return self._compiled_fn(*args)
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/_dynamo/eval_frame.py", line 1044, in _fn
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]     return fn(*args, **kwargs)
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]            ^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/_functorch/aot_autograd.py", line 1130, in forward
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]     return compiled_fn(full_args)
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 353, in runtime_wrapper
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]     all_outs = call_func_at_runtime_with_args(
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/_functorch/_aot_autograd/utils.py", line 129, in call_func_at_runtime_with_args
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]     out = normalize_as_list(f(args))
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]                             ^^^^^^^
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 526, in wrapper
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]     return compiled_fn(runtime_args)
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/_inductor/output_code.py", line 613, in __call__
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]     return self.current_callable(inputs)
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/_inductor/utils.py", line 2962, in run
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]     out = model(new_inputs)
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]           ^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]   File "/tmp/torchinductor_root/3t/c3t2b53nbdwrp3fqoagbc6nm5rp3sgfpa2lgd44orilcjrwkp6e5.py", line 1077, in call
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]     buf14 = torch.ops.slidesparse.dequant_bias.default(reinterpret_tensor(buf13, (s72, 16384), (16384, 1), 0), reinterpret_tensor(buf11, (s72, ), (1, ), 0), arg7_1, None, 'bfloat16', 'Llama3.2-1B-INT8')
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/_ops.py", line 841, in __call__
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]     return self._op(*args, **kwargs)
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]   File "/root/vllmbench/slidesparse/core/kernels.py", line 508, in _dequant_bias_impl
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]     return fn(gemm_output, scale_a, scale_b, bias, out_dtype)
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]   File "/root/vllmbench/slidesparse/csrc/fused_dequant_bias_triton/build/RTX5080_cc120_py312_cu129_x86_64/dequant_bias_tuned_Llama3.2-1B-INT8.py", line 102, in dequant_bias_triton
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]     output = torch.empty((M, N), dtype=torch.bfloat16, device=gemm_output.device)
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866]              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=864116) ERROR 01-25 00:24:35 [core.py:866] torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 3.12 GiB. GPU 0 has a total capacity of 15.47 GiB of which 2.08 GiB is free. Including non-PyTorch memory, this process has 13.37 GiB memory in use. Of the allocated memory 9.26 GiB is allocated by PyTorch, and 3.74 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+
+
+─── STDERR ───
+[2026-01-25 00:24:23] INFO kernels.py:603: Triton kernel custom ops registered
+[2026-01-25 00:24:23] INFO kernels.py:649: Optimization enabled: Only preloading kernels for base model 'Llama3.2-1B-INT8'
+[2026-01-25 00:24:23] INFO kernels.py:134: Loaded tuned kernel for model: Llama3.2-1B-INT8
+[2026-01-25 00:24:23] INFO kernels.py:180: Dequant+bias kernel loaded for model: Llama3.2-1B-INT8
+[2026-01-25 00:24:23] INFO kernels.py:249: FP8 quant kernel loaded for model: Llama3.2-1B-INT8
+[2026-01-25 00:24:23] INFO kernels.py:373: INT8 quant kernel loaded for model: Llama3.2-1B-INT8
+[2026-01-25 00:24:23] INFO kernels.py:309: FP8 quant+slide kernel loaded for model: Llama3.2-1B-INT8
+[2026-01-25 00:24:23] INFO kernels.py:433: INT8 quant+slide kernel loaded for model: Llama3.2-1B-INT8
+[2026-01-25 00:24:23] INFO gemm_wrapper.py:168: Optimization enabled: Only loading GEMM configs for base model 'Llama3.2-1B-INT8'
+[2026-01-25 00:24:23] INFO gemm_wrapper.py:183: Loaded algorithm configs: cuBLASLt=1, cuSPARSELt=1 models
+[2026-01-25 00:24:23] INFO gemm_wrapper.py:946: cuBLASLt FP8 custom op registered: slidesparse::cublaslt_fp8_mm
+[2026-01-25 00:24:23] INFO gemm_wrapper.py:1011: cuSPARSELt FP8 custom op registered: slidesparse::cusparselt_fp8_mm
+[2026-01-25 00:24:23] INFO gemm_wrapper.py:1077: cuBLASLt INT8 custom op registered: slidesparse::cublaslt_int8_mm
+[2026-01-25 00:24:23] INFO gemm_wrapper.py:1143: cuSPARSELt INT8 custom op registered: slidesparse::cusparselt_int8_mm
+[2026-01-25 00:24:27] INFO kernels.py:603: Triton kernel custom ops registered
+[2026-01-25 00:24:27] INFO kernels.py:649: Optimization enabled: Only preloading kernels for base model 'Llama3.2-1B-INT8'
+[2026-01-25 00:24:27] INFO kernels.py:134: Loaded tuned kernel for model: Llama3.2-1B-INT8
+[2026-01-25 00:24:27] INFO kernels.py:180: Dequant+bias kernel loaded for model: Llama3.2-1B-INT8
+[2026-01-25 00:24:27] INFO kernels.py:249: FP8 quant kernel loaded for model: Llama3.2-1B-INT8
+[2026-01-25 00:24:27] INFO kernels.py:373: INT8 quant kernel loaded for model: Llama3.2-1B-INT8
+[2026-01-25 00:24:27] INFO kernels.py:309: FP8 quant+slide kernel loaded for model: Llama3.2-1B-INT8
+[2026-01-25 00:24:27] INFO kernels.py:433: INT8 quant+slide kernel loaded for model: Llama3.2-1B-INT8
+[2026-01-25 00:24:27] INFO gemm_wrapper.py:168: Optimization enabled: Only loading GEMM configs for base model 'Llama3.2-1B-INT8'
+[2026-01-25 00:24:27] INFO gemm_wrapper.py:183: Loaded algorithm configs: cuBLASLt=1, cuSPARSELt=1 models
+[2026-01-25 00:24:27] INFO gemm_wrapper.py:946: cuBLASLt FP8 custom op registered: slidesparse::cublaslt_fp8_mm
+[2026-01-25 00:24:27] INFO gemm_wrapper.py:1011: cuSPARSELt FP8 custom op registered: slidesparse::cusparselt_fp8_mm
+[2026-01-25 00:24:27] INFO gemm_wrapper.py:1077: cuBLASLt INT8 custom op registered: slidesparse::cublaslt_int8_mm
+[2026-01-25 00:24:27] INFO gemm_wrapper.py:1143: cuSPARSELt INT8 custom op registered: slidesparse::cusparselt_int8_mm
+(EngineCore_DP0 pid=864116) [2026-01-25 00:24:28] INFO SlideSparseLinearMethod_INT8.py:801: Wrapping CompressedTensorsW8A8Int8 with SlideSparse (cuBLASLt)
+(EngineCore_DP0 pid=864116) [2026-01-25 00:24:28] INFO gemm_wrapper.py:872: cublaslt GEMM extension loaded: cublaslt_gemm_RTX5080_cc120_py312_cu129_x86_64.so
+(EngineCore_DP0 pid=864116) [2026-01-25 00:24:28] INFO SlideSparseLinearMethod_INT8.py:448: SlideSparseInt8LinearOp initialized (kernel=cuBLASLt)
+(EngineCore_DP0 pid=864116) [2026-01-25 00:24:28] INFO SlideSparseLinearMethod_INT8.py:617: Preloaded INT8 Triton kernels for model: Llama3.2-1B-INT8
+(EngineCore_DP0 pid=864116) [2026-01-25 00:24:28] INFO SlideSparseLinearMethod_INT8.py:621: SlideSparseInt8LinearMethod initialized, kernel=cuBLASLt, symmetric=True
+(EngineCore_DP0 pid=864116) 
+Loading safetensors checkpoint shards:   0% Completed | 0/1 [00:00<?, ?it/s]
+(EngineCore_DP0 pid=864116) 
+Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  4.29it/s]
+(EngineCore_DP0 pid=864116) 
+Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  4.29it/s]
+(EngineCore_DP0 pid=864116) 
+(EngineCore_DP0 pid=864116) [rank0]:W0125 00:24:33.379000 864116 torch/_inductor/codegen/triton_combo_kernel.py:110] ComboKernels: 2 large pointwise nodes are separated
+(EngineCore_DP0 pid=864116) [rank0]:W0125 00:24:33.707000 864116 torch/_inductor/codegen/triton_combo_kernel.py:110] ComboKernels: 2 large pointwise nodes are separated
+(EngineCore_DP0 pid=864116) [2026-01-25 00:24:33] WARNING gemm_wrapper.py:354: cuBLASLt: M=102400 exceeds max searched M=16384 for (N=3072, K=2048), falling back to default heuristic
+[cuBLASLt] INFO: INT8 GEMM only supports INT32 output. inner_dtype parameter is ignored, always using int32.
+(EngineCore_DP0 pid=864116) [rank0]:W0125 00:24:34.516000 864116 torch/_inductor/codegen/triton_combo_kernel.py:110] ComboKernels: 2 large pointwise nodes are separated
+(EngineCore_DP0 pid=864116) [rank0]:W0125 00:24:34.573000 864116 torch/_inductor/codegen/triton_combo_kernel.py:110] ComboKernels: 2 large pointwise nodes are separated
+(EngineCore_DP0 pid=864116) [2026-01-25 00:24:34] WARNING gemm_wrapper.py:354: cuBLASLt: M=102400 exceeds max searched M=16384 for (N=2048, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=864116) [2026-01-25 00:24:34] WARNING gemm_wrapper.py:354: cuBLASLt: M=102400 exceeds max searched M=16384 for (N=16384, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=864116) [2026-01-25 00:24:35] WARNING gemm_wrapper.py:354: cuBLASLt: M=102400 exceeds max searched M=16384 for (N=2048, K=8192), falling back to default heuristic
+(EngineCore_DP0 pid=864116) [2026-01-25 00:24:35] WARNING gemm_wrapper.py:354: cuBLASLt: M=102400 exceeds max searched M=16384 for (N=3072, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=864116) [2026-01-25 00:24:35] WARNING gemm_wrapper.py:354: cuBLASLt: M=102400 exceeds max searched M=16384 for (N=2048, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=864116) [2026-01-25 00:24:35] WARNING gemm_wrapper.py:354: cuBLASLt: M=102400 exceeds max searched M=16384 for (N=16384, K=2048), falling back to default heuristic
+(EngineCore_DP0 pid=864116) Process EngineCore_DP0:
+(EngineCore_DP0 pid=864116) Traceback (most recent call last):
+(EngineCore_DP0 pid=864116)   File "/usr/lib/python3.12/multiprocessing/process.py", line 314, in _bootstrap
+(EngineCore_DP0 pid=864116)     self.run()
+(EngineCore_DP0 pid=864116)   File "/usr/lib/python3.12/multiprocessing/process.py", line 108, in run
+(EngineCore_DP0 pid=864116)     self._target(*self._args, **self._kwargs)
+(EngineCore_DP0 pid=864116)   File "/root/vllmbench/vllm/v1/engine/core.py", line 870, in run_engine_core
+(EngineCore_DP0 pid=864116)     raise e
+(EngineCore_DP0 pid=864116)   File "/root/vllmbench/vllm/v1/engine/core.py", line 857, in run_engine_core
+(EngineCore_DP0 pid=864116)     engine_core = EngineCoreProc(*args, **kwargs)
+(EngineCore_DP0 pid=864116)                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=864116)   File "/root/vllmbench/vllm/v1/engine/core.py", line 637, in __init__
+(EngineCore_DP0 pid=864116)     super().__init__(
+(EngineCore_DP0 pid=864116)   File "/root/vllmbench/vllm/v1/engine/core.py", line 109, in __init__
+(EngineCore_DP0 pid=864116)     num_gpu_blocks, num_cpu_blocks, kv_cache_config = self._initialize_kv_caches(
+(EngineCore_DP0 pid=864116)                                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=864116)   File "/root/vllmbench/vllm/v1/engine/core.py", line 240, in _initialize_kv_caches
+(EngineCore_DP0 pid=864116)     available_gpu_memory = self.model_executor.determine_available_memory()
+(EngineCore_DP0 pid=864116)                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=864116)   File "/root/vllmbench/vllm/v1/executor/abstract.py", line 126, in determine_available_memory
+(EngineCore_DP0 pid=864116)     return self.collective_rpc("determine_available_memory")
+(EngineCore_DP0 pid=864116)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=864116)   File "/root/vllmbench/vllm/v1/executor/uniproc_executor.py", line 75, in collective_rpc
+(EngineCore_DP0 pid=864116)     result = run_method(self.driver_worker, method, args, kwargs)
+(EngineCore_DP0 pid=864116)              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=864116)   File "/root/vllmbench/vllm/v1/serial_utils.py", line 461, in run_method
+(EngineCore_DP0 pid=864116)     return func(*args, **kwargs)
+(EngineCore_DP0 pid=864116)            ^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=864116)   File "/usr/local/lib/python3.12/dist-packages/torch/utils/_contextlib.py", line 120, in decorate_context
+(EngineCore_DP0 pid=864116)     return func(*args, **kwargs)
+(EngineCore_DP0 pid=864116)            ^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=864116)   File "/root/vllmbench/vllm/v1/worker/gpu_worker.py", line 340, in determine_available_memory
+(EngineCore_DP0 pid=864116)     self.model_runner.profile_run()
+(EngineCore_DP0 pid=864116)   File "/root/vllmbench/vllm/v1/worker/gpu_model_runner.py", line 4474, in profile_run
+(EngineCore_DP0 pid=864116)     hidden_states, last_hidden_states = self._dummy_run(
+(EngineCore_DP0 pid=864116)                                         ^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=864116)   File "/usr/local/lib/python3.12/dist-packages/torch/utils/_contextlib.py", line 120, in decorate_context
+(EngineCore_DP0 pid=864116)     return func(*args, **kwargs)
+(EngineCore_DP0 pid=864116)            ^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=864116)   File "/root/vllmbench/vllm/v1/worker/gpu_model_runner.py", line 4198, in _dummy_run
+(EngineCore_DP0 pid=864116)     outputs = self.model(
+(EngineCore_DP0 pid=864116)               ^^^^^^^^^^^
+(EngineCore_DP0 pid=864116)   File "/root/vllmbench/vllm/compilation/cuda_graph.py", line 220, in __call__
+(EngineCore_DP0 pid=864116)     return self.runnable(*args, **kwargs)
+(EngineCore_DP0 pid=864116)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=864116)   File "/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py", line 1775, in _wrapped_call_impl
+(EngineCore_DP0 pid=864116)     return self._call_impl(*args, **kwargs)
+(EngineCore_DP0 pid=864116)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=864116)   File "/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py", line 1786, in _call_impl
+(EngineCore_DP0 pid=864116)     return forward_call(*args, **kwargs)
+(EngineCore_DP0 pid=864116)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=864116)   File "/root/vllmbench/vllm/model_executor/models/llama.py", line 623, in forward
+(EngineCore_DP0 pid=864116)     model_output = self.model(
+(EngineCore_DP0 pid=864116)                    ^^^^^^^^^^^
+(EngineCore_DP0 pid=864116)   File "/root/vllmbench/vllm/compilation/decorators.py", line 526, in __call__
+(EngineCore_DP0 pid=864116)     output = TorchCompileWithNoGuardsWrapper.__call__(self, *args, **kwargs)
+(EngineCore_DP0 pid=864116)              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=864116)   File "/root/vllmbench/vllm/compilation/wrapper.py", line 218, in __call__
+(EngineCore_DP0 pid=864116)     return self._call_with_optional_nvtx_range(
+(EngineCore_DP0 pid=864116)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=864116)   File "/root/vllmbench/vllm/compilation/wrapper.py", line 109, in _call_with_optional_nvtx_range
+(EngineCore_DP0 pid=864116)     return callable_fn(*args, **kwargs)
+(EngineCore_DP0 pid=864116)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=864116)   File "/usr/local/lib/python3.12/dist-packages/torch/_dynamo/eval_frame.py", line 832, in compile_wrapper
+(EngineCore_DP0 pid=864116)     return fn(*args, **kwargs)
+(EngineCore_DP0 pid=864116)            ^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=864116)   File "/root/vllmbench/vllm/model_executor/models/llama.py", line 412, in forward
+(EngineCore_DP0 pid=864116)     def forward(
+(EngineCore_DP0 pid=864116)   File "/usr/local/lib/python3.12/dist-packages/torch/_dynamo/eval_frame.py", line 1044, in _fn
+(EngineCore_DP0 pid=864116)     return fn(*args, **kwargs)
+(EngineCore_DP0 pid=864116)            ^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=864116)   File "/root/vllmbench/vllm/compilation/caching.py", line 54, in __call__
+(EngineCore_DP0 pid=864116)     return self.optimized_call(*args, **kwargs)
+(EngineCore_DP0 pid=864116)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=864116)   File "/usr/local/lib/python3.12/dist-packages/torch/fx/graph_module.py", line 837, in call_wrapped
+(EngineCore_DP0 pid=864116)     return self._wrapped_call(self, *args, **kwargs)
+(EngineCore_DP0 pid=864116)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=864116)   File "/usr/local/lib/python3.12/dist-packages/torch/fx/graph_module.py", line 413, in __call__
+(EngineCore_DP0 pid=864116)     raise e
+(EngineCore_DP0 pid=864116)   File "/usr/local/lib/python3.12/dist-packages/torch/fx/graph_module.py", line 400, in __call__
+(EngineCore_DP0 pid=864116)     return super(self.cls, obj).__call__(*args, **kwargs)  # type: ignore[misc]
+(EngineCore_DP0 pid=864116)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=864116)   File "/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py", line 1775, in _wrapped_call_impl
+(EngineCore_DP0 pid=864116)     return self._call_impl(*args, **kwargs)
+(EngineCore_DP0 pid=864116)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=864116)   File "/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py", line 1786, in _call_impl
+(EngineCore_DP0 pid=864116)     return forward_call(*args, **kwargs)
+(EngineCore_DP0 pid=864116)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=864116)   File "<eval_with_key>.34", line 184, in forward
+(EngineCore_DP0 pid=864116)     submod_4 = self.submod_4(getitem_8, s72, l_self_modules_layers_modules_1_modules_self_attn_modules_o_proj_parameters_weight_, l_self_modules_layers_modules_1_modules_self_attn_modules_o_proj_parameters_weight_scale_, l_self_modules_layers_modules_1_modules_post_attention_layernorm_parameters_weight_, getitem_9, l_self_modules_layers_modules_1_modules_mlp_modules_gate_up_proj_parameters_weight_, l_self_modules_layers_modules_1_modules_mlp_modules_gate_up_proj_parameters_weight_scale_, l_self_modules_layers_modules_1_modules_mlp_modules_down_proj_parameters_weight_, l_self_modules_layers_modules_1_modules_mlp_modules_down_proj_parameters_weight_scale_, l_self_modules_layers_modules_2_modules_input_layernorm_parameters_weight_, l_self_modules_layers_modules_2_modules_self_attn_modules_qkv_proj_parameters_weight_, l_self_modules_layers_modules_2_modules_self_attn_modules_qkv_proj_parameters_weight_scale_, l_positions_, l_self_modules_layers_modules_0_modules_self_attn_modules_rotary_emb_buffers_cos_sin_cache_);  getitem_8 = l_self_modules_layers_modules_1_modules_self_attn_modules_o_proj_parameters_weight_ = l_self_modules_layers_modules_1_modules_self_attn_modules_o_proj_parameters_weight_scale_ = l_self_modules_layers_modules_1_modules_post_attention_layernorm_parameters_weight_ = getitem_9 = l_self_modules_layers_modules_1_modules_mlp_modules_gate_up_proj_parameters_weight_ = l_self_modules_layers_modules_1_modules_mlp_modules_gate_up_proj_parameters_weight_scale_ = l_self_modules_layers_modules_1_modules_mlp_modules_down_proj_parameters_weight_ = l_self_modules_layers_modules_1_modules_mlp_modules_down_proj_parameters_weight_scale_ = l_self_modules_layers_modules_2_modules_input_layernorm_parameters_weight_ = l_self_modules_layers_modules_2_modules_self_attn_modules_qkv_proj_parameters_weight_ = l_self_modules_layers_modules_2_modules_self_attn_modules_qkv_proj_parameters_weight_scale_ = None
+(EngineCore_DP0 pid=864116)                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=864116)   File "/root/vllmbench/vllm/compilation/cuda_graph.py", line 220, in __call__
+(EngineCore_DP0 pid=864116)     return self.runnable(*args, **kwargs)
+(EngineCore_DP0 pid=864116)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=864116)   File "/root/vllmbench/vllm/compilation/piecewise_backend.py", line 178, in __call__
+(EngineCore_DP0 pid=864116)     return range_entry.runnable(*args)
+(EngineCore_DP0 pid=864116)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=864116)   File "/usr/local/lib/python3.12/dist-packages/torch/_inductor/standalone_compile.py", line 63, in __call__
+(EngineCore_DP0 pid=864116)     return self._compiled_fn(*args)
+(EngineCore_DP0 pid=864116)            ^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=864116)   File "/usr/local/lib/python3.12/dist-packages/torch/_dynamo/eval_frame.py", line 1044, in _fn
+(EngineCore_DP0 pid=864116)     return fn(*args, **kwargs)
+(EngineCore_DP0 pid=864116)            ^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=864116)   File "/usr/local/lib/python3.12/dist-packages/torch/_functorch/aot_autograd.py", line 1130, in forward
+(EngineCore_DP0 pid=864116)     return compiled_fn(full_args)
+(EngineCore_DP0 pid=864116)            ^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=864116)   File "/usr/local/lib/python3.12/dist-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 353, in runtime_wrapper
+(EngineCore_DP0 pid=864116)     all_outs = call_func_at_runtime_with_args(
+(EngineCore_DP0 pid=864116)                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=864116)   File "/usr/local/lib/python3.12/dist-packages/torch/_functorch/_aot_autograd/utils.py", line 129, in call_func_at_runtime_with_args
+(EngineCore_DP0 pid=864116)     out = normalize_as_list(f(args))
+(EngineCore_DP0 pid=864116)                             ^^^^^^^
+(EngineCore_DP0 pid=864116)   File "/usr/local/lib/python3.12/dist-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 526, in wrapper
+(EngineCore_DP0 pid=864116)     return compiled_fn(runtime_args)
+(EngineCore_DP0 pid=864116)            ^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=864116)   File "/usr/local/lib/python3.12/dist-packages/torch/_inductor/output_code.py", line 613, in __call__
+(EngineCore_DP0 pid=864116)     return self.current_callable(inputs)
+(EngineCore_DP0 pid=864116)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=864116)   File "/usr/local/lib/python3.12/dist-packages/torch/_inductor/utils.py", line 2962, in run
+(EngineCore_DP0 pid=864116)     out = model(new_inputs)
+(EngineCore_DP0 pid=864116)           ^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=864116)   File "/tmp/torchinductor_root/3t/c3t2b53nbdwrp3fqoagbc6nm5rp3sgfpa2lgd44orilcjrwkp6e5.py", line 1077, in call
+(EngineCore_DP0 pid=864116)     buf14 = torch.ops.slidesparse.dequant_bias.default(reinterpret_tensor(buf13, (s72, 16384), (16384, 1), 0), reinterpret_tensor(buf11, (s72, ), (1, ), 0), arg7_1, None, 'bfloat16', 'Llama3.2-1B-INT8')
+(EngineCore_DP0 pid=864116)             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=864116)   File "/usr/local/lib/python3.12/dist-packages/torch/_ops.py", line 841, in __call__
+(EngineCore_DP0 pid=864116)     return self._op(*args, **kwargs)
+(EngineCore_DP0 pid=864116)            ^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=864116)   File "/root/vllmbench/slidesparse/core/kernels.py", line 508, in _dequant_bias_impl
+(EngineCore_DP0 pid=864116)     return fn(gemm_output, scale_a, scale_b, bias, out_dtype)
+(EngineCore_DP0 pid=864116)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=864116)   File "/root/vllmbench/slidesparse/csrc/fused_dequant_bias_triton/build/RTX5080_cc120_py312_cu129_x86_64/dequant_bias_tuned_Llama3.2-1B-INT8.py", line 102, in dequant_bias_triton
+(EngineCore_DP0 pid=864116)     output = torch.empty((M, N), dtype=torch.bfloat16, device=gemm_output.device)
+(EngineCore_DP0 pid=864116)              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=864116) torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 3.12 GiB. GPU 0 has a total capacity of 15.47 GiB of which 2.08 GiB is free. Including non-PyTorch memory, this process has 13.37 GiB memory in use. Of the allocated memory 9.26 GiB is allocated by PyTorch, and 3.74 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+[rank0]:[W125 00:24:35.635020241 ProcessGroupNCCL.cpp:1524] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+Traceback (most recent call last):
+  File "/usr/local/bin/vllm", line 7, in <module>
+    sys.exit(main())
+             ^^^^^^
+  File "/root/vllmbench/vllm/entrypoints/cli/main.py", line 73, in main
+    args.dispatch_function(args)
+  File "/root/vllmbench/vllm/entrypoints/cli/benchmark/throughput.py", line 21, in cmd
+    main(args)
+  File "/root/vllmbench/vllm/benchmarks/throughput.py", line 730, in main
+    elapsed_time, request_outputs = run_vllm(
+                                    ^^^^^^^^^
+  File "/root/vllmbench/vllm/benchmarks/throughput.py", line 51, in run_vllm
+    llm = LLM(**dataclasses.asdict(engine_args))
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/entrypoints/llm.py", line 351, in __init__
+    self.llm_engine = LLMEngine.from_engine_args(
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/v1/engine/llm_engine.py", line 183, in from_engine_args
+    return cls(
+           ^^^^
+  File "/root/vllmbench/vllm/v1/engine/llm_engine.py", line 109, in __init__
+    self.engine_core = EngineCoreClient.make_client(
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/v1/engine/core_client.py", line 93, in make_client
+    return SyncMPClient(vllm_config, executor_class, log_stats)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/v1/engine/core_client.py", line 648, in __init__
+    super().__init__(
+  File "/root/vllmbench/vllm/v1/engine/core_client.py", line 477, in __init__
+    with launch_core_engines(vllm_config, executor_class, log_stats) as (
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/contextlib.py", line 144, in __exit__
+    next(self.gen)
+  File "/root/vllmbench/vllm/v1/engine/utils.py", line 903, in launch_core_engines
+    wait_for_engine_startup(
+  File "/root/vllmbench/vllm/v1/engine/utils.py", line 960, in wait_for_engine_startup
+    raise RuntimeError(
+RuntimeError: Engine core initialization failed. See root cause above. Failed core proc(s): {}

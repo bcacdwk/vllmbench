@@ -31,7 +31,11 @@ if str(_PROJECT_ROOT) not in sys.path:
 
 from slidesparse.utils import (
     build_filename,
+    build_hw_dir_name,
+    build_tuned_filename,
     get_gpu_cc,
+    get_nk_list_for_search,
+    get_unique_n_values,
     load_module,
 )
 
@@ -40,8 +44,15 @@ from slidesparse.utils import (
 # Test Configuration
 # =============================================================================
 
-M_VALUES = [16, 128, 1024, 4096, 16384, 65536]
-N_VALUES = [2560, 3840, 13824]
+# Default model for K/N values (same as autotune)
+DEFAULT_MODEL = "Llama3.2-1B-INT8"
+
+# M values for throughput benchmark (aligned with M-quick autotune)
+M_VALUES_BENCH = [16, 128, 1024, 4096, 16384]
+
+# Correctness test uses fixed values (smaller set for quick verification)
+M_VALUES_CORRECTNESS = [16, 128, 1024, 4096]
+N_VALUES_CORRECTNESS = [2560, 3840, 13824]
 
 WARMUP = 25
 REP = 100
@@ -98,18 +109,43 @@ def make_theoretical_baseline(get_config_func):
 # Load Kernels
 # =============================================================================
 
-def load_tuned_module() -> ModuleType | None:
+def load_tuned_module(model_name: str = DEFAULT_MODEL) -> ModuleType | None:
     """Load the auto-tuned kernel module from build/"""
-    build_dir = Path(__file__).parent / "build"
+    hw_dir_name = build_hw_dir_name()
+    build_dir = Path(__file__).parent / "build" / hw_dir_name
     
-    try:
-        module = load_module("dequant_bias_tuned", search_dir=build_dir, ext=".py")
+    # Try model-specific tuned kernel first
+    filename = build_tuned_filename("dequant_bias_tuned", model_name, ext=".py")
+    module_path = build_dir / filename
+    
+    if module_path.exists():
+        # Use importlib to load the module directly
+        spec = importlib.util.spec_from_file_location("dequant_bias_tuned", module_path)
+        if spec is None or spec.loader is None:
+            print(f"ERROR: Failed to load module spec: {module_path}")
+            return None
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
         return module
-    except FileNotFoundError:
-        filename = build_filename("dequant_bias_tuned", ext=".py")
-        print(f"ERROR: Tuned kernel not found: {build_dir / filename}")
-        print(f"Please run: python3 autotune_autogen_dequant_bias.py")
-        return None
+    
+    # Try generic (non-model-specific) tuned kernel
+    generic_filename = build_filename("dequant_bias_tuned", ext=".py")
+    generic_path = build_dir / generic_filename
+    
+    if generic_path.exists():
+        print(f"NOTE: Using generic tuned kernel (no model-specific kernel for {model_name})")
+        spec = importlib.util.spec_from_file_location("dequant_bias_tuned", generic_path)
+        if spec is None or spec.loader is None:
+            print(f"ERROR: Failed to load module spec: {generic_path}")
+            return None
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+    
+    print(f"ERROR: Tuned kernel not found in: {build_dir}")
+    print(f"  Tried: {filename}")
+    print(f"  Please run: python3 autotune_autogen_dequant_bias.py --model {model_name}")
+    return None
 
 
 def load_basic_module() -> ModuleType | None:
@@ -144,7 +180,7 @@ def test_correctness(tuned_func, untuned_func, pytorch_ref_func, input_dtype: to
     all_passed = True
     
     # Sample shapes to avoid OOM (skip large M * N combinations)
-    test_shapes = [(M, N) for M in M_VALUES for N in N_VALUES if M * N <= 64 * 1024 * 1024]
+    test_shapes = [(M, N) for M in M_VALUES_CORRECTNESS for N in N_VALUES_CORRECTNESS if M * N <= 64 * 1024 * 1024]
     
     for M, N in test_shapes:
         # Generate test data based on input dtype
@@ -185,7 +221,7 @@ def test_correctness(tuned_func, untuned_func, pytorch_ref_func, input_dtype: to
 # Throughput Benchmark
 # =============================================================================
 
-def run_benchmark(tuned_func, untuned_func, baseline_func, input_dtype: torch.dtype):
+def run_benchmark(tuned_func, untuned_func, baseline_func, input_dtype: torch.dtype, n_values: list[int]):
     """Run throughput benchmark: theoretical vs untuned vs tuned"""
     print("\n" + "=" * 70)
     print("Throughput Benchmark")
@@ -201,8 +237,8 @@ def run_benchmark(tuned_func, untuned_func, baseline_func, input_dtype: torch.dt
     
     results: list[dict] = []
     
-    for M in M_VALUES:
-        for N in N_VALUES:
+    for M in M_VALUES_BENCH:
+        for N in n_values:
             # Generate data based on input dtype
             # INT32: use randint to simulate cuBLASLt INT8 GEMM output
             if input_dtype == torch.int32:
@@ -271,6 +307,10 @@ def main():
     parser = argparse.ArgumentParser(description="Dequant + Bias Kernel Benchmark")
     parser.add_argument('--dtype', type=str, required=True, choices=['bf16', 'fp32', 'int32'],
                         help='Input dtype: bf16, fp32 or int32')
+    parser.add_argument('--model', type=str, default=DEFAULT_MODEL,
+                        help=f'Model name for N values (default: {DEFAULT_MODEL})')
+    parser.add_argument('--Lmax', type=int, default=10,
+                        help='Max L value for nk_list (default: 10)')
     args = parser.parse_args()
     
     if not torch.cuda.is_available():
@@ -279,6 +319,11 @@ def main():
     
     dtype_map = {'fp32': torch.float32, 'bf16': torch.bfloat16, 'int32': torch.int32}
     input_dtype = dtype_map[args.dtype]
+    model_name = args.model
+    
+    # Get N values from model (get_nk_list_for_search returns (nk_list, model_name_resolved) tuple)
+    nk_list, _ = get_nk_list_for_search(model_name, args.Lmax)
+    n_values = get_unique_n_values(nk_list)
     
     print("=" * 70)
     print("Dequant + Bias Kernel Benchmark")
@@ -287,10 +332,12 @@ def main():
     print(f"PyTorch: {torch.__version__}")
     print(f"Triton:  {triton.__version__}")
     print(f"Input:   {args.dtype.upper()}")
-    print(f"Kernel:  {build_filename('dequant_bias_tuned', ext='.py')}")
+    print(f"Model:   {model_name}")
+    print(f"N values: {n_values}")
+    print(f"Kernel:  {build_tuned_filename('dequant_bias_tuned', model_name, ext='.py')}")
     
     # Load tuned module (supports BF16, FP32 and INT32 input)
-    tuned_module = load_tuned_module()
+    tuned_module = load_tuned_module(model_name)
     if tuned_module is None:
         return 1
     
@@ -314,7 +361,7 @@ def main():
         return 1
     
     # Throughput benchmark
-    run_benchmark(tuned_func, untuned_func, baseline_func, input_dtype)
+    run_benchmark(tuned_func, untuned_func, baseline_func, input_dtype, n_values)
     
     print("\n" + "=" * 70)
     print("Done!")

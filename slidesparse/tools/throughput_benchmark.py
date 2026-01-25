@@ -174,7 +174,7 @@ DEFAULT_BACKEND_LIST = ["cutlass", "cublaslt", "cusparselt"]
 VLLM_LOG_LEVEL = "INFO"
 
 # GPU 配置
-GPU_ID = "0"
+GPU_ID = os.environ.get("CUDA_VISIBLE_DEVICES", "0")
 GPU_MEMORY_UTILIZATION = 0.8
 
 # 全局状态 (用于信号处理)

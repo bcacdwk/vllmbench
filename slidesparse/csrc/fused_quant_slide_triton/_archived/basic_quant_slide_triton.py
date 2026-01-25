@@ -21,14 +21,12 @@ SlideSparse Slide 逻辑：
 
 计算流程：
 1. Pass 1: 计算每行 absmax
-2. Pass 2: 量化 + Slide 输出（Output-Oriented 优化）
+2. Pass 2: 量化 + Slide 输出
 
 设计特点：
 - L 作为 constexpr 参数，支持任意偶数 L（6, 8, 10, 12, ...）
 - Triton 自动为每个 L 值编译并缓存 kernel
-- Pass 2 采用 Output-Oriented 设计，单层循环直接按输出位置迭代
 - 只需 2 个 kernel 函数（FP8 和 INT8）
-
 """
 
 import torch
@@ -49,7 +47,7 @@ INT8_MIN_SCALING_FACTOR = 1.0 / (INT8_MAX * 512.0)
 
 
 # =============================================================================
-# Triton Kernel - FP8 Quant + Slide (Output-Oriented Design)
+# Triton Kernel - FP8 Quant + Slide (Unified for all L values)
 # =============================================================================
 
 @triton.jit
@@ -59,18 +57,13 @@ def _quant_slide_fp8_kernel(
     stride_x, stride_out,
     L: tl.constexpr,
     NUM_WINDOWS: tl.constexpr,
-    BLOCK_OUT: tl.constexpr,
+    BLOCK_GROUPS: tl.constexpr,
     BLOCK_K: tl.constexpr,
 ):
     """
-    Fused FP8 Quantization + SlideSparse Slide (Output-Oriented)
+    Fused FP8 Quantization + SlideSparse Slide
     
     L and NUM_WINDOWS are constexpr - Triton compiles specialized kernel for each L.
-    
-    优化要点:
-    - Pass 2 使用单层循环直接按输出位置迭代
-    - 用 div/mod 计算 group 和 window 索引
-    - 避免嵌套循环的静态展开开销
     """
     row = tl.program_id(0)
     
@@ -81,64 +74,58 @@ def _quant_slide_fp8_kernel(
     out_row32 = out_ptr.to(tl.pointer_type(tl.int32)) + row * (stride_out // 4)
     
     # ===== Pass 1: Compute absmax =====
-    # 向量化遍历整行，计算最大绝对值
     absmax = tl.zeros((), dtype=tl.float32)
     for k in range(0, K_in_padded, BLOCK_K):
         offs = k + tl.arange(0, BLOCK_K)
-        mask = offs < K_in_orig  # 边界检查，无需 F.pad
+        mask = offs < K_in_orig
         xb = tl.load(x_row + offs, mask=mask, other=0.0).to(tl.float32)
         absmax = tl.maximum(absmax, tl.max(tl.abs(xb)))
     
-    # 计算 scale 和 inv_scale
-    absmax = tl.maximum(absmax, 1e-12)  # 避免除零
+    absmax = tl.maximum(absmax, 1e-12)
     scale = tl.maximum(absmax / FP8_MAX, MIN_SCALE)
     inv_scale = FP8_MAX / absmax
     tl.store(scale_ptr + row, scale)
     
-    # ===== Pass 2: Output-Oriented Quant + Slide =====
-    # total_out = 输出 int32 的总数（每个 int32 存 4 个 FP8）
-    total_out = num_groups * NUM_WINDOWS
-    
-    for out_start in range(0, total_out, BLOCK_OUT):
-        offs_out = out_start + tl.arange(0, BLOCK_OUT)
-        mask_out = offs_out < total_out
+    # ===== Pass 2: Quant + Slide =====
+    for g_start in range(0, num_groups, BLOCK_GROUPS):
+        offs_g = tl.arange(0, BLOCK_GROUPS)
+        gid = g_start + offs_g
+        mask_g = gid < num_groups
+        base_in = gid * L
+        base_out = gid * NUM_WINDOWS
         
-        # 直接计算输入位置（核心优化）
-        # offs_out = g * NUM_WINDOWS + w  =>  g = offs_out // NUM_WINDOWS, w = offs_out % NUM_WINDOWS
-        g = offs_out // NUM_WINDOWS    # group index
-        w = offs_out % NUM_WINDOWS     # window index within group
-        
-        # 输入起始位置: base_in = g * L + 2 * w（窗口步长为 2）
-        base_in = g * L + 2 * w
-        
-        # Load 4 elements per output position
-        x0 = tl.load(x_row + base_in + 0, 
-                     mask=mask_out & ((base_in + 0) < K_in_orig), other=0.0).to(tl.float32)
-        x1 = tl.load(x_row + base_in + 1, 
-                     mask=mask_out & ((base_in + 1) < K_in_orig), other=0.0).to(tl.float32)
-        x2 = tl.load(x_row + base_in + 2, 
-                     mask=mask_out & ((base_in + 2) < K_in_orig), other=0.0).to(tl.float32)
-        x3 = tl.load(x_row + base_in + 3, 
-                     mask=mask_out & ((base_in + 3) < K_in_orig), other=0.0).to(tl.float32)
-        
-        # Quantize to FP8 (clamp to ensure numerical safety)
-        q0 = tl.clamp(x0 * inv_scale, -FP8_MAX, FP8_MAX).to(tl.float8e4nv)
-        q1 = tl.clamp(x1 * inv_scale, -FP8_MAX, FP8_MAX).to(tl.float8e4nv)
-        q2 = tl.clamp(x2 * inv_scale, -FP8_MAX, FP8_MAX).to(tl.float8e4nv)
-        q3 = tl.clamp(x3 * inv_scale, -FP8_MAX, FP8_MAX).to(tl.float8e4nv)
-        
-        # Pack 4 FP8 values into int32 (little-endian)
-        b0 = q0.to(tl.int8, bitcast=True).to(tl.int32) & 0xFF
-        b1 = q1.to(tl.int8, bitcast=True).to(tl.int32) & 0xFF
-        b2 = q2.to(tl.int8, bitcast=True).to(tl.int32) & 0xFF
-        b3 = q3.to(tl.int8, bitcast=True).to(tl.int32) & 0xFF
-        
-        packed = (b0 | (b1 << 8) | (b2 << 16) | (b3 << 24)).to(tl.int32)
-        tl.store(out_row32 + offs_out, packed, mask=mask_out)
+        # Process each window (loop unrolled at compile time since NUM_WINDOWS is constexpr)
+        for w in tl.static_range(NUM_WINDOWS):
+            win_start = 2 * w
+            
+            # Load 4 elements for this window
+            x0 = tl.load(x_row + base_in + win_start + 0, 
+                        mask=mask_g & ((base_in + win_start + 0) < K_in_orig), other=0.0).to(tl.float32)
+            x1 = tl.load(x_row + base_in + win_start + 1,
+                        mask=mask_g & ((base_in + win_start + 1) < K_in_orig), other=0.0).to(tl.float32)
+            x2 = tl.load(x_row + base_in + win_start + 2,
+                        mask=mask_g & ((base_in + win_start + 2) < K_in_orig), other=0.0).to(tl.float32)
+            x3 = tl.load(x_row + base_in + win_start + 3,
+                        mask=mask_g & ((base_in + win_start + 3) < K_in_orig), other=0.0).to(tl.float32)
+            
+            # Quantize to FP8 (clamp to ensure numerical safety)
+            q0 = tl.clamp(x0 * inv_scale, -FP8_MAX, FP8_MAX).to(tl.float8e4nv)
+            q1 = tl.clamp(x1 * inv_scale, -FP8_MAX, FP8_MAX).to(tl.float8e4nv)
+            q2 = tl.clamp(x2 * inv_scale, -FP8_MAX, FP8_MAX).to(tl.float8e4nv)
+            q3 = tl.clamp(x3 * inv_scale, -FP8_MAX, FP8_MAX).to(tl.float8e4nv)
+            
+            # Pack 4 FP8 values into int32 (little-endian)
+            b0 = q0.to(tl.int8, bitcast=True).to(tl.int32) & 0xFF
+            b1 = q1.to(tl.int8, bitcast=True).to(tl.int32) & 0xFF
+            b2 = q2.to(tl.int8, bitcast=True).to(tl.int32) & 0xFF
+            b3 = q3.to(tl.int8, bitcast=True).to(tl.int32) & 0xFF
+            
+            packed = (b0 | (b1 << 8) | (b2 << 16) | (b3 << 24)).to(tl.int32)
+            tl.store(out_row32 + base_out + w, packed, mask=mask_g)
 
 
 # =============================================================================
-# Triton Kernel - INT8 Quant + Slide (Output-Oriented Design)
+# Triton Kernel - INT8 Quant + Slide (Unified for all L values)
 # =============================================================================
 
 @triton.jit
@@ -148,13 +135,13 @@ def _quant_slide_int8_kernel(
     stride_x, stride_out,
     L: tl.constexpr,
     NUM_WINDOWS: tl.constexpr,
-    BLOCK_OUT: tl.constexpr,
+    BLOCK_GROUPS: tl.constexpr,
     BLOCK_K: tl.constexpr,
 ):
     """
-    Fused INT8 Quantization + SlideSparse Slide (Output-Oriented)
+    Fused INT8 Quantization + SlideSparse Slide
     
-    与 FP8 版本逻辑相同，仅量化方式不同（需要 rounding）。
+    L and NUM_WINDOWS are constexpr - Triton compiles specialized kernel for each L.
     """
     row = tl.program_id(0)
     
@@ -177,42 +164,45 @@ def _quant_slide_int8_kernel(
     inv_scale = INT8_MAX / absmax
     tl.store(scale_ptr + row, scale)
     
-    # ===== Pass 2: Output-Oriented Quant + Slide =====
-    total_out = num_groups * NUM_WINDOWS
-    
-    for out_start in range(0, total_out, BLOCK_OUT):
-        offs_out = out_start + tl.arange(0, BLOCK_OUT)
-        mask_out = offs_out < total_out
+    # ===== Pass 2: Quant + Slide =====
+    for g_start in range(0, num_groups, BLOCK_GROUPS):
+        offs_g = tl.arange(0, BLOCK_GROUPS)
+        gid = g_start + offs_g
+        mask_g = gid < num_groups
+        base_in = gid * L
+        base_out = gid * NUM_WINDOWS
         
-        # 直接计算输入位置
-        g = offs_out // NUM_WINDOWS
-        w = offs_out % NUM_WINDOWS
-        base_in = g * L + 2 * w
-        
-        # Load 4 elements
-        x0 = tl.load(x_row + base_in + 0, 
-                     mask=mask_out & ((base_in + 0) < K_in_orig), other=0.0).to(tl.float32)
-        x1 = tl.load(x_row + base_in + 1,
-                     mask=mask_out & ((base_in + 1) < K_in_orig), other=0.0).to(tl.float32)
-        x2 = tl.load(x_row + base_in + 2,
-                     mask=mask_out & ((base_in + 2) < K_in_orig), other=0.0).to(tl.float32)
-        x3 = tl.load(x_row + base_in + 3,
-                     mask=mask_out & ((base_in + 3) < K_in_orig), other=0.0).to(tl.float32)
-        
-        # Quantize to INT8 with proper rounding
-        q0 = tl.clamp(tl.extra.cuda.libdevice.rint(x0 * inv_scale), -128.0, 127.0).to(tl.int32) & 0xFF
-        q1 = tl.clamp(tl.extra.cuda.libdevice.rint(x1 * inv_scale), -128.0, 127.0).to(tl.int32) & 0xFF
-        q2 = tl.clamp(tl.extra.cuda.libdevice.rint(x2 * inv_scale), -128.0, 127.0).to(tl.int32) & 0xFF
-        q3 = tl.clamp(tl.extra.cuda.libdevice.rint(x3 * inv_scale), -128.0, 127.0).to(tl.int32) & 0xFF
-        
-        # Pack 4 INT8 values into int32
-        packed = (q0 | (q1 << 8) | (q2 << 16) | (q3 << 24)).to(tl.int32)
-        tl.store(out_row32 + offs_out, packed, mask=mask_out)
+        # Process each window
+        for w in tl.static_range(NUM_WINDOWS):
+            win_start = 2 * w
+            
+            # Load 4 elements for this window
+            x0 = tl.load(x_row + base_in + win_start + 0, 
+                        mask=mask_g & ((base_in + win_start + 0) < K_in_orig), other=0.0).to(tl.float32)
+            x1 = tl.load(x_row + base_in + win_start + 1,
+                        mask=mask_g & ((base_in + win_start + 1) < K_in_orig), other=0.0).to(tl.float32)
+            x2 = tl.load(x_row + base_in + win_start + 2,
+                        mask=mask_g & ((base_in + win_start + 2) < K_in_orig), other=0.0).to(tl.float32)
+            x3 = tl.load(x_row + base_in + win_start + 3,
+                        mask=mask_g & ((base_in + win_start + 3) < K_in_orig), other=0.0).to(tl.float32)
+            
+            # Quantize to INT8 with proper rounding and clamp
+            q0 = tl.clamp(tl.extra.cuda.libdevice.rint(x0 * inv_scale), -128.0, 127.0).to(tl.int32) & 0xFF
+            q1 = tl.clamp(tl.extra.cuda.libdevice.rint(x1 * inv_scale), -128.0, 127.0).to(tl.int32) & 0xFF
+            q2 = tl.clamp(tl.extra.cuda.libdevice.rint(x2 * inv_scale), -128.0, 127.0).to(tl.int32) & 0xFF
+            q3 = tl.clamp(tl.extra.cuda.libdevice.rint(x3 * inv_scale), -128.0, 127.0).to(tl.int32) & 0xFF
+            
+            # Pack 4 INT8 values into int32
+            packed = (q0 | (q1 << 8) | (q2 << 16) | (q3 << 24)).to(tl.int32)
+            tl.store(out_row32 + base_out + w, packed, mask=mask_g)
 
 
 # =============================================================================
 # Helper Functions
 # =============================================================================
+
+
+
 
 def _get_num_windows(L: int) -> int:
     """Calculate number of windows: L/2 - 1"""
@@ -248,44 +238,32 @@ def _get_block_k(K: int) -> int:
         return 4096
 
 
-def _get_config(M: int, K: int) -> Tuple[int, int, int, int]:
+def _get_config(M: int, K: int) -> Tuple[int, int, int]:
     """
-    Get configuration for quant+slide kernel (Output-Oriented).
+    Get configuration for quant+slide kernel.
     
     Returns:
-        (BLOCK_OUT, BLOCK_K, num_warps, num_stages)
-        
-    设计原则:
-    - BLOCK_OUT 控制 Pass 2 的并行度（每次处理的输出 int32 数量）
-    - BLOCK_K 控制 Pass 1 的块大小
-    - 小 M 时使用较小 BLOCK_OUT 和较少 warps
-    - 大 M 时增加并行度以提高 SM 利用率
+        (BLOCK_GROUPS, num_warps, num_stages)
     """
-    # BLOCK_K: 根据 K 选择
+    # BLOCK_GROUPS heuristic
     if K <= 2048:
-        block_k = 2048
+        block_groups = 128
     elif K <= 4096:
-        block_k = 4096
+        block_groups = 256
     else:
-        block_k = 4096
+        block_groups = 256
     
-    # BLOCK_OUT: 控制 pass2 的并行度
-    if M <= 64:
-        block_out = 128
+    # num_warps based on M
+    if M <= 16:
         num_warps = 4
-    elif M <= 1024:
-        block_out = 256
-        num_warps = 8
-    elif M <= 8192:
-        block_out = 512
-        num_warps = 8
+    elif M <= 512:
+        num_warps = 4
     else:
-        block_out = 512
         num_warps = 8
     
     num_stages = 2
     
-    return block_out, block_k, num_warps, num_stages
+    return block_groups, num_warps, num_stages
 
 
 # =============================================================================
@@ -305,7 +283,7 @@ def quant_slide_fp8_triton(
     Args:
         x: Input tensor [M, K], BF16/FP16/FP32, must be contiguous
         L: Group size for slide (must be even, >= 4), default 8
-        block_groups: BLOCK_OUT for Output-Oriented kernel (optional, auto)
+        block_groups: Number of groups per block (optional, auto)
         num_warps: Number of warps (optional, auto)
         num_stages: Number of stages (optional, auto)
         
@@ -317,7 +295,6 @@ def quant_slide_fp8_triton(
         - K_out = num_groups * NUM_WINDOWS * 4
         - NUM_WINDOWS = L/2 - 1
         - Triton automatically compiles and caches kernel for each L value
-        - Padding 区域: out 为 0, scale 为 1.0
     """
     assert x.is_cuda and x.is_contiguous(), "Input must be CUDA contiguous tensor"
     assert x.dim() == 2, f"Expected 2D tensor, got {x.dim()}D"
@@ -338,22 +315,21 @@ def quant_slide_fp8_triton(
     
     # Auto config
     if block_groups is None or num_warps is None or num_stages is None:
-        auto_bo, auto_bk, auto_nw, auto_ns = _get_config(M, K_in_orig)
-        block_groups = block_groups or auto_bo
-        block_k = auto_bk
+        auto_bg, auto_nw, auto_ns = _get_config(M, K_in_orig)
+        block_groups = block_groups or auto_bg
         num_warps = num_warps or auto_nw
         num_stages = num_stages or auto_ns
-    else:
-        block_k = _get_block_k(K_in_orig)
+    
+    block_k = _get_block_k(K_in_orig)
     
     # Launch kernel - L and num_windows as constexpr (只处理有效的 M 行)
     _quant_slide_fp8_kernel[(M,)](
         x, out, scale,
         M, K_in_orig, K_in_padded, K_out, num_groups,
-        x.stride(0), K_out_padded,
+        x.stride(0), K_out_padded,  # output stride 使用 K_out_padded
         L=L,
         NUM_WINDOWS=num_windows,
-        BLOCK_OUT=block_groups,
+        BLOCK_GROUPS=block_groups,
         BLOCK_K=block_k,
         num_warps=num_warps,
         num_stages=num_stages,
@@ -375,7 +351,7 @@ def quant_slide_int8_triton(
     Args:
         x: Input tensor [M, K], BF16/FP16/FP32, must be contiguous
         L: Group size for slide (must be even, >= 4), default 8
-        block_groups: BLOCK_OUT for Output-Oriented kernel (optional, auto)
+        block_groups: Number of groups per block (optional, auto)
         num_warps: Number of warps (optional, auto)
         num_stages: Number of stages (optional, auto)
         
@@ -402,22 +378,21 @@ def quant_slide_int8_triton(
     
     # Auto config
     if block_groups is None or num_warps is None or num_stages is None:
-        auto_bo, auto_bk, auto_nw, auto_ns = _get_config(M, K_in_orig)
-        block_groups = block_groups or auto_bo
-        block_k = auto_bk
+        auto_bg, auto_nw, auto_ns = _get_config(M, K_in_orig)
+        block_groups = block_groups or auto_bg
         num_warps = num_warps or auto_nw
         num_stages = num_stages or auto_ns
-    else:
-        block_k = _get_block_k(K_in_orig)
+    
+    block_k = _get_block_k(K_in_orig)
     
     # Launch kernel (只处理有效的 M 行)
     _quant_slide_int8_kernel[(M,)](
         x, out, scale,
         M, K_in_orig, K_in_padded, K_out, num_groups,
-        x.stride(0), K_out_padded,
+        x.stride(0), K_out_padded,  # output stride 使用 K_out_padded
         L=L,
         NUM_WINDOWS=num_windows,
-        BLOCK_OUT=block_groups,
+        BLOCK_GROUPS=block_groups,
         BLOCK_K=block_k,
         num_warps=num_warps,
         num_stages=num_stages,
@@ -436,8 +411,6 @@ def quant_slide_fp8_pytorch(
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     PyTorch reference implementation - FP8 Quant + Slide
-    
-    用于正确性验证，不用于生产环境。
     """
     assert x.dim() == 2
     assert L >= 4 and L % 2 == 0
@@ -494,8 +467,6 @@ def quant_slide_int8_pytorch(
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     PyTorch reference implementation - INT8 Quant + Slide
-    
-    用于正确性验证，不用于生产环境。
     """
     assert x.dim() == 2
     assert L >= 4 and L % 2 == 0
@@ -553,7 +524,6 @@ __all__ = [
     '_get_config',
     '_compute_output_k',
     '_get_num_windows',
-    '_get_block_k',
     # Main API (only 2 functions!)
     'quant_slide_fp8_triton',
     'quant_slide_int8_triton',

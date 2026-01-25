@@ -31,8 +31,11 @@ if str(_PROJECT_ROOT) not in sys.path:
 
 from slidesparse.utils import (
     build_filename,
+    build_hw_dir_name,
+    build_tuned_filename,
     get_gpu_cc,
-    load_module,
+    get_nk_list_for_search,
+    get_unique_k_values,
 )
 
 
@@ -40,10 +43,14 @@ from slidesparse.utils import (
 # Test Configuration
 # =============================================================================
 
-# M values: include non-16-aligned values (17, 100) for padding test
-M_VALUES = [16, 17, 100, 128, 1024, 4096, 16384, 65536]
-# K values: include non-32-aligned value (2561) for padding test
-K_VALUES = [2560, 2561, 6912]
+# M values for throughput benchmark (same as autotune M-quick)
+M_VALUES_BENCH = [16, 128, 1024, 4096, 16384]
+# M/K values for correctness test (include non-aligned values)
+M_VALUES_CORRECTNESS = [16, 17, 100, 128, 1024, 4096, 16384]
+K_VALUES_CORRECTNESS = [2560, 2561, 6912]
+
+# Default model for benchmark
+DEFAULT_MODEL = "Llama3.2-1B-INT8"
 
 WARMUP = 25
 REP = 100
@@ -122,8 +129,14 @@ def make_theoretical_baseline(get_config_func, compute_output_k_func, dtype: str
         output = _baseline_fp8_out_cache[key]
         output.zero_()  # 与 quant_slide kernel 相同的初始化开销
         
-        BLOCK_GROUPS, num_warps, num_stages = get_config_func(M, K_in)
-        BLOCK_K = BLOCK_GROUPS * 8  # Approximate
+        # _get_config now returns (BLOCK_OUT, BLOCK_K, num_warps, num_stages)
+        config = get_config_func(M, K_in)
+        if len(config) == 4:
+            BLOCK_OUT, BLOCK_K, num_warps, num_stages = config
+        else:
+            # Fallback for old 3-value format
+            BLOCK_OUT, num_warps, num_stages = config
+            BLOCK_K = BLOCK_OUT * 8
         
         # Per-row: grid = (M,) - 只处理有效的 M 行
         _memcpy_slide_fp8_kernel[(M,)](
@@ -148,8 +161,14 @@ def make_theoretical_baseline(get_config_func, compute_output_k_func, dtype: str
         output = _baseline_int8_out_cache[key]
         output.zero_()  # 与 quant_slide kernel 相同的初始化开销
         
-        BLOCK_GROUPS, num_warps, num_stages = get_config_func(M, K_in)
-        BLOCK_K = BLOCK_GROUPS * 8
+        # _get_config now returns (BLOCK_OUT, BLOCK_K, num_warps, num_stages)
+        config = get_config_func(M, K_in)
+        if len(config) == 4:
+            BLOCK_OUT, BLOCK_K, num_warps, num_stages = config
+        else:
+            # Fallback for old 3-value format
+            BLOCK_OUT, num_warps, num_stages = config
+            BLOCK_K = BLOCK_OUT * 8
         
         # Per-row: grid = (M,) - 只处理有效的 M 行
         _memcpy_slide_int8_kernel[(M,)](
@@ -167,18 +186,30 @@ def make_theoretical_baseline(get_config_func, compute_output_k_func, dtype: str
 # Load Kernels
 # =============================================================================
 
-def load_tuned_module(dtype: str) -> ModuleType | None:
-    """Load the auto-tuned kernel module from build/ (unified FP8/INT8 file)"""
-    build_dir = Path(__file__).parent / "build"
+def load_tuned_module(model_name: str | None = None) -> ModuleType | None:
+    """Load the auto-tuned kernel module from build/hw_dir/ (unified FP8/INT8 file)"""
+    # 使用硬件子目录
+    build_dir = Path(__file__).parent / "build" / build_hw_dir_name()
+    
+    # autotune 生成的文件名：quant_slide_tuned[_model].py
+    filename = build_tuned_filename("quant_slide_tuned", model_name, ext=".py")
+    module_path = build_dir / filename
+    
+    if not module_path.exists():
+        print(f"ERROR: Tuned kernel not found: {module_path}")
+        print(f"Please run: python3 autotune_autogen_quant_slide.py --model {model_name or 'MODEL'}")
+        return None
     
     try:
-        # 统一文件，不包含 dtype 后缀
-        module = load_module("quant_slide_tuned", search_dir=build_dir, ext=".py")
+        spec = importlib.util.spec_from_file_location("tuned_kernel", module_path)
+        if spec is None or spec.loader is None:
+            print(f"ERROR: Failed to load module: {module_path}")
+            return None
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
         return module
-    except FileNotFoundError:
-        filename = build_filename("quant_slide_tuned", ext=".py")
-        print(f"ERROR: Tuned kernel not found: {build_dir / filename}")
-        print(f"Please run: python3 autotune_autogen_quant_slide.py")
+    except Exception as e:
+        print(f"ERROR: Failed to load tuned kernel: {e}")
         return None
 
 
@@ -213,7 +244,7 @@ def test_correctness(tuned_func, untuned_func, pytorch_ref_func, dtype: str, L: 
     all_passed = True
     
     # Sample shapes to avoid OOM
-    test_shapes = [(M, K) for M in M_VALUES for K in K_VALUES if M * K <= 64 * 1024 * 1024]
+    test_shapes = [(M, K) for M in M_VALUES_CORRECTNESS for K in K_VALUES_CORRECTNESS if M * K <= 64 * 1024 * 1024]
     
     for M, K in test_shapes:
         x = torch.randn(M, K, dtype=torch.bfloat16, device='cuda')
@@ -265,7 +296,7 @@ def test_correctness(tuned_func, untuned_func, pytorch_ref_func, dtype: str, L: 
 # Throughput Benchmark
 # =============================================================================
 
-def run_benchmark(tuned_func, untuned_func, baseline_func, dtype: str, L: int):
+def run_benchmark(tuned_func, untuned_func, baseline_func, dtype: str, L: int, k_values: list[int]):
     """Run throughput benchmark"""
     print("\n" + "=" * 70)
     print("Throughput Benchmark")
@@ -276,6 +307,7 @@ def run_benchmark(tuned_func, untuned_func, baseline_func, dtype: str, L: int):
     print(f"Input: BF16, Output: {dtype_name}, L={L} (2:{L} sparsity, expand={expand_ratio:.2f}x)")
     print(f"Warmup: {WARMUP}, Rep: {REP}")
     print(f"Baseline: memcpy kernel (BF16 -> {dtype_name}) with slide output size")
+    print(f"K values: {k_values}")
     print()
     
     # Header
@@ -287,8 +319,8 @@ def run_benchmark(tuned_func, untuned_func, baseline_func, dtype: str, L: int):
     # Import compute function
     from basic_quant_slide_triton import _compute_output_k
     
-    for M in M_VALUES:
-        for K in K_VALUES:
+    for M in M_VALUES_BENCH:
+        for K in k_values:
             _, K_out, _ = _compute_output_k(K, L)
             
             # Generate data
@@ -354,6 +386,10 @@ def main():
                         help='Output dtype: fp8 or int8')
     parser.add_argument('--L', type=int, default=8, choices=[6, 8, 10],
                         help='Group size L (default: 8)')
+    parser.add_argument('--model', type=str, default=DEFAULT_MODEL,
+                        help=f'Model name for K values (default: {DEFAULT_MODEL})')
+    parser.add_argument('--Lmax', type=int, default=10,
+                        help='Max L value for nk_list (default: 10)')
     args = parser.parse_args()
     
     if not torch.cuda.is_available():
@@ -362,7 +398,12 @@ def main():
     
     dtype = args.dtype
     L = args.L
+    model_name = args.model
     dtype_tag = dtype.upper()
+    
+    # Get K values from model (get_nk_list_for_search returns (nk_list, model_name_resolved) tuple)
+    nk_list, _ = get_nk_list_for_search(model_name, args.Lmax)
+    k_values = get_unique_k_values(nk_list)
     
     print("=" * 70)
     print("Quant + Slide Kernel Benchmark")
@@ -372,7 +413,9 @@ def main():
     print(f"Triton:  {triton.__version__}")
     print(f"Output dtype: {dtype_tag}")
     print(f"L (sparsity): {L} (2:{L})")
-    print(f"Kernel:  {build_filename('quant_slide_tuned', ext='.py')}")
+    print(f"Model:   {model_name}")
+    print(f"K values: {k_values}")
+    print(f"Kernel:  {build_tuned_filename('quant_slide_tuned', model_name, ext='.py')}")
     
     # Load basic module first (needed for compute_output_k)
     basic_module = load_basic_module()
@@ -380,7 +423,7 @@ def main():
         return 1
     
     # Load tuned module (unified file with both FP8 and INT8)
-    tuned_module = load_tuned_module(dtype)
+    tuned_module = load_tuned_module(model_name)
     if tuned_module is None:
         print("\nFalling back to basic kernel for benchmark...")
         # Use basic kernel as "tuned" for comparison
@@ -416,7 +459,7 @@ def main():
         return 1
     
     # Throughput benchmark
-    run_benchmark(tuned_func, untuned_func, baseline_func, dtype, L)
+    run_benchmark(tuned_func, untuned_func, baseline_func, dtype, L, k_values)
     
     print("\n" + "=" * 70)
     print("Done!")

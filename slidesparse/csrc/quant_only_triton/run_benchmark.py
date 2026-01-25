@@ -30,8 +30,11 @@ if str(_PROJECT_ROOT) not in sys.path:
 
 from slidesparse.utils import (
     build_filename,
+    build_hw_dir_name,
+    build_tuned_filename,
     get_gpu_cc,
-    load_module,
+    get_nk_list_for_search,
+    get_unique_k_values,
 )
 
 
@@ -39,10 +42,17 @@ from slidesparse.utils import (
 # Test Configuration
 # =============================================================================
 
-# M values: include non-16-aligned values (17, 100) for padding test
-M_VALUES = [16, 17, 100, 128, 1024, 4096, 16384, 65536]
-# K values: include non-32-aligned value (2561) for padding test
-K_VALUES = [2560, 2561, 6912]
+# M values for throughput benchmark (same as autotune M-quick)
+M_VALUES_BENCH = [16, 128, 1024, 4096, 16384]
+# M/K values for correctness test (include non-aligned values)
+M_VALUES_CORRECTNESS = [16, 17, 100, 128, 1024, 4096, 16384]
+K_VALUES_CORRECTNESS = [2560, 2561, 6912]
+
+# K values for benchmark will be set dynamically from model
+K_VALUES_BENCH: list[int] = []
+
+# Default model for benchmark
+DEFAULT_MODEL = "Llama3.2-1B-INT8"
 
 WARMUP = 25
 REP = 100
@@ -161,18 +171,30 @@ def make_theoretical_baseline(get_config_func, dtype: str):
 # Load Kernels
 # =============================================================================
 
-def load_tuned_module(dtype: str) -> ModuleType | None:
-    """Load the auto-tuned kernel module from build/ (unified FP8/INT8 file)"""
-    build_dir = Path(__file__).parent / "build"
+def load_tuned_module(model_name: str | None = None) -> ModuleType | None:
+    """Load the auto-tuned kernel module from build/hw_dir/ (unified FP8/INT8 file)"""
+    # 使用硬件子目录
+    build_dir = Path(__file__).parent / "build" / build_hw_dir_name()
+    
+    # autotune 生成的文件名：quant_only_tuned[_model].py
+    filename = build_tuned_filename("quant_only_tuned", model_name, ext=".py")
+    module_path = build_dir / filename
+    
+    if not module_path.exists():
+        print(f"ERROR: Tuned kernel not found: {module_path}")
+        print(f"Please run: python3 autotune_autogen_quant_only.py --model {model_name or 'MODEL'}")
+        return None
     
     try:
-        # 统一文件，不包含 dtype 后缀
-        module = load_module("quant_only_tuned", search_dir=build_dir, ext=".py")
+        spec = importlib.util.spec_from_file_location("tuned_kernel", module_path)
+        if spec is None or spec.loader is None:
+            print(f"ERROR: Failed to load module: {module_path}")
+            return None
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
         return module
-    except FileNotFoundError:
-        filename = build_filename("quant_only_tuned", ext=".py")
-        print(f"ERROR: Tuned kernel not found: {build_dir / filename}")
-        print(f"Please run: python3 autotune_autogen_quant_only.py")
+    except Exception as e:
+        print(f"ERROR: Failed to load tuned kernel: {e}")
         return None
 
 
@@ -207,7 +229,7 @@ def test_correctness(tuned_func, untuned_func, pytorch_ref_func, dtype: str):
     all_passed = True
     
     # Sample shapes to avoid OOM (skip large M * K combinations)
-    test_shapes = [(M, K) for M in M_VALUES for K in K_VALUES if M * K <= 64 * 1024 * 1024]
+    test_shapes = [(M, K) for M in M_VALUES_CORRECTNESS for K in K_VALUES_CORRECTNESS if M * K <= 64 * 1024 * 1024]
     
     for M, K in test_shapes:
         x = torch.randn(M, K, dtype=torch.bfloat16, device='cuda')
@@ -263,7 +285,7 @@ def test_correctness(tuned_func, untuned_func, pytorch_ref_func, dtype: str):
 # Throughput Benchmark
 # =============================================================================
 
-def run_benchmark(tuned_func, untuned_func, baseline_func, dtype: str):
+def run_benchmark(tuned_func, untuned_func, baseline_func, dtype: str, k_values: list[int]):
     """Run throughput benchmark: theoretical vs untuned vs tuned"""
     print("\n" + "=" * 70)
     print("Throughput Benchmark")
@@ -271,6 +293,7 @@ def run_benchmark(tuned_func, untuned_func, baseline_func, dtype: str):
     dtype_name = dtype.upper()
     print(f"Input: BF16, Output: {dtype_name}, Warmup: {WARMUP}, Rep: {REP}")
     print(f"Baseline: memcpy kernel (BF16 -> {dtype_name}) using same tuned config")
+    print(f"K values: {k_values}")
     print()
     
     # Header
@@ -279,8 +302,8 @@ def run_benchmark(tuned_func, untuned_func, baseline_func, dtype: str):
     
     results: list[dict] = []
     
-    for M in M_VALUES:
-        for K in K_VALUES:
+    for M in M_VALUES_BENCH:
+        for K in k_values:
             # Generate data
             x = torch.randn(M, K, dtype=torch.bfloat16, device='cuda')
             
@@ -342,6 +365,10 @@ def main():
     parser = argparse.ArgumentParser(description="Quant Only Kernel Benchmark")
     parser.add_argument('--dtype', type=str, required=True, choices=['fp8', 'int8'],
                         help='Output dtype: fp8 or int8')
+    parser.add_argument('--model', type=str, default=DEFAULT_MODEL,
+                        help=f'Model name for K values and tuned kernel (default: {DEFAULT_MODEL})')
+    parser.add_argument('--Lmax', type=int, default=None,
+                        help='Max L for slide sparse (e.g., 10). If set, uses slided K values')
     args = parser.parse_args()
     
     if not torch.cuda.is_available():
@@ -351,6 +378,10 @@ def main():
     dtype = args.dtype
     dtype_tag = dtype.upper()
     
+    # Get K values from model
+    nk_list, model_name = get_nk_list_for_search(args.model, args.Lmax)
+    k_values = get_unique_k_values(nk_list)
+    
     print("=" * 70)
     print("Quant Only Kernel Benchmark")
     print("=" * 70)
@@ -358,27 +389,41 @@ def main():
     print(f"PyTorch: {torch.__version__}")
     print(f"Triton:  {triton.__version__}")
     print(f"Output dtype: {dtype_tag}")
-    print(f"Kernel:  {build_filename('quant_only_tuned', ext='.py')}")
+    print(f"Model:   {model_name}")
+    if args.Lmax:
+        print(f"Lmax:    {args.Lmax}")
+    print(f"K values: {k_values}")
+    tuned_filename = build_tuned_filename("quant_only_tuned", model_name, ext=".py")
+    print(f"Kernel:  {tuned_filename}")
     
     # Load tuned module (unified file with both FP8 and INT8)
-    tuned_module = load_tuned_module(dtype)
+    tuned_module = load_tuned_module(model_name)
     if tuned_module is None:
-        return 1
-    
-    # Select tuned function based on dtype
-    if dtype == "fp8":
-        tuned_func = tuned_module.quant_only_fp8_triton
+        print("\nFalling back to basic kernel for benchmark...")
+        # Load basic module first
+        basic_module = load_basic_module()
+        if basic_module is None:
+            return 1
+        # Use basic kernel as "tuned"
+        if dtype == "fp8":
+            tuned_func = basic_module.quant_only_fp8_triton
+        else:
+            tuned_func = basic_module.quant_only_int8_triton
+        get_config_func = basic_module._get_config
     else:
-        tuned_func = tuned_module.quant_only_int8_triton
-    get_config_func = tuned_module._get_config
+        # Select tuned function based on dtype
+        if dtype == "fp8":
+            tuned_func = tuned_module.quant_only_fp8_triton
+        else:
+            tuned_func = tuned_module.quant_only_int8_triton
+        get_config_func = tuned_module._get_config
+        # Load basic module
+        basic_module = load_basic_module()
+        if basic_module is None:
+            return 1
     
     # Create baseline using tuned config
     baseline_func = make_theoretical_baseline(get_config_func, dtype)
-    
-    # Load basic module
-    basic_module = load_basic_module()
-    if basic_module is None:
-        return 1
     
     # Select appropriate functions based on dtype
     if dtype == "fp8":
@@ -394,7 +439,7 @@ def main():
         return 1
     
     # Throughput benchmark
-    run_benchmark(tuned_func, untuned_func, baseline_func, dtype)
+    run_benchmark(tuned_func, untuned_func, baseline_func, dtype, k_values)
     
     print("\n" + "=" * 70)
     print("Done!")
