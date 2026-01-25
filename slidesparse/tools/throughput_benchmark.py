@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
 """
-SlideSparse vLLM Throughput Benchmark 脚本 (重构版)
+SlideSparse vLLM Throughput Benchmark 脚本 (官方vllm bench)
 
 用于精确测试 W8A8 量化模型在不同 Backend/Sparsity/M 下的 Prefill/Decode 性能。
 
@@ -373,6 +373,8 @@ def set_backend_env(
     Returns:
         保存的原环境变量，用于恢复
     """
+    from slidesparse.core.gemm_wrapper import AlgorithmConfigManager
+    
     saved = {
         "DISABLE_SLIDESPARSE": os.environ.get("DISABLE_SLIDESPARSE"),
         "USE_CUBLASLT": os.environ.get("USE_CUBLASLT"),
@@ -380,6 +382,7 @@ def set_backend_env(
         "INNER_DTYPE_32": os.environ.get("INNER_DTYPE_32"),
         "SPARSITY": os.environ.get("SPARSITY"),
         "SLIDESPARSE_MODEL_NAME": os.environ.get("SLIDESPARSE_MODEL_NAME"),
+        "SLIDESPARSE_BASE_MODEL_NAME": os.environ.get("SLIDESPARSE_BASE_MODEL_NAME"),
     }
     
     # 所有 backend 都通过 SlideSparse 转发（DISABLE_SLIDESPARSE=0）
@@ -394,6 +397,7 @@ def set_backend_env(
         os.environ.pop("USE_CUSPARSELT", None)
         os.environ.pop("SPARSITY", None)
         os.environ.pop("SLIDESPARSE_MODEL_NAME", None)  # CUTLASS 不需要
+        os.environ.pop("SLIDESPARSE_BASE_MODEL_NAME", None)
     elif backend == "cublaslt":
         os.environ["USE_CUBLASLT"] = "1"
         os.environ.pop("USE_CUSPARSELT", None)
@@ -401,6 +405,9 @@ def set_backend_env(
         # cuBLASLt 需要 model_name 来加载 tuned kernels
         if model_name:
             os.environ["SLIDESPARSE_MODEL_NAME"] = model_name
+            # 同时设置 base model name（去除 -SlideSparse-2_L 后缀）
+            base_model = AlgorithmConfigManager._extract_base_model_name(model_name)
+            os.environ["SLIDESPARSE_BASE_MODEL_NAME"] = base_model
     elif backend == "cusparselt":
         os.environ["USE_CUSPARSELT"] = "1"
         os.environ.pop("USE_CUBLASLT", None)
@@ -409,6 +416,9 @@ def set_backend_env(
         # cuSPARSELt 需要 model_name 来加载 tuned kernels
         if model_name:
             os.environ["SLIDESPARSE_MODEL_NAME"] = model_name
+            # 同时设置 base model name（去除 -SlideSparse-2_L 后缀）
+            base_model = AlgorithmConfigManager._extract_base_model_name(model_name)
+            os.environ["SLIDESPARSE_BASE_MODEL_NAME"] = base_model
     
     if inner_32:
         os.environ["INNER_DTYPE_32"] = "1"

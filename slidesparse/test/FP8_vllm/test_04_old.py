@@ -14,11 +14,6 @@ test_04_throughput.py - 吞吐量对比测试（torch.compile mode）
                               vs
     [SlideSparse 后端]  根据参数选择不同 kernel    ← test
 
-架构说明:
-=========
-使用 subprocess 隔离每个测试阶段，解决 CUDA Context 无法彻底清理导致的 OOM 问题。
-每个测试（baseline/test × prefill/decode）都在独立的子进程中运行。
-
 使用方法:
 
     python3 test_04_throughput.py --use-cutlass
@@ -33,21 +28,17 @@ test_04_throughput.py - 吞吐量对比测试（torch.compile mode）
     python3 test_04_throughput.py --use-cusparselt --sparsity 2_6 --inner-32
     python3 test_04_throughput.py --use-cusparselt --sparsity 2_8 --inner-32
 
-    --show-subprocess-output 打印子进程输出
-
     启用 SlideSparse 计时诊断: 必须开启eager mode, 计时器本身也会带来明显开销
     SLIDESPARSE_PROFILE=1 python3 test_04_throughput.py --use-cutlass --eager
     SLIDESPARSE_PROFILE=1 python3 test_04_throughput.py --use-cublaslt --eager 
     SLIDESPARSE_PROFILE=1 python3 test_04_throughput.py --use-cusparselt --sparsity 2_8 --eager
 """
 
-import json
 import os
-import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 from dataclasses import dataclass
 
 # 抑制 vLLM 日志
@@ -58,8 +49,12 @@ from utils import (
     EnvironmentChecker,
     ModelFinder,
     Colors,
+    cuda_memory_manager,
     parse_common_args,
     get_backend_name,
+    set_env_for_baseline,
+    set_env_for_test,
+    restore_env,
 )
 
 
@@ -95,6 +90,38 @@ DECODE_CONFIG = {
 # 辅助函数
 # ============================================================================
 
+def generate_dummy_prompt(length: int, seed: int = 0) -> str:
+    """
+    生成指定 token 长度的 dummy prompt
+    
+    Args:
+        length: 目标 token 长度（近似）
+        seed: 随机种子，不同 seed 生成不同内容，避免 prefix caching
+    """
+    import random
+    rng = random.Random(seed)
+    
+    # 使用多样化的词汇，每个词约 1-2 tokens
+    words = [
+        "Hello", "world", "this", "is", "a", "test", "prompt", "for", "benchmark",
+        "The", "quick", "brown", "fox", "jumps", "over", "lazy", "dog", "and",
+        "Python", "programming", "language", "machine", "learning", "artificial",
+        "intelligence", "deep", "neural", "network", "transformer", "attention",
+        "model", "training", "inference", "optimization", "performance", "speed",
+    ]
+    
+    # 随机打乱词汇顺序，确保不同 seed 生成不同的 prompt
+    shuffled_words = words.copy()
+    rng.shuffle(shuffled_words)
+    
+    # 生成足够长度的文本
+    result_words = []
+    for i in range(length):
+        result_words.append(shuffled_words[i % len(shuffled_words)])
+    
+    return " ".join(result_words)
+
+
 @dataclass
 class PhaseResult:
     """单阶段测试结果"""
@@ -106,6 +133,129 @@ class PhaseResult:
     def throughput_tps(self) -> float:
         """主要吞吐量指标 (tokens/s)"""
         return self.input_tokens / self.total_time_s if self.total_time_s > 0 else 0
+
+
+# ============================================================================
+# Profile 统计管理
+# ============================================================================
+
+def reset_profile_stats():
+    """重置 SlideSparse profile 统计（如果启用）"""
+    try:
+        from slidesparse.core.SlideSparseLinearMethod_FP8 import reset_profile_stats as _reset
+        _reset()
+    except ImportError:
+        pass
+
+
+def print_profile_stats_with_label(label: str):
+    """打印 SlideSparse profile 统计（带标签）"""
+    try:
+        from slidesparse.core.SlideSparseLinearMethod_FP8 import (
+            print_profile_stats as _print_stats,
+            _flush_pending_events,
+        )
+        # 先 flush pending events
+        _flush_pending_events()
+        print(f"\n{'#' * 80}")
+        print(f"# {label}")
+        print(f"{'#' * 80}")
+        _print_stats()
+    except ImportError:
+        pass
+
+
+# ============================================================================
+# 核心测试函数
+# ============================================================================
+
+def run_phase_test(
+    model_path: Path,
+    num_prompts: int,
+    prompt_len: int,
+    output_len: int,
+    warmup: int = 2,
+    repeat: int = 1,
+    reset_profile: bool = True,
+    enforce_eager: bool = False,
+) -> PhaseResult:
+    """
+    运行单阶段吞吐量测试
+    
+    Args:
+        model_path: 模型路径
+        num_prompts: 请求数量（每次 generate 调用的 batch size）
+        prompt_len: 输入 prompt 的 token 长度
+        output_len: 输出的 token 长度
+        warmup: 预热次数
+        repeat: 正式测试重复次数（多次调用 generate）
+        reset_profile: 是否在正式测试前重置 profile 统计
+    
+    Returns:
+        PhaseResult
+    """
+    from vllm import LLM, SamplingParams
+    import torch
+    
+    with cuda_memory_manager():
+        llm = LLM(
+            model=str(model_path),
+            max_model_len=prompt_len + output_len + 64,
+            gpu_memory_utilization=0.8,
+            disable_log_stats=True,
+            enforce_eager=enforce_eager,
+        )
+        
+        # 生成 prompts（每个 prompt 使用不同 seed，避免 prefix caching）
+        # 为每次重复生成不同的 prompts
+        all_prompts = []
+        for r in range(repeat):
+            batch_prompts = [
+                generate_dummy_prompt(prompt_len, seed=r * num_prompts + i)
+                for i in range(num_prompts)
+            ]
+            all_prompts.append(batch_prompts)
+        
+        # Warmup 用不同的 prompts（seed 从 100000 开始）
+        warmup_prompts = [generate_dummy_prompt(prompt_len, seed=100000+i) for i in range(num_prompts)]
+        
+        sampling_params = SamplingParams(
+            temperature=0.0,
+            max_tokens=output_len,
+            ignore_eos=True,  # 强制生成指定数量的 token
+        )
+        
+        # Warmup（预热不计入统计）
+        for _ in range(warmup):
+            _ = llm.generate(warmup_prompts, sampling_params)
+        torch.cuda.synchronize()
+        
+        # 重置 profile 统计（warmup 后、正式测试前）
+        if reset_profile:
+            reset_profile_stats()
+        
+        # 正式测试
+        total_input_tokens = 0
+        total_output_tokens = 0
+        
+        torch.cuda.synchronize()
+        start = time.perf_counter()
+        
+        for r in range(repeat):
+            outputs = llm.generate(all_prompts[r], sampling_params)
+            total_input_tokens += sum(len(o.prompt_token_ids) for o in outputs)
+            total_output_tokens += sum(len(o.outputs[0].token_ids) for o in outputs)
+        
+        torch.cuda.synchronize()
+        elapsed = time.perf_counter() - start
+        
+        del llm
+    
+    return PhaseResult(
+        total_time_s=elapsed,
+        input_tokens=total_input_tokens,
+        output_tokens=total_output_tokens,
+    )
 
 
 def format_speedup(speedup: float) -> str:
@@ -120,237 +270,7 @@ def format_speedup(speedup: float) -> str:
 
 
 # ============================================================================
-# Subprocess 隔离运行
-# ============================================================================
-
-_SUBPROCESS_SCRIPT_TEMPLATE = '''
-import os
-import sys
-import time
-import json
-import random
-
-# 设置环境变量
-for k, v in {env_vars}.items():
-    os.environ[k] = v
-os.environ["VLLM_LOGGING_LEVEL"] = "ERROR"
-
-import torch
-from vllm import LLM, SamplingParams
-
-# Profile 统计管理（仅 eager mode + SLIDESPARSE_PROFILE=1 时有效）
-def reset_profile_stats():
-    """重置 SlideSparse profile 统计（如果启用）"""
-    try:
-        from slidesparse.core.SlideSparseLinearMethod_FP8 import reset_profile_stats as _reset
-        _reset()
-    except ImportError:
-        pass
-
-def print_profile_stats_with_label(label):
-    """打印 SlideSparse profile 统计（带标签）"""
-    try:
-        from slidesparse.core.SlideSparseLinearMethod_FP8 import (
-            print_profile_stats as _print_stats,
-            _flush_pending_events,
-        )
-        # 先 flush pending events
-        _flush_pending_events()
-        print("\\n" + "#" * 80)
-        print("# " + label)
-        print("#" * 80)
-        _print_stats()
-    except ImportError:
-        pass
-
-def generate_dummy_prompt(length, seed=0):
-    rng = random.Random(seed)
-    words = [
-        "Hello", "world", "this", "is", "a", "test", "prompt", "for", "benchmark",
-        "The", "quick", "brown", "fox", "jumps", "over", "lazy", "dog", "and",
-        "Python", "programming", "language", "machine", "learning", "artificial",
-        "intelligence", "deep", "neural", "network", "transformer", "attention",
-        "model", "training", "inference", "optimization", "performance", "speed",
-    ]
-    shuffled = words.copy()
-    rng.shuffle(shuffled)
-    return " ".join([shuffled[i % len(shuffled)] for i in range(length)])
-
-# 配置
-model_path = "{model_path}"
-config = {config}
-enforce_eager = {enforce_eager}
-
-# 创建 LLM
-llm = LLM(
-    model=model_path,
-    max_model_len=config["prompt_len"] + config["output_len"] + 64,
-    gpu_memory_utilization=0.8,
-    disable_log_stats=True,
-    enforce_eager=enforce_eager,
-)
-
-# 生成 prompts
-repeat = config.get("repeat", 1)
-all_prompts = []
-for r in range(repeat):
-    batch = [generate_dummy_prompt(config["prompt_len"], seed=r * config["num_prompts"] + i) 
-             for i in range(config["num_prompts"])]
-    all_prompts.append(batch)
-
-warmup_prompts = [generate_dummy_prompt(config["prompt_len"], seed=100000 + i) 
-                  for i in range(config["num_prompts"])]
-
-sampling_params = SamplingParams(
-    temperature=0.0,
-    max_tokens=config["output_len"],
-    ignore_eos=True,
-)
-
-# Warmup
-for _ in range(config["warmup"]):
-    _ = llm.generate(warmup_prompts, sampling_params)
-torch.cuda.synchronize()
-
-# 重置 profile 统计（warmup 后、正式测试前）
-reset_profile_stats()
-
-# 正式测试
-total_input = 0
-total_output = 0
-torch.cuda.synchronize()
-start = time.perf_counter()
-
-for r in range(repeat):
-    outputs = llm.generate(all_prompts[r], sampling_params)
-    total_input += sum(len(o.prompt_token_ids) for o in outputs)
-    total_output += sum(len(o.outputs[0].token_ids) for o in outputs)
-
-torch.cuda.synchronize()
-elapsed = time.perf_counter() - start
-
-# 打印 profile 统计（仅当 SLIDESPARSE_PROFILE=1 且 enforce_eager=True 时有效）
-if enforce_eager and os.environ.get("SLIDESPARSE_PROFILE") == "1":
-    phase_label = "{phase_name}"
-    M_value = config["num_prompts"] * config["prompt_len"] if config["output_len"] == 1 else config["num_prompts"]
-    print_profile_stats_with_label(phase_label + " Profile - M=" + str(M_value))
-
-# 输出结果 JSON（通过特殊标记让主进程识别）
-result = {{
-    "total_time_s": elapsed,
-    "input_tokens": total_input,
-    "output_tokens": total_output,
-}}
-print("SUBPROCESS_RESULT_JSON:" + json.dumps(result))
-'''
-
-
-def run_phase_in_subprocess(
-    phase_name: str,
-    model_path: Path,
-    config: dict,
-    env_vars: dict,
-    enforce_eager: bool = False,
-    verbose: bool = True,
-    show_subprocess_output: bool = False,
-) -> Optional[PhaseResult]:
-    """
-    在独立子进程中运行测试阶段
-    
-    解决 CUDA Context 无法彻底清理导致的 OOM 问题。
-    
-    Args:
-        phase_name: 阶段名称（用于日志）
-        model_path: 模型路径
-        config: 测试配置
-        env_vars: 环境变量
-        enforce_eager: 是否使用 eager mode
-        verbose: 是否打印详细信息
-        show_subprocess_output: 是否显示子进程的完整输出（调试用）
-    
-    Returns:
-        PhaseResult 或 None（如果失败）
-    """
-    # 构建脚本
-    script = _SUBPROCESS_SCRIPT_TEMPLATE.format(
-        env_vars=repr(env_vars),
-        model_path=str(model_path),
-        config=repr(config),
-        enforce_eager=enforce_eager,
-        phase_name=phase_name,
-    )
-    
-    # 准备环境
-    env = os.environ.copy()
-    env.update(env_vars)
-    env["VLLM_LOGGING_LEVEL"] = "ERROR"
-    # 传递 SLIDESPARSE_PROFILE 环境变量（如果设置了）
-    if "SLIDESPARSE_PROFILE" in os.environ:
-        env["SLIDESPARSE_PROFILE"] = os.environ["SLIDESPARSE_PROFILE"]
-    
-    if verbose:
-        print(f"    启动子进程...")
-    
-    try:
-        result = subprocess.run(
-            [sys.executable, "-c", script],
-            capture_output=True,
-            text=True,
-            env=env,
-            timeout=600,  # 10 分钟超时
-        )
-        
-        if result.returncode != 0:
-            if verbose:
-                print(f"    {Colors.red('子进程失败')}")
-                # 只打印最后几行错误
-                stderr_lines = result.stderr.strip().split('\n')
-                for line in stderr_lines[-10:]:
-                    print(f"      {line}")
-            return None
-        
-        # 打印子进程的输出
-        # 1. 如果 show_subprocess_output=True，打印所有输出（调试用）
-        # 2. 如果 SLIDESPARSE_PROFILE=1 且 enforce_eager，打印 profile 统计
-        should_print = show_subprocess_output or (os.environ.get("SLIDESPARSE_PROFILE") == "1" and enforce_eager)
-        if verbose and should_print:
-            for line in result.stdout.split("\n"):
-                if not line.startswith("SUBPROCESS_RESULT_JSON:"):
-                    if line.strip():
-                        print(f"      {line}")
-            # 也打印 stderr（如果有内容且不是纯空白）
-            if show_subprocess_output and result.stderr.strip():
-                print(Colors.yellow("      [stderr]"))
-                for line in result.stderr.split("\n"):
-                    if line.strip():
-                        print(f"      {line}")
-        
-        # 解析结果
-        for line in result.stdout.split("\n"):
-            if line.startswith("SUBPROCESS_RESULT_JSON:"):
-                data = json.loads(line[len("SUBPROCESS_RESULT_JSON:"):])
-                return PhaseResult(
-                    total_time_s=data["total_time_s"],
-                    input_tokens=data["input_tokens"],
-                    output_tokens=data["output_tokens"],
-                )
-        
-        if verbose:
-            print(f"    {Colors.red('未找到结果')}")
-        return None
-        
-    except subprocess.TimeoutExpired:
-        if verbose:
-            print(f"    {Colors.red('子进程超时')}")
-        return None
-    except Exception as e:
-        if verbose:
-            print(f"    {Colors.red(f'子进程异常: {e}')}")
-        return None
-
-
-# ============================================================================
-# 吞吐量对比测试（使用 subprocess 隔离）
+# 吞吐量对比测试
 # ============================================================================
 
 def run_throughput_comparison(
@@ -362,12 +282,9 @@ def run_throughput_comparison(
     verbose: bool = True,
     baseline_model_path: Path = None,
     enforce_eager: bool = False,
-    show_subprocess_output: bool = False,
 ) -> Dict[str, Any]:
     """
     运行完整的吞吐量对比测试（分离 Prefill 和 Decode）
-    
-    使用 subprocess 隔离每个测试阶段，避免 CUDA Context 残留导致的 OOM。
     
     Args:
         model_path: 测试模型路径
@@ -378,7 +295,6 @@ def run_throughput_comparison(
         verbose: 是否打印详细信息
         baseline_model_path: baseline 模型路径（若不同于 model_path）
         enforce_eager: 是否强制使用 eager mode
-        show_subprocess_output: 是否显示子进程的完整输出（调试用）
     
     Returns:
         对比结果字典
@@ -388,23 +304,10 @@ def run_throughput_comparison(
     
     # 确定 baseline 模型路径
     baseline_path = baseline_model_path if baseline_model_path else model_path
-    model_name = model_path.name
     
     # 预检测 CUTLASS FP8 是否支持当前 GPU
+    # baseline 使用 vLLM 原生路径（CUTLASS），如果不支持则跳过 baseline
     cutlass_supported = EnvironmentChecker.supports_cutlass_fp8()
-    
-    # 构建环境变量
-    baseline_env = {"DISABLE_SLIDESPARSE": "1"}
-    
-    test_env = {"DISABLE_SLIDESPARSE": "0", "SLIDESPARSE_MODEL_NAME": model_name}
-    if use_cublaslt:
-        test_env["USE_CUBLASLT"] = "1"
-    if use_cusparselt:
-        test_env["USE_CUSPARSELT"] = "1"
-    if inner_32:
-        test_env["INNER_DTYPE_32"] = "1"
-    if sparsity:
-        test_env["SPARSITY"] = sparsity
     
     if verbose:
         print("\n" + "=" * 90)
@@ -424,10 +327,10 @@ def run_throughput_comparison(
             reason = EnvironmentChecker.supports_cutlass_fp8_reason()
             print(Colors.yellow(f"注意: CUTLASS FP8 不支持当前 GPU ({reason})，跳过 baseline"))
         print(f"测试: {backend_name}")
-        print(Colors.cyan("架构: 使用 subprocess 隔离每个测试阶段"))
         print("=" * 90)
     
     # ========== Prefill 测试 ==========
+    # M_prefill = num_prompts * prompt_len = 2 * 1024 = 2048
     if verbose:
         print(f"\n{Colors.cyan('━' * 50)}")
         print(Colors.bold("Prefill 吞吐量测试"))
@@ -443,60 +346,69 @@ def run_throughput_comparison(
     if cutlass_supported:
         if verbose:
             print(f"\n  {Colors.blue('[基准] vLLM 原生路径...')}")
-        baseline_prefill = run_phase_in_subprocess(
-            "baseline_prefill",
-            baseline_path,
-            PREFILL_CONFIG,
-            baseline_env,
-            enforce_eager,
-            verbose,
-            show_subprocess_output,
-        )
-        if baseline_prefill:
+        saved_env = set_env_for_baseline()
+        try:
+            baseline_prefill = run_phase_test(
+                baseline_path,
+                num_prompts=PREFILL_CONFIG["num_prompts"],
+                prompt_len=PREFILL_CONFIG["prompt_len"],
+                output_len=PREFILL_CONFIG["output_len"],
+                warmup=PREFILL_CONFIG["warmup"],
+                repeat=PREFILL_CONFIG["repeat"],
+                reset_profile=True,
+                enforce_eager=enforce_eager,
+            )
             baseline_prefill_tps = baseline_prefill.input_tokens / baseline_prefill.total_time_s
+        except Exception as e:
+            if verbose:
+                print(f"    {Colors.yellow(f'跳过 (运行时错误): {e}')}")
+        restore_env(saved_env)
     else:
         if verbose:
             print(f"\n  {Colors.yellow('[基准] 跳过 (CUTLASS FP8 不支持当前 GPU)')}")
     
     # 测试: SlideSparse 后端
     if verbose:
-        print(f"\n  {Colors.green(f'[测试] {backend_name}...')}")
-    test_prefill = run_phase_in_subprocess(
-        "test_prefill",
+        print(f"  {Colors.green(f'[测试] {backend_name}...')}")
+    # 从 model_path 提取 model_name 用于加载 model-specific kernels
+    model_name = model_path.name  # e.g., "Qwen2.5-0.5B-FP8"
+    saved_env = set_env_for_test(use_cublaslt, use_cusparselt, inner_32, sparsity, model_name)
+    test_prefill = run_phase_test(
         model_path,
-        PREFILL_CONFIG,
-        test_env,
-        enforce_eager,
-        verbose,
-        show_subprocess_output,
+        num_prompts=PREFILL_CONFIG["num_prompts"],
+        prompt_len=PREFILL_CONFIG["prompt_len"],
+        output_len=PREFILL_CONFIG["output_len"],
+        warmup=PREFILL_CONFIG["warmup"],
+        repeat=PREFILL_CONFIG["repeat"],
+        reset_profile=True,
+        enforce_eager=enforce_eager,
     )
+    test_prefill_tps = test_prefill.input_tokens / test_prefill.total_time_s
+    # 打印 Prefill 阶段的 profile 统计
+    print_profile_stats_with_label(f"Prefill Profile ({backend_name}) - M={PREFILL_CONFIG['num_prompts'] * PREFILL_CONFIG['prompt_len']}")
+    restore_env(saved_env)
     
-    if test_prefill:
-        test_prefill_tps = test_prefill.input_tokens / test_prefill.total_time_s
-        
-        if baseline_prefill_tps is not None:
-            prefill_speedup = test_prefill_tps / baseline_prefill_tps if baseline_prefill_tps > 0 else 0
-            results["prefill"] = {
-                "baseline_tps": baseline_prefill_tps,
-                "test_tps": test_prefill_tps,
-                "speedup": prefill_speedup,
-            }
-            if verbose:
-                print(f"\n  结果:")
-                print(f"    vLLM 原生路径: {baseline_prefill_tps:>10.1f} tok/s")
-                print(f"    {backend_name}: {test_prefill_tps:>10.1f} tok/s")
-                print(f"    加速比: {format_speedup(prefill_speedup)}")
-        else:
-            results["prefill"] = {"test_tps": test_prefill_tps}
-            if verbose:
-                print(f"\n  结果:")
-                print(f"    {backend_name}: {test_prefill_tps:>10.1f} tok/s")
-                print(f"    (无 baseline 对比)")
-    else:
+    if baseline_prefill_tps is not None:
+        prefill_speedup = test_prefill_tps / baseline_prefill_tps if baseline_prefill_tps > 0 else 0
+        results["prefill"] = {
+            "baseline_tps": baseline_prefill_tps,
+            "test_tps": test_prefill_tps,
+            "speedup": prefill_speedup,
+        }
         if verbose:
-            print(f"\n  {Colors.red('Prefill 测试失败')}")
+            print(f"\n  结果:")
+            print(f"    vLLM 原生路径: {baseline_prefill_tps:>10.1f} tok/s")
+            print(f"    {backend_name}: {test_prefill_tps:>10.1f} tok/s")
+            print(f"    加速比: {format_speedup(prefill_speedup)}")
+    else:
+        results["prefill"] = {"test_tps": test_prefill_tps}
+        if verbose:
+            print(f"\n  结果:")
+            print(f"    {backend_name}: {test_prefill_tps:>10.1f} tok/s")
+            print(f"    (无 baseline 对比)")
     
     # ========== Decode 测试 ==========
+    # M_decode = num_prompts = 32
     if verbose:
         print(f"\n{Colors.cyan('━' * 50)}")
         print(Colors.bold("Decode 吞吐量测试"))
@@ -506,66 +418,69 @@ def run_throughput_comparison(
         print(f"M_decode = {DECODE_CONFIG['num_prompts']}")
         print(f"{Colors.cyan('━' * 50)}")
     
-    # Decode 配置（repeat=1）
-    decode_config = {**DECODE_CONFIG, "repeat": 1}
-    
     # 基准: vLLM 原生路径 (仅当 CUTLASS 支持时)
     baseline_decode_tps = None
     if cutlass_supported:
         if verbose:
             print(f"\n  {Colors.blue('[基准] vLLM 原生路径...')}")
-        baseline_decode = run_phase_in_subprocess(
-            "baseline_decode",
-            baseline_path,
-            decode_config,
-            baseline_env,
-            enforce_eager,
-            verbose,
-            show_subprocess_output,
-        )
-        if baseline_decode:
+        saved_env = set_env_for_baseline()
+        try:
+            baseline_decode = run_phase_test(
+                baseline_path,
+                num_prompts=DECODE_CONFIG["num_prompts"],
+                prompt_len=DECODE_CONFIG["prompt_len"],
+                output_len=DECODE_CONFIG["output_len"],
+                warmup=DECODE_CONFIG["warmup"],
+                repeat=1,  # Decode 只需运行一次（output_len 已经很长）
+                reset_profile=True,
+                enforce_eager=enforce_eager,
+            )
             baseline_decode_tps = baseline_decode.output_tokens / baseline_decode.total_time_s
+        except Exception as e:
+            if verbose:
+                print(f"    {Colors.yellow(f'跳过 (运行时错误): {e}')}")
+        restore_env(saved_env)
     else:
         if verbose:
             print(f"\n  {Colors.yellow('[基准] 跳过 (CUTLASS FP8 不支持当前 GPU)')}")
     
     # 测试: SlideSparse 后端
     if verbose:
-        print(f"\n  {Colors.green(f'[测试] {backend_name}...')}")
-    test_decode = run_phase_in_subprocess(
-        "test_decode",
+        print(f"  {Colors.green(f'[测试] {backend_name}...')}")
+    saved_env = set_env_for_test(use_cublaslt, use_cusparselt, inner_32, sparsity, model_name)
+    test_decode = run_phase_test(
         model_path,
-        decode_config,
-        test_env,
-        enforce_eager,
-        verbose,
-        show_subprocess_output,
+        num_prompts=DECODE_CONFIG["num_prompts"],
+        prompt_len=DECODE_CONFIG["prompt_len"],
+        output_len=DECODE_CONFIG["output_len"],
+        warmup=DECODE_CONFIG["warmup"],
+        repeat=1,
+        reset_profile=True,
+        enforce_eager=enforce_eager,
     )
+    test_decode_tps = test_decode.output_tokens / test_decode.total_time_s
+    # 打印 Decode 阶段的 profile 统计
+    print_profile_stats_with_label(f"Decode Profile ({backend_name}) - M={DECODE_CONFIG['num_prompts']}")
+    restore_env(saved_env)
     
-    if test_decode:
-        test_decode_tps = test_decode.output_tokens / test_decode.total_time_s
-        
-        if baseline_decode_tps is not None:
-            decode_speedup = test_decode_tps / baseline_decode_tps if baseline_decode_tps > 0 else 0
-            results["decode"] = {
-                "baseline_tps": baseline_decode_tps,
-                "test_tps": test_decode_tps,
-                "speedup": decode_speedup,
-            }
-            if verbose:
-                print(f"\n  结果:")
-                print(f"    vLLM 原生路径: {baseline_decode_tps:>10.1f} tok/s")
-                print(f"    {backend_name}: {test_decode_tps:>10.1f} tok/s")
-                print(f"    加速比: {format_speedup(decode_speedup)}")
-        else:
-            results["decode"] = {"test_tps": test_decode_tps}
-            if verbose:
-                print(f"\n  结果:")
-                print(f"    {backend_name}: {test_decode_tps:>10.1f} tok/s")
-                print(f"    (无 baseline 对比)")
-    else:
+    if baseline_decode_tps is not None:
+        decode_speedup = test_decode_tps / baseline_decode_tps if baseline_decode_tps > 0 else 0
+        results["decode"] = {
+            "baseline_tps": baseline_decode_tps,
+            "test_tps": test_decode_tps,
+            "speedup": decode_speedup,
+        }
         if verbose:
-            print(f"\n  {Colors.red('Decode 测试失败')}")
+            print(f"\n  结果:")
+            print(f"    vLLM 原生路径: {baseline_decode_tps:>10.1f} tok/s")
+            print(f"    {backend_name}: {test_decode_tps:>10.1f} tok/s")
+            print(f"    加速比: {format_speedup(decode_speedup)}")
+    else:
+        results["decode"] = {"test_tps": test_decode_tps}
+        if verbose:
+            print(f"\n  结果:")
+            print(f"    {backend_name}: {test_decode_tps:>10.1f} tok/s")
+            print(f"    (无 baseline 对比)")
     
     # ========== 总结 ==========
     if verbose:
@@ -585,7 +500,7 @@ def run_throughput_comparison(
             speedup_str = format_speedup(prefill_data['speedup'])
         else:
             baseline_str = f"{'N/A':>14}"
-            test_str = f"{prefill_data.get('test_tps', 0):>14.1f}" if prefill_data else f"{'FAIL':>14}"
+            test_str = f"{prefill_data.get('test_tps', 0):>14.1f}"
             speedup_str = "N/A"
         print(f"  {'Prefill':<12} │ {baseline_str:<18} │ {test_str:<18} │ {speedup_str:<12}")
         
@@ -597,7 +512,7 @@ def run_throughput_comparison(
             speedup_str = format_speedup(decode_data['speedup'])
         else:
             baseline_str = f"{'N/A':>14}"
-            test_str = f"{decode_data.get('test_tps', 0):>14.1f}" if decode_data else f"{'FAIL':>14}"
+            test_str = f"{decode_data.get('test_tps', 0):>14.1f}"
             speedup_str = "N/A"
         print(f"  {'Decode':<12} │ {baseline_str:<18} │ {test_str:<18} │ {speedup_str:<12}")
         
@@ -623,11 +538,6 @@ if __name__ == "__main__":
         "--eager",
         action="store_true",
         help="强制使用 eager mode（禁用 torch.compile）"
-    )
-    parser.add_argument(
-        "--show-subprocess-output",
-        action="store_true",
-        help="显示子进程的完整输出（调试用，包含模型加载日志等）"
     )
     args = parser.parse_args()
     
@@ -707,7 +617,6 @@ if __name__ == "__main__":
     
     # 获取 eager 参数
     enforce_eager = getattr(args, 'eager', False)
-    show_subprocess_output = getattr(args, 'show_subprocess_output', False)
     
     # 运行吞吐量对比
     run_throughput_comparison(
@@ -719,7 +628,6 @@ if __name__ == "__main__":
         verbose=True,
         baseline_model_path=baseline_model_path,
         enforce_eager=enforce_eager,
-        show_subprocess_output=show_subprocess_output,
     )
     
     sys.exit(0)

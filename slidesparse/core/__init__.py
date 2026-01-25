@@ -87,6 +87,11 @@ def init_slidesparse(model_name: str) -> None:
     此函数会：
     1. 设置当前模型名称（用于加载 model-specific 的 tuned kernels）
     2. 预加载 GEMM 算法配置（如果有离线搜索结果）
+    3. 预加载 Triton kernel（避免在 torch.compile 追踪时加载）
+    
+    torch.compile 兼容：
+    - 所有 kernel 在此函数中预加载到缓存
+    - forward 路径只从缓存读取，无文件系统操作
     
     Args:
         model_name: 模型名称，例如 "Qwen2.5-0.5B-FP8", "Llama3.2-1B-INT8"
@@ -97,9 +102,41 @@ def init_slidesparse(model_name: str) -> None:
         >>> init_slidesparse("Llama3.2-1B-FP8")
         >>> # 现在可以使用 cuBLASLt/cuSPARSELt kernel 了
     """
+    from slidesparse.core.kernels import (
+        _load_dequant_bias_kernel,
+        _load_quant_only_fp8_kernel,
+        _load_quant_slide_fp8_kernel,
+        _load_quant_only_int8_kernel,
+        _load_quant_slide_int8_kernel,
+    )
+    from vllm.logger import init_logger
+    logger = init_logger(__name__)
+    
+    # 1. 设置模型名称和加载 GEMM 算法配置
     manager = get_algo_config_manager()
     manager.set_model(model_name)
-    # load_all_configs 在 get_algo_config_manager() 中已自动调用
+    # load_all_configs 在 AlgorithmConfigManager.__init__ 中已自动调用
+    
+    # 2. 预加载 Triton kernel（根据启用的后端）
+    # 这确保 forward 路径上不会有 kernel 加载（文件系统操作）
+    use_cublaslt = is_cublaslt_enabled()
+    use_cusparselt = is_cusparselt_enabled()
+    
+    if use_cublaslt or use_cusparselt:
+        # dequant_bias kernel 是 cuBLASLt 和 cuSPARSELt 共享的
+        _load_dequant_bias_kernel(model_name)
+        
+    if use_cublaslt:
+        # cuBLASLt FP8/INT8 使用 quant_only kernel
+        _load_quant_only_fp8_kernel(model_name)
+        _load_quant_only_int8_kernel(model_name)
+        logger.info(f"Preloaded Triton kernels for cuBLASLt: {model_name}")
+        
+    if use_cusparselt:
+        # cuSPARSELt FP8/INT8 使用 quant_slide kernel
+        _load_quant_slide_fp8_kernel(model_name)
+        _load_quant_slide_int8_kernel(model_name)
+        logger.info(f"Preloaded Triton kernels for cuSPARSELt: {model_name}")
 
 
 __all__ = [

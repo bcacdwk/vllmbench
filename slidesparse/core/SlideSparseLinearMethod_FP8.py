@@ -183,26 +183,23 @@ def cuBLASLt_FP8_linear(
             "Use CUTLASS path or dynamic quantization."
         )
     
-    try:
-        # GEMM: [M_pad, K_pad] @ [N, K_pad].T -> [M_pad, N]
-        with ProfileTimer("cuBLASLt.gemm"):
-            gemm_out_pad = cublaslt_fp8_mm_op(weight, qinput, inner_dtype_str)
-        
-        # Truncate padding
-        gemm_out = gemm_out_pad[:M, :]
-        scale_a = scale_a_pad[:M]
-        
-        # Dequant + Bias
-        with ProfileTimer("cuBLASLt.dequant"):
-            output = dequant_bias_kernel(gemm_out, scale_a, weight_scale, bias, out_dtype, model_name)
-        
-        with ProfileTimer("cuBLASLt.view"):
-            result = output.view(*output_shape)
-        
-        profile_step()
-        return result
-    except Exception as e:
-        raise RuntimeError(f"cuBLASLt execution failed: {e}") from e
+    # GEMM: [M_pad, K_pad] @ [N, K_pad].T -> [M_pad, N]
+    with ProfileTimer("cuBLASLt.gemm"):
+        gemm_out_pad = cublaslt_fp8_mm_op(weight, qinput, inner_dtype_str)
+    
+    # Truncate padding
+    gemm_out = gemm_out_pad[:M, :]
+    scale_a = scale_a_pad[:M]
+    
+    # Dequant + Bias
+    with ProfileTimer("cuBLASLt.dequant"):
+        output = dequant_bias_kernel(gemm_out, scale_a, weight_scale, bias, out_dtype, model_name)
+    
+    with ProfileTimer("cuBLASLt.view"):
+        result = output.view(*output_shape)
+    
+    profile_step()
+    return result
 
 
 def cuSPARSELt_FP8_linear(
@@ -267,32 +264,29 @@ def cuSPARSELt_FP8_linear(
             "This may indicate L parameter mismatch between weight and activation."
         )
     
-    try:
-        # GEMM: [M_pad, K_slide_pad] @ compressed_weight -> [M_pad, N]
-        with ProfileTimer("cuSPARSELt.gemm"):
-            gemm_out_pad = cusparselt_fp8_mm_op(
-                slide_weight_compressed,
-                qinput,
-                slide_weight_N,
-                K_slide_pad,
-                inner_dtype_str
-            )
-        
-        # Truncate padding
-        gemm_out = gemm_out_pad[:M, :]
-        scale_a = scale_a_pad[:M]
-        
-        # Dequant + Bias
-        with ProfileTimer("cuSPARSELt.dequant"):
-            output = dequant_bias_kernel(gemm_out, scale_a, weight_scale, bias, out_dtype, model_name)
-        
-        with ProfileTimer("cuSPARSELt.view"):
-            result = output.view(*output_shape)
-        
-        profile_step()
-        return result
-    except Exception as e:
-        raise RuntimeError(f"cuSPARSELt execution failed: {e}") from e
+    # GEMM: [M_pad, K_slide_pad] @ compressed_weight -> [M_pad, N]
+    with ProfileTimer("cuSPARSELt.gemm"):
+        gemm_out_pad = cusparselt_fp8_mm_op(
+            slide_weight_compressed,
+            qinput,
+            slide_weight_N,
+            K_slide_pad,
+            inner_dtype_str
+        )
+    
+    # Truncate padding
+    gemm_out = gemm_out_pad[:M, :]
+    scale_a = scale_a_pad[:M]
+    
+    # Dequant + Bias
+    with ProfileTimer("cuSPARSELt.dequant"):
+        output = dequant_bias_kernel(gemm_out, scale_a, weight_scale, bias, out_dtype, model_name)
+    
+    with ProfileTimer("cuSPARSELt.view"):
+        result = output.view(*output_shape)
+    
+    profile_step()
+    return result
 
 
 def cutlass_FP8_linear(
@@ -541,6 +535,22 @@ class SlideSparseFp8LinearMethod:
             logger.info_once(
                 f"SlideSparseFp8LinearMethod: cuSPARSELt "
                 f"sparsity={Z}:{L}, expand_ratio={self._expand_ratio:.3f}"
+            )
+        
+        # 预加载 Triton kernels（torch.compile 兼容）
+        import os
+        model_name = os.environ.get("SLIDESPARSE_MODEL_NAME")
+        if model_name and (self._use_cublaslt or self._use_cusparselt):
+            # dequant_bias kernel 是 cuBLASLt 和 cuSPARSELt 共享的
+            _load_dequant_bias_kernel(model_name)
+            
+            if self._use_cublaslt:
+                _load_quant_only_fp8_kernel(model_name)
+            elif self._use_cusparselt:
+                _load_quant_slide_fp8_kernel(model_name)
+            
+            logger.info_once(
+                f"Preloaded FP8 Triton kernels for model: {model_name}"
             )
         
         logger.info_once(

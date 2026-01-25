@@ -24,7 +24,7 @@ torch.compile 追踪时使用 fake 实现，执行时使用实际实现。
 ============
 AlgorithmConfigManager 在启动时加载离线调优的 JSON 配置，
 运行时根据 (model, N, K, M) 快速查找最优算法配置，
-透明传递给 CUDA Kernel 执行。找不到配置时优雅 Fallback 到默认算法。
+透明传递给 CUDA Kernel 执行。找不到配置时 Fallback 到默认算法。
 """
 
 import base64
@@ -113,31 +113,30 @@ _gemm_extensions = {}
 
 class AlgorithmConfigManager:
     """
-    GEMM 算法配置管理器（单例）
+    GEMM 算法配置管理器
     
     设计要点:
-    1. 启动时一次性加载当前硬件文件夹下所有模型 JSON（KB 级别）
-    2. 使用 bisect 二分查找 M 阈值，O(log n)
-    3. torch.compile 兼容：查询发生在 ctypes 调用前
+    1. 模块导入时eager初始化（避免 torch.compile 追踪 setattr）
+    2. __init__ 中自动加载当前硬件文件夹下所有模型 JSON（KB 级别）
+    3. 使用 bisect 二分查找 M 阈值，O(log n)
+    4. torch.compile 兼容：运行时只有纯读取操作，无副作用
+    5. Base64 在加载时预解码，避免运行时 decode 开销
     """
     
-    _instance: Optional["AlgorithmConfigManager"] = None
-    
-    @classmethod
-    def get_instance(cls) -> "AlgorithmConfigManager":
-        if cls._instance is None:
-            cls._instance = cls()
-        return cls._instance
-    
     def __init__(self):
-        # {model_name: {(N,K): {"m_thresholds": [...], "alg_by_m": {...}}}}
+        # cuBLASLt: {model_name: {(N,K): {"m_thresholds": [...], "alg_by_m": {m_str: (algo_bytes, workspace)}}}}
+        # 注意：alg_by_m 的值已在加载时预解码为 (bytes, int) 元组
         self._cublaslt_configs: Dict[str, Dict] = {}
+        # cuSPARSELt: {model_name: {(N,K): {"m_thresholds": [...], "alg_by_m": {m_str: (alg_id, split_k, workspace)}}}}
         self._cusparselt_configs: Dict[str, Dict] = {}
         self._current_model: Optional[str] = None      # 原始模型名（checkpoint 名）
         self._base_model: Optional[str] = None         # 基础模型名（用于查表和 kernel 加载）
         self._loaded = False
         self._cublaslt_warned_models: set = set()  # 避免 cuBLASLt 重复警告
         self._cusparselt_warned_models: set = set()  # 避免 cuSPARSELt 重复警告
+        
+        # eager加载配置（在模块导入时完成，非热路径）
+        self.load_all_configs()
     
     @staticmethod
     def _extract_base_model_name(model_name: str) -> str:
@@ -178,7 +177,7 @@ class AlgorithmConfigManager:
                    f"cuSPARSELt={len(self._cusparselt_configs)} models")
     
     def _load_single_config(self, backend: str, json_path: Path) -> None:
-        """加载单个 JSON 配置文件"""
+        """加载单个 JSON 配置文件，并预解码 Base64 数据"""
         try:
             with open(json_path, "r") as f:
                 data = json.load(f)
@@ -186,12 +185,32 @@ class AlgorithmConfigManager:
             model_name = data["meta"]["model_name"]
             nk_entries = data.get("nk_entries", {})
             
-            # 转换为内部格式 {(N,K): entry}
+            # 转换为内部格式 {(N,K): entry}，同时预解码 base64
             parsed = {}
             for nk_str, entry in nk_entries.items():
                 # "(3072,2048)" -> (3072, 2048)
                 n, k = eval(nk_str)
-                parsed[(n, k)] = entry
+                
+                # 预解码 alg_by_m 中的所有配置
+                decoded_alg_by_m = {}
+                for m_key, algo_config in entry.get("alg_by_m", {}).items():
+                    if backend == "cublaslt":
+                        # cuBLASLt: 预解码 base64 -> bytes
+                        algo_data_b64 = algo_config.get("algo_data", "")
+                        algo_bytes = base64.b64decode(algo_data_b64) if algo_data_b64 else None
+                        workspace = algo_config.get("workspace", 0)
+                        decoded_alg_by_m[m_key] = (algo_bytes, workspace)
+                    else:
+                        # cuSPARSELt: 直接提取整数配置
+                        alg_id = algo_config.get("alg_id", -1)
+                        split_k = algo_config.get("split_k", -1)
+                        workspace = algo_config.get("workspace", 0)
+                        decoded_alg_by_m[m_key] = (alg_id, split_k, workspace)
+                
+                parsed[(n, k)] = {
+                    "m_thresholds": entry["m_thresholds"],
+                    "alg_by_m": decoded_alg_by_m,
+                }
             
             if backend == "cublaslt":
                 self._cublaslt_configs[model_name] = parsed
@@ -206,6 +225,8 @@ class AlgorithmConfigManager:
         
         自动提取基础模型名用于查表和 kernel 加载。
         同时设置环境变量，以便子进程（如 vLLM EngineCore）也能获取到。
+        
+        注意：此方法应在 torch.compile 之前调用（通常在 init_slidesparse 中）。
         
         Args:
             model_name: 完整模型名（可能包含 -SlideSparse-2_L 后缀）
@@ -222,14 +243,20 @@ class AlgorithmConfigManager:
         """获取当前完整模型名（checkpoint 名）
         
         优先返回实例变量，其次从环境变量读取（支持子进程场景）。
+        
+        torch.compile 兼容：
+        - 如果 _current_model 已设置，直接返回（无写操作）
+        - 如果需要从环境变量读取，在非编译模式下缓存到实例变量
         """
         if self._current_model is not None:
             return self._current_model
         # 子进程场景：从环境变量读取
         env_model = os.environ.get("SLIDESPARSE_MODEL_NAME")
         if env_model:
-            self._current_model = env_model
-            self._base_model = self._extract_base_model_name(env_model)
+            # 只在非 torch.compile 追踪时缓存（避免 setattr 副作用）
+            if not torch.compiler.is_compiling():
+                self._current_model = env_model
+                self._base_model = self._extract_base_model_name(env_model)
             return env_model
         return None
     
@@ -238,19 +265,28 @@ class AlgorithmConfigManager:
         
         基础模型名去除了 -SlideSparse-2_L 后缀。
         优先返回实例变量，其次从环境变量读取。
+        
+        torch.compile 兼容：
+        - 如果 _base_model 已设置，直接返回（无写操作）
+        - 如果需要从环境变量读取，在非编译模式下缓存到实例变量
         """
         if self._base_model is not None:
             return self._base_model
         # 子进程场景：从环境变量读取
         env_base = os.environ.get("SLIDESPARSE_BASE_MODEL_NAME")
         if env_base:
-            self._base_model = env_base
+            # 只在非 torch.compile 追踪时缓存
+            if not torch.compiler.is_compiling():
+                self._base_model = env_base
             return env_base
         # 如果没有 base，尝试从完整名称提取
         full_model = self.get_model()
         if full_model:
-            self._base_model = self._extract_base_model_name(full_model)
-            return self._base_model
+            base = self._extract_base_model_name(full_model)
+            # 只在非 torch.compile 追踪时缓存
+            if not torch.compiler.is_compiling():
+                self._base_model = base
+            return base
         return None
     
     def lookup_cublaslt(self, N: int, K: int, M: int) -> Tuple[Optional[bytes], int]:
@@ -283,10 +319,12 @@ class AlgorithmConfigManager:
         
         model_config = self._cublaslt_configs.get(base_model)
         if model_config is None:
-            if base_model not in self._cublaslt_warned_models:
-                logger.warning(f"No cuBLASLt config for model '{base_model}', "
-                             f"using default algorithm")
-                self._cublaslt_warned_models.add(base_model)
+            # 只在非 torch.compile 追踪时打印警告（避免 set.add 副作用）
+            if not torch.compiler.is_compiling():
+                if base_model not in self._cublaslt_warned_models:
+                    logger.warning(f"No cuBLASLt config for model '{base_model}', "
+                                 f"using default algorithm")
+                    self._cublaslt_warned_models.add(base_model)
             return (None, 0)
         
         nk_entry = model_config.get((N, K))
@@ -299,22 +337,21 @@ class AlgorithmConfigManager:
         
         # 如果 M 超过最大阈值，fallback 到默认启发式
         if idx >= len(thresholds):
-            logger.warning(
-                f"cuBLASLt: M={M} exceeds max searched M={thresholds[-1]} for "
-                f"(N={N}, K={K}), falling back to default heuristic"
-            )
+            # 只在非 torch.compile 追踪时打印警告
+            if not torch.compiler.is_compiling():
+                logger.warning(
+                    f"cuBLASLt: M={M} exceeds max searched M={thresholds[-1]} for "
+                    f"(N={N}, K={K}), falling back to default heuristic"
+                )
             return (None, 0)
         
         m_key = str(thresholds[idx])
-        algo_config = nk_entry["alg_by_m"].get(m_key)
-        if algo_config is None:
+        algo_tuple = nk_entry["alg_by_m"].get(m_key)
+        if algo_tuple is None:
             return (None, 0)
         
-        # 解码 base64
-        algo_data = base64.b64decode(algo_config["algo_data"])
-        workspace = algo_config.get("workspace", 0)
-        
-        return (algo_data, workspace)
+        # 直接返回预解码的 (algo_bytes, workspace)
+        return algo_tuple
     
     def lookup_cusparselt(self, N: int, K: int, M: int) -> Tuple[int, int, int]:
         """
@@ -338,10 +375,12 @@ class AlgorithmConfigManager:
         
         model_config = self._cusparselt_configs.get(base_model)
         if model_config is None:
-            if base_model not in self._cusparselt_warned_models:
-                logger.warning(f"No cuSPARSELt config for model '{base_model}', "
-                             f"using default algorithm")
-                self._cusparselt_warned_models.add(base_model)
+            # 只在非 torch.compile 追踪时打印警告（避免 set.add 副作用）
+            if not torch.compiler.is_compiling():
+                if base_model not in self._cusparselt_warned_models:
+                    logger.warning(f"No cuSPARSELt config for model '{base_model}', "
+                                 f"using default algorithm")
+                    self._cusparselt_warned_models.add(base_model)
             return (-1, -1, 0)
         
         nk_entry = model_config.get((N, K))
@@ -356,32 +395,143 @@ class AlgorithmConfigManager:
         if idx >= len(thresholds):
             # M 超过了所有离线搜索的 M 值，使用最大的配置
             # 注意：如果最大配置使用 split_k > 1，可能无法执行
-            logger.warning(f"cuSPARSELt: M={M} exceeds max offline M={thresholds[-1]}, "
-                         f"using largest config (may fail if split_k > 1)")
+            # 只在非 torch.compile 追踪时打印警告
+            if not torch.compiler.is_compiling():
+                logger.warning(f"cuSPARSELt: M={M} exceeds max offline M={thresholds[-1]}, "
+                             f"using largest config (may fail if split_k > 1)")
             idx = len(thresholds) - 1
         
         m_key = str(thresholds[idx])
-        algo_config = nk_entry["alg_by_m"].get(m_key)
-        if algo_config is None:
+        algo_tuple = nk_entry["alg_by_m"].get(m_key)
+        if algo_tuple is None:
             return (-1, -1, 0)
         
-        return (
-            algo_config.get("alg_id", -1),
-            algo_config.get("split_k", -1),
-            algo_config.get("workspace", 0),
-        )
+        # 直接返回预处理的 (alg_id, split_k, workspace)
+        return algo_tuple
 
 
-# 全局单例
-_algo_config_manager: Optional[AlgorithmConfigManager] = None
+# 全局单例（模块加载时eager初始化，避免 torch.compile 追踪期间的 setattr）在模块顶层创建实例，而非在热路径上懒加载
+_algo_config_manager: AlgorithmConfigManager = AlgorithmConfigManager()
+
+
+# ============================================================================
+# WorkspaceManager: 静态 Workspace 管理器
+# ============================================================================
+
+class WorkspaceManager:
+    """
+    静态 Workspace 管理器
+    
+    设计要点:
+    1. 预分配固定大小的 workspace，避免每次 GEMM 调用时动态分配
+    2. 支持多 GPU（每个 device 独立的 workspace）
+    3. 如果算法需要更大 workspace，动态扩展（罕见情况）
+    4. torch.compile/CUDAGraph 安全：workspace tensor 在首次使用时创建，
+       后续调用只返回已有 tensor 的引用
+    
+    默认大小（可通过环境变量覆盖）:
+    - cuBLASLt:   32 MB (SLIDESPARSE_CUBLASLT_WORKSPACE_MB)
+    - cuSPARSELt: 64 MB (SLIDESPARSE_CUSPARSELT_WORKSPACE_MB)
+    """
+    
+    # 默认 workspace 大小
+    _CUBLASLT_DEFAULT_SIZE = 32 * 1024 * 1024   # 32 MB
+    _CUSPARSELT_DEFAULT_SIZE = 64 * 1024 * 1024  # 64 MB
+    
+    # {device: torch.Tensor}
+    _cublaslt_workspaces: Dict[torch.device, torch.Tensor] = {}
+    _cusparselt_workspaces: Dict[torch.device, torch.Tensor] = {}
+    
+    @classmethod
+    def _get_cublaslt_max_size(cls) -> int:
+        """获取 cuBLASLt workspace 最大大小"""
+        env_mb = os.environ.get("SLIDESPARSE_CUBLASLT_WORKSPACE_MB")
+        if env_mb:
+            try:
+                return int(env_mb) * 1024 * 1024
+            except ValueError:
+                pass
+        return cls._CUBLASLT_DEFAULT_SIZE
+    
+    @classmethod
+    def _get_cusparselt_max_size(cls) -> int:
+        """获取 cuSPARSELt workspace 最大大小"""
+        env_mb = os.environ.get("SLIDESPARSE_CUSPARSELT_WORKSPACE_MB")
+        if env_mb:
+            try:
+                return int(env_mb) * 1024 * 1024
+            except ValueError:
+                pass
+        return cls._CUSPARSELT_DEFAULT_SIZE
+    
+    @classmethod
+    def get_cublaslt_workspace(cls, device: torch.device, required_size: int = 0) -> torch.Tensor:
+        """
+        获取 cuBLASLt workspace
+        
+        Args:
+            device: CUDA 设备
+            required_size: 算法需要的最小 workspace 大小
+        
+        Returns:
+            workspace tensor (至少 required_size 字节)
+        """
+        # 确保 device 是正确的类型
+        if not isinstance(device, torch.device):
+            device = torch.device(device)
+        
+        max_size = cls._get_cublaslt_max_size()
+        target_size = max(max_size, required_size)
+        
+        workspace = cls._cublaslt_workspaces.get(device)
+        
+        # 如果不存在或太小，创建新的
+        if workspace is None or workspace.numel() < target_size:
+            workspace = torch.empty(target_size, dtype=torch.uint8, device=device)
+            cls._cublaslt_workspaces[device] = workspace
+            logger.debug(f"Created cuBLASLt workspace: {target_size / 1024 / 1024:.1f} MB on {device}")
+        
+        return workspace
+    
+    @classmethod
+    def get_cusparselt_workspace(cls, device: torch.device, required_size: int = 0) -> torch.Tensor:
+        """
+        获取 cuSPARSELt workspace
+        
+        Args:
+            device: CUDA 设备
+            required_size: 算法需要的最小 workspace 大小
+        
+        Returns:
+            workspace tensor (至少 required_size 字节)
+        """
+        # 确保 device 是正确的类型
+        if not isinstance(device, torch.device):
+            device = torch.device(device)
+        
+        max_size = cls._get_cusparselt_max_size()
+        target_size = max(max_size, required_size)
+        
+        workspace = cls._cusparselt_workspaces.get(device)
+        
+        # 如果不存在或太小，创建新的
+        if workspace is None or workspace.numel() < target_size:
+            workspace = torch.empty(target_size, dtype=torch.uint8, device=device)
+            cls._cusparselt_workspaces[device] = workspace
+            logger.debug(f"Created cuSPARSELt workspace: {target_size / 1024 / 1024:.1f} MB on {device}")
+        
+        return workspace
 
 
 def get_algo_config_manager() -> AlgorithmConfigManager:
-    """获取算法配置管理器（懒加载）"""
-    global _algo_config_manager
-    if _algo_config_manager is None:
-        _algo_config_manager = AlgorithmConfigManager.get_instance()
-        _algo_config_manager.load_all_configs()
+    """
+    获取算法配置管理器（eager初始化）
+    
+    注意：
+    - 实例在模块导入时创建，避免 torch.compile 追踪 setattr
+    - 配置加载也在模块导入时完成
+    - 运行时调用此函数只是返回已存在的实例
+    """
     return _algo_config_manager
 
 
@@ -399,10 +549,13 @@ class cuBLASLtGemmWrapper:
         self._lib.cublaslt_gemm_get_last_error.argtypes = []
         self._lib.cublaslt_gemm_get_last_error.restype = ctypes.c_char_p
         
-        # FP8 GEMM 签名: int fn(W, A, D, M, N, K, inner_dtype, algo_data, algo_workspace, stream)
-        gemm_sig = ([ctypes.c_void_p] * 3 + 
-                   [ctypes.c_int64] * 3 + 
-                   [ctypes.c_char_p, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p])
+        # FP8 GEMM 签名: 
+        # int fn(W, A, D, workspace_ptr, workspace_size, M, N, K, inner_dtype, algo_data, stream)
+        gemm_sig = ([ctypes.c_void_p] * 3 +                # W, A, D
+                   [ctypes.c_void_p, ctypes.c_size_t] +   # workspace_ptr, workspace_size
+                   [ctypes.c_int64] * 3 +                 # M, N, K
+                   [ctypes.c_char_p, ctypes.c_void_p, ctypes.c_void_p]) # inner_dtype, algo_data, stream
+        
         self._lib.cublaslt_fp8_mm.argtypes = gemm_sig
         self._lib.cublaslt_fp8_mm.restype = ctypes.c_int
         
@@ -439,6 +592,10 @@ class cuBLASLtGemmWrapper:
         out_dtype = torch.float32 if inner_dtype == "fp32" else torch.bfloat16
         output = torch.empty((M_pad, N), dtype=out_dtype, device=qinput.device)
         
+        # 使用静态 Workspace（避免每次调用都分配）
+        workspace = WorkspaceManager.get_cublaslt_workspace(qinput.device, algo_workspace)
+        workspace_size = workspace.numel()
+        
         # 处理 algo_data
         algo_ptr = None
         if algo_data is not None and len(algo_data) == 64:
@@ -446,15 +603,16 @@ class cuBLASLtGemmWrapper:
         
         ret = self._lib.cublaslt_fp8_mm(
             weight.data_ptr(), qinput.data_ptr(), output.data_ptr(),
+            workspace.data_ptr(), workspace_size,
             M_pad, N, K_pad,
             inner_dtype.encode(),
             ctypes.cast(algo_ptr, ctypes.c_void_p) if algo_ptr else None,
-            algo_workspace,
             torch.cuda.current_stream().cuda_stream
         )
         if ret != 0:
             err = self._lib.cublaslt_gemm_get_last_error()
             raise RuntimeError(f"cublaslt_fp8_mm failed: {err.decode() if err else 'Unknown'}")
+        
         return output
     
     def cublaslt_int8_mm(
@@ -489,6 +647,10 @@ class cuBLASLtGemmWrapper:
         # INT8 GEMM 输出固定为 INT32
         output = torch.empty((M_pad, N), dtype=torch.int32, device=qinput.device)
         
+        # 使用静态 Workspace（避免每次调用都分配）
+        workspace = WorkspaceManager.get_cublaslt_workspace(qinput.device, algo_workspace)
+        workspace_size = workspace.numel()
+        
         # 处理 algo_data
         algo_ptr = None
         if algo_data is not None and len(algo_data) == 64:
@@ -496,10 +658,10 @@ class cuBLASLtGemmWrapper:
         
         ret = self._lib.cublaslt_int8_mm(
             weight.data_ptr(), qinput.data_ptr(), output.data_ptr(),
+            workspace.data_ptr(), workspace_size,
             M_pad, N, K_pad,
             "int32".encode(),
             ctypes.cast(algo_ptr, ctypes.c_void_p) if algo_ptr else None,
-            algo_workspace,
             torch.cuda.current_stream().cuda_stream
         )
         if ret != 0:
@@ -522,10 +684,10 @@ class cuSPARSELtGemmWrapper:
         self._lib.cusparselt_gemm_get_last_error.argtypes = []
         self._lib.cusparselt_gemm_get_last_error.restype = ctypes.c_char_p
         
-        # FP8 GEMM 签名: int fn(W_compressed, A, D, M, N, K, inner_dtype, alg_id, split_k, algo_workspace, stream)
+        # FP8 GEMM 签名: int fn(W_compressed, A, D, M, N, K, inner_dtype, alg_id, split_k, workspace_ptr, workspace_size, stream)
         gemm_sig = ([ctypes.c_void_p] * 3 + 
                    [ctypes.c_int64] * 3 + 
-                   [ctypes.c_char_p, ctypes.c_int, ctypes.c_int, ctypes.c_size_t, ctypes.c_void_p])
+                   [ctypes.c_char_p, ctypes.c_int, ctypes.c_int, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p])
         self._lib.cusparselt_fp8_mm.argtypes = gemm_sig
         self._lib.cusparselt_fp8_mm.restype = ctypes.c_int
         
@@ -567,11 +729,15 @@ class cuSPARSELtGemmWrapper:
         out_dtype = torch.float32 if inner_dtype == "fp32" else torch.bfloat16
         output = torch.empty((M_pad, N), dtype=out_dtype, device=qinput.device)
         
+        # 使用静态 Workspace（避免每次调用都分配）
+        workspace = WorkspaceManager.get_cusparselt_workspace(qinput.device, algo_workspace)
+
         ret = self._lib.cusparselt_fp8_mm(
             weight_compressed.data_ptr(), qinput.data_ptr(), output.data_ptr(),
             M_pad, N, K_slide,
             inner_dtype.encode(),
-            alg_id, split_k, algo_workspace,
+            alg_id, split_k, 
+            workspace.data_ptr(), workspace.numel(),
             torch.cuda.current_stream().cuda_stream
         )
         if ret != 0:
@@ -623,11 +789,15 @@ class cuSPARSELtGemmWrapper:
         out_dtype = torch.int32 if inner_dtype == "int32" else torch.bfloat16
         output = torch.empty((M_pad, N), dtype=out_dtype, device=qinput.device)
         
+        # 使用静态 Workspace（避免每次调用都分配）
+        workspace = WorkspaceManager.get_cusparselt_workspace(qinput.device, algo_workspace)
+        
         ret = self._lib.cusparselt_int8_mm(
             weight_compressed.data_ptr(), qinput.data_ptr(), output.data_ptr(),
             M_pad, N, K_slide,
             inner_dtype.encode(),
-            alg_id, split_k, algo_workspace,
+            alg_id, split_k, 
+            workspace.data_ptr(), workspace.numel(),
             torch.cuda.current_stream().cuda_stream
         )
         if ret != 0:
@@ -718,11 +888,23 @@ def _register_cublaslt_fp8_custom_op():
         inner_dtype: str,
     ) -> torch.Tensor:
         """cuBLASLt FP8 GEMM 实际执行（带算法配置查表）"""
+        # 编译期保护：如果在 torch.compile 追踪时调用实际实现，说明初始化有问题
+        if torch.compiler.is_compiling():
+            raise RuntimeError(
+                "cublaslt_fp8_mm CUDA implementation called during torch.compile tracing!\n"
+                "This indicates an initialization error. Ensure that:\n"
+                "  1. init_slidesparse(model_name) is called before model loading\n"
+                "  2. SlideSparseFp8LinearOp is instantiated before torch.compile"
+            )
+        
         ext = _gemm_extensions.get("cublaslt")
         if ext is None:
             raise RuntimeError(
-                "cuBLASLt extension not loaded. "
-                "Ensure _get_gemm_extension('cublaslt') is called first."
+                "cuBLASLt extension not loaded.\n"
+                "This can happen if:\n"
+                "  1. _get_gemm_extension('cublaslt') was not called during init\n"
+                "  2. The .so file failed to load\n"
+                "Ensure SlideSparseFp8LinearOp is instantiated before calling this op."
             )
         
         # 查表获取最优算法配置
@@ -770,11 +952,23 @@ def _register_cusparselt_fp8_custom_op():
         inner_dtype: str,
     ) -> torch.Tensor:
         """cuSPARSELt FP8 GEMM 实际执行（带算法配置查表）"""
+        # 编译期保护
+        if torch.compiler.is_compiling():
+            raise RuntimeError(
+                "cusparselt_fp8_mm CUDA implementation called during torch.compile tracing!\n"
+                "This indicates an initialization error. Ensure that:\n"
+                "  1. init_slidesparse(model_name) is called before model loading\n"
+                "  2. SlideSparseFp8LinearOp is instantiated before torch.compile"
+            )
+        
         ext = _gemm_extensions.get("cusparselt")
         if ext is None:
             raise RuntimeError(
-                "cuSPARSELt extension not loaded. "
-                "Ensure _get_gemm_extension('cusparselt') is called first."
+                "cuSPARSELt extension not loaded.\n"
+                "This can happen if:\n"
+                "  1. _get_gemm_extension('cusparselt') was not called during init\n"
+                "  2. The .so file failed to load\n"
+                "Ensure SlideSparseFp8LinearOp is instantiated before calling this op."
             )
         
         # 查表获取最优算法配置
@@ -825,11 +1019,23 @@ def _register_cublaslt_int8_custom_op():
         inner_dtype: str,
     ) -> torch.Tensor:
         """cuBLASLt INT8 GEMM 实际执行（输出固定为 INT32，带算法配置查表）"""
+        # 编译期保护
+        if torch.compiler.is_compiling():
+            raise RuntimeError(
+                "cublaslt_int8_mm CUDA implementation called during torch.compile tracing!\n"
+                "This indicates an initialization error. Ensure that:\n"
+                "  1. init_slidesparse(model_name) is called before model loading\n"
+                "  2. SlideSparseInt8LinearOp is instantiated before torch.compile"
+            )
+        
         ext = _gemm_extensions.get("cublaslt")
         if ext is None:
             raise RuntimeError(
-                "cuBLASLt extension not loaded. "
-                "Ensure _get_gemm_extension('cublaslt') is called first."
+                "cuBLASLt extension not loaded.\n"
+                "This can happen if:\n"
+                "  1. _get_gemm_extension('cublaslt') was not called during init\n"
+                "  2. The .so file failed to load\n"
+                "Ensure SlideSparseInt8LinearOp is instantiated before calling this op."
             )
         
         # 查表获取最优算法配置
@@ -877,11 +1083,23 @@ def _register_cusparselt_int8_custom_op():
         inner_dtype: str,
     ) -> torch.Tensor:
         """cuSPARSELt INT8 GEMM 实际执行（带算法配置查表）"""
+        # 编译期保护
+        if torch.compiler.is_compiling():
+            raise RuntimeError(
+                "cusparselt_int8_mm CUDA implementation called during torch.compile tracing!\n"
+                "This indicates an initialization error. Ensure that:\n"
+                "  1. init_slidesparse(model_name) is called before model loading\n"
+                "  2. SlideSparseInt8LinearOp is instantiated before torch.compile"
+            )
+        
         ext = _gemm_extensions.get("cusparselt")
         if ext is None:
             raise RuntimeError(
-                "cuSPARSELt extension not loaded. "
-                "Ensure _get_gemm_extension('cusparselt') is called first."
+                "cuSPARSELt extension not loaded.\n"
+                "This can happen if:\n"
+                "  1. _get_gemm_extension('cusparselt') was not called during init\n"
+                "  2. The .so file failed to load\n"
+                "Ensure SlideSparseInt8LinearOp is instantiated before calling this op."
             )
         
         # 查表获取最优算法配置

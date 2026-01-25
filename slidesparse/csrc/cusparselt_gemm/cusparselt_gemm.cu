@@ -272,36 +272,12 @@ static void cleanup_all_plans() {
 // Workspace 管理
 // ============================================================================
 
-static constexpr size_t WORKSPACE_SIZE = 32 * 1024 * 1024;  // 32 MB
+// Workspace memory is now managed by the caller (Python side) via torch allocator.
+// This is required for CUDAGraph compatibility.
+// static constexpr size_t WORKSPACE_SIZE = 32 * 1024 * 1024;  // 32 MB
+// static thread_local void* t_workspace = nullptr;
+// static thread_local size_t t_workspace_size = 0;
 
-static thread_local void* t_workspace = nullptr;
-static thread_local size_t t_workspace_size = 0;
-
-static void* get_workspace(size_t required_size) {
-    if (required_size == 0) {
-        return nullptr;
-    }
-    
-    size_t alloc_size = std::max(required_size, WORKSPACE_SIZE);
-    
-    if (t_workspace == nullptr || t_workspace_size < alloc_size) {
-        if (t_workspace != nullptr) {
-            cudaFree(t_workspace);
-            t_workspace = nullptr;
-            t_workspace_size = 0;
-        }
-        
-        cudaError_t err = cudaMalloc(&t_workspace, alloc_size);
-        if (err != cudaSuccess) {
-            throw std::runtime_error(
-                "Failed to allocate cuSPARSELt workspace: " +
-                std::string(cudaGetErrorString(err)));
-        }
-        t_workspace_size = alloc_size;
-    }
-    
-    return t_workspace;
-}
 
 // ============================================================================
 // 计划获取或创建
@@ -502,6 +478,8 @@ static void cusparselt_mm_impl(
     const std::string& inner_dtype,
     int alg_id,
     int split_k,
+    void* workspace_ptr,    // Added
+    size_t workspace_size,  // Added
     cudaStream_t stream)
 {
     // 获取句柄和计划
@@ -509,8 +487,13 @@ static void cusparselt_mm_impl(
     PlanContext& ctx = get_or_create_plan(handle, M, N, K, input_dtype, inner_dtype,
                                           alg_id, split_k);
     
-    // 获取 workspace
-    void* workspace = get_workspace(ctx.workspace_size);
+    // Check if provided workspace is sufficient
+    if (workspace_ptr != nullptr && workspace_size < ctx.workspace_size) {
+        std::ostringstream oss;
+        oss << "Provided workspace size (" << workspace_size << " bytes) is too small. "
+            << "Required: " << ctx.workspace_size << " bytes.";
+        throw std::runtime_error(oss.str());
+    }
     
     // 执行矩阵乘法
     // alpha = 1.0, beta = 0.0（纯矩阵乘法，scale 由后续 kernel 处理）
@@ -519,17 +502,9 @@ static void cusparselt_mm_impl(
     float beta = 0.0f;
     
     // cusparseLtMatmul 参数说明：
-    // - handle: cuSPARSELt 句柄
-    // - plan: 执行计划
-    // - alpha: 标量系数
-    // - dA: 第一个矩阵（根据 matmul 描述符配置，这里是 W_compressed）
-    // - dB: 第二个矩阵（这里是 A）
-    // - beta: 累加系数
-    // - dC: 累加矩阵（beta=0 时不使用）
-    // - dD: 输出矩阵
+    // ...
     // - workspace: 临时工作区
-    // - streams: CUDA 流数组
-    // - numStreams: 流数量
+    // ...
     CHECK_CUSPARSE(cusparseLtMatmul(
         &handle, &ctx.plan,
         &alpha,
@@ -538,7 +513,7 @@ static void cusparselt_mm_impl(
         &beta,
         D_ptr,             // 输出（beta=0 时不累加）
         D_ptr,             // 输出
-        workspace,
+        workspace_ptr,     // Use provided workspace
         stream ? &stream : nullptr,
         stream ? 1 : 0));
 }
@@ -599,7 +574,8 @@ int cusparselt_fp8_mm(
     const char* inner_dtype,
     int alg_id,
     int split_k,
-    size_t algo_workspace,
+    void* workspace_ptr,
+    size_t workspace_size,
     cudaStream_t stream
 ) {
     clear_error();
@@ -617,12 +593,9 @@ int cusparselt_fp8_mm(
             return -1;
         }
         
-        // algo_workspace 参数预留，当前 cuSPARSELt 的 workspace 由 plan 自动管理
-        (void)algo_workspace;
-        
         cusparselt_mm_impl(W_compressed_ptr, A_ptr, D_ptr, M, N, K,
                            "fp8e4m3", std::string(inner_dtype),
-                           alg_id, split_k, stream);
+                           alg_id, split_k, workspace_ptr, workspace_size, stream);
         return 0;
     } catch (const std::exception& e) {
         set_error(e.what());
@@ -662,7 +635,8 @@ int cusparselt_int8_mm(
     const char* inner_dtype,
     int alg_id,
     int split_k,
-    size_t algo_workspace,
+    void* workspace_ptr,
+    size_t workspace_size,
     cudaStream_t stream
 ) {
     clear_error();
@@ -687,12 +661,9 @@ int cusparselt_int8_mm(
             return -1;
         }
         
-        // algo_workspace 参数预留，当前 cuSPARSELt 的 workspace 由 plan 自动管理
-        (void)algo_workspace;
-        
         cusparselt_mm_impl(W_compressed_ptr, A_ptr, D_ptr, M, N, K,
                            "int8", dtype_str,
-                           alg_id, split_k, stream);
+                           alg_id, split_k, workspace_ptr, workspace_size, stream);
         return 0;
     } catch (const std::exception& e) {
         set_error(e.what());
