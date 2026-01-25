@@ -46,6 +46,8 @@ from slidesparse.utils import (
     get_gpu_name,
     get_nk_list_for_search,
     get_unique_n_values,
+    DEFAULT_M_LIST,
+    M_QUICK_LIST,
 )
 
 # 将 csrc 目录添加到 sys.path 以导入 utils
@@ -65,32 +67,36 @@ AUTOTUNE_CONFIGS = get_dequant_autotune_configs()
 
 
 # =============================================================================
-# Test Matrix Sizes
+# Test Matrix Sizes (默认值，可通过命令行参数覆盖)
 # =============================================================================
 
-# M search strategy:
-# - Small M (1-512): Dense search - high variance in optimal config
-# - Medium M (512-4096): Medium density
-# - Large M (4096+): Sparse search - configs converge to similar values
-M_VALUES = [
-    # Small M: dense (high variance)
-    1, 16, 32, 64, 128, 256, 512,
-    # Medium M: medium density
-    1024, 2048, 4096,
-    # Large M: sparse (results converge)
-    8192, 16384, 32768, 65536
-]
+# 使用顶层 DEFAULT_M_LIST 作为默认值
+M_VALUES = list(DEFAULT_M_LIST)
+
+# 默认 warmup/repeat 次数
+DEFAULT_WARMUP = 25
+DEFAULT_REPEAT = 100
 
 
 # =============================================================================
-# Autotune Kernel (with reduced warmup/rep for faster tuning)
+# Autotune Kernel (warmup/rep 由 run_tuning 动态设置)
 # =============================================================================
+
+# 全局变量用于动态设置 warmup/rep
+_AUTOTUNE_WARMUP = DEFAULT_WARMUP
+_AUTOTUNE_REP = DEFAULT_REPEAT
+
+
+def _get_autotune_configs():
+    """返回带有动态 warmup/rep 的 autotune configs"""
+    return AUTOTUNE_CONFIGS
+
 
 @triton.autotune(
     configs=AUTOTUNE_CONFIGS,
     key=['M', 'N'],
-    warmup=5,
-    rep=30,
+    warmup=25,  # 默认值，实际值在 run_tuning 中通过 cache reset 调整
+    rep=100,
 )
 @triton.jit
 def _dequant_bias_kernel_autotune(
@@ -420,12 +426,22 @@ def main():
     parser.add_argument('--Lmax', type=int, default=None, help='Max L for slide sparse (e.g., 10). If set, generates NK for L=4,6,8,...,Lmax')
     parser.add_argument('--M-quick', action='store_true', dest='m_quick',
                         help='M-quick mode: use fixed M values [16, 128, 1024, 4096, 16384]')
+    parser.add_argument('--m_list', type=str, default=None, 
+                        help='M list, comma separated (e.g., 16,128,512,2048,16384)')
+    parser.add_argument('--warmup', type=int, default=DEFAULT_WARMUP,
+                        help=f'Warmup iterations for autotune (default: {DEFAULT_WARMUP})')
+    parser.add_argument('--repeat', type=int, default=DEFAULT_REPEAT,
+                        help=f'Repeat iterations for autotune (default: {DEFAULT_REPEAT})')
     args = parser.parse_args()
     
-    # M-quick mode: use fixed M values
+    # M 列表优先级: --m_list > --M-quick > DEFAULT_M_LIST
     global M_VALUES, N_VALUES
-    if args.m_quick:
-        M_VALUES = [16, 128, 1024, 4096, 16384]
+    if args.m_list:
+        M_VALUES = [int(x.strip()) for x in args.m_list.split(",")]
+    elif args.m_quick:
+        M_VALUES = list(M_QUICK_LIST)
+    else:
+        M_VALUES = list(DEFAULT_M_LIST)
     
     # 使用统一的 NK 获取工具
     nk_list, model_name = get_nk_list_for_search(args.model, args.Lmax)
@@ -446,10 +462,12 @@ def main():
     print(f"PyTorch: {torch.__version__}")
     print(f"Triton:  {triton.__version__}")
     print(f"Input:   BF16/FP32 (auto-handled)")
+    print(f"Warmup:  {args.warmup}, Repeat: {args.repeat}")
     if args.model:
         print(f"Model:   {model_name}")
     if args.Lmax:
         print(f"Lmax:    {args.Lmax} (slide sparse L=4,6,...,{args.Lmax})")
+    print(f"M values: {M_VALUES}")
     print(f"N values: {N_VALUES}")
     print(f"Output:  {output_filename}")
     

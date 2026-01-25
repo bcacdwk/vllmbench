@@ -97,6 +97,18 @@ def _get_torch():
 
 
 # =============================================================================
+# 全局默认配置
+# =============================================================================
+
+# 默认 M 值列表（用于搜索/调优）
+# 覆盖从 decode (小 batch) 到 prefill (大 batch) 的典型场景
+DEFAULT_M_LIST = [16, 512, 1024, 4096, 8192, 16384]
+
+# M-quick 模式固定列表（快速测试）
+M_QUICK_LIST = [16, 128, 1024, 4096, 16384]
+
+
+# =============================================================================
 # 数据类型标准化
 # =============================================================================
 
@@ -3594,6 +3606,201 @@ def _try_auto_convert_model(
 # 模型名称处理工具
 # =============================================================================
 
+# 量化后缀列表（用于识别和去除）
+QUANT_SUFFIXES = ("-INT8", "-FP8", "-BF16", "-FP16")
+
+
+def model_base_name(model_name: str) -> str:
+    """
+    提取模型的基础名称（去除量化后缀 -INT8/-FP8/-BF16 等）
+    
+    INT8 和 FP8 模型共享相同的结构（N, K 维度），只是量化方式不同。
+    此函数用于获取不带量化后缀的 base name。
+    
+    示例:
+        >>> model_base_name("Qwen2.5-0.5B-INT8")
+        'Qwen2.5-0.5B'
+        >>> model_base_name("Llama3.2-1B-FP8")
+        'Llama3.2-1B'
+        >>> model_base_name("Qwen2.5-0.5B")  # 已经是 base name
+        'Qwen2.5-0.5B'
+        >>> model_base_name("BitNet-2B-BF16")
+        'BitNet-2B'
+    
+    Args:
+        model_name: 模型名称（可能带有量化后缀）
+    
+    Returns:
+        不带量化后缀的基础模型名
+    """
+    name = model_name
+    for suffix in QUANT_SUFFIXES:
+        if name.upper().endswith(suffix):
+            return name[:-len(suffix)]
+    return name
+
+
+def model_quant_suffix(model_name: str) -> Optional[str]:
+    """
+    提取模型名称中的量化后缀
+    
+    示例:
+        >>> model_quant_suffix("Qwen2.5-0.5B-INT8")
+        'INT8'
+        >>> model_quant_suffix("Llama3.2-1B-FP8")
+        'FP8'
+        >>> model_quant_suffix("Qwen2.5-0.5B")  # 无后缀
+        None
+    
+    Args:
+        model_name: 模型名称
+    
+    Returns:
+        量化后缀（不带 -），如 "INT8"、"FP8"，如果没有则返回 None
+    """
+    for suffix in QUANT_SUFFIXES:
+        if model_name.upper().endswith(suffix):
+            return suffix[1:]  # 去掉开头的 -
+    return None
+
+
+def find_model_checkpoint_for_dtype(
+    base_name: str,
+    dtype: str,
+    checkpoint_dir: Optional[Union[str, Path]] = None,
+) -> Optional[Path]:
+    """
+    根据 base name 和 dtype 查找对应的 checkpoint 目录
+    
+    Args:
+        base_name: 模型基础名称（不带量化后缀），如 "Qwen2.5-0.5B"
+        dtype: 数据类型，"int8" 或 "fp8"
+        checkpoint_dir: checkpoint 目录（默认 PROJECT_ROOT/checkpoints）
+    
+    Returns:
+        找到的 checkpoint 目录 Path，未找到则返回 None
+    
+    示例:
+        >>> find_model_checkpoint_for_dtype("Qwen2.5-0.5B", "int8")
+        Path('/path/to/checkpoints/Qwen2.5-0.5B-INT8')
+    """
+    if checkpoint_dir is None:
+        project_root = Path(__file__).parent.parent
+        checkpoint_dir = project_root / "checkpoints"
+    else:
+        checkpoint_dir = Path(checkpoint_dir)
+    
+    # 构建目标名称
+    suffix = "INT8" if dtype.lower() == "int8" else "FP8"
+    target_name = f"{base_name}-{suffix}"
+    target_path = checkpoint_dir / target_name
+    
+    if target_path.exists() and target_path.is_dir():
+        return target_path
+    return None
+
+
+def find_any_model_checkpoint(
+    base_name: str,
+    checkpoint_dir: Optional[Union[str, Path]] = None,
+) -> Tuple[Optional[Path], Optional[str]]:
+    """
+    根据 base name 查找任意一个存在的 checkpoint 目录（INT8 或 FP8）
+    
+    由于 INT8 和 FP8 模型的 NK 配置相同，获取 NK 时只需找到任一存在的目录即可。
+    
+    Args:
+        base_name: 模型基础名称（不带量化后缀），如 "Qwen2.5-0.5B"
+        checkpoint_dir: checkpoint 目录（默认 PROJECT_ROOT/checkpoints）
+    
+    Returns:
+        (path, full_name): 找到的 checkpoint 目录和完整名称，未找到则返回 (None, None)
+    
+    示例:
+        >>> find_any_model_checkpoint("Qwen2.5-0.5B")
+        (Path('/path/to/checkpoints/Qwen2.5-0.5B-INT8'), 'Qwen2.5-0.5B-INT8')
+    """
+    if checkpoint_dir is None:
+        project_root = Path(__file__).parent.parent
+        checkpoint_dir = project_root / "checkpoints"
+    else:
+        checkpoint_dir = Path(checkpoint_dir)
+    
+    # 优先尝试 INT8，然后 FP8，最后 BF16
+    for suffix in ["INT8", "FP8", "BF16"]:
+        target_name = f"{base_name}-{suffix}"
+        target_path = checkpoint_dir / target_name
+        if target_path.exists() and target_path.is_dir():
+            return target_path, target_name
+    
+    return None, None
+
+
+def normalize_model_input(
+    model_input: str,
+    checkpoint_dir: Optional[Union[str, Path]] = None,
+) -> Tuple[str, Optional[str]]:
+    """
+    标准化用户输入的模型名称
+    
+    无论用户输入的是 base name 还是带后缀的完整名称，都提取出：
+    1. base name（用于查找 NK 配置）
+    2. 用户指定的量化类型（如果有）
+    
+    同时验证模型是否存在（至少有一个对应的 checkpoint 目录）。
+    
+    Args:
+        model_input: 用户输入的模型名称
+        checkpoint_dir: checkpoint 目录
+    
+    Returns:
+        (base_name, quant_hint): 
+            - base_name: 模型基础名称
+            - quant_hint: 用户输入中包含的量化类型（"int8"/"fp8"），或 None
+    
+    Raises:
+        ValueError: 找不到对应的 checkpoint 目录
+    
+    示例:
+        >>> normalize_model_input("Qwen2.5-0.5B-INT8")
+        ('Qwen2.5-0.5B', 'int8')
+        >>> normalize_model_input("Qwen2.5-0.5B")
+        ('Qwen2.5-0.5B', None)
+    """
+    # 提取 base name 和量化后缀
+    base = model_base_name(model_input)
+    quant = model_quant_suffix(model_input)
+    quant_lower = quant.lower() if quant else None
+    
+    # 验证模型存在
+    path, _ = find_any_model_checkpoint(base, checkpoint_dir)
+    if path is None:
+        # 列出可用模型
+        if checkpoint_dir is None:
+            project_root = Path(__file__).parent.parent
+            checkpoint_dir = project_root / "checkpoints"
+        else:
+            checkpoint_dir = Path(checkpoint_dir)
+        
+        available = []
+        if checkpoint_dir.exists():
+            # 收集所有 base name（去重）
+            seen_bases = set()
+            for d in sorted(checkpoint_dir.iterdir()):
+                if d.is_dir() and not d.name.startswith('.'):
+                    b = model_base_name(d.name)
+                    if b not in seen_bases:
+                        seen_bases.add(b)
+                        available.append(b)
+        
+        error_msg = f"未找到模型 '{model_input}'（base name: '{base}'）"
+        if available:
+            error_msg += f"\n可用的模型: {', '.join(available[:10])}"
+        raise ValueError(error_msg)
+    
+    return base, quant_lower
+
+
 def extract_model_name(model_name_with_slide: str) -> str:
     """
     从完整模型名中提取基础模型名（去除 -SlideSparse-Z_L 后缀）
@@ -3908,6 +4115,10 @@ def get_unique_k_values(nk_list: List[Tuple[int, int]]) -> List[int]:
 # =============================================================================
 
 __all__ = [
+    # 全局默认配置
+    "DEFAULT_M_LIST",
+    "M_QUICK_LIST",
+    
     # 数据类型
     "normalize_dtype",
     "DTYPE_ALIASES",
@@ -4033,6 +4244,12 @@ __all__ = [
     "resolve_slidesparse_model_path",
     "find_slidesparse_model",
     # 模型名称处理工具
+    "QUANT_SUFFIXES",
+    "model_base_name",
+    "model_quant_suffix",
+    "find_model_checkpoint_for_dtype",
+    "find_any_model_checkpoint",
+    "normalize_model_input",
     "extract_model_name",
     "resolve_model_path_from_arg",
 ]

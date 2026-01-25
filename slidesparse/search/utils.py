@@ -31,6 +31,9 @@ from slidesparse.utils import (
     hw_info,
     HardwareInfo,
     normalize_dtype,
+    # 全局默认配置
+    DEFAULT_M_LIST,
+    M_QUICK_LIST,
     # 编译与加载
     load_cuda_extension,
     build_cuda_extension_direct,
@@ -355,8 +358,9 @@ def default_m_list() -> List[int]:
     返回默认的 M 值列表。
     
     覆盖从 decode (小 batch) 到 prefill (大 batch) 的典型场景。
+    使用顶层 slidesparse.utils 中定义的 DEFAULT_M_LIST。
     """
-    return [16, 128, 512, 2048, 16384]
+    return list(DEFAULT_M_LIST)
 
 
 def default_nk_list_bitnet_2b() -> List[Tuple[int, int]]:
