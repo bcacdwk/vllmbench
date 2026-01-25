@@ -30,6 +30,17 @@ from typing import Dict, Any, Tuple, Optional, List
 
 import torch
 
+# 添加项目路径
+_SCRIPT_DIR = Path(__file__).parent
+_SLIDESPARSE_ROOT = _SCRIPT_DIR.parent
+_PROJECT_ROOT = _SLIDESPARSE_ROOT.parent
+
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
+
+# 从顶层导入模型名称处理工具
+from slidesparse.utils import model_base_name
+
 # 导入本地工具
 from utils import (
     SlideSparseConfig,
@@ -542,18 +553,14 @@ def main():
     if args.output:
         output_base = Path(args.output)
     else:
-        # 从输入路径提取模型名
-        model_name = input_path.name if input_path.is_dir() else input_path.stem
-        # 移除可能的 -BF16, -FP8, -INT8 后缀
-        for suffix in ["-BF16", "-FP8", "-INT8", "_BF16", "_FP8", "_INT8"]:
-            if model_name.endswith(suffix):
-                model_name = model_name[:-len(suffix)]
-                break
+        # 从输入路径提取模型名，使用顶层工具去除量化后缀
+        raw_name = input_path.name if input_path.is_dir() else input_path.stem
+        base_name = model_base_name(raw_name)
         
         # 构建输出目录名
         mode_short = args.mode[:3]  # "mag" or "ran"
         dtype_tag = args.output_dtype.upper().replace("_", "") if args.bitnet else "PRUNED"
-        output_name = f"{model_name}_{mode_short}_Z{args.Z}L{args.L}_{dtype_tag}"
+        output_name = f"{base_name}_{mode_short}_Z{args.Z}L{args.L}_{dtype_tag}"
         
         # 放到 checkpoints_slidesparse 目录
         output_base = CHECKPOINT_SLIDESPARSE_DIR / output_name

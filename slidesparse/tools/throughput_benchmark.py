@@ -87,7 +87,6 @@ from slidesparse.tools.utils import (
     get_hw_folder_name,
     build_backend_result_dir,
     get_checkpoint_path,
-    auto_convert_sparse_checkpoint,
 )
 
 

@@ -8,18 +8,35 @@ SlideSparse 离线权重转换入口脚本
 将 HuggingFace 的 compressed-tensor 格式模型（FP8/INT8）转换为
 支持 cuSPARSELt 2:4 稀疏加速的格式。
 
+模型名称约定
+============
+本脚本使用的模型名称需要明确指定（精确匹配，不支持模糊匹配）：
+
+1. --model 参数接受两种格式：
+   - 目录名（如 "Qwen2.5-0.5B-FP8"）：直接在 checkpoints/ 下查找
+   - Registry key（如 "qwen2.5-0.5b-fp8"）：通过 model_registry 解析
+
+2. 输出目录命名规则：
+   - 格式：{输入目录名}-SlideSparse-{Z}_{L}
+   - 示例：Qwen2.5-0.5B-FP8-SlideSparse-2_8
+
+与其他脚本的区别：
+- model_download.py / throughput_benchmark.py：使用 registry key（如 qwen2.5-0.5b-fp8）
+- offline_autotune_algsearch.py：使用 base name（如 Qwen2.5-0.5B），自动按 dtype 扩展
+- weight_convert_entry.py（本脚本）：使用完整目录名或 registry key
+
 Usage:
     # 处理单个模型（默认只做 prune+slide，用于在线压缩）
-    python entry.py --model qwen2.5-0.5b-fp8 --Z 2 --L 8
+    python weight_convert_entry.py --model qwen2.5-0.5b-fp8 --Z 2 --L 8
     
     # 处理指定目录
-    python entry.py --input /path/to/model --Z 2 --L 8
+    python weight_convert_entry.py --input /path/to/model --Z 2 --L 8
     
     # 完整流程：prune+slide+compress（离线压缩，输出目录加 -compressed 后缀）
-    python entry.py --model qwen2.5-0.5b-fp8 --Z 2 --L 8 --compress
+    python weight_convert_entry.py --model qwen2.5-0.5b-fp8 --Z 2 --L 8 --compress
     
     # 处理所有已下载的 FP8 模型
-    python entry.py --all --quant fp8 --Z 2 --L 8
+    python weight_convert_entry.py --all --quant fp8 --Z 2 --L 8
 """
 
 import argparse
@@ -439,25 +456,28 @@ def process_model(
 
 def find_model_dir(model_key: str) -> Optional[Path]:
     """
-    根据模型 key 查找本地目录
+    根据模型标识查找本地目录
     
-    使用顶层 model_registry 进行查找，支持：
-    - 直接目录名：checkpoints/Qwen2.5-0.5B-FP8
-    - 模型 key：qwen2.5-0.5b-fp8
-    - 模糊匹配：qwen2.5-0.5b
+    支持以下两种输入格式（必须精确匹配）：
+    1. 目录名：Qwen2.5-0.5B-FP8（完整的 checkpoint 目录名）
+    2. Registry key：qwen2.5-0.5b-fp8（model_registry 中注册的 key）
+    
+    注意：不支持模糊匹配，避免不确定性。
     
     Args:
-        model_key: 模型 key（如 "qwen2.5-0.5b-fp8"）或本地目录名
+        model_key: 模型标识，可以是：
+            - 完整目录名（如 "Qwen2.5-0.5B-FP8"）
+            - registry key（如 "qwen2.5-0.5b-fp8"）
     
     Returns:
         模型目录路径，如果不存在返回 None
     """
-    # 尝试作为目录名直接查找
+    # 方式 1: 尝试作为目录名直接查找（精确匹配）
     direct_path = CHECKPOINT_DIR / model_key
     if direct_path.is_dir():
         return direct_path
     
-    # 尝试通过 model_registry 查找
+    # 方式 2: 尝试通过 model_registry 查找（精确匹配）
     if HAS_MODEL_REGISTRY:
         try:
             # 使用顶层的 get_model_local_path
@@ -466,12 +486,6 @@ def find_model_dir(model_key: str) -> Optional[Path]:
                 return local_path
         except (KeyError, AttributeError):
             pass
-    
-    # 尝试模糊匹配
-    if CHECKPOINT_DIR.exists():
-        for d in CHECKPOINT_DIR.iterdir():
-            if d.is_dir() and model_key.lower() in d.name.lower():
-                return d
     
     return None
 
@@ -553,16 +567,16 @@ def main():
 
 示例:
   # 处理单个模型（默认只做 prune+slide，用于在线压缩）
-  python entry.py --model qwen2.5-0.5b-fp8 --Z 2 --L 8
+  python weight_convert_entry.py --model qwen2.5-0.5b-fp8 --Z 2 --L 8
   
   # 处理单个模型（通过路径）
-  python entry.py --input /path/to/model --Z 2 --L 8
+  python weight_convert_entry.py --input /path/to/model --Z 2 --L 8
   
   # 完整流程（含压缩，输出目录加 -compressed 后缀）
-  python entry.py --model qwen2.5-0.5b-fp8 --Z 2 --L 8 --compress
+  python weight_convert_entry.py --model qwen2.5-0.5b-fp8 --Z 2 --L 8 --compress
   
   # 处理所有 FP8 模型
-  python entry.py --all --quant fp8 --Z 2 --L 8
+  python weight_convert_entry.py --all --quant fp8 --Z 2 --L 8
 
 维度变化 (2:8, expand_ratio=1.5):
   原始:     [N, K]

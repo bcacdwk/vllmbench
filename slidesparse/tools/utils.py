@@ -658,96 +658,11 @@ def get_checkpoint_path(
         if sparsity is None:
             return None
         
-        # 先尝试直接查找
-        sparse_path = resolve_slidesparse_model_path(model_path, sparsity)
-        if sparse_path is not None:
-            return sparse_path
-        
-        # 不存在，尝试自动转换
-        if auto_convert:
-            print_info(f"尝试自动转换: {entry.local_name} -> SlideSparse-{sparsity}")
-            sparse_path = auto_convert_sparse_checkpoint(
-                model_path, entry.local_name, sparsity
-            )
-            if sparse_path is not None:
-                return sparse_path
-        
-        return None
+        # 使用顶层工具查找/转换 SlideSparse checkpoint
+        # resolve_slidesparse_model_path 默认 auto_convert=True，会自动转换
+        return resolve_slidesparse_model_path(model_path, sparsity, auto_convert=auto_convert)
     
     return None
-
-
-def auto_convert_sparse_checkpoint(
-    base_model_path: Path,
-    model_name: str,
-    sparsity: str,
-) -> Optional[Path]:
-    """
-    自动转换 dense checkpoint 为 sparse 格式
-    
-    Args:
-        base_model_path: 基础模型路径
-        model_name: 模型名称（用于日志）
-        sparsity: 稀疏配置（如 "2_4"）
-    
-    Returns:
-        转换后的路径，失败返回 None
-    """
-    # 解析 sparsity
-    parts = sparsity.split("_")
-    if len(parts) != 2:
-        print_error(f"无效的稀疏配置: {sparsity}")
-        return None
-    
-    Z, L = int(parts[0]), int(parts[1])
-    
-    # 查找转换脚本
-    slidesparse_root = _TOOLS_DIR.parent
-    entry_script = slidesparse_root / "weight_convert" / "entry.py"
-    if not entry_script.exists():
-        print_error(f"转换脚本不存在: {entry_script}")
-        return None
-    
-    print()
-    print("=" * 70)
-    print(f"[SlideSparse] 自动转换: {model_name} -> SlideSparse-{sparsity}")
-    print("=" * 70)
-    
-    try:
-        cmd = [
-            sys.executable, str(entry_script),
-            "--input", str(base_model_path),
-            "--Z", str(Z),
-            "--L", str(L),
-        ]
-        
-        result = subprocess.run(
-            cmd,
-            cwd=str(entry_script.parent),
-            capture_output=False,  # 显示输出
-        )
-        
-        if result.returncode != 0:
-            print_error(f"转换失败 (exit code: {result.returncode})")
-            return None
-        
-        # 转换成功，返回新路径
-        slidesparse_dir = get_slidesparse_checkpoints_dir()
-        expected_name = f"{model_name}-SlideSparse-{sparsity}"
-        converted_path = slidesparse_dir / expected_name
-        
-        if converted_path.exists():
-            print_success(f"转换成功: {converted_path.name}")
-            print("=" * 70)
-            print()
-            return converted_path
-        else:
-            print_error(f"转换完成但未找到输出目录: {expected_name}")
-            return None
-            
-    except Exception as e:
-        print_error(f"转换出错: {e}")
-        return None
 
 
 __all__ = [
@@ -771,7 +686,6 @@ __all__ = [
     "build_backend_result_dir",
     # Checkpoint
     "get_checkpoint_path",
-    "auto_convert_sparse_checkpoint",
     # GPU
     "get_gpu_devices_for_tp",
     # vLLM

@@ -10,6 +10,27 @@ SlideSparse 统一离线调优与算法搜索脚本
 - Triton Quant Only: 纯量化 Kernel
 
 
+模型名称约定
+============
+本脚本与其他 tools 脚本的模型名称约定不同：
+
+1. 输入格式：接受 **base name**（无量化后缀）
+   - 推荐：Qwen2.5-0.5B, Llama3.2-1B
+   - 也可以带后缀（会被自动去除）：Qwen2.5-0.5B-INT8 → Qwen2.5-0.5B
+
+2. 调优类型：由 --dtype 参数决定（int8/fp8/all），与输入的模型名后缀无关
+   - 这是因为 INT8 和 FP8 模型的 NK 配置相同，只是量化方式不同
+
+3. 传递给子脚本：
+   - CUDA kernel: 完整 checkpoint 名（如 Qwen2.5-0.5B-INT8）
+   - Triton kernel: 任意存在的 checkpoint 名
+
+与其他脚本的区别：
+- model_download.py / throughput_benchmark.py：使用 registry key（如 qwen2.5-0.5b-fp8）
+- weight_convert_entry.py：使用完整目录名或 registry key
+- offline_autotune_algsearch.py（本脚本）：使用 base name，自动按 --dtype 扩展
+
+
 参数说明:
 =========
 --model:       模型名称，支持 base name 或带后缀的完整名称
