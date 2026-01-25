@@ -170,8 +170,8 @@ DEFAULT_SPARSITY_LIST = ["2_4", "2_6", "2_8", "2_10", "2_12"]
 # 支持的 Backend（顺序即默认测试顺序）
 DEFAULT_BACKEND_LIST = ["cutlass", "cublaslt", "cusparselt"]
 
-# 日志级别 (INFO 可以看到更多调试信息)
-VLLM_LOG_LEVEL = "INFO"
+# 日志级别 (WARNING 减少日志开销，需要调试时改为 INFO)
+VLLM_LOG_LEVEL = "WARNING"
 
 # GPU 配置
 GPU_ID = os.environ.get("CUDA_VISIBLE_DEVICES", "0")
@@ -640,6 +640,25 @@ def run_single_m_test(
     else:
         max_num_batched_tokens = params.m_decode   # = max_num_seqs
     
+    # vLLM 配置约束:
+    # 1. max_model_len >= prompt_len + output_len (否则无法处理请求)
+    # 2. max_num_batched_tokens >= max_model_len (配置验证要求)
+    #
+    # 实际 M 值控制逻辑:
+    # - max_num_batched_tokens 只是"允许的上限"，不是强制值
+    # - 实际 M 由 max_num_seqs 和请求状态决定:
+    #   - Prefill: M = max_num_seqs * prompt_len ✅
+    #   - Decode:  M = max_num_seqs (每序列生成 1 token) ✅
+    # - --no-enable-chunked-prefill 确保 prompt 不被分片
+    #
+    # 因此，即使 max_num_batched_tokens > target_M，实际 M 仍然等于 target_M
+    min_model_len = params.prompt_length + params.output_len
+    effective_max_model_len = min_model_len
+    
+    # 如果 max_num_batched_tokens < min_model_len，需要放宽以通过配置验证
+    if max_num_batched_tokens < min_model_len:
+        max_num_batched_tokens = min_model_len
+    
     # 构建 backend 显示名
     if backend == "cutlass":
         backend_display = "CUTLASS (SlideSparse fallback)"
@@ -674,7 +693,7 @@ def run_single_m_test(
     print(f"│   --output-len             = {params.output_len}")
     print(f"│   --num-prompts            = {params.num_prompts}")
     print(f"│   --max-num-seqs           = {params.max_num_seqs}")
-    print(f"│   --max-model-len          = {params.max_model_len}")
+    print(f"│   --max-model-len          = {effective_max_model_len}")
     print(f"│   --max-num-batched-tokens = {max_num_batched_tokens}")
     print(f"│   --no-enable-chunked-prefill")
     print("├─────────────────────────────────────────────────────────────┤")
@@ -716,7 +735,7 @@ def run_single_m_test(
             "--output-len", str(params.output_len),
             "--num-prompts", str(params.num_prompts),
             "--max-num-seqs", str(params.max_num_seqs),
-            "--max-model-len", str(params.max_model_len),
+            "--max-model-len", str(effective_max_model_len),
             "--max-num-batched-tokens", str(max_num_batched_tokens),
             "--no-enable-chunked-prefill",  # 禁用 chunked prefill 以精确控制 M
             "--gpu-memory-utilization", str(gpu_memory_util),

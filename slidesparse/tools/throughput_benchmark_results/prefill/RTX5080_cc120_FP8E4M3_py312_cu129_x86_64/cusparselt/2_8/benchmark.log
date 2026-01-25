@@ -274,3 +274,358 @@ Checkpoint: /root/vllmbench/checkpoints_slidesparse/Qwen2.5-0.5B-FP8-SlideSparse
 Params: prompt_len=16, output_len=1, num_prompts=128, max_num_seqs=1
 Command: vllm bench throughput --model /root/vllmbench/checkpoints_slidesparse/Qwen2.5-0.5B-FP8-SlideSparse-2_8 --dataset-name random --input-len 16 --output-len 1 --num-prompts 128 --max-num-seqs 1 --max-model-len 145 --max-num-batched-tokens 145 --gpu-memory-utilization 0.8 --disable-log-stats --output-json /root/vllmbench/slidesparse/tools/throughput_benchmark_results/prefill/RTX5080_cc120_FP8E4M3_py312_cu129_x86_64/cusparselt/2_8/json/Qwen2.5-0.5B-FP8_M16.json
 
+
+========== M=16 ==========
+Time: 2026-01-25 06:26:16
+Backend: cuSPARSELt (2:8)
+Checkpoint: /root/vllmbench/checkpoints_slidesparse/Qwen2.5-0.5B-FP8-SlideSparse-2_8
+Params: prompt_len=16, output_len=1, num_prompts=128, max_num_seqs=1
+Command: vllm bench throughput --model /root/vllmbench/checkpoints_slidesparse/Qwen2.5-0.5B-FP8-SlideSparse-2_8 --dataset-name random --input-len 16 --output-len 1 --num-prompts 128 --max-num-seqs 1 --max-model-len 17 --max-num-batched-tokens 17 --no-enable-chunked-prefill --gpu-memory-utilization 0.8 --disable-log-stats --output-json /root/vllmbench/slidesparse/tools/throughput_benchmark_results/prefill/RTX5080_cc120_FP8E4M3_py312_cu129_x86_64/cusparselt/2_8/json/Qwen2.5-0.5B-FP8_M16.json
+
+STDOUT:
+When dataset path is not set, it will default to random dataset
+WARNING 01-25 06:26:20 [arg_utils.py:1869] This model does not officially support disabling chunked prefill. Disabling this manually may cause the engine to crash or produce incorrect outputs.
+(EngineCore_DP0 pid=1104747) [INFO] Loading compress extension: cusparselt_compress_RTX5080_cc120_py312_cu129_x86_64.so
+(EngineCore_DP0 pid=1104747) WARNING 01-25 06:26:28 [backends.py:609] Failed to read file <frozen os>
+Throughput: 69.30 requests/s, 1178.03 total tokens/s, 69.30 output tokens/s
+Total num prompt tokens:  2048
+Total num output tokens:  128
+
+STDERR:
+[2026-01-25 06:26:20] INFO kernels.py:603: Triton kernel custom ops registered
+[2026-01-25 06:26:20] INFO kernels.py:649: Optimization enabled: Only preloading kernels for base model 'Qwen2.5-0.5B-FP8'
+[2026-01-25 06:26:20] WARNING kernels.py:140: Tuned kernel not found for Qwen2.5-0.5B-FP8, using basic kernel
+[2026-01-25 06:26:20] INFO kernels.py:97: Using basic kernel: basic_dequant_bias_triton.py
+[2026-01-25 06:26:20] INFO kernels.py:180: Dequant+bias kernel loaded for model: Qwen2.5-0.5B-FP8
+[2026-01-25 06:26:20] WARNING kernels.py:140: Tuned kernel not found for Qwen2.5-0.5B-FP8, using basic kernel
+[2026-01-25 06:26:20] INFO kernels.py:97: Using basic kernel: basic_quant_only_triton.py
+[2026-01-25 06:26:20] INFO kernels.py:249: FP8 quant kernel loaded for model: Qwen2.5-0.5B-FP8
+[2026-01-25 06:26:20] WARNING kernels.py:140: Tuned kernel not found for Qwen2.5-0.5B-FP8, using basic kernel
+[2026-01-25 06:26:20] INFO kernels.py:373: INT8 quant kernel loaded for model: Qwen2.5-0.5B-FP8
+[2026-01-25 06:26:20] WARNING kernels.py:140: Tuned kernel not found for Qwen2.5-0.5B-FP8, using basic kernel
+[2026-01-25 06:26:20] INFO kernels.py:97: Using basic kernel: basic_quant_slide_triton.py
+[2026-01-25 06:26:20] INFO kernels.py:309: FP8 quant+slide kernel loaded for model: Qwen2.5-0.5B-FP8
+[2026-01-25 06:26:20] WARNING kernels.py:140: Tuned kernel not found for Qwen2.5-0.5B-FP8, using basic kernel
+[2026-01-25 06:26:20] INFO kernels.py:433: INT8 quant+slide kernel loaded for model: Qwen2.5-0.5B-FP8
+[2026-01-25 06:26:20] INFO gemm_wrapper.py:168: Optimization enabled: Only loading GEMM configs for base model 'Qwen2.5-0.5B-FP8'
+[2026-01-25 06:26:20] INFO gemm_wrapper.py:183: Loaded algorithm configs: cuBLASLt=0, cuSPARSELt=0 models
+[2026-01-25 06:26:20] INFO gemm_wrapper.py:946: cuBLASLt FP8 custom op registered: slidesparse::cublaslt_fp8_mm
+[2026-01-25 06:26:20] INFO gemm_wrapper.py:1011: cuSPARSELt FP8 custom op registered: slidesparse::cusparselt_fp8_mm
+[2026-01-25 06:26:20] INFO gemm_wrapper.py:1077: cuBLASLt INT8 custom op registered: slidesparse::cublaslt_int8_mm
+[2026-01-25 06:26:20] INFO gemm_wrapper.py:1143: cuSPARSELt INT8 custom op registered: slidesparse::cusparselt_int8_mm
+[2026-01-25 06:26:24] INFO kernels.py:603: Triton kernel custom ops registered
+[2026-01-25 06:26:24] INFO kernels.py:649: Optimization enabled: Only preloading kernels for base model 'Qwen2.5-0.5B-FP8'
+[2026-01-25 06:26:24] WARNING kernels.py:140: Tuned kernel not found for Qwen2.5-0.5B-FP8, using basic kernel
+[2026-01-25 06:26:24] INFO kernels.py:97: Using basic kernel: basic_dequant_bias_triton.py
+[2026-01-25 06:26:24] INFO kernels.py:180: Dequant+bias kernel loaded for model: Qwen2.5-0.5B-FP8
+[2026-01-25 06:26:24] WARNING kernels.py:140: Tuned kernel not found for Qwen2.5-0.5B-FP8, using basic kernel
+[2026-01-25 06:26:24] INFO kernels.py:97: Using basic kernel: basic_quant_only_triton.py
+[2026-01-25 06:26:24] INFO kernels.py:249: FP8 quant kernel loaded for model: Qwen2.5-0.5B-FP8
+[2026-01-25 06:26:24] WARNING kernels.py:140: Tuned kernel not found for Qwen2.5-0.5B-FP8, using basic kernel
+[2026-01-25 06:26:24] INFO kernels.py:373: INT8 quant kernel loaded for model: Qwen2.5-0.5B-FP8
+[2026-01-25 06:26:24] WARNING kernels.py:140: Tuned kernel not found for Qwen2.5-0.5B-FP8, using basic kernel
+[2026-01-25 06:26:24] INFO kernels.py:97: Using basic kernel: basic_quant_slide_triton.py
+[2026-01-25 06:26:24] INFO kernels.py:309: FP8 quant+slide kernel loaded for model: Qwen2.5-0.5B-FP8
+[2026-01-25 06:26:24] WARNING kernels.py:140: Tuned kernel not found for Qwen2.5-0.5B-FP8, using basic kernel
+[2026-01-25 06:26:24] INFO kernels.py:433: INT8 quant+slide kernel loaded for model: Qwen2.5-0.5B-FP8
+[2026-01-25 06:26:24] INFO gemm_wrapper.py:168: Optimization enabled: Only loading GEMM configs for base model 'Qwen2.5-0.5B-FP8'
+[2026-01-25 06:26:24] INFO gemm_wrapper.py:183: Loaded algorithm configs: cuBLASLt=0, cuSPARSELt=0 models
+[2026-01-25 06:26:24] INFO gemm_wrapper.py:946: cuBLASLt FP8 custom op registered: slidesparse::cublaslt_fp8_mm
+[2026-01-25 06:26:24] INFO gemm_wrapper.py:1011: cuSPARSELt FP8 custom op registered: slidesparse::cusparselt_fp8_mm
+[2026-01-25 06:26:24] INFO gemm_wrapper.py:1077: cuBLASLt INT8 custom op registered: slidesparse::cublaslt_int8_mm
+[2026-01-25 06:26:24] INFO gemm_wrapper.py:1143: cuSPARSELt INT8 custom op registered: slidesparse::cusparselt_int8_mm
+(EngineCore_DP0 pid=1104747) [2026-01-25 06:26:24] INFO SlideSparseLinearMethod_FP8.py:730: Wrapping CompressedTensorsW8A8Fp8 with SlideSparse (cuSPARSELt)
+(EngineCore_DP0 pid=1104747) [2026-01-25 06:26:25] INFO gemm_wrapper.py:872: cusparselt GEMM extension loaded: cusparselt_gemm_RTX5080_cc120_py312_cu129_x86_64.so
+(EngineCore_DP0 pid=1104747) [2026-01-25 06:26:25] INFO SlideSparseLinearMethod_FP8.py:388: SlideSparseFp8LinearOp initialized (kernel=cuSPARSELt)
+(EngineCore_DP0 pid=1104747) [2026-01-25 06:26:25] INFO SlideSparseLinearMethod_FP8.py:535: SlideSparseFp8LinearMethod: cuSPARSELt sparsity=2:8, expand_ratio=1.333
+(EngineCore_DP0 pid=1104747) [2026-01-25 06:26:25] WARNING kernels.py:140: Tuned kernel not found for Qwen2.5-0.5B-FP8, using basic kernel
+(EngineCore_DP0 pid=1104747) [2026-01-25 06:26:25] INFO kernels.py:180: Dequant+bias kernel loaded for model: Qwen2.5-0.5B-FP8-SlideSparse-2_8
+(EngineCore_DP0 pid=1104747) [2026-01-25 06:26:25] WARNING kernels.py:140: Tuned kernel not found for Qwen2.5-0.5B-FP8, using basic kernel
+(EngineCore_DP0 pid=1104747) [2026-01-25 06:26:25] INFO kernels.py:309: FP8 quant+slide kernel loaded for model: Qwen2.5-0.5B-FP8-SlideSparse-2_8
+(EngineCore_DP0 pid=1104747) [2026-01-25 06:26:25] INFO SlideSparseLinearMethod_FP8.py:552: Preloaded FP8 Triton kernels for model: Qwen2.5-0.5B-FP8-SlideSparse-2_8
+(EngineCore_DP0 pid=1104747) [2026-01-25 06:26:25] INFO SlideSparseLinearMethod_FP8.py:556: SlideSparseFp8LinearMethod initialized, kernel=cuSPARSELt
+(EngineCore_DP0 pid=1104747) 
+Loading safetensors checkpoint shards:   0% Completed | 0/1 [00:00<?, ?it/s]
+(EngineCore_DP0 pid=1104747) 
+Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00, 11.03it/s]
+(EngineCore_DP0 pid=1104747) 
+(EngineCore_DP0 pid=1104747) [2026-01-25 06:26:25] INFO SlideSparseLinearMethod_FP8.py:656: cuSPARSELt compression: [1152, 1344] -> 1D uint8
+(EngineCore_DP0 pid=1104747) [2026-01-25 06:26:25] INFO SlideSparseLinearMethod_FP8.py:666: cuSPARSELt compression done: 976896 bytes
+(EngineCore_DP0 pid=1104747) [2026-01-25 06:26:25] INFO SlideSparseLinearMethod_FP8.py:656: cuSPARSELt compression: [896, 1344] -> 1D uint8
+(EngineCore_DP0 pid=1104747) [2026-01-25 06:26:25] INFO SlideSparseLinearMethod_FP8.py:666: cuSPARSELt compression done: 759808 bytes
+(EngineCore_DP0 pid=1104747) [2026-01-25 06:26:25] INFO SlideSparseLinearMethod_FP8.py:656: cuSPARSELt compression: [9728, 1344] -> 1D uint8
+(EngineCore_DP0 pid=1104747) [2026-01-25 06:26:25] INFO SlideSparseLinearMethod_FP8.py:666: cuSPARSELt compression done: 8249344 bytes
+(EngineCore_DP0 pid=1104747) [2026-01-25 06:26:25] INFO SlideSparseLinearMethod_FP8.py:656: cuSPARSELt compression: [896, 7296] -> 1D uint8
+(EngineCore_DP0 pid=1104747) [2026-01-25 06:26:25] INFO SlideSparseLinearMethod_FP8.py:666: cuSPARSELt compression done: 4085760 bytes
+(EngineCore_DP0 pid=1104747) [2026-01-25 06:26:31] WARNING gemm_wrapper.py:393: No cuSPARSELt config for model 'Qwen2.5-0.5B-FP8', using default algorithm
+(EngineCore_DP0 pid=1104747) 2026-01-25 06:26:33,786 - INFO - autotuner.py:256 - flashinfer.jit: [Autotuner]: Autotuning process starts ...
+(EngineCore_DP0 pid=1104747) 2026-01-25 06:26:33,799 - INFO - autotuner.py:262 - flashinfer.jit: [Autotuner]: Autotuning process ends
+(EngineCore_DP0 pid=1104747) 
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):   0%|          | 0/2 [00:00<?, ?it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE): 100%|██████████| 2/2 [00:00<00:00,  7.40it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE): 100%|██████████| 2/2 [00:00<00:00,  7.40it/s]
+(EngineCore_DP0 pid=1104747) 
+Capturing CUDA graphs (decode, FULL):   0%|          | 0/1 [00:00<?, ?it/s]
+Capturing CUDA graphs (decode, FULL): 100%|██████████| 1/1 [00:00<00:00,  6.86it/s]
+Capturing CUDA graphs (decode, FULL): 100%|██████████| 1/1 [00:00<00:00,  6.86it/s]
+
+Adding requests:   0%|          | 0/128 [00:00<?, ?it/s]
+Adding requests: 100%|██████████| 128/128 [00:00<00:00, 6758.62it/s]
+
+Processed prompts:   0%|          | 0/128 [00:00<?, ?it/s, est. speed input: 0.00 toks/s, output: 0.00 toks/s]
+Processed prompts:   1%|          | 1/128 [00:00<00:27,  4.60it/s, est. speed input: 73.56 toks/s, output: 4.60 toks/s]
+Processed prompts:   7%|▋         | 9/128 [00:00<00:03, 34.18it/s, est. speed input: 450.31 toks/s, output: 28.14 toks/s]
+Processed prompts:  13%|█▎        | 17/128 [00:00<00:02, 50.33it/s, est. speed input: 645.23 toks/s, output: 40.33 toks/s]
+Processed prompts:  20%|█▉        | 25/128 [00:00<00:01, 60.17it/s, est. speed input: 765.63 toks/s, output: 47.85 toks/s]
+Processed prompts:  26%|██▌       | 33/128 [00:00<00:01, 66.38it/s, est. speed input: 846.78 toks/s, output: 52.92 toks/s]
+Processed prompts:  32%|███▏      | 41/128 [00:00<00:01, 69.37it/s, est. speed input: 899.16 toks/s, output: 56.20 toks/s]
+Processed prompts:  38%|███▊      | 49/128 [00:00<00:01, 72.56it/s, est. speed input: 944.68 toks/s, output: 59.04 toks/s]
+Processed prompts:  45%|████▌     | 58/128 [00:00<00:00, 75.10it/s, est. speed input: 985.13 toks/s, output: 61.57 toks/s]
+Processed prompts:  52%|█████▏    | 66/128 [00:01<00:00, 76.46it/s, est. speed input: 1013.04 toks/s, output: 63.31 toks/s]
+Processed prompts:  58%|█████▊    | 74/128 [00:01<00:00, 77.50it/s, est. speed input: 1036.38 toks/s, output: 64.77 toks/s]
+Processed prompts:  64%|██████▍   | 82/128 [00:01<00:00, 77.42it/s, est. speed input: 1052.94 toks/s, output: 65.81 toks/s]
+Processed prompts:  70%|███████   | 90/128 [00:01<00:00, 78.12it/s, est. speed input: 1069.57 toks/s, output: 66.85 toks/s]
+Processed prompts:  77%|███████▋  | 98/128 [00:01<00:00, 78.41it/s, est. speed input: 1083.27 toks/s, output: 67.70 toks/s]
+Processed prompts:  83%|████████▎ | 106/128 [00:01<00:00, 78.28it/s, est. speed input: 1094.16 toks/s, output: 68.38 toks/s]
+Processed prompts:  89%|████████▉ | 114/128 [00:01<00:00, 78.55it/s, est. speed input: 1104.72 toks/s, output: 69.04 toks/s]
+Processed prompts:  95%|█████████▌| 122/128 [00:01<00:00, 78.84it/s, est. speed input: 1114.36 toks/s, output: 69.65 toks/s]
+Processed prompts: 100%|██████████| 128/128 [00:01<00:00, 78.84it/s, est. speed input: 1120.68 toks/s, output: 70.04 toks/s]
+Processed prompts: 100%|██████████| 128/128 [00:01<00:00, 70.04it/s, est. speed input: 1120.68 toks/s, output: 70.04 toks/s]
+[rank0]:[W125 06:26:37.967741307 ProcessGroupNCCL.cpp:1524] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+
+
+========== M=128 ==========
+Time: 2026-01-25 06:26:38
+Backend: cuSPARSELt (2:8)
+Checkpoint: /root/vllmbench/checkpoints_slidesparse/Qwen2.5-0.5B-FP8-SlideSparse-2_8
+Params: prompt_len=128, output_len=1, num_prompts=128, max_num_seqs=1
+Command: vllm bench throughput --model /root/vllmbench/checkpoints_slidesparse/Qwen2.5-0.5B-FP8-SlideSparse-2_8 --dataset-name random --input-len 128 --output-len 1 --num-prompts 128 --max-num-seqs 1 --max-model-len 129 --max-num-batched-tokens 129 --no-enable-chunked-prefill --gpu-memory-utilization 0.8 --disable-log-stats --output-json /root/vllmbench/slidesparse/tools/throughput_benchmark_results/prefill/RTX5080_cc120_FP8E4M3_py312_cu129_x86_64/cusparselt/2_8/json/Qwen2.5-0.5B-FP8_M128.json
+
+STDOUT:
+When dataset path is not set, it will default to random dataset
+WARNING 01-25 06:26:42 [arg_utils.py:1869] This model does not officially support disabling chunked prefill. Disabling this manually may cause the engine to crash or produce incorrect outputs.
+(EngineCore_DP0 pid=1105157) [INFO] Loading compress extension: cusparselt_compress_RTX5080_cc120_py312_cu129_x86_64.so
+(EngineCore_DP0 pid=1105157) WARNING 01-25 06:26:50 [backends.py:609] Failed to read file <frozen os>
+Throughput: 69.01 requests/s, 8901.87 total tokens/s, 69.01 output tokens/s
+Total num prompt tokens:  16384
+Total num output tokens:  128
+
+STDERR:
+[2026-01-25 06:26:42] INFO kernels.py:603: Triton kernel custom ops registered
+[2026-01-25 06:26:42] INFO kernels.py:649: Optimization enabled: Only preloading kernels for base model 'Qwen2.5-0.5B-FP8'
+[2026-01-25 06:26:42] WARNING kernels.py:140: Tuned kernel not found for Qwen2.5-0.5B-FP8, using basic kernel
+[2026-01-25 06:26:42] INFO kernels.py:97: Using basic kernel: basic_dequant_bias_triton.py
+[2026-01-25 06:26:42] INFO kernels.py:180: Dequant+bias kernel loaded for model: Qwen2.5-0.5B-FP8
+[2026-01-25 06:26:42] WARNING kernels.py:140: Tuned kernel not found for Qwen2.5-0.5B-FP8, using basic kernel
+[2026-01-25 06:26:42] INFO kernels.py:97: Using basic kernel: basic_quant_only_triton.py
+[2026-01-25 06:26:42] INFO kernels.py:249: FP8 quant kernel loaded for model: Qwen2.5-0.5B-FP8
+[2026-01-25 06:26:42] WARNING kernels.py:140: Tuned kernel not found for Qwen2.5-0.5B-FP8, using basic kernel
+[2026-01-25 06:26:42] INFO kernels.py:373: INT8 quant kernel loaded for model: Qwen2.5-0.5B-FP8
+[2026-01-25 06:26:42] WARNING kernels.py:140: Tuned kernel not found for Qwen2.5-0.5B-FP8, using basic kernel
+[2026-01-25 06:26:42] INFO kernels.py:97: Using basic kernel: basic_quant_slide_triton.py
+[2026-01-25 06:26:42] INFO kernels.py:309: FP8 quant+slide kernel loaded for model: Qwen2.5-0.5B-FP8
+[2026-01-25 06:26:42] WARNING kernels.py:140: Tuned kernel not found for Qwen2.5-0.5B-FP8, using basic kernel
+[2026-01-25 06:26:42] INFO kernels.py:433: INT8 quant+slide kernel loaded for model: Qwen2.5-0.5B-FP8
+[2026-01-25 06:26:42] INFO gemm_wrapper.py:168: Optimization enabled: Only loading GEMM configs for base model 'Qwen2.5-0.5B-FP8'
+[2026-01-25 06:26:42] INFO gemm_wrapper.py:183: Loaded algorithm configs: cuBLASLt=0, cuSPARSELt=0 models
+[2026-01-25 06:26:42] INFO gemm_wrapper.py:946: cuBLASLt FP8 custom op registered: slidesparse::cublaslt_fp8_mm
+[2026-01-25 06:26:42] INFO gemm_wrapper.py:1011: cuSPARSELt FP8 custom op registered: slidesparse::cusparselt_fp8_mm
+[2026-01-25 06:26:42] INFO gemm_wrapper.py:1077: cuBLASLt INT8 custom op registered: slidesparse::cublaslt_int8_mm
+[2026-01-25 06:26:42] INFO gemm_wrapper.py:1143: cuSPARSELt INT8 custom op registered: slidesparse::cusparselt_int8_mm
+[2026-01-25 06:26:46] INFO kernels.py:603: Triton kernel custom ops registered
+[2026-01-25 06:26:46] INFO kernels.py:649: Optimization enabled: Only preloading kernels for base model 'Qwen2.5-0.5B-FP8'
+[2026-01-25 06:26:46] WARNING kernels.py:140: Tuned kernel not found for Qwen2.5-0.5B-FP8, using basic kernel
+[2026-01-25 06:26:46] INFO kernels.py:97: Using basic kernel: basic_dequant_bias_triton.py
+[2026-01-25 06:26:46] INFO kernels.py:180: Dequant+bias kernel loaded for model: Qwen2.5-0.5B-FP8
+[2026-01-25 06:26:46] WARNING kernels.py:140: Tuned kernel not found for Qwen2.5-0.5B-FP8, using basic kernel
+[2026-01-25 06:26:46] INFO kernels.py:97: Using basic kernel: basic_quant_only_triton.py
+[2026-01-25 06:26:46] INFO kernels.py:249: FP8 quant kernel loaded for model: Qwen2.5-0.5B-FP8
+[2026-01-25 06:26:46] WARNING kernels.py:140: Tuned kernel not found for Qwen2.5-0.5B-FP8, using basic kernel
+[2026-01-25 06:26:46] INFO kernels.py:373: INT8 quant kernel loaded for model: Qwen2.5-0.5B-FP8
+[2026-01-25 06:26:46] WARNING kernels.py:140: Tuned kernel not found for Qwen2.5-0.5B-FP8, using basic kernel
+[2026-01-25 06:26:46] INFO kernels.py:97: Using basic kernel: basic_quant_slide_triton.py
+[2026-01-25 06:26:46] INFO kernels.py:309: FP8 quant+slide kernel loaded for model: Qwen2.5-0.5B-FP8
+[2026-01-25 06:26:46] WARNING kernels.py:140: Tuned kernel not found for Qwen2.5-0.5B-FP8, using basic kernel
+[2026-01-25 06:26:46] INFO kernels.py:433: INT8 quant+slide kernel loaded for model: Qwen2.5-0.5B-FP8
+[2026-01-25 06:26:46] INFO gemm_wrapper.py:168: Optimization enabled: Only loading GEMM configs for base model 'Qwen2.5-0.5B-FP8'
+[2026-01-25 06:26:46] INFO gemm_wrapper.py:183: Loaded algorithm configs: cuBLASLt=0, cuSPARSELt=0 models
+[2026-01-25 06:26:46] INFO gemm_wrapper.py:946: cuBLASLt FP8 custom op registered: slidesparse::cublaslt_fp8_mm
+[2026-01-25 06:26:46] INFO gemm_wrapper.py:1011: cuSPARSELt FP8 custom op registered: slidesparse::cusparselt_fp8_mm
+[2026-01-25 06:26:46] INFO gemm_wrapper.py:1077: cuBLASLt INT8 custom op registered: slidesparse::cublaslt_int8_mm
+[2026-01-25 06:26:46] INFO gemm_wrapper.py:1143: cuSPARSELt INT8 custom op registered: slidesparse::cusparselt_int8_mm
+(EngineCore_DP0 pid=1105157) [2026-01-25 06:26:46] INFO SlideSparseLinearMethod_FP8.py:730: Wrapping CompressedTensorsW8A8Fp8 with SlideSparse (cuSPARSELt)
+(EngineCore_DP0 pid=1105157) [2026-01-25 06:26:46] INFO gemm_wrapper.py:872: cusparselt GEMM extension loaded: cusparselt_gemm_RTX5080_cc120_py312_cu129_x86_64.so
+(EngineCore_DP0 pid=1105157) [2026-01-25 06:26:46] INFO SlideSparseLinearMethod_FP8.py:388: SlideSparseFp8LinearOp initialized (kernel=cuSPARSELt)
+(EngineCore_DP0 pid=1105157) [2026-01-25 06:26:46] INFO SlideSparseLinearMethod_FP8.py:535: SlideSparseFp8LinearMethod: cuSPARSELt sparsity=2:8, expand_ratio=1.333
+(EngineCore_DP0 pid=1105157) [2026-01-25 06:26:46] WARNING kernels.py:140: Tuned kernel not found for Qwen2.5-0.5B-FP8, using basic kernel
+(EngineCore_DP0 pid=1105157) [2026-01-25 06:26:46] INFO kernels.py:180: Dequant+bias kernel loaded for model: Qwen2.5-0.5B-FP8-SlideSparse-2_8
+(EngineCore_DP0 pid=1105157) [2026-01-25 06:26:46] WARNING kernels.py:140: Tuned kernel not found for Qwen2.5-0.5B-FP8, using basic kernel
+(EngineCore_DP0 pid=1105157) [2026-01-25 06:26:46] INFO kernels.py:309: FP8 quant+slide kernel loaded for model: Qwen2.5-0.5B-FP8-SlideSparse-2_8
+(EngineCore_DP0 pid=1105157) [2026-01-25 06:26:46] INFO SlideSparseLinearMethod_FP8.py:552: Preloaded FP8 Triton kernels for model: Qwen2.5-0.5B-FP8-SlideSparse-2_8
+(EngineCore_DP0 pid=1105157) [2026-01-25 06:26:46] INFO SlideSparseLinearMethod_FP8.py:556: SlideSparseFp8LinearMethod initialized, kernel=cuSPARSELt
+(EngineCore_DP0 pid=1105157) 
+Loading safetensors checkpoint shards:   0% Completed | 0/1 [00:00<?, ?it/s]
+(EngineCore_DP0 pid=1105157) 
+Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00, 11.28it/s]
+(EngineCore_DP0 pid=1105157) 
+(EngineCore_DP0 pid=1105157) [2026-01-25 06:26:46] INFO SlideSparseLinearMethod_FP8.py:656: cuSPARSELt compression: [1152, 1344] -> 1D uint8
+(EngineCore_DP0 pid=1105157) [2026-01-25 06:26:46] INFO SlideSparseLinearMethod_FP8.py:666: cuSPARSELt compression done: 976896 bytes
+(EngineCore_DP0 pid=1105157) [2026-01-25 06:26:46] INFO SlideSparseLinearMethod_FP8.py:656: cuSPARSELt compression: [896, 1344] -> 1D uint8
+(EngineCore_DP0 pid=1105157) [2026-01-25 06:26:46] INFO SlideSparseLinearMethod_FP8.py:666: cuSPARSELt compression done: 759808 bytes
+(EngineCore_DP0 pid=1105157) [2026-01-25 06:26:46] INFO SlideSparseLinearMethod_FP8.py:656: cuSPARSELt compression: [9728, 1344] -> 1D uint8
+(EngineCore_DP0 pid=1105157) [2026-01-25 06:26:46] INFO SlideSparseLinearMethod_FP8.py:666: cuSPARSELt compression done: 8249344 bytes
+(EngineCore_DP0 pid=1105157) [2026-01-25 06:26:46] INFO SlideSparseLinearMethod_FP8.py:656: cuSPARSELt compression: [896, 7296] -> 1D uint8
+(EngineCore_DP0 pid=1105157) [2026-01-25 06:26:46] INFO SlideSparseLinearMethod_FP8.py:666: cuSPARSELt compression done: 4085760 bytes
+(EngineCore_DP0 pid=1105157) [2026-01-25 06:26:53] WARNING gemm_wrapper.py:393: No cuSPARSELt config for model 'Qwen2.5-0.5B-FP8', using default algorithm
+(EngineCore_DP0 pid=1105157) 2026-01-25 06:26:55,304 - INFO - autotuner.py:256 - flashinfer.jit: [Autotuner]: Autotuning process starts ...
+(EngineCore_DP0 pid=1105157) 2026-01-25 06:26:55,316 - INFO - autotuner.py:262 - flashinfer.jit: [Autotuner]: Autotuning process ends
+(EngineCore_DP0 pid=1105157) 
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):   0%|          | 0/2 [00:00<?, ?it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE): 100%|██████████| 2/2 [00:00<00:00, 27.55it/s]
+(EngineCore_DP0 pid=1105157) 
+Capturing CUDA graphs (decode, FULL):   0%|          | 0/1 [00:00<?, ?it/s]
+Capturing CUDA graphs (decode, FULL): 100%|██████████| 1/1 [00:00<00:00,  6.98it/s]
+Capturing CUDA graphs (decode, FULL): 100%|██████████| 1/1 [00:00<00:00,  6.98it/s]
+
+Adding requests:   0%|          | 0/128 [00:00<?, ?it/s]
+Adding requests: 100%|██████████| 128/128 [00:00<00:00, 2784.15it/s]
+
+Processed prompts:   0%|          | 0/128 [00:00<?, ?it/s, est. speed input: 0.00 toks/s, output: 0.00 toks/s]
+Processed prompts:   1%|          | 1/128 [00:00<00:23,  5.32it/s, est. speed input: 681.12 toks/s, output: 5.32 toks/s]
+Processed prompts:   7%|▋         | 9/128 [00:00<00:03, 36.81it/s, est. speed input: 3935.49 toks/s, output: 30.75 toks/s]
+Processed prompts:  13%|█▎        | 17/128 [00:00<00:02, 52.75it/s, est. speed input: 5517.39 toks/s, output: 43.10 toks/s]
+Processed prompts:  20%|█▉        | 25/128 [00:00<00:01, 62.01it/s, est. speed input: 6458.47 toks/s, output: 50.46 toks/s]
+Processed prompts:  26%|██▌       | 33/128 [00:00<00:01, 67.81it/s, est. speed input: 7084.75 toks/s, output: 55.35 toks/s]
+Processed prompts:  32%|███▏      | 41/128 [00:00<00:01, 71.39it/s, est. speed input: 7522.13 toks/s, output: 58.77 toks/s]
+Processed prompts:  38%|███▊      | 49/128 [00:00<00:01, 73.53it/s, est. speed input: 7839.36 toks/s, output: 61.24 toks/s]
+Processed prompts:  45%|████▍     | 57/128 [00:00<00:00, 75.18it/s, est. speed input: 8092.83 toks/s, output: 63.22 toks/s]
+Processed prompts:  51%|█████     | 65/128 [00:01<00:00, 76.24it/s, est. speed input: 8292.66 toks/s, output: 64.79 toks/s]
+Processed prompts:  57%|█████▋    | 73/128 [00:01<00:00, 77.07it/s, est. speed input: 8458.95 toks/s, output: 66.09 toks/s]
+Processed prompts:  63%|██████▎   | 81/128 [00:01<00:00, 77.89it/s, est. speed input: 8605.01 toks/s, output: 67.23 toks/s]
+Processed prompts:  70%|██████▉   | 89/128 [00:01<00:00, 78.24it/s, est. speed input: 8722.27 toks/s, output: 68.14 toks/s]
+Processed prompts:  76%|███████▌  | 97/128 [00:01<00:00, 78.34it/s, est. speed input: 8818.67 toks/s, output: 68.90 toks/s]
+Processed prompts:  82%|████████▏ | 105/128 [00:01<00:00, 78.13it/s, est. speed input: 8895.28 toks/s, output: 69.49 toks/s]
+Processed prompts:  88%|████████▊ | 113/128 [00:01<00:00, 78.05it/s, est. speed input: 8963.50 toks/s, output: 70.03 toks/s]
+Processed prompts:  95%|█████████▍| 121/128 [00:01<00:00, 77.74it/s, est. speed input: 9017.66 toks/s, output: 70.45 toks/s]
+Processed prompts: 100%|██████████| 128/128 [00:01<00:00, 77.74it/s, est. speed input: 9062.01 toks/s, output: 70.80 toks/s]
+Processed prompts: 100%|██████████| 128/128 [00:01<00:00, 70.79it/s, est. speed input: 9062.01 toks/s, output: 70.80 toks/s]
+[rank0]:[W125 06:26:58.426865710 ProcessGroupNCCL.cpp:1524] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+
+
+========== M=256 ==========
+Time: 2026-01-25 06:26:59
+Backend: cuSPARSELt (2:8)
+Checkpoint: /root/vllmbench/checkpoints_slidesparse/Qwen2.5-0.5B-FP8-SlideSparse-2_8
+Params: prompt_len=256, output_len=1, num_prompts=128, max_num_seqs=1
+Command: vllm bench throughput --model /root/vllmbench/checkpoints_slidesparse/Qwen2.5-0.5B-FP8-SlideSparse-2_8 --dataset-name random --input-len 256 --output-len 1 --num-prompts 128 --max-num-seqs 1 --max-model-len 257 --max-num-batched-tokens 257 --no-enable-chunked-prefill --gpu-memory-utilization 0.8 --disable-log-stats --output-json /root/vllmbench/slidesparse/tools/throughput_benchmark_results/prefill/RTX5080_cc120_FP8E4M3_py312_cu129_x86_64/cusparselt/2_8/json/Qwen2.5-0.5B-FP8_M256.json
+
+STDOUT:
+When dataset path is not set, it will default to random dataset
+WARNING 01-25 06:27:03 [arg_utils.py:1869] This model does not officially support disabling chunked prefill. Disabling this manually may cause the engine to crash or produce incorrect outputs.
+(EngineCore_DP0 pid=1105558) [INFO] Loading compress extension: cusparselt_compress_RTX5080_cc120_py312_cu129_x86_64.so
+(EngineCore_DP0 pid=1105558) WARNING 01-25 06:27:11 [backends.py:609] Failed to read file <frozen os>
+Throughput: 72.59 requests/s, 18655.66 total tokens/s, 72.59 output tokens/s
+Total num prompt tokens:  32768
+Total num output tokens:  128
+
+STDERR:
+[2026-01-25 06:27:03] INFO kernels.py:603: Triton kernel custom ops registered
+[2026-01-25 06:27:03] INFO kernels.py:649: Optimization enabled: Only preloading kernels for base model 'Qwen2.5-0.5B-FP8'
+[2026-01-25 06:27:03] WARNING kernels.py:140: Tuned kernel not found for Qwen2.5-0.5B-FP8, using basic kernel
+[2026-01-25 06:27:03] INFO kernels.py:97: Using basic kernel: basic_dequant_bias_triton.py
+[2026-01-25 06:27:03] INFO kernels.py:180: Dequant+bias kernel loaded for model: Qwen2.5-0.5B-FP8
+[2026-01-25 06:27:03] WARNING kernels.py:140: Tuned kernel not found for Qwen2.5-0.5B-FP8, using basic kernel
+[2026-01-25 06:27:03] INFO kernels.py:97: Using basic kernel: basic_quant_only_triton.py
+[2026-01-25 06:27:03] INFO kernels.py:249: FP8 quant kernel loaded for model: Qwen2.5-0.5B-FP8
+[2026-01-25 06:27:03] WARNING kernels.py:140: Tuned kernel not found for Qwen2.5-0.5B-FP8, using basic kernel
+[2026-01-25 06:27:03] INFO kernels.py:373: INT8 quant kernel loaded for model: Qwen2.5-0.5B-FP8
+[2026-01-25 06:27:03] WARNING kernels.py:140: Tuned kernel not found for Qwen2.5-0.5B-FP8, using basic kernel
+[2026-01-25 06:27:03] INFO kernels.py:97: Using basic kernel: basic_quant_slide_triton.py
+[2026-01-25 06:27:03] INFO kernels.py:309: FP8 quant+slide kernel loaded for model: Qwen2.5-0.5B-FP8
+[2026-01-25 06:27:03] WARNING kernels.py:140: Tuned kernel not found for Qwen2.5-0.5B-FP8, using basic kernel
+[2026-01-25 06:27:03] INFO kernels.py:433: INT8 quant+slide kernel loaded for model: Qwen2.5-0.5B-FP8
+[2026-01-25 06:27:03] INFO gemm_wrapper.py:168: Optimization enabled: Only loading GEMM configs for base model 'Qwen2.5-0.5B-FP8'
+[2026-01-25 06:27:03] INFO gemm_wrapper.py:183: Loaded algorithm configs: cuBLASLt=0, cuSPARSELt=0 models
+[2026-01-25 06:27:03] INFO gemm_wrapper.py:946: cuBLASLt FP8 custom op registered: slidesparse::cublaslt_fp8_mm
+[2026-01-25 06:27:03] INFO gemm_wrapper.py:1011: cuSPARSELt FP8 custom op registered: slidesparse::cusparselt_fp8_mm
+[2026-01-25 06:27:03] INFO gemm_wrapper.py:1077: cuBLASLt INT8 custom op registered: slidesparse::cublaslt_int8_mm
+[2026-01-25 06:27:03] INFO gemm_wrapper.py:1143: cuSPARSELt INT8 custom op registered: slidesparse::cusparselt_int8_mm
+[2026-01-25 06:27:07] INFO kernels.py:603: Triton kernel custom ops registered
+[2026-01-25 06:27:07] INFO kernels.py:649: Optimization enabled: Only preloading kernels for base model 'Qwen2.5-0.5B-FP8'
+[2026-01-25 06:27:07] WARNING kernels.py:140: Tuned kernel not found for Qwen2.5-0.5B-FP8, using basic kernel
+[2026-01-25 06:27:07] INFO kernels.py:97: Using basic kernel: basic_dequant_bias_triton.py
+[2026-01-25 06:27:07] INFO kernels.py:180: Dequant+bias kernel loaded for model: Qwen2.5-0.5B-FP8
+[2026-01-25 06:27:07] WARNING kernels.py:140: Tuned kernel not found for Qwen2.5-0.5B-FP8, using basic kernel
+[2026-01-25 06:27:07] INFO kernels.py:97: Using basic kernel: basic_quant_only_triton.py
+[2026-01-25 06:27:07] INFO kernels.py:249: FP8 quant kernel loaded for model: Qwen2.5-0.5B-FP8
+[2026-01-25 06:27:07] WARNING kernels.py:140: Tuned kernel not found for Qwen2.5-0.5B-FP8, using basic kernel
+[2026-01-25 06:27:07] INFO kernels.py:373: INT8 quant kernel loaded for model: Qwen2.5-0.5B-FP8
+[2026-01-25 06:27:07] WARNING kernels.py:140: Tuned kernel not found for Qwen2.5-0.5B-FP8, using basic kernel
+[2026-01-25 06:27:07] INFO kernels.py:97: Using basic kernel: basic_quant_slide_triton.py
+[2026-01-25 06:27:07] INFO kernels.py:309: FP8 quant+slide kernel loaded for model: Qwen2.5-0.5B-FP8
+[2026-01-25 06:27:07] WARNING kernels.py:140: Tuned kernel not found for Qwen2.5-0.5B-FP8, using basic kernel
+[2026-01-25 06:27:07] INFO kernels.py:433: INT8 quant+slide kernel loaded for model: Qwen2.5-0.5B-FP8
+[2026-01-25 06:27:07] INFO gemm_wrapper.py:168: Optimization enabled: Only loading GEMM configs for base model 'Qwen2.5-0.5B-FP8'
+[2026-01-25 06:27:07] INFO gemm_wrapper.py:183: Loaded algorithm configs: cuBLASLt=0, cuSPARSELt=0 models
+[2026-01-25 06:27:07] INFO gemm_wrapper.py:946: cuBLASLt FP8 custom op registered: slidesparse::cublaslt_fp8_mm
+[2026-01-25 06:27:07] INFO gemm_wrapper.py:1011: cuSPARSELt FP8 custom op registered: slidesparse::cusparselt_fp8_mm
+[2026-01-25 06:27:07] INFO gemm_wrapper.py:1077: cuBLASLt INT8 custom op registered: slidesparse::cublaslt_int8_mm
+[2026-01-25 06:27:07] INFO gemm_wrapper.py:1143: cuSPARSELt INT8 custom op registered: slidesparse::cusparselt_int8_mm
+(EngineCore_DP0 pid=1105558) [2026-01-25 06:27:08] INFO SlideSparseLinearMethod_FP8.py:730: Wrapping CompressedTensorsW8A8Fp8 with SlideSparse (cuSPARSELt)
+(EngineCore_DP0 pid=1105558) [2026-01-25 06:27:08] INFO gemm_wrapper.py:872: cusparselt GEMM extension loaded: cusparselt_gemm_RTX5080_cc120_py312_cu129_x86_64.so
+(EngineCore_DP0 pid=1105558) [2026-01-25 06:27:08] INFO SlideSparseLinearMethod_FP8.py:388: SlideSparseFp8LinearOp initialized (kernel=cuSPARSELt)
+(EngineCore_DP0 pid=1105558) [2026-01-25 06:27:08] INFO SlideSparseLinearMethod_FP8.py:535: SlideSparseFp8LinearMethod: cuSPARSELt sparsity=2:8, expand_ratio=1.333
+(EngineCore_DP0 pid=1105558) [2026-01-25 06:27:08] WARNING kernels.py:140: Tuned kernel not found for Qwen2.5-0.5B-FP8, using basic kernel
+(EngineCore_DP0 pid=1105558) [2026-01-25 06:27:08] INFO kernels.py:180: Dequant+bias kernel loaded for model: Qwen2.5-0.5B-FP8-SlideSparse-2_8
+(EngineCore_DP0 pid=1105558) [2026-01-25 06:27:08] WARNING kernels.py:140: Tuned kernel not found for Qwen2.5-0.5B-FP8, using basic kernel
+(EngineCore_DP0 pid=1105558) [2026-01-25 06:27:08] INFO kernels.py:309: FP8 quant+slide kernel loaded for model: Qwen2.5-0.5B-FP8-SlideSparse-2_8
+(EngineCore_DP0 pid=1105558) [2026-01-25 06:27:08] INFO SlideSparseLinearMethod_FP8.py:552: Preloaded FP8 Triton kernels for model: Qwen2.5-0.5B-FP8-SlideSparse-2_8
+(EngineCore_DP0 pid=1105558) [2026-01-25 06:27:08] INFO SlideSparseLinearMethod_FP8.py:556: SlideSparseFp8LinearMethod initialized, kernel=cuSPARSELt
+(EngineCore_DP0 pid=1105558) 
+Loading safetensors checkpoint shards:   0% Completed | 0/1 [00:00<?, ?it/s]
+(EngineCore_DP0 pid=1105558) 
+Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00, 11.12it/s]
+(EngineCore_DP0 pid=1105558) 
+(EngineCore_DP0 pid=1105558) [2026-01-25 06:27:08] INFO SlideSparseLinearMethod_FP8.py:656: cuSPARSELt compression: [1152, 1344] -> 1D uint8
+(EngineCore_DP0 pid=1105558) [2026-01-25 06:27:08] INFO SlideSparseLinearMethod_FP8.py:666: cuSPARSELt compression done: 976896 bytes
+(EngineCore_DP0 pid=1105558) [2026-01-25 06:27:08] INFO SlideSparseLinearMethod_FP8.py:656: cuSPARSELt compression: [896, 1344] -> 1D uint8
+(EngineCore_DP0 pid=1105558) [2026-01-25 06:27:08] INFO SlideSparseLinearMethod_FP8.py:666: cuSPARSELt compression done: 759808 bytes
+(EngineCore_DP0 pid=1105558) [2026-01-25 06:27:08] INFO SlideSparseLinearMethod_FP8.py:656: cuSPARSELt compression: [9728, 1344] -> 1D uint8
+(EngineCore_DP0 pid=1105558) [2026-01-25 06:27:08] INFO SlideSparseLinearMethod_FP8.py:666: cuSPARSELt compression done: 8249344 bytes
+(EngineCore_DP0 pid=1105558) [2026-01-25 06:27:08] INFO SlideSparseLinearMethod_FP8.py:656: cuSPARSELt compression: [896, 7296] -> 1D uint8
+(EngineCore_DP0 pid=1105558) [2026-01-25 06:27:08] INFO SlideSparseLinearMethod_FP8.py:666: cuSPARSELt compression done: 4085760 bytes
+(EngineCore_DP0 pid=1105558) [2026-01-25 06:27:14] WARNING gemm_wrapper.py:393: No cuSPARSELt config for model 'Qwen2.5-0.5B-FP8', using default algorithm
+(EngineCore_DP0 pid=1105558) 2026-01-25 06:27:16,544 - INFO - autotuner.py:256 - flashinfer.jit: [Autotuner]: Autotuning process starts ...
+(EngineCore_DP0 pid=1105558) 2026-01-25 06:27:16,557 - INFO - autotuner.py:262 - flashinfer.jit: [Autotuner]: Autotuning process ends
+(EngineCore_DP0 pid=1105558) 
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):   0%|          | 0/2 [00:00<?, ?it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE): 100%|██████████| 2/2 [00:00<00:00, 27.46it/s]
+(EngineCore_DP0 pid=1105558) 
+Capturing CUDA graphs (decode, FULL):   0%|          | 0/1 [00:00<?, ?it/s]
+Capturing CUDA graphs (decode, FULL): 100%|██████████| 1/1 [00:00<00:00,  6.97it/s]
+Capturing CUDA graphs (decode, FULL): 100%|██████████| 1/1 [00:00<00:00,  6.97it/s]
+
+Adding requests:   0%|          | 0/128 [00:00<?, ?it/s]
+Adding requests: 100%|██████████| 128/128 [00:00<00:00, 1674.71it/s]
+
+Processed prompts:   0%|          | 0/128 [00:00<?, ?it/s, est. speed input: 0.00 toks/s, output: 0.00 toks/s]
+Processed prompts:   4%|▍         | 5/128 [00:00<00:02, 44.44it/s, est. speed input: 11378.96 toks/s, output: 44.44 toks/s]
+Processed prompts:  10%|█         | 13/128 [00:00<00:01, 63.77it/s, est. speed input: 15545.60 toks/s, output: 60.72 toks/s]
+Processed prompts:  16%|█▋        | 21/128 [00:00<00:01, 70.17it/s, est. speed input: 16983.19 toks/s, output: 66.34 toks/s]
+Processed prompts:  23%|██▎       | 29/128 [00:00<00:01, 73.39it/s, est. speed input: 17737.13 toks/s, output: 69.28 toks/s]
+Processed prompts:  29%|██▉       | 37/128 [00:00<00:01, 74.19it/s, est. speed input: 18062.05 toks/s, output: 70.55 toks/s]
+Processed prompts:  35%|███▌      | 45/128 [00:00<00:01, 75.40it/s, est. speed input: 18365.20 toks/s, output: 71.74 toks/s]
+Processed prompts:  41%|████▏     | 53/128 [00:00<00:00, 76.13it/s, est. speed input: 18578.59 toks/s, output: 72.57 toks/s]
+Processed prompts:  48%|████▊     | 61/128 [00:00<00:00, 76.82it/s, est. speed input: 18759.58 toks/s, output: 73.28 toks/s]
+Processed prompts:  54%|█████▍    | 69/128 [00:00<00:00, 77.47it/s, est. speed input: 18916.38 toks/s, output: 73.89 toks/s]
+Processed prompts:  60%|██████    | 77/128 [00:01<00:00, 77.60it/s, est. speed input: 19017.85 toks/s, output: 74.29 toks/s]
+Processed prompts:  66%|██████▋   | 85/128 [00:01<00:00, 77.81it/s, est. speed input: 19109.87 toks/s, output: 74.65 toks/s]
+Processed prompts:  73%|███████▎  | 93/128 [00:01<00:00, 78.01it/s, est. speed input: 19190.28 toks/s, output: 74.96 toks/s]
+Processed prompts:  79%|███████▉  | 101/128 [00:01<00:00, 78.03it/s, est. speed input: 19250.78 toks/s, output: 75.20 toks/s]
+Processed prompts:  85%|████████▌ | 109/128 [00:01<00:00, 78.19it/s, est. speed input: 19311.68 toks/s, output: 75.44 toks/s]
+Processed prompts:  91%|█████████▏| 117/128 [00:01<00:00, 78.36it/s, est. speed input: 19367.68 toks/s, output: 75.65 toks/s]
+Processed prompts:  98%|█████████▊| 125/128 [00:01<00:00, 78.53it/s, est. speed input: 19418.87 toks/s, output: 75.85 toks/s]
+Processed prompts: 100%|██████████| 128/128 [00:01<00:00, 78.53it/s, est. speed input: 19435.86 toks/s, output: 75.92 toks/s]
+Processed prompts: 100%|██████████| 128/128 [00:01<00:00, 75.92it/s, est. speed input: 19435.86 toks/s, output: 75.92 toks/s]
+[rank0]:[W125 06:27:19.569545837 ProcessGroupNCCL.cpp:1524] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+

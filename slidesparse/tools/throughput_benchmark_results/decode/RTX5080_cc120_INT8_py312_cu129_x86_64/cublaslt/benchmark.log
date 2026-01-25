@@ -844,3 +844,186 @@ Traceback (most recent call last):
 RuntimeError: Engine core initialization failed. See root cause above. Failed core proc(s): {}
 
 ERROR: Test failed for M=256
+
+========== M=16 ==========
+Time: 2026-01-25 05:42:49
+Backend: cuBLASLt [INT32 output]
+Checkpoint: /root/vllmbench/checkpoints/Llama3.2-1B-INT8
+Params: prompt_len=16, output_len=256, num_prompts=16, max_num_seqs=16
+Command: vllm bench throughput --model /root/vllmbench/checkpoints/Llama3.2-1B-INT8 --dataset-name random --input-len 16 --output-len 256 --num-prompts 16 --max-num-seqs 16 --max-model-len 400 --max-num-batched-tokens 16 --no-enable-chunked-prefill --gpu-memory-utilization 0.8 --disable-log-stats --output-json /root/vllmbench/slidesparse/tools/throughput_benchmark_results/decode/RTX5080_cc120_INT8_py312_cu129_x86_64/cublaslt/json/Llama3.2-1B-INT8_M16.json
+
+STDOUT:
+When dataset path is not set, it will default to random dataset
+INFO 01-25 05:42:53 [datasets.py:612] Sampling input_len from [15, 15] and output_len from [256, 256]
+INFO 01-25 05:42:53 [utils.py:253] non-default args: {'tokenizer': '/root/vllmbench/checkpoints/Llama3.2-1B-INT8', 'max_model_len': 400, 'gpu_memory_utilization': 0.8, 'max_num_batched_tokens': 16, 'max_num_seqs': 16, 'disable_log_stats': True, 'enable_lora': None, 'enable_chunked_prefill': False, 'reasoning_parser_plugin': '', 'model': '/root/vllmbench/checkpoints/Llama3.2-1B-INT8'}
+INFO 01-25 05:42:53 [model.py:514] Resolved architecture: LlamaForCausalLM
+INFO 01-25 05:42:53 [model.py:1661] Using max model len 400
+WARNING 01-25 05:42:53 [arg_utils.py:1869] This model does not officially support disabling chunked prefill. Disabling this manually may cause the engine to crash or produce incorrect outputs.
+
+STDERR:
+[2026-01-25 05:42:53] INFO kernels.py:603: Triton kernel custom ops registered
+[2026-01-25 05:42:53] INFO kernels.py:649: Optimization enabled: Only preloading kernels for base model 'Llama3.2-1B-INT8'
+[2026-01-25 05:42:53] INFO kernels.py:134: Loaded tuned kernel for model: Llama3.2-1B-INT8
+[2026-01-25 05:42:53] INFO kernels.py:180: Dequant+bias kernel loaded for model: Llama3.2-1B-INT8
+[2026-01-25 05:42:53] INFO kernels.py:249: FP8 quant kernel loaded for model: Llama3.2-1B-INT8
+[2026-01-25 05:42:53] INFO kernels.py:373: INT8 quant kernel loaded for model: Llama3.2-1B-INT8
+[2026-01-25 05:42:53] INFO kernels.py:309: FP8 quant+slide kernel loaded for model: Llama3.2-1B-INT8
+[2026-01-25 05:42:53] INFO kernels.py:433: INT8 quant+slide kernel loaded for model: Llama3.2-1B-INT8
+[2026-01-25 05:42:53] INFO gemm_wrapper.py:168: Optimization enabled: Only loading GEMM configs for base model 'Llama3.2-1B-INT8'
+[2026-01-25 05:42:53] INFO gemm_wrapper.py:183: Loaded algorithm configs: cuBLASLt=1, cuSPARSELt=1 models
+[2026-01-25 05:42:53] INFO gemm_wrapper.py:946: cuBLASLt FP8 custom op registered: slidesparse::cublaslt_fp8_mm
+[2026-01-25 05:42:53] INFO gemm_wrapper.py:1011: cuSPARSELt FP8 custom op registered: slidesparse::cusparselt_fp8_mm
+[2026-01-25 05:42:53] INFO gemm_wrapper.py:1077: cuBLASLt INT8 custom op registered: slidesparse::cublaslt_int8_mm
+[2026-01-25 05:42:53] INFO gemm_wrapper.py:1143: cuSPARSELt INT8 custom op registered: slidesparse::cusparselt_int8_mm
+Traceback (most recent call last):
+  File "/usr/local/bin/vllm", line 7, in <module>
+    sys.exit(main())
+             ^^^^^^
+  File "/root/vllmbench/vllm/entrypoints/cli/main.py", line 73, in main
+    args.dispatch_function(args)
+  File "/root/vllmbench/vllm/entrypoints/cli/benchmark/throughput.py", line 21, in cmd
+    main(args)
+  File "/root/vllmbench/vllm/benchmarks/throughput.py", line 730, in main
+    elapsed_time, request_outputs = run_vllm(
+                                    ^^^^^^^^^
+  File "/root/vllmbench/vllm/benchmarks/throughput.py", line 51, in run_vllm
+    llm = LLM(**dataclasses.asdict(engine_args))
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/entrypoints/llm.py", line 351, in __init__
+    self.llm_engine = LLMEngine.from_engine_args(
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/v1/engine/llm_engine.py", line 175, in from_engine_args
+    vllm_config = engine_args.create_engine_config(usage_context)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/engine/arg_utils.py", line 1586, in create_engine_config
+    scheduler_config = SchedulerConfig(
+                       ^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/pydantic/_internal/_dataclasses.py", line 121, in __init__
+    s.__pydantic_validator__.validate_python(ArgsKwargs(args, kwargs), self_instance=s)
+pydantic_core._pydantic_core.ValidationError: 1 validation error for SchedulerConfig
+  Value error, max_num_batched_tokens (16) is smaller than max_model_len (400). This effectively limits the maximum sequence length to max_num_batched_tokens and makes vLLM reject longer sequences. Please increase max_num_batched_tokens or decrease max_model_len. [type=value_error, input_value=ArgsKwargs((), {'runner_t..., 'stream_interval': 1}), input_type=ArgsKwargs]
+    For further information visit https://errors.pydantic.dev/2.12/v/value_error
+
+ERROR: Test failed for M=16
+
+========== M=128 ==========
+Time: 2026-01-25 05:42:54
+Backend: cuBLASLt [INT32 output]
+Checkpoint: /root/vllmbench/checkpoints/Llama3.2-1B-INT8
+Params: prompt_len=16, output_len=256, num_prompts=128, max_num_seqs=128
+Command: vllm bench throughput --model /root/vllmbench/checkpoints/Llama3.2-1B-INT8 --dataset-name random --input-len 16 --output-len 256 --num-prompts 128 --max-num-seqs 128 --max-model-len 400 --max-num-batched-tokens 128 --no-enable-chunked-prefill --gpu-memory-utilization 0.8 --disable-log-stats --output-json /root/vllmbench/slidesparse/tools/throughput_benchmark_results/decode/RTX5080_cc120_INT8_py312_cu129_x86_64/cublaslt/json/Llama3.2-1B-INT8_M128.json
+
+STDOUT:
+When dataset path is not set, it will default to random dataset
+INFO 01-25 05:42:57 [datasets.py:612] Sampling input_len from [15, 15] and output_len from [256, 256]
+INFO 01-25 05:42:57 [utils.py:253] non-default args: {'tokenizer': '/root/vllmbench/checkpoints/Llama3.2-1B-INT8', 'max_model_len': 400, 'gpu_memory_utilization': 0.8, 'max_num_batched_tokens': 128, 'max_num_seqs': 128, 'disable_log_stats': True, 'enable_lora': None, 'enable_chunked_prefill': False, 'reasoning_parser_plugin': '', 'model': '/root/vllmbench/checkpoints/Llama3.2-1B-INT8'}
+INFO 01-25 05:42:57 [model.py:514] Resolved architecture: LlamaForCausalLM
+INFO 01-25 05:42:57 [model.py:1661] Using max model len 400
+WARNING 01-25 05:42:58 [arg_utils.py:1869] This model does not officially support disabling chunked prefill. Disabling this manually may cause the engine to crash or produce incorrect outputs.
+
+STDERR:
+[2026-01-25 05:42:58] INFO kernels.py:603: Triton kernel custom ops registered
+[2026-01-25 05:42:58] INFO kernels.py:649: Optimization enabled: Only preloading kernels for base model 'Llama3.2-1B-INT8'
+[2026-01-25 05:42:58] INFO kernels.py:134: Loaded tuned kernel for model: Llama3.2-1B-INT8
+[2026-01-25 05:42:58] INFO kernels.py:180: Dequant+bias kernel loaded for model: Llama3.2-1B-INT8
+[2026-01-25 05:42:58] INFO kernels.py:249: FP8 quant kernel loaded for model: Llama3.2-1B-INT8
+[2026-01-25 05:42:58] INFO kernels.py:373: INT8 quant kernel loaded for model: Llama3.2-1B-INT8
+[2026-01-25 05:42:58] INFO kernels.py:309: FP8 quant+slide kernel loaded for model: Llama3.2-1B-INT8
+[2026-01-25 05:42:58] INFO kernels.py:433: INT8 quant+slide kernel loaded for model: Llama3.2-1B-INT8
+[2026-01-25 05:42:58] INFO gemm_wrapper.py:168: Optimization enabled: Only loading GEMM configs for base model 'Llama3.2-1B-INT8'
+[2026-01-25 05:42:58] INFO gemm_wrapper.py:183: Loaded algorithm configs: cuBLASLt=1, cuSPARSELt=1 models
+[2026-01-25 05:42:58] INFO gemm_wrapper.py:946: cuBLASLt FP8 custom op registered: slidesparse::cublaslt_fp8_mm
+[2026-01-25 05:42:58] INFO gemm_wrapper.py:1011: cuSPARSELt FP8 custom op registered: slidesparse::cusparselt_fp8_mm
+[2026-01-25 05:42:58] INFO gemm_wrapper.py:1077: cuBLASLt INT8 custom op registered: slidesparse::cublaslt_int8_mm
+[2026-01-25 05:42:58] INFO gemm_wrapper.py:1143: cuSPARSELt INT8 custom op registered: slidesparse::cusparselt_int8_mm
+Traceback (most recent call last):
+  File "/usr/local/bin/vllm", line 7, in <module>
+    sys.exit(main())
+             ^^^^^^
+  File "/root/vllmbench/vllm/entrypoints/cli/main.py", line 73, in main
+    args.dispatch_function(args)
+  File "/root/vllmbench/vllm/entrypoints/cli/benchmark/throughput.py", line 21, in cmd
+    main(args)
+  File "/root/vllmbench/vllm/benchmarks/throughput.py", line 730, in main
+    elapsed_time, request_outputs = run_vllm(
+                                    ^^^^^^^^^
+  File "/root/vllmbench/vllm/benchmarks/throughput.py", line 51, in run_vllm
+    llm = LLM(**dataclasses.asdict(engine_args))
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/entrypoints/llm.py", line 351, in __init__
+    self.llm_engine = LLMEngine.from_engine_args(
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/v1/engine/llm_engine.py", line 175, in from_engine_args
+    vllm_config = engine_args.create_engine_config(usage_context)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/engine/arg_utils.py", line 1586, in create_engine_config
+    scheduler_config = SchedulerConfig(
+                       ^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/pydantic/_internal/_dataclasses.py", line 121, in __init__
+    s.__pydantic_validator__.validate_python(ArgsKwargs(args, kwargs), self_instance=s)
+pydantic_core._pydantic_core.ValidationError: 1 validation error for SchedulerConfig
+  Value error, max_num_batched_tokens (128) is smaller than max_model_len (400). This effectively limits the maximum sequence length to max_num_batched_tokens and makes vLLM reject longer sequences. Please increase max_num_batched_tokens or decrease max_model_len. [type=value_error, input_value=ArgsKwargs((), {'runner_t..., 'stream_interval': 1}), input_type=ArgsKwargs]
+    For further information visit https://errors.pydantic.dev/2.12/v/value_error
+
+ERROR: Test failed for M=128
+
+========== M=256 ==========
+Time: 2026-01-25 05:42:59
+Backend: cuBLASLt [INT32 output]
+Checkpoint: /root/vllmbench/checkpoints/Llama3.2-1B-INT8
+Params: prompt_len=16, output_len=256, num_prompts=256, max_num_seqs=256
+Command: vllm bench throughput --model /root/vllmbench/checkpoints/Llama3.2-1B-INT8 --dataset-name random --input-len 16 --output-len 256 --num-prompts 256 --max-num-seqs 256 --max-model-len 400 --max-num-batched-tokens 256 --no-enable-chunked-prefill --gpu-memory-utilization 0.8 --disable-log-stats --output-json /root/vllmbench/slidesparse/tools/throughput_benchmark_results/decode/RTX5080_cc120_INT8_py312_cu129_x86_64/cublaslt/json/Llama3.2-1B-INT8_M256.json
+
+STDOUT:
+When dataset path is not set, it will default to random dataset
+INFO 01-25 05:43:02 [datasets.py:612] Sampling input_len from [15, 15] and output_len from [256, 256]
+INFO 01-25 05:43:02 [utils.py:253] non-default args: {'tokenizer': '/root/vllmbench/checkpoints/Llama3.2-1B-INT8', 'max_model_len': 400, 'gpu_memory_utilization': 0.8, 'max_num_batched_tokens': 256, 'max_num_seqs': 256, 'disable_log_stats': True, 'enable_lora': None, 'enable_chunked_prefill': False, 'reasoning_parser_plugin': '', 'model': '/root/vllmbench/checkpoints/Llama3.2-1B-INT8'}
+INFO 01-25 05:43:02 [model.py:514] Resolved architecture: LlamaForCausalLM
+INFO 01-25 05:43:02 [model.py:1661] Using max model len 400
+WARNING 01-25 05:43:03 [arg_utils.py:1869] This model does not officially support disabling chunked prefill. Disabling this manually may cause the engine to crash or produce incorrect outputs.
+
+STDERR:
+[2026-01-25 05:43:03] INFO kernels.py:603: Triton kernel custom ops registered
+[2026-01-25 05:43:03] INFO kernels.py:649: Optimization enabled: Only preloading kernels for base model 'Llama3.2-1B-INT8'
+[2026-01-25 05:43:03] INFO kernels.py:134: Loaded tuned kernel for model: Llama3.2-1B-INT8
+[2026-01-25 05:43:03] INFO kernels.py:180: Dequant+bias kernel loaded for model: Llama3.2-1B-INT8
+[2026-01-25 05:43:03] INFO kernels.py:249: FP8 quant kernel loaded for model: Llama3.2-1B-INT8
+[2026-01-25 05:43:03] INFO kernels.py:373: INT8 quant kernel loaded for model: Llama3.2-1B-INT8
+[2026-01-25 05:43:03] INFO kernels.py:309: FP8 quant+slide kernel loaded for model: Llama3.2-1B-INT8
+[2026-01-25 05:43:03] INFO kernels.py:433: INT8 quant+slide kernel loaded for model: Llama3.2-1B-INT8
+[2026-01-25 05:43:03] INFO gemm_wrapper.py:168: Optimization enabled: Only loading GEMM configs for base model 'Llama3.2-1B-INT8'
+[2026-01-25 05:43:03] INFO gemm_wrapper.py:183: Loaded algorithm configs: cuBLASLt=1, cuSPARSELt=1 models
+[2026-01-25 05:43:03] INFO gemm_wrapper.py:946: cuBLASLt FP8 custom op registered: slidesparse::cublaslt_fp8_mm
+[2026-01-25 05:43:03] INFO gemm_wrapper.py:1011: cuSPARSELt FP8 custom op registered: slidesparse::cusparselt_fp8_mm
+[2026-01-25 05:43:03] INFO gemm_wrapper.py:1077: cuBLASLt INT8 custom op registered: slidesparse::cublaslt_int8_mm
+[2026-01-25 05:43:03] INFO gemm_wrapper.py:1143: cuSPARSELt INT8 custom op registered: slidesparse::cusparselt_int8_mm
+Traceback (most recent call last):
+  File "/usr/local/bin/vllm", line 7, in <module>
+    sys.exit(main())
+             ^^^^^^
+  File "/root/vllmbench/vllm/entrypoints/cli/main.py", line 73, in main
+    args.dispatch_function(args)
+  File "/root/vllmbench/vllm/entrypoints/cli/benchmark/throughput.py", line 21, in cmd
+    main(args)
+  File "/root/vllmbench/vllm/benchmarks/throughput.py", line 730, in main
+    elapsed_time, request_outputs = run_vllm(
+                                    ^^^^^^^^^
+  File "/root/vllmbench/vllm/benchmarks/throughput.py", line 51, in run_vllm
+    llm = LLM(**dataclasses.asdict(engine_args))
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/entrypoints/llm.py", line 351, in __init__
+    self.llm_engine = LLMEngine.from_engine_args(
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/v1/engine/llm_engine.py", line 175, in from_engine_args
+    vllm_config = engine_args.create_engine_config(usage_context)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/engine/arg_utils.py", line 1586, in create_engine_config
+    scheduler_config = SchedulerConfig(
+                       ^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/pydantic/_internal/_dataclasses.py", line 121, in __init__
+    s.__pydantic_validator__.validate_python(ArgsKwargs(args, kwargs), self_instance=s)
+pydantic_core._pydantic_core.ValidationError: 1 validation error for SchedulerConfig
+  Value error, max_num_batched_tokens (256) is smaller than max_model_len (400). This effectively limits the maximum sequence length to max_num_batched_tokens and makes vLLM reject longer sequences. Please increase max_num_batched_tokens or decrease max_model_len. [type=value_error, input_value=ArgsKwargs((), {'runner_t..., 'stream_interval': 1}), input_type=ArgsKwargs]
+    For further information visit https://errors.pydantic.dev/2.12/v/value_error
+
+ERROR: Test failed for M=256

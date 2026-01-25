@@ -184,15 +184,32 @@ enforce_eager = {enforce_eager}
 # 创建 LLM
 # 计算目标 M 值：Prefill 阶段 M = num_prompts * prompt_len，Decode 阶段 M = num_prompts
 target_M = config["num_prompts"] * config["prompt_len"] if config["output_len"] == 1 else config["num_prompts"]
+
+# vLLM 配置约束:
+# 1. max_model_len >= prompt_len + output_len (否则无法处理请求)
+# 2. max_num_batched_tokens >= max_model_len (配置验证要求)
+#
+# 实际 M 值控制逻辑:
+# - max_num_batched_tokens 只是“允许的上限”，不是强制值
+# - 实际 M 由 max_num_seqs 和请求状态决定:
+#   - Prefill: M = max_num_seqs * prompt_len = num_prompts * prompt_len = target_M ✅
+#   - Decode:  M = max_num_seqs (每序列生成 1 token) = num_prompts = target_M ✅
+# - enable_chunked_prefill=False 确保 prompt 不被分片
+#
+# 因此，即使 effective_max_num_batched_tokens > target_M，实际 M 仍然等于 target_M
+min_model_len = config["prompt_len"] + config["output_len"]
+effective_max_model_len = min_model_len
+effective_max_num_batched_tokens = max(target_M, min_model_len)  # 仅用于通过配置验证
+
 llm = LLM(
     model=model_path,
-    max_model_len=config["prompt_len"] + config["output_len"] + 64,
+    max_model_len=effective_max_model_len,
     gpu_memory_utilization=0.8,
     disable_log_stats=True,
     enforce_eager=enforce_eager,
-    max_num_batched_tokens=target_M,  # 限制每次迭代的最大 token 数
-    max_num_seqs=config["num_prompts"],  # 限制最大并发序列数
-    enable_chunked_prefill=False,  # 禁用 chunked prefill，确保整个 prompt 一起处理
+    max_num_batched_tokens=effective_max_num_batched_tokens,
+    max_num_seqs=config["num_prompts"],  # ← 这才是控制实际 M 的关键参数
+    enable_chunked_prefill=False,
 )
 
 # 生成 prompts
