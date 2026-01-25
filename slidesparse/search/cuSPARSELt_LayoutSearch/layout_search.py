@@ -21,8 +21,8 @@ cuSPARSELt 布局离线搜索
   - Segment-K 测试 (SM90+ 支持)
 
 运行示例:
-    python3 layout_search.py --dtype int8 --outdtype bf16 --model BitNet-2B4T
-    python3 layout_search.py --dtype fp8e4m3 --outdtype bf16 --no_segment_k
+    python3 layout_search.py --dtype int8 --outdtype bf16 --model Qwen2.5-0.5B-INT8
+    python3 layout_search.py --dtype fp8e4m3 --outdtype bf16 --model Qwen2.5-0.5B-FP8
 """
 
 import argparse
@@ -43,8 +43,8 @@ from utils import (
     # 编译与加载
     build_search_extension,
     load_search_extension,
-    # 模型工具
-    get_nk_list_auto,
+    # 模型 NK 工具
+    get_nk_list_for_search,
     # 数据准备
     quantize_int8,
     to_fp8_e4m3,
@@ -420,7 +420,7 @@ def parse_args():
     p = argparse.ArgumentParser(description="cuSPARSELt 布局离线搜索")
     p.add_argument("--dtype", default="int8", choices=SUPPORTED_DTYPES, help="输入数据类型")
     p.add_argument("--outdtype", default="bf16", choices=SUPPORTED_OUTDTYPES, help="输出数据类型")
-    p.add_argument("--model", default="BitNet-2B4T", help="模型名称或路径")
+    p.add_argument("--model", default=None, help="模型名称（如 Qwen2.5-0.5B-INT8）或路径，必须与 checkpoints/ 目录下的文件夹名匹配。不指定则使用 BitNet-2B-BF16 默认配置")
     p.add_argument("--Lmax", type=int, default=None, help="最大 L 值（slide sparse），会为 L=4,6,...,Lmax 生成所有 NK")
     p.add_argument("--M-quick", action="store_true", dest="m_quick", help="M-quick 模式: 使用固定 M 列表 [16, 128, 1024, 4096, 16384]")
     p.add_argument("--warmup", type=int, default=5)
@@ -445,7 +445,8 @@ def main():
         args.dtype, args.outdtype, backend="cusparselt"
     )
     
-    model_name = args.model.split('/')[-1]
+    # 获取 NK 列表和模型名称（统一使用 get_nk_list_for_search）
+    nk_list, model_name = get_nk_list_for_search(args.model, args.Lmax)
     
     test_segment_k = not args.no_segment_k
     
@@ -478,8 +479,6 @@ def main():
     if not lib.cusparselt_layout_search_is_available():
         raise RuntimeError("cuSPARSELt 不可用")
     print("✓ cuSPARSELt 可用", flush=True)
-    
-    nk_list = get_nk_list_auto(args.model, L_max=args.Lmax, with_names=False)
     
     if args.Lmax:
         print(f"Lmax: {args.Lmax} (slide sparse L=4,6,...,{args.Lmax})", flush=True)

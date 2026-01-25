@@ -44,9 +44,6 @@ from slidesparse.utils import (
 # Test Configuration
 # =============================================================================
 
-# Default model for K/N values (same as autotune)
-DEFAULT_MODEL = "Llama3.2-1B-INT8"
-
 # M values for throughput benchmark (aligned with M-quick autotune)
 M_VALUES_BENCH = [16, 128, 1024, 4096, 16384]
 
@@ -109,7 +106,7 @@ def make_theoretical_baseline(get_config_func):
 # Load Kernels
 # =============================================================================
 
-def load_tuned_module(model_name: str = DEFAULT_MODEL) -> ModuleType | None:
+def load_tuned_module(model_name: str | None = None) -> ModuleType | None:
     """Load the auto-tuned kernel module from build/"""
     hw_dir_name = build_hw_dir_name()
     build_dir = Path(__file__).parent / "build" / hw_dir_name
@@ -307,8 +304,8 @@ def main():
     parser = argparse.ArgumentParser(description="Dequant + Bias Kernel Benchmark")
     parser.add_argument('--dtype', type=str, required=True, choices=['bf16', 'fp32', 'int32'],
                         help='Input dtype: bf16, fp32 or int32')
-    parser.add_argument('--model', type=str, default=DEFAULT_MODEL,
-                        help=f'Model name for N values (default: {DEFAULT_MODEL})')
+    parser.add_argument('--model', type=str, default=None,
+                        help='Model name (e.g., Qwen2.5-0.5B-INT8). If not specified, uses BitNet-2B-BF16 default.')
     parser.add_argument('--Lmax', type=int, default=10,
                         help='Max L value for nk_list (default: 10)')
     args = parser.parse_args()
@@ -319,10 +316,9 @@ def main():
     
     dtype_map = {'fp32': torch.float32, 'bf16': torch.bfloat16, 'int32': torch.int32}
     input_dtype = dtype_map[args.dtype]
-    model_name = args.model
     
-    # Get N values from model (get_nk_list_for_search returns (nk_list, model_name_resolved) tuple)
-    nk_list, _ = get_nk_list_for_search(model_name, args.Lmax)
+    # Get N values and model_name from unified tool
+    nk_list, model_name = get_nk_list_for_search(args.model, args.Lmax)
     n_values = get_unique_n_values(nk_list)
     
     print("=" * 70)

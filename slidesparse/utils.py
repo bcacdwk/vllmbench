@@ -1584,24 +1584,29 @@ def build_tuned_filename(
     prefix: str,
     model_name: Optional[str] = None,
     ext: str = "",
+    outdtype: Optional[str] = None,
 ) -> str:
     """
-    构建 autotune 生成文件的名称。
+    构建 autotune/search 生成文件的名称（统一接口）。
     
     格式:
-    - 无模型: {prefix}.{ext}
-    - 有模型: {prefix}_{model_name}.{ext}
+    - 无模型无 outdtype: {prefix}.{ext}
+    - 有模型无 outdtype: {prefix}_{model_name}.{ext}
+    - 有模型有 outdtype: {prefix}_{model_name}_out-{outdtype}.{ext}
     
     示例:
     - build_tuned_filename("dequant_bias_tuned", ext=".py")
       -> "dequant_bias_tuned.py"
-    - build_tuned_filename("dequant_bias_tuned", "BitNet-2B4T-INT8", ext=".py")
-      -> "dequant_bias_tuned_BitNet-2B4T-INT8.py"
+    - build_tuned_filename("dequant_bias_tuned", "BitNet-2B-BF16", ext=".py")
+      -> "dequant_bias_tuned_BitNet-2B-BF16.py"
+    - build_tuned_filename("alg_search", "Qwen2.5-0.5B-INT8", ext=".csv", outdtype="int32")
+      -> "alg_search_Qwen2.5-0.5B-INT8_out-INT32.csv"
     
     Args:
-        prefix: 文件前缀（如 "dequant_bias_tuned"）
+        prefix: 文件前缀（如 "dequant_bias_tuned", "alg_search"）
         model_name: 模型名称（可选）
         ext: 文件扩展名
+        outdtype: 输出数据类型（可选，用于 search 结果文件）
     
     Returns:
         文件名称
@@ -1610,6 +1615,11 @@ def build_tuned_filename(
         name = f"{prefix}_{model_name}"
     else:
         name = prefix
+    
+    # 如果有 outdtype，追加到文件名
+    if outdtype:
+        outdtype_norm = normalize_dtype(outdtype)
+        name = f"{name}_out-{outdtype_norm}"
     
     if ext:
         if not ext.startswith("."):
@@ -2025,11 +2035,6 @@ def lookup_best_cublaslt_alg(json_data: Dict, N: int, K: int, M: int) -> Optiona
         最佳算法的 base64 编码字符串（64B cublasLtMatmulAlgo_t 数据），
         如果找不到返回 None
     
-    Example:
-        >>> with open("alg_id_LUT_BitNet-2B4T.json") as f:
-        ...     lut = json.load(f)
-        >>> algo_b64 = lookup_best_cublaslt_alg(lut, 3840, 2560, 128)
-        >>> algo_bytes = decode_cublaslt_algo_data(algo_b64)
     """
     nk_key = f"({N},{K})"
     nk_entries = json_data.get("nk_entries", {})
@@ -2100,11 +2105,6 @@ def lookup_best_cusparselt_alg(json_data: Dict, N: int, K: int, M: int) -> Optio
         最佳配置字典 {"alg_id": int, "split_k": int, "workspace": int}，
         如果找不到返回 None
     
-    Example:
-        >>> with open("alg_search_cusparselt_BitNet-2B4T.json") as f:
-        ...     lut = json.load(f)
-        >>> config = lookup_best_cusparselt_alg(lut, 3840, 2560, 128)
-        >>> print(config)  # {"alg_id": 0, "split_k": 1, "workspace": 0}
     """
     nk_key = f"({N},{K})"
     nk_entries = json_data.get("nk_entries", {})
@@ -3607,53 +3607,61 @@ def get_nk_list_for_search(
     - 4 个 CUDA search: cuBLASLt_AlgSearch/LayoutSearch, cuSPARSELt_AlgSearch/LayoutSearch
     
     策略:
-    - 如果未指定 model: 返回 BitNet-2B4T 默认 NK
-    - 如果指定 model:
-        - L_max=None: 使用 get_model_nk_sizes 获取原始 NK
-        - L_max 指定: 使用 get_model_nk_sizes_slided 获取 L=4 到 L=L_max 的所有 NK
+    - model=None: 返回 BitNet-2B-BF16 默认 NK（打印警告）
+    - L_max=None: 使用 get_model_nk_sizes 获取原始 NK
+    - L_max 指定: 使用 get_model_nk_sizes_slided 获取 L=4 到 L=L_max 的所有 NK
     
     Args:
-        model: 模型名称（如 "BitNet-2B4T-INT8", "Qwen2.5-7B-FP8"）或路径
+        model: 模型名称（如 "BitNet-2B-BF16", "Qwen2.5-7B-FP8"）或完整路径。
+               必须与 checkpoints/ 目录下的文件夹名完全匹配。
+               如果为 None，使用 BitNet-2B-BF16 默认配置（会打印警告）。
         L_max: 最大 L 值，用于 slide 稀疏。如果指定，会生成 L=4,6,8,...,L_max 的所有 NK
-        checkpoints_dir: 普通 checkpoints 目录（可选）
+        checkpoints_dir: 自定义 checkpoints 目录路径（可选，默认使用项目根目录下的 checkpoints/）
     
     Returns:
         (nk_list, model_name): 
             - nk_list: [(N, K), ...] 列表，去重后的结果
-            - model_name: 用于文件命名的模型名称
+            - model_name: 用于文件命名的模型名称（从找到的目录名提取）
+    
+    Raises:
+        ValueError: 未找到模型目录、无法提取 NK 尺寸、或 NK 列表为空
     
     Example:
-        >>> # 默认 BitNet-2B4T NK
+        >>> # 使用默认配置（会打印警告）
         >>> nk_list, name = get_nk_list_for_search()
-        >>> print(name)  # "BitNet-2B4T"
+        >>> print(name)  # "BitNet-2B-BF16"
         
         >>> # 从模型获取原始 NK
         >>> nk_list, name = get_nk_list_for_search("Qwen2.5-7B-FP8")
+        >>> print(name)  # "Qwen2.5-7B-FP8"
         
         >>> # 从模型获取 slide 后的 NK (L=4 到 L=10)
-        >>> nk_list, name = get_nk_list_for_search("BitNet-2B4T-INT8", L_max=10)
+        >>> nk_list, name = get_nk_list_for_search("BitNet-2B-BF16", L_max=10)
     """
-    # 默认 BitNet-2B4T NK 尺寸
-    DEFAULT_NK_BITNET_2B = [
+    # BitNet-2B-BF16 默认 NK 尺寸
+    DEFAULT_MODEL_NAME = "BitNet-2B-BF16"
+    DEFAULT_NK = [
         (3840, 2560),   # qkv_proj (Wqkv)
         (2560, 2560),   # o_proj (Wo)
         (13824, 2560),  # gate_up_proj (W13)
         (2560, 6912),   # down_proj (W2)
     ]
     
+    # 如果未指定模型，返回默认配置
     if model is None:
-        return DEFAULT_NK_BITNET_2B, "BitNet-2B4T-Default"
+        print(f"[Warning] 未指定 --model，使用默认配置: {DEFAULT_MODEL_NAME}")
+        return DEFAULT_NK, DEFAULT_MODEL_NAME
     
-    # 尝试查找模型目录
+    # 构建搜索路径列表
     project_root = Path(__file__).parent.parent
-    
     search_paths = []
     
-    # 1. 直接路径
-    if Path(model).exists():
-        search_paths.append(Path(model))
+    # 1. 直接路径（用户可能传入绝对或相对路径）
+    direct_path = Path(model)
+    if direct_path.exists() and direct_path.is_dir():
+        search_paths.append(direct_path)
     
-    # 2. checkpoints 目录
+    # 2. checkpoints 目录下查找
     if checkpoints_dir:
         search_paths.append(Path(checkpoints_dir) / model)
     else:
@@ -3667,31 +3675,41 @@ def get_nk_list_for_search(
             break
     
     if model_path is None:
-        # 未找到模型，使用默认 NK
-        print(f"[Warning] 未找到模型 '{model}'，使用 BitNet-2B4T 默认 NK")
-        return DEFAULT_NK_BITNET_2B, model
+        # 列出可用的模型目录帮助用户
+        default_ckpt_dir = project_root / "checkpoints"
+        available_models = []
+        if default_ckpt_dir.exists():
+            available_models = sorted([
+                d.name for d in default_ckpt_dir.iterdir() 
+                if d.is_dir() and not d.name.startswith('.')
+            ])
+        
+        error_msg = f"未找到模型 '{model}'。"
+        if available_models:
+            error_msg += f"\n可用的模型: {', '.join(available_models)}"
+        else:
+            error_msg += f"\ncheckpoints 目录 ({default_ckpt_dir}) 为空或不存在。"
+        raise ValueError(error_msg)
     
-    # 提取模型名称（用于文件命名）
+    # 提取模型名称（用于文件命名，使用实际找到的目录名）
     model_name = model_path.name
     
+    # 获取原始 NK 尺寸
     try:
-        # 获取原始 NK 尺寸
         nk_sizes = get_model_nk_sizes(model_path)
     except Exception as e:
-        print(f"[Warning] 无法从 '{model_path}' 提取 NK 尺寸: {e}")
-        print(f"[Warning] 使用 BitNet-2B4T 默认 NK")
-        return DEFAULT_NK_BITNET_2B, model_name
+        raise ValueError(f"无法从 '{model_path}' 提取 NK 尺寸: {e}")
     
     if not nk_sizes:
-        print(f"[Warning] 模型 '{model_name}' NK 尺寸为空，使用 BitNet-2B4T 默认 NK")
-        return DEFAULT_NK_BITNET_2B, model_name
+        raise ValueError(f"模型 '{model_name}' 的 NK 尺寸为空，请检查模型文件是否完整。")
     
     # 转换为列表格式
     nk_list = []
+    layer_order = ["qkv", "wo", "w13", "w2"]
     
     if L_max is None:
         # 不使用 slide，直接返回原始 NK
-        for layer_type in ["qkv", "wo", "w13", "w2"]:
+        for layer_type in layer_order:
             if layer_type in nk_sizes:
                 N, K = nk_sizes[layer_type]
                 if (N, K) not in nk_list:
@@ -3699,18 +3717,21 @@ def get_nk_list_for_search(
     else:
         # 使用 slide，生成 L=4 到 L=L_max 的所有 NK
         # L 必须是偶数且 >= 4
-        L_values = [L for L in range(4, L_max + 1, 2)]
+        if L_max < 4:
+            raise ValueError(f"L_max 必须 >= 4，当前值: {L_max}")
+        
+        L_values = list(range(4, L_max + 1, 2))
         
         for L in L_values:
             slided_sizes = get_model_nk_sizes_slided(nk_sizes, Z=2, L=L, align_to=32)
-            for layer_type in ["qkv", "wo", "w13", "w2"]:
+            for layer_type in layer_order:
                 if layer_type in slided_sizes:
                     N, K = slided_sizes[layer_type]
                     if (N, K) not in nk_list:
                         nk_list.append((N, K))
     
     if not nk_list:
-        return DEFAULT_NK_BITNET_2B, model_name
+        raise ValueError(f"模型 '{model_name}' 生成的 NK 列表为空。")
     
     return nk_list, model_name
 

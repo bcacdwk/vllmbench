@@ -51,9 +51,6 @@ K_VALUES_CORRECTNESS = [2560, 2561, 6912]
 # K values for benchmark will be set dynamically from model
 K_VALUES_BENCH: list[int] = []
 
-# Default model for benchmark
-DEFAULT_MODEL = "Llama3.2-1B-INT8"
-
 WARMUP = 25
 REP = 100
 
@@ -365,8 +362,8 @@ def main():
     parser = argparse.ArgumentParser(description="Quant Only Kernel Benchmark")
     parser.add_argument('--dtype', type=str, required=True, choices=['fp8', 'int8'],
                         help='Output dtype: fp8 or int8')
-    parser.add_argument('--model', type=str, default=DEFAULT_MODEL,
-                        help=f'Model name for K values and tuned kernel (default: {DEFAULT_MODEL})')
+    parser.add_argument('--model', type=str, default=None,
+                        help='Model name (e.g., Qwen2.5-0.5B-INT8). If not specified, uses BitNet-2B-BF16 default.')
     parser.add_argument('--Lmax', type=int, default=None,
                         help='Max L for slide sparse (e.g., 10). If set, uses slided K values')
     args = parser.parse_args()
@@ -378,7 +375,7 @@ def main():
     dtype = args.dtype
     dtype_tag = dtype.upper()
     
-    # Get K values from model
+    # Get K values and model_name from unified tool
     nk_list, model_name = get_nk_list_for_search(args.model, args.Lmax)
     k_values = get_unique_k_values(nk_list)
     

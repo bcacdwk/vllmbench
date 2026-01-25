@@ -41,6 +41,7 @@ from slidesparse.utils import (
     # 文件命名
     build_filename,
     build_stem,
+    build_tuned_filename,
     # 模型信息
     get_model_nk_sizes,
     get_model_nk_sizes_slided,
@@ -373,82 +374,6 @@ def default_nk_list_bitnet_2b() -> List[Tuple[int, int]]:
 
 
 # =============================================================================
-# 模型 NK 尺寸工具
-# =============================================================================
-
-def get_nk_list_from_model(
-    model_path: Union[str, Path],
-    *,
-    layer_index: int = 0,
-    with_names: bool = False,
-) -> Union[List[Tuple[int, int]], List[Tuple[int, int, str]]]:
-    """
-    从模型路径提取 NK 尺寸列表。
-    
-    Args:
-        model_path: 模型目录或 safetensor 文件路径
-        layer_index: 使用哪一层的尺寸（默认 0）
-        with_names: 是否返回层名称
-    
-    Returns:
-        List of (N, K) 或 (N, K, name) tuples
-    """
-    sizes = get_model_nk_sizes(model_path, layer_index=layer_index)
-    
-    # 转换为列表格式，按标准顺序
-    order = ["qkv", "wo", "w13", "w2"]
-    name_map = {
-        "qkv": "Wqkv",
-        "wo": "Wo",
-        "w13": "W13",
-        "w2": "W2",
-    }
-    
-    result = []
-    for key in order:
-        if key in sizes:
-            n, k = sizes[key]
-            if with_names:
-                result.append((n, k, name_map.get(key, key)))
-            else:
-                result.append((n, k))
-    
-    return result
-
-
-def get_nk_list_auto(
-    model: Optional[str] = None,
-    *,
-    L_max: Optional[int] = None,
-    with_names: bool = False,
-) -> Union[List[Tuple[int, int]], List[Tuple[int, int, str]]]:
-    """
-    自动获取 NK 尺寸列表。
-    
-    如果提供了 model 参数且找到对应模型目录，则从模型提取；
-    否则使用 BitNet-2B4T 默认值。
-    
-    如果指定了 L_max，会为 L=4,6,8,...,L_max 生成所有 slide 后的 NK 尺寸。
-    
-    Args:
-        model: 模型名称（如 "BitNet-2B4T"）或路径
-        L_max: 最大 L 值。若设置则生成 L=4,6,...,L_max 的所有 slide NK
-        with_names: 是否返回层名称
-    
-    Returns:
-        List of (N, K) 或 (N, K, name) tuples
-    """
-    # 使用统一的 NK 获取工具
-    nk_list, _ = get_nk_list_for_search(model, L_max)
-    
-    if with_names:
-        # 对于 slide 模式，名称可能重复（不同 L 值的同一层）
-        # 这里简化处理：使用索引作为名称后缀
-        return [(n, k, f"layer_{i}") for i, (n, k) in enumerate(nk_list)]
-    return nk_list
-
-
-# =============================================================================
 # 输出目录与文件命名
 # =============================================================================
 
@@ -466,36 +391,6 @@ def build_output_dir_name() -> str:
         f"{hw_info.gpu_name}_{hw_info.cc_tag}"
         f"_{hw_info.python_tag}_{hw_info.cuda_tag}_{hw_info.arch_tag}"
     )
-
-
-def build_result_filename(
-    prefix: str,
-    model_name: str,
-    outdtype: str,
-    ext: str = "",
-) -> str:
-    """
-    构建结果文件名称。
-    
-    格式: {prefix}_{model_name}_out-{outdtype}.{ext}
-    示例: alg_search_BitNet-2B4T-INT8_out-BF16.csv
-    
-    Args:
-        prefix: 文件前缀（如 "alg_search", "layout_search"）
-        model_name: 模型名称
-        outdtype: 输出数据类型
-        ext: 文件扩展名
-    
-    Returns:
-        文件名称
-    """
-    outdtype_norm = normalize_dtype(outdtype)
-    name = f"{prefix}_{model_name}_out-{outdtype_norm}"
-    if ext:
-        if not ext.startswith("."):
-            ext = "." + ext
-        name += ext
-    return name
 
 
 # =============================================================================
@@ -875,12 +770,11 @@ __all__ = [
     # 默认配置
     "default_m_list",
     "default_nk_list_bitnet_2b",
-    # 模型 NK 工具
-    "get_nk_list_from_model",
-    "get_nk_list_auto",
+    # 模型 NK 工具（重导出自顶层 utils）
+    "get_nk_list_for_search",
     # 输出命名
     "build_output_dir_name",
-    "build_result_filename",
+    "build_tuned_filename",
     # 元数据
     "build_search_meta",
     "build_csv_header_lines",
@@ -959,8 +853,8 @@ def save_alg_search_results(
     subdir = out_dir / subdir_name
     subdir.mkdir(parents=True, exist_ok=True)
     
-    csv_path = subdir / build_result_filename("alg_search", model_name, outdtype, "csv")
-    json_path = subdir / build_result_filename("alg_search", model_name, outdtype, "json")
+    csv_path = subdir / build_tuned_filename("alg_search", model_name, "csv", outdtype)
+    json_path = subdir / build_tuned_filename("alg_search", model_name, "json", outdtype)
     
     alg_count = search_ret.get("max_alg_count", 0)
     config_count = alg_count * (6 if search_ret.get("search_split_k") else 1)
@@ -1137,8 +1031,8 @@ def save_layout_search_results(
     subdir = out_dir / subdir_name
     subdir.mkdir(parents=True, exist_ok=True)
     
-    csv_path = subdir / build_result_filename("layout_search", model_name, outdtype, "csv")
-    json_path = subdir / build_result_filename("layout_search", model_name, outdtype, "json")
+    csv_path = subdir / build_tuned_filename("layout_search", model_name, "csv", outdtype)
+    json_path = subdir / build_tuned_filename("layout_search", model_name, "json", outdtype)
     
     num_layouts = len(layout_names)
     layout_tag = "LAYOUT_SEARCH_SPARSE24" if is_sparse else "LAYOUT_SEARCH"

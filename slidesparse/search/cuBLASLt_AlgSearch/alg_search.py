@@ -14,8 +14,8 @@ cuBLASLt 算法离线搜索
 - W[N,K]^T_col * A[K,M]_col = C[N,M]_col
 
 运行示例:
-    python3 alg_search.py --dtype int8 --outdtype int32 --model BitNet-2B4T
-    python3 alg_search.py --dtype fp8e4m3 --outdtype bf16 --model BitNet-2B4T
+    python3 alg_search.py --dtype int8 --outdtype int32 --model Qwen2.5-0.5B-INT8
+    python3 alg_search.py --dtype fp8e4m3 --outdtype bf16 --model Qwen2.5-0.5B-FP8
 """
 
 import argparse
@@ -39,7 +39,7 @@ from utils import (
     build_search_extension,
     load_search_extension,
     # 模型 NK 工具
-    get_nk_list_auto,
+    get_nk_list_for_search,
     # 数据准备
     quantize_tensor,
     get_output_torch_dtype,
@@ -315,7 +315,7 @@ def parse_args():
     p = argparse.ArgumentParser(description="cuBLASLt 算法离线搜索")
     p.add_argument("--dtype", default="int8", choices=SUPPORTED_DTYPES, help="输入数据类型")
     p.add_argument("--outdtype", default="bf16", choices=SUPPORTED_OUTDTYPES, help="输出数据类型")
-    p.add_argument("--model", default="BitNet-2B4T", help="模型名称或路径")
+    p.add_argument("--model", default=None, help="模型名称（如 Qwen2.5-0.5B-INT8）或路径，必须与 checkpoints/ 目录下的文件夹名匹配。不指定则使用 BitNet-2B-BF16 默认配置")
     p.add_argument("--Lmax", type=int, default=None, help="最大 L 值（slide sparse），会为 L=4,6,...,Lmax 生成所有 NK")
     p.add_argument("--M-quick", action="store_true", dest="m_quick", help="M-quick 模式: 使用固定 M 列表 [16, 128, 1024, 4096, 16384]")
     p.add_argument("--warmup", type=int, default=25)
@@ -339,8 +339,8 @@ def main():
         args.dtype, args.outdtype, backend="cublaslt"
     )
     
-    # 模型名称（取最后一个路径分量）
-    model_name = args.model.split('/')[-1]
+    # 获取 NK 列表和模型名称（统一使用 get_nk_list_for_search）
+    nk_list, model_name = get_nk_list_for_search(args.model, args.Lmax)
     
     # === 显示配置信息 ===
     print("=" * 60)
@@ -372,9 +372,6 @@ def main():
     if not lib.cublaslt_alg_search_is_available():
         raise RuntimeError("cuBLASLt 不可用")
     print("✓ cuBLASLt 可用")
-    
-    # 获取 NK 列表（支持 slide sparse）
-    nk_list = get_nk_list_auto(args.model, L_max=args.Lmax, with_names=False)
     
     if args.Lmax:
         print(f"Lmax: {args.Lmax} (slide sparse L=4,6,...,{args.Lmax})")

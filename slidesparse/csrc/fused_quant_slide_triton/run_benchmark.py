@@ -49,9 +49,6 @@ M_VALUES_BENCH = [16, 128, 1024, 4096, 16384]
 M_VALUES_CORRECTNESS = [16, 17, 100, 128, 1024, 4096, 16384]
 K_VALUES_CORRECTNESS = [2560, 2561, 6912]
 
-# Default model for benchmark
-DEFAULT_MODEL = "Llama3.2-1B-INT8"
-
 WARMUP = 25
 REP = 100
 
@@ -386,8 +383,8 @@ def main():
                         help='Output dtype: fp8 or int8')
     parser.add_argument('--L', type=int, default=8, choices=[6, 8, 10],
                         help='Group size L (default: 8)')
-    parser.add_argument('--model', type=str, default=DEFAULT_MODEL,
-                        help=f'Model name for K values (default: {DEFAULT_MODEL})')
+    parser.add_argument('--model', type=str, default=None,
+                        help='Model name (e.g., Qwen2.5-0.5B-INT8). If not specified, uses BitNet-2B-BF16 default.')
     parser.add_argument('--Lmax', type=int, default=10,
                         help='Max L value for nk_list (default: 10)')
     args = parser.parse_args()
@@ -398,11 +395,10 @@ def main():
     
     dtype = args.dtype
     L = args.L
-    model_name = args.model
     dtype_tag = dtype.upper()
     
-    # Get K values from model (get_nk_list_for_search returns (nk_list, model_name_resolved) tuple)
-    nk_list, _ = get_nk_list_for_search(model_name, args.Lmax)
+    # Get K values and model_name from unified tool
+    nk_list, model_name = get_nk_list_for_search(args.model, args.Lmax)
     k_values = get_unique_k_values(nk_list)
     
     print("=" * 70)
