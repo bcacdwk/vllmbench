@@ -142,7 +142,7 @@ def check_backend_support(backend: str, quant: str) -> Tuple[bool, str]:
 
 # 默认测试的模型列表 (不加 --model 参数时使用)
 DEFAULT_MODEL_LIST = [
-    "qwen2.5-0.5b-fp8",
+    "llama3.2-1b-int8",
     "llama3.2-1b-fp8",
 ]
 

@@ -98,6 +98,52 @@ def test_import_config():
     assert isinstance(is_cublaslt_enabled(), bool)
     assert isinstance(is_cusparselt_enabled(), bool)
     assert isinstance(is_inner_dtype_32(), bool)
+    
+    return True, "配置模块导入成功"
+
+
+@test_case("环境完整性检查")
+def test_environment_sanity():
+    """检查硬件目录、.so 文件和 Tuned Configs 是否存在"""
+    from slidesparse.utils import build_hw_dir_name, find_file
+    
+    # 1. 检查 build/{hw_dir_name} 是否存在 (用于 Kernel Build)
+    hw_dir_name = build_hw_dir_name()
+    csrc_root = Path("/root/vllmbench/slidesparse/csrc")
+    
+    # 2. 检查 Tuned Kernels (*_tuned_*.py)
+    tuned_kernels = []
+    # Check dequant_bias
+    tuned_kernels.extend(list((csrc_root / "dequant_bias_triton" / "build" / hw_dir_name).glob("*_tuned_*.py")))
+    # Check quant_only
+    tuned_kernels.extend(list((csrc_root / "quant_only_triton" / "build" / hw_dir_name).glob("*_tuned_*.py")))
+    # Check quant_slide
+    tuned_kernels.extend(list((csrc_root / "fused_quant_slide_triton" / "build" / hw_dir_name).glob("*_tuned_*.py")))
+
+    if not tuned_kernels:
+         pass # 允许无 Kernel (如首次运行)
+    
+    # 3. 检查 Tuned Configs (AlgSearch 结果)
+    search_root = Path("/root/vllmbench/slidesparse/search")
+    
+    cublaslt_configs = list((search_root / "cuBLASLt_AlgSearch" / "alg_search_results" / hw_dir_name).glob("*.json"))
+    cusparselt_configs = list((search_root / "cuSPARSELt_AlgSearch" / "alg_search_results" / hw_dir_name).glob("*.json"))
+    
+    if not cublaslt_configs:
+        pass # return False, f"未找到 cuBLASLt Tuned Configs"
+    if not cusparselt_configs:
+        pass # return False, f"未找到 cuSPARSELt Tuned Configs"
+
+    # 4. 检查 .so 文件
+    cublaslt_so = find_file("cublaslt_gemm", search_dir=csrc_root / "cublaslt_gemm" / "build", ext=".so")
+    if not cublaslt_so:
+        return False, "未找到 cuBLASLt GEMM .so 文件"
+
+    cusparselt_so = find_file("cusparselt_gemm", search_dir=csrc_root / "cusparselt_gemm" / "build", ext=".so")
+    if not cusparselt_so:
+        return False, "未找到 cuSPARSELt GEMM .so 文件"
+         
+    return True, f"环境检查通过: {hw_dir_name}\n    - Tuned Kernels: {len(tuned_kernels)}\n    - cuBLASLt Configs: {len(cublaslt_configs)}\n    - cuSPARSELt Configs: {len(cusparselt_configs)}"
     assert isinstance(get_slidesparse_status(), str)
     
     return True, "配置解析正常"
@@ -534,6 +580,8 @@ def test_cusparselt_extension_signatures():
 def get_all_tests():
     """获取所有测试"""
     return [
+        # 0. 环境完备性检查
+        test_environment_sanity,
         # 1. 模块导入
         test_import_main,
         test_import_core,

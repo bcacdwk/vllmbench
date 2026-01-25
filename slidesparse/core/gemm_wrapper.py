@@ -160,29 +160,41 @@ class AlgorithmConfigManager:
         
         hw_folder = build_hw_dir_name()  # e.g., RTX5080_cc120_py312_cu129_x86_64
         
+        # 优化: 如果设置了 SLIDESPARSE_MODEL_NAME，只加载该模型的配置
+        target_model = os.environ.get("SLIDESPARSE_MODEL_NAME")
+        target_base = self._extract_base_model_name(target_model) if target_model else None
+        
+        if target_base:
+            logger.info(f"Optimization enabled: Only loading GEMM configs for base model '{target_base}'")
+        
         # cuBLASLt 配置
         cublaslt_dir = _SEARCH_DIR / "cuBLASLt_AlgSearch" / "alg_search_results" / hw_folder
         if cublaslt_dir.exists():
             for json_file in cublaslt_dir.glob("alg_search_*.json"):
-                self._load_single_config("cublaslt", json_file)
+                self._load_single_config("cublaslt", json_file, target_base)
         
         # cuSPARSELt 配置
         cusparselt_dir = _SEARCH_DIR / "cuSPARSELt_AlgSearch" / "alg_search_results" / hw_folder
         if cusparselt_dir.exists():
             for json_file in cusparselt_dir.glob("alg_search_*.json"):
-                self._load_single_config("cusparselt", json_file)
+                self._load_single_config("cusparselt", json_file, target_base)
         
         self._loaded = True
         logger.info(f"Loaded algorithm configs: cuBLASLt={len(self._cublaslt_configs)}, "
                    f"cuSPARSELt={len(self._cusparselt_configs)} models")
     
-    def _load_single_config(self, backend: str, json_path: Path) -> None:
+    def _load_single_config(self, backend: str, json_path: Path, target_base: Optional[str] = None) -> None:
         """加载单个 JSON 配置文件，并预解码 Base64 数据"""
         try:
             with open(json_path, "r") as f:
                 data = json.load(f)
             
             model_name = data["meta"]["model_name"]
+            
+            # 过滤逻辑：如果指定了 target_base，且当前 model_name 不匹配，则跳过
+            if target_base and model_name != target_base:
+                return
+
             nk_entries = data.get("nk_entries", {})
             
             # 转换为内部格式 {(N,K): entry}，同时预解码 base64

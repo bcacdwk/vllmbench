@@ -26,6 +26,7 @@ torch.compile 兼容策略（方案 1+4）:
 
 from pathlib import Path
 from typing import Callable, Dict, Optional
+import os
 
 import torch
 from torch.library import Library
@@ -618,10 +619,10 @@ def _preload_all_kernels() -> None:
     1. 子进程导入模块时自动完成预加载
     2. 热路径上只有字典读取，无文件系统操作
     
-    扫描目录:
-    - csrc/fused_dequant_bias_triton/build/{hw_dir}/dequant_bias_tuned_*.py
-    - csrc/quant_only_triton/build/{hw_dir}/quant_only_tuned_*.py
-    - csrc/fused_quant_slide_triton/build/{hw_dir}/quant_slide_tuned_*.py
+    优化:
+    如果环境变量 SLIDESPARSE_MODEL_NAME 存在，则只加载该模型对应的 kernel。
+    这显著减少了启动时间和内存占用。如果指定模型未找到，打印警告回退到全量加载，
+    以避免"配置错误但默默执行低效路径"的隐患。
     """
     try:
         hw_dir = build_hw_dir_name()
@@ -630,6 +631,59 @@ def _preload_all_kernels() -> None:
         logger.debug(f"Skipping kernel preload: {e}")
         return
     
+    # Check for target model optimization
+    target_model = os.environ.get("SLIDESPARSE_MODEL_NAME")
+    if target_model:
+        _preload_target_model_kernels(target_model)
+        return
+
+    # Fallback to full scan (Legacy behavior)
+    _preload_scan_all_kernels(hw_dir)
+
+
+def _preload_target_model_kernels(target_model_name: str) -> None:
+    """针对特定模型的定向预加载"""
+    # 提取 base model name (因为文件名是基于 base model 的)
+    # 例如: Llama3.2-1B-FP8-SlideSparse-2_8 -> Llama3.2-1B-FP8
+    base_model = _extract_base_model_name(target_model_name)
+    logger.info(f"Optimization enabled: Only preloading kernels for base model '{base_model}'")
+    
+    # 尝试加载各类 kernel
+    # 注意: _load_xxx 函数内部会再次调用 _extract_base_model_name，所以传 full name 或 base name 均可
+    # 但为了逻辑清晰，我们这里传 base_model
+    
+    # 1. Dequant Bias
+    try:
+        _load_dequant_bias_kernel(base_model)
+    except Exception as e:
+        # 不要 fallback，明确警告
+        logger.warning(f"Target dequant_bias kernel for '{base_model}' not found: {e}")
+
+    # 2. Quant Only (FP8 & INT8)
+    try:
+        _load_quant_only_fp8_kernel(base_model)
+    except Exception as e:
+        logger.warning(f"Target quant_only_fp8 kernel for '{base_model}' not found: {e}")
+        
+    try:
+        _load_quant_only_int8_kernel(base_model)
+    except Exception as e:
+        logger.warning(f"Target quant_only_int8 kernel for '{base_model}' not found: {e}")
+
+    # 3. Quant Slide (FP8 & INT8)
+    try:
+        _load_quant_slide_fp8_kernel(base_model)
+    except Exception as e:
+        logger.warning(f"Target quant_slide_fp8 kernel for '{base_model}' not found: {e}")
+
+    try:
+        _load_quant_slide_int8_kernel(base_model)
+    except Exception as e:
+        logger.warning(f"Target quant_slide_int8 kernel for '{base_model}' not found: {e}")
+
+
+def _preload_scan_all_kernels(hw_dir: str) -> None:
+    """全量扫描 build 目录加载所有 kernel (原始逻辑)"""
     preloaded_count = 0
     
     # 1. 扫描 dequant_bias kernels

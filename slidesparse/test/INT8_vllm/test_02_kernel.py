@@ -663,7 +663,7 @@ def run_batch_correctness_test(
                     restore_env(saved)
                 
                 # 2. 运行 test (SlideSparse)
-                saved = set_env_for_test(use_cublaslt, use_cusparselt, inner_32)
+                saved = set_env_for_test(use_cublaslt, use_cusparselt, inner_32, model_name="Llama3.2-1B-INT8")
                 test_output = run_slidesparse(data, use_cublaslt=use_cublaslt, use_cusparselt=use_cusparselt)
                 restore_env(saved)
                 
@@ -933,7 +933,7 @@ def run_performance_comparison(
                     restore_env(saved)
                 
                 # Test 性能
-                saved = set_env_for_test(use_cublaslt, use_cusparselt, inner_32)
+                saved = set_env_for_test(use_cublaslt, use_cusparselt, inner_32, model_name="Llama3.2-1B-INT8")
                 test_output = test_kernel()  # 获取 output 用于正确性验证
                 test_time, _ = Benchmarker.benchmark(
                     test_kernel,  # 直接传函数引用，无 lambda 开销
@@ -1068,7 +1068,9 @@ if __name__ == "__main__":
         use_cusparselt = hasattr(args, 'use_cusparselt') and args.use_cusparselt
         set_sparsity_config(args.sparsity, verbose=use_cusparselt)
     
-    apply_env_args(args)
+    # 应用环境变量（传入 model 参数以加载对应的调优配置）
+    model_name = getattr(args, 'model', None)
+    apply_env_args(args, model_name=model_name)
     
     success = run_tests(verbose=True)
     

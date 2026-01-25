@@ -23,11 +23,11 @@ python3 slidesparse/test/FP8_vllm/test_03_inference.py --model Llama3.2-1B-FP8 -
 
 # 04 Throughput
 echo "--- 04 Throughput: CUTLASS ---"
-python3 slidesparse/test/FP8_vllm/test_04_throughput.py --model Llama3.2-1B-FP8 --use-cutlass
+python3 slidesparse/test/FP8_vllm/test_04_throughput.py --model Llama3.2-1B-FP8 --use-cutlass --show-subprocess-output
 echo "--- 04 Throughput: cuBLASLt ---"
-python3 slidesparse/test/FP8_vllm/test_04_throughput.py --model Llama3.2-1B-FP8 --use-cublaslt
+python3 slidesparse/test/FP8_vllm/test_04_throughput.py --model Llama3.2-1B-FP8 --use-cublaslt --show-subprocess-output
 echo "--- 04 Throughput: cuSPARSELt (2:10) ---"
-python3 slidesparse/test/FP8_vllm/test_04_throughput.py --model Llama3.2-1B-FP8 --use-cusparselt --sparsity 2_10
+python3 slidesparse/test/FP8_vllm/test_04_throughput.py --model Llama3.2-1B-FP8 --use-cusparselt --sparsity 2_10 --show-subprocess-output
 
 
 echo "===== Running INT8 Tests ====="
@@ -52,8 +52,8 @@ python3 slidesparse/test/INT8_vllm/test_03_inference.py --model Llama3.2-1B-INT8
 
 # 04 - INT8
 echo "--- INT8 04 Throughput: CUTLASS ---"
-python3 slidesparse/test/INT8_vllm/test_04_throughput.py --model Llama3.2-1B-INT8 --use-cutlass
+python3 slidesparse/test/INT8_vllm/test_04_throughput.py --model Llama3.2-1B-INT8 --use-cutlass --show-subprocess-output
 echo "--- INT8 04 Throughput: cuBLASLt ---"
-python3 slidesparse/test/INT8_vllm/test_04_throughput.py --model Llama3.2-1B-INT8 --use-cublaslt
+python3 slidesparse/test/INT8_vllm/test_04_throughput.py --model Llama3.2-1B-INT8 --use-cublaslt --show-subprocess-output
 echo "--- INT8 04 Throughput: cuSPARSELt (2:10) ---"
-python3 slidesparse/test/INT8_vllm/test_04_throughput.py --model Llama3.2-1B-INT8 --use-cusparselt --sparsity 2_10
+python3 slidesparse/test/INT8_vllm/test_04_throughput.py --model Llama3.2-1B-INT8 --use-cusparselt --sparsity 2_10 --show-subprocess-output
