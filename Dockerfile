@@ -26,7 +26,7 @@ RUN rm -f /etc/apt/apt.conf.d/docker-clean; echo 'Binary::apt::APT::Keep-Downloa
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
     apt-get update && apt-get install -y --no-install-recommends \
-    git vim curl wget \
+    git vim curl wget tmux \
     build-essential cmake ninja-build pkg-config \
     cuda-nvcc-12-9 \
     cuda-libraries-dev-12-9 \
