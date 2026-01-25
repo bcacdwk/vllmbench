@@ -60,6 +60,7 @@ from utils import (
     Colors,
     parse_common_args,
     get_backend_name,
+    extract_model_name,
 )
 
 
@@ -326,10 +327,23 @@ def run_phase_in_subprocess(
         if result.returncode != 0:
             if verbose:
                 print(f"    {Colors.red('子进程失败')}")
-                # 只打印最后几行错误
-                stderr_lines = result.stderr.strip().split('\n')
-                for line in stderr_lines[-10:]:
-                    print(f"      {line}")
+                # 如果启用了 show_subprocess_output，打印完整输出
+                if show_subprocess_output:
+                    if result.stdout.strip():
+                        print(Colors.yellow("      [stdout]"))
+                        for line in result.stdout.split("\n"):
+                            if line.strip():
+                                print(f"      {line}")
+                    if result.stderr.strip():
+                        print(Colors.yellow("      [stderr]"))
+                        for line in result.stderr.split("\n"):
+                            if line.strip():
+                                print(f"      {line}")
+                else:
+                    # 默认只打印最后几行错误
+                    stderr_lines = result.stderr.strip().split('\n')
+                    for line in stderr_lines[-10:]:
+                        print(f"      {line}")
             return None
         
         # 打印子进程的输出
@@ -411,7 +425,9 @@ def run_throughput_comparison(
     
     # 确定 baseline 模型路径
     baseline_path = baseline_model_path if baseline_model_path else model_path
-    model_name = model_path.name
+    # 提取基础模型名（去除 -SlideSparse- 后缀）用于查找 GEMM 配置和 Triton kernel
+    # 例如 Llama3.2-1B-INT8-SlideSparse-2_10 -> Llama3.2-1B-INT8
+    model_name = extract_model_name(model_path.name)
     
     # 预检测 CUTLASS INT8 是否支持当前 GPU
     cutlass_supported = EnvironmentChecker.supports_cutlass_int8()

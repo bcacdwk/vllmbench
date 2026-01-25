@@ -402,20 +402,30 @@ static PlanContext& get_or_create_plan(
             &handle, &ctx.alg, &ctx.matmul,
             CUSPARSELT_MATMUL_ALG_DEFAULT));
         
-        // 如果指定了 alg_id，设置它
+        // 设置算法配置
+        // 有预搜索配置时（alg_id >= 0）：使用配置中的 alg_id 和 split_k
+        // 无配置时（alg_id = -1）：fallback 到 alg_id = 0，split_k 保持默认
         if (alg_id >= 0) {
+            // 使用预搜索的配置
             CHECK_CUSPARSE(cusparseLtMatmulAlgSetAttribute(
                 &handle, &ctx.alg,
                 CUSPARSELT_MATMUL_ALG_CONFIG_ID,
                 &alg_id, sizeof(alg_id)));
-        }
-        
-        // 如果指定了 split_k，设置它 (split_k != 1 时，包括 >1 的 Split-K 和 -1 的 Segment-K)
-        if (split_k != 1) {
+            
+            // split_k 也来自预搜索配置（split_k != 1 时才需要设置）
+            if (split_k != 1) {
+                CHECK_CUSPARSE(cusparseLtMatmulAlgSetAttribute(
+                    &handle, &ctx.alg,
+                    CUSPARSELT_MATMUL_SPLIT_K,
+                    &split_k, sizeof(split_k)));
+            }
+        } else {
+            // Fallback: 没有预搜索配置，使用 alg_id = 0, split_k 保持默认
+            int fallback_alg_id = 0;
             CHECK_CUSPARSE(cusparseLtMatmulAlgSetAttribute(
                 &handle, &ctx.alg,
-                CUSPARSELT_MATMUL_SPLIT_K,
-                &split_k, sizeof(split_k)));
+                CUSPARSELT_MATMUL_ALG_CONFIG_ID,
+                &fallback_alg_id, sizeof(fallback_alg_id)));
         }
         alg_ok = true;
         
