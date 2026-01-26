@@ -418,6 +418,19 @@ def run_autotune(
             # CUDA Kernel：按 dtype 分别调优
             if kernel_key in ["cublaslt", "cusparselt"]:
                 for dtype in dtypes:
+                    # 检查 FP8 硬件支持（CC >= 8.9）
+                    if dtype == "fp8" and not hw_info.supports_fp8:
+                        print_warning(
+                            f"GPU {hw_info.gpu_name} ({hw_info.cc_tag}) 不支持原生 FP8，"
+                            f"跳过 {kernel_name} FP8 调优"
+                        )
+                        key = f"{base_name}_{dtype}"
+                        results[kernel_key][key] = (
+                            True,  # 标记为成功（跳过不算失败）
+                            f"跳过: GPU 不支持 FP8 (需要 CC >= 8.9)"
+                        )
+                        continue
+                    
                     # 查找该 dtype 对应的 checkpoint（用于命名输出文件）
                     dtype_ckpt = find_model_checkpoint_for_dtype(base_name, dtype)
                     if dtype_ckpt is None:

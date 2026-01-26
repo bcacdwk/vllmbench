@@ -636,6 +636,15 @@ def main():
     if not torch.cuda.is_available():
         raise RuntimeError("需要 CUDA 环境")
     
+    # 检查 FP8 硬件支持（CC >= 8.9，Ada/Hopper+）
+    if args.dtype in ("fp8e4m3", "fp8") and not hw_info.supports_fp8:
+        raise RuntimeError(
+            f"GPU {hw_info.gpu_name} ({hw_info.cc_tag}) 不支持原生 FP8 GEMM。\n"
+            f"FP8 需要 CC >= 8.9 (Ada Lovelace / Hopper / Blackwell)，"
+            f"当前 GPU 为 {hw_info.arch_name} (CC {hw_info.cc_major}.{hw_info.cc_minor})。\n"
+            f"请使用 --dtype int8 或在支持 FP8 的 GPU 上运行。"
+        )
+    
     # 验证并获取实际使用的 outdtype
     # cuSPARSELt INT8 支持 bf16 或 int32，不支持 fp32
     actual_outdtype = validate_dtype_outdtype_combination(
