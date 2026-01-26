@@ -428,14 +428,36 @@ class TaskRunner:
         return total_fail == 0
     
     def run_task_2_convert(self) -> bool:
-        """Task 2: 模型转换"""
+        """Task 2: 模型转换（支持断点续传，跳过已存在的模型）"""
         script = SCRIPTS["convert"]
         
         total_success = 0
         total_fail = 0
+        total_skip = 0
+        
+        # 模型名称映射（小写key -> 目录名大小写）
+        model_name_map = {
+            "llama3.2-1b-int8": "Llama3.2-1B-INT8",
+            "llama3.2-1b-fp8": "Llama3.2-1B-FP8",
+            "llama3.2-3b-int8": "Llama3.2-3B-INT8",
+            "llama3.2-3b-fp8": "Llama3.2-3B-FP8",
+            "qwen2.5-7b-int8": "Qwen2.5-7B-INT8",
+            "qwen2.5-7b-fp8": "Qwen2.5-7B-FP8",
+            "qwen2.5-14b-int8": "Qwen2.5-14B-INT8",
+            "qwen2.5-14b-fp8": "Qwen2.5-14B-FP8",
+        }
         
         for model_key in CONFIG.CONVERT_MODELS:
             for Z, L in CONFIG.CONVERT_SPARSITIES:
+                # 检查目标目录是否已存在
+                model_dir_name = model_name_map.get(model_key.lower(), model_key)
+                target_dir = _PROJECT_ROOT / "checkpoints_slidesparse" / f"{model_dir_name}-SlideSparse-{Z}_{L}"
+                
+                if target_dir.exists() and (target_dir / "model.safetensors").exists():
+                    print_info(f"跳过已存在: {model_key} {Z}_{L}")
+                    total_skip += 1
+                    continue
+                
                 print_subheader(f"转换: {model_key} -> SlideSparse-{Z}_{L}")
                 
                 cmd = [
@@ -458,7 +480,7 @@ class TaskRunner:
                     total_fail += 1
                     
         print()
-        print_info(f"转换统计: 成功 {total_success}, 失败 {total_fail}")
+        print_info(f"转换统计: 成功 {total_success}, 跳过 {total_skip}, 失败 {total_fail}")
         return total_fail == 0
     
     def run_task_3_tune_coarse(self) -> bool:
