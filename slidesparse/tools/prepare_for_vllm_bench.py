@@ -119,7 +119,7 @@ class TaskConfig:
     TUNE_COARSE_M_LIST: List[int] = field(default_factory=lambda: [256, 1024, 4096, 16384, 32768])
     TUNE_COARSE_DTYPE: str = "all"
     TUNE_COARSE_LMAX: int = 10
-    TUNE_COARSE_WARMUP: int = 10
+    TUNE_COARSE_WARMUP: int = 25
     TUNE_COARSE_REPEAT: int = 50
     TUNE_COARSE_KERNELS: str = "1,0,0,0,1"  # cuBLAS + Triton quant_only
     
@@ -133,7 +133,7 @@ class TaskConfig:
     TUNE_FINE_DTYPE: str = "all"
     TUNE_FINE_LMAX: int = 10
     TUNE_FINE_WARMUP: int = 25
-    TUNE_FINE_REPEAT: int = 100
+    TUNE_FINE_REPEAT: int = 50
     TUNE_FINE_KERNELS: str = "0,1,1,1,0"  # cuSPARSELt + Triton Dequant/QuantSlide
     
     # Task 5: 简单端到端 Benchmark

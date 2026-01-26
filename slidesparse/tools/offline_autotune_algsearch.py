@@ -241,7 +241,6 @@ def run_subprocess(cmd: List[str], name: str) -> Tuple[bool, str]:
             cmd,
             capture_output=True,
             text=True,
-            timeout=3600,  # 1 小时超时
         )
         output = result.stdout + result.stderr
         if result.returncode != 0:
@@ -255,8 +254,6 @@ def run_subprocess(cmd: List[str], name: str) -> Tuple[bool, str]:
                 return False, oom_msg + output
             return False, output
         return True, output
-    except subprocess.TimeoutExpired:
-        return False, f"[{name}] 超时（超过 1 小时）"
     except Exception as e:
         return False, f"[{name}] 异常: {str(e)}\n{traceback.format_exc()}"
 
