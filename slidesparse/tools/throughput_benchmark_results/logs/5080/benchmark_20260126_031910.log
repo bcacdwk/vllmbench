@@ -1,0 +1,292 @@
+======================================================================
+SlideSparse vLLM Throughput Benchmark Log
+Created: 2026-01-26 03:19:10
+======================================================================
+
+原始命令:
+  /root/vllmbench/slidesparse/tools/throughput_benchmark.py --model qwen2.5-7b-int8 --stage decode --backend cusparselt --M 512 --gpu-mem 0.8 --gpu-id 1 --sparsity 2_6
+
+命令行参数:
+  --model: qwen2.5-7b-int8
+  --backend: cusparselt
+  --sparsity: 2_6
+  --stage: decode
+  --M: 512
+  --N: None
+  --inner-32: False
+  --eager: False
+  --gpu-id: 1
+  --gpu-mem: 0.8
+  --dry-run: False
+  --list-models: False
+
+硬件信息:
+  GPU: RTX5080
+  Compute Capability: cc120
+  VRAM: 15.5 GB
+  CUDA: 12.9
+  Python: py312
+
+Backend 环境变量 (初始状态):
+  DISABLE_SLIDESPARSE: 未设置
+  USE_CUBLASLT: 未设置
+  USE_CUSPARSELT: 未设置
+  SPARSITY: 未设置
+  INNER_DTYPE_32: 未设置
+
+======================================================================
+
+
+============================================================
+  Qwen2.5-7B-INT8 | cuSPARSELt (2_6) | decode
+============================================================
+
+[INFO] Checkpoint: /root/vllmbench/checkpoints_slidesparse/Qwen2.5-7B-INT8-SlideSparse-2_6
+[INFO] Output: /root/vllmbench/slidesparse/tools/throughput_benchmark_results/decode/RTX5080_cc120_INT8_py312_cu129_x86_64/cusparselt/2_6
+
+============================================================
+[1/1] 测试 M=512
+============================================================
+
+┌─────────────────────────────────────────────────────────────┐
+│                    测试参数                                  │
+├─────────────────────────────────────────────────────────────┤
+│ 模型:     Qwen2.5-7B-INT8                                 │
+│ Backend:  cuSPARSELt (2:6)                                │
+│ 阶段:     decode                                          │
+├─────────────────────────────────────────────────────────────┤
+│ GEMM M 维度 (精确控制):
+│   目标 M        = 512
+│   M_prefill     = 8192 (= 512 x 16)
+│   M_decode      = 512
+│   batched_tokens = 512 (控制 M 的关键参数)
+├─────────────────────────────────────────────────────────────┤
+│ vLLM 参数:
+│   --input-len              = 16
+│   --output-len             = 256
+│   --num-prompts            = 512
+│   --max-num-seqs           = 512
+│   --max-model-len          = 272
+│   --max-num-batched-tokens = 512
+│   --no-enable-chunked-prefill
+├─────────────────────────────────────────────────────────────┤
+│ 迭代次数:
+│   N_prefill = 1
+│   N_decode  = 256
+└─────────────────────────────────────────────────────────────┘
+
+[INFO] 开始测试...
+
+─── STDOUT ───
+When dataset path is not set, it will default to random dataset
+WARNING 01-26 03:19:13 [arg_utils.py:1869] This model does not officially support disabling chunked prefill. Disabling this manually may cause the engine to crash or produce incorrect outputs.
+(EngineCore_DP0 pid=909764) [INFO] Loading compress extension: cusparselt_compress_RTX5080_cc120_py312_cu129_x86_64.so
+(EngineCore_DP0 pid=909764) WARNING 01-26 03:19:25 [backends.py:609] Failed to read file <frozen os>
+Throughput: 27.73 requests/s, 7542.40 total tokens/s, 7098.73 output tokens/s
+Total num prompt tokens:  8192
+Total num output tokens:  131072
+
+
+─── STDERR ───
+[2026-01-26 03:19:13] INFO kernels.py:578: Triton kernel custom ops registered
+[2026-01-26 03:19:13] INFO kernels.py:627: Optimization enabled: Only preloading kernels for model 'Qwen2.5-7B-INT8'
+[2026-01-26 03:19:13] INFO kernels.py:109: Loaded tuned kernel for model: Qwen2.5-7B-INT8
+[2026-01-26 03:19:13] INFO kernels.py:155: Dequant+bias kernel loaded for model: Qwen2.5-7B-INT8
+[2026-01-26 03:19:13] INFO kernels.py:224: FP8 quant kernel loaded for model: Qwen2.5-7B-INT8
+[2026-01-26 03:19:13] INFO kernels.py:348: INT8 quant kernel loaded for model: Qwen2.5-7B-INT8
+[2026-01-26 03:19:13] INFO kernels.py:284: FP8 quant+slide kernel loaded for model: Qwen2.5-7B-INT8
+[2026-01-26 03:19:13] INFO kernels.py:408: INT8 quant+slide kernel loaded for model: Qwen2.5-7B-INT8
+[2026-01-26 03:19:13] INFO gemm_wrapper.py:157: Optimization enabled: Only loading GEMM configs for model 'Qwen2.5-7B-INT8'
+[2026-01-26 03:19:13] INFO gemm_wrapper.py:172: Loaded algorithm configs: cuBLASLt=1, cuSPARSELt=1 models
+[2026-01-26 03:19:13] INFO gemm_wrapper.py:944: cuBLASLt FP8 custom op registered: slidesparse::cublaslt_fp8_mm
+[2026-01-26 03:19:13] INFO gemm_wrapper.py:1009: cuSPARSELt FP8 custom op registered: slidesparse::cusparselt_fp8_mm
+[2026-01-26 03:19:13] INFO gemm_wrapper.py:1075: cuBLASLt INT8 custom op registered: slidesparse::cublaslt_int8_mm
+[2026-01-26 03:19:13] INFO gemm_wrapper.py:1141: cuSPARSELt INT8 custom op registered: slidesparse::cusparselt_int8_mm
+[2026-01-26 03:19:17] INFO kernels.py:578: Triton kernel custom ops registered
+[2026-01-26 03:19:17] INFO kernels.py:627: Optimization enabled: Only preloading kernels for model 'Qwen2.5-7B-INT8'
+[2026-01-26 03:19:17] INFO kernels.py:109: Loaded tuned kernel for model: Qwen2.5-7B-INT8
+[2026-01-26 03:19:17] INFO kernels.py:155: Dequant+bias kernel loaded for model: Qwen2.5-7B-INT8
+[2026-01-26 03:19:17] INFO kernels.py:224: FP8 quant kernel loaded for model: Qwen2.5-7B-INT8
+[2026-01-26 03:19:17] INFO kernels.py:348: INT8 quant kernel loaded for model: Qwen2.5-7B-INT8
+[2026-01-26 03:19:17] INFO kernels.py:284: FP8 quant+slide kernel loaded for model: Qwen2.5-7B-INT8
+[2026-01-26 03:19:17] INFO kernels.py:408: INT8 quant+slide kernel loaded for model: Qwen2.5-7B-INT8
+[2026-01-26 03:19:17] INFO gemm_wrapper.py:157: Optimization enabled: Only loading GEMM configs for model 'Qwen2.5-7B-INT8'
+[2026-01-26 03:19:17] INFO gemm_wrapper.py:172: Loaded algorithm configs: cuBLASLt=1, cuSPARSELt=1 models
+[2026-01-26 03:19:17] INFO gemm_wrapper.py:944: cuBLASLt FP8 custom op registered: slidesparse::cublaslt_fp8_mm
+[2026-01-26 03:19:17] INFO gemm_wrapper.py:1009: cuSPARSELt FP8 custom op registered: slidesparse::cusparselt_fp8_mm
+[2026-01-26 03:19:17] INFO gemm_wrapper.py:1075: cuBLASLt INT8 custom op registered: slidesparse::cublaslt_int8_mm
+[2026-01-26 03:19:17] INFO gemm_wrapper.py:1141: cuSPARSELt INT8 custom op registered: slidesparse::cusparselt_int8_mm
+(EngineCore_DP0 pid=909764) [2026-01-26 03:19:18] INFO SlideSparseLinearMethod_INT8.py:805: Wrapping CompressedTensorsW8A8Int8 with SlideSparse (cuSPARSELt)
+(EngineCore_DP0 pid=909764) [2026-01-26 03:19:18] INFO gemm_wrapper.py:870: cusparselt GEMM extension loaded: cusparselt_gemm_RTX5080_cc120_py312_cu129_x86_64.so
+(EngineCore_DP0 pid=909764) [2026-01-26 03:19:18] INFO SlideSparseLinearMethod_INT8.py:452: SlideSparseInt8LinearOp initialized (kernel=cuSPARSELt)
+(EngineCore_DP0 pid=909764) [2026-01-26 03:19:18] INFO SlideSparseLinearMethod_INT8.py:604: SlideSparseInt8LinearMethod: cuSPARSELt sparsity=2:6, expand_ratio=1.500
+(EngineCore_DP0 pid=909764) [2026-01-26 03:19:18] INFO SlideSparseLinearMethod_INT8.py:621: Preloaded INT8 Triton kernels for model: Qwen2.5-7B-INT8
+(EngineCore_DP0 pid=909764) [2026-01-26 03:19:18] INFO SlideSparseLinearMethod_INT8.py:625: SlideSparseInt8LinearMethod initialized, kernel=cuSPARSELt, symmetric=True
+(EngineCore_DP0 pid=909764) 
+Loading safetensors checkpoint shards:   0% Completed | 0/2 [00:00<?, ?it/s]
+(EngineCore_DP0 pid=909764) 
+Loading safetensors checkpoint shards:  50% Completed | 1/2 [00:00<00:00,  1.42it/s]
+(EngineCore_DP0 pid=909764) 
+Loading safetensors checkpoint shards: 100% Completed | 2/2 [00:01<00:00,  1.12it/s]
+(EngineCore_DP0 pid=909764) 
+Loading safetensors checkpoint shards: 100% Completed | 2/2 [00:01<00:00,  1.15it/s]
+(EngineCore_DP0 pid=909764) 
+(EngineCore_DP0 pid=909764) [2026-01-26 03:19:20] INFO SlideSparseLinearMethod_INT8.py:719: cuSPARSELt INT8 compression: [4608, 4800] -> 1D uint8
+(EngineCore_DP0 pid=909764) [2026-01-26 03:19:20] INFO SlideSparseLinearMethod_INT8.py:729: cuSPARSELt INT8 compression done: 16662528 bytes
+(EngineCore_DP0 pid=909764) [2026-01-26 03:19:20] INFO SlideSparseLinearMethod_INT8.py:719: cuSPARSELt INT8 compression: [3584, 4800] -> 1D uint8
+(EngineCore_DP0 pid=909764) [2026-01-26 03:19:20] INFO SlideSparseLinearMethod_INT8.py:729: cuSPARSELt INT8 compression done: 12959744 bytes
+(EngineCore_DP0 pid=909764) [2026-01-26 03:19:20] INFO SlideSparseLinearMethod_INT8.py:719: cuSPARSELt INT8 compression: [37888, 4800] -> 1D uint8
+(EngineCore_DP0 pid=909764) [2026-01-26 03:19:20] INFO SlideSparseLinearMethod_INT8.py:729: cuSPARSELt INT8 compression done: 137003008 bytes
+(EngineCore_DP0 pid=909764) [2026-01-26 03:19:20] INFO SlideSparseLinearMethod_INT8.py:719: cuSPARSELt INT8 compression: [3584, 25280] -> 1D uint8
+(EngineCore_DP0 pid=909764) [2026-01-26 03:19:20] INFO SlideSparseLinearMethod_INT8.py:729: cuSPARSELt INT8 compression done: 68009984 bytes
+(EngineCore_DP0 pid=909764) 2026-01-26 03:19:28,447 - INFO - autotuner.py:256 - flashinfer.jit: [Autotuner]: Autotuning process starts ...
+(EngineCore_DP0 pid=909764) 2026-01-26 03:19:28,461 - INFO - autotuner.py:262 - flashinfer.jit: [Autotuner]: Autotuning process ends
+(EngineCore_DP0 pid=909764) 
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):   0%|          | 0/51 [00:00<?, ?it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):   6%|▌         | 3/51 [00:00<00:02, 22.25it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):  12%|█▏        | 6/51 [00:00<00:02, 22.35it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):  18%|█▊        | 9/51 [00:00<00:01, 23.06it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):  24%|██▎       | 12/51 [00:00<00:01, 23.99it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):  29%|██▉       | 15/51 [00:00<00:01, 24.73it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):  35%|███▌      | 18/51 [00:00<00:01, 24.69it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):  41%|████      | 21/51 [00:00<00:01, 25.27it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):  49%|████▉     | 25/51 [00:00<00:00, 26.72it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):  57%|█████▋    | 29/51 [00:01<00:00, 27.57it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):  63%|██████▎   | 32/51 [00:01<00:00, 27.40it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):  69%|██████▊   | 35/51 [00:01<00:00, 24.56it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):  75%|███████▍  | 38/51 [00:01<00:00, 19.33it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):  80%|████████  | 41/51 [00:01<00:00, 18.43it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):  86%|████████▋ | 44/51 [00:01<00:00, 20.21it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):  92%|█████████▏| 47/51 [00:02<00:00, 22.04it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE): 100%|██████████| 51/51 [00:02<00:00, 23.45it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE): 100%|██████████| 51/51 [00:02<00:00, 23.29it/s]
+(EngineCore_DP0 pid=909764) 
+Capturing CUDA graphs (decode, FULL):   0%|          | 0/51 [00:00<?, ?it/s]
+Capturing CUDA graphs (decode, FULL):   2%|▏         | 1/51 [00:00<00:07,  6.86it/s]
+Capturing CUDA graphs (decode, FULL):   8%|▊         | 4/51 [00:00<00:02, 16.37it/s]
+Capturing CUDA graphs (decode, FULL):  14%|█▎        | 7/51 [00:00<00:02, 20.07it/s]
+Capturing CUDA graphs (decode, FULL):  20%|█▉        | 10/51 [00:00<00:01, 22.78it/s]
+Capturing CUDA graphs (decode, FULL):  25%|██▌       | 13/51 [00:00<00:01, 24.86it/s]
+Capturing CUDA graphs (decode, FULL):  31%|███▏      | 16/51 [00:00<00:01, 25.87it/s]
+Capturing CUDA graphs (decode, FULL):  39%|███▉      | 20/51 [00:00<00:01, 28.02it/s]
+Capturing CUDA graphs (decode, FULL):  47%|████▋     | 24/51 [00:00<00:00, 29.51it/s]
+Capturing CUDA graphs (decode, FULL):  55%|█████▍    | 28/51 [00:01<00:00, 30.15it/s]
+Capturing CUDA graphs (decode, FULL):  63%|██████▎   | 32/51 [00:01<00:00, 30.60it/s]
+Capturing CUDA graphs (decode, FULL):  71%|███████   | 36/51 [00:01<00:00, 30.93it/s]
+Capturing CUDA graphs (decode, FULL):  78%|███████▊  | 40/51 [00:01<00:00, 31.50it/s]
+Capturing CUDA graphs (decode, FULL):  86%|████████▋ | 44/51 [00:01<00:00, 31.96it/s]
+Capturing CUDA graphs (decode, FULL):  94%|█████████▍| 48/51 [00:01<00:00, 32.17it/s]
+Capturing CUDA graphs (decode, FULL): 100%|██████████| 51/51 [00:01<00:00, 28.32it/s]
+
+Adding requests:   0%|          | 0/512 [00:00<?, ?it/s]
+Adding requests: 100%|██████████| 512/512 [00:00<00:00, 8302.37it/s]
+
+Processed prompts:   0%|          | 0/512 [00:00<?, ?it/s, est. speed input: 0.00 toks/s, output: 0.00 toks/s]
+Processed prompts:   0%|          | 1/512 [00:05<46:52,  5.50s/it, est. speed input: 2.91 toks/s, output: 46.51 toks/s]
+Processed prompts:  17%|█▋        | 89/512 [00:05<00:20, 21.08it/s, est. speed input: 243.06 toks/s, output: 3888.88 toks/s]
+Processed prompts:  20%|██        | 104/512 [00:07<00:21, 18.64it/s, est. speed input: 236.09 toks/s, output: 3777.37 toks/s]
+Processed prompts:  22%|██▏       | 113/512 [00:07<00:21, 18.57it/s, est. speed input: 239.65 toks/s, output: 3834.48 toks/s]
+Processed prompts:  23%|██▎       | 119/512 [00:07<00:21, 18.23it/s, est. speed input: 240.45 toks/s, output: 3847.23 toks/s]
+Processed prompts:  24%|██▍       | 124/512 [00:08<00:19, 19.52it/s, est. speed input: 246.55 toks/s, output: 3944.80 toks/s]
+Processed prompts:  25%|██▌       | 129/512 [00:08<00:19, 19.47it/s, est. speed input: 248.44 toks/s, output: 3975.09 toks/s]
+Processed prompts:  26%|██▌       | 134/512 [00:08<00:17, 21.34it/s, est. speed input: 254.10 toks/s, output: 4065.64 toks/s]
+Processed prompts:  27%|██▋       | 138/512 [00:08<00:18, 20.17it/s, est. speed input: 254.10 toks/s, output: 4065.61 toks/s]
+Processed prompts:  28%|██▊       | 142/512 [00:08<00:16, 22.10it/s, est. speed input: 258.22 toks/s, output: 4131.44 toks/s]
+Processed prompts:  29%|██▉       | 148/512 [00:08<00:14, 25.95it/s, est. speed input: 265.08 toks/s, output: 4241.23 toks/s]
+Processed prompts:  30%|██▉       | 152/512 [00:09<00:14, 24.43it/s, est. speed input: 266.34 toks/s, output: 4261.42 toks/s]
+Processed prompts:  30%|███       | 156/512 [00:09<00:13, 26.66it/s, est. speed input: 270.21 toks/s, output: 4323.28 toks/s]
+Processed prompts:  32%|███▏      | 162/512 [00:09<00:11, 31.57it/s, est. speed input: 276.95 toks/s, output: 4431.27 toks/s]
+Processed prompts:  33%|███▎      | 168/512 [00:09<00:12, 27.94it/s, est. speed input: 279.28 toks/s, output: 4468.48 toks/s]
+Processed prompts:  34%|███▍      | 174/512 [00:09<00:10, 32.21it/s, est. speed input: 285.54 toks/s, output: 4568.69 toks/s]
+Processed prompts:  35%|███▌      | 180/512 [00:09<00:09, 35.91it/s, est. speed input: 291.66 toks/s, output: 4666.49 toks/s]
+Processed prompts:  36%|███▌      | 185/512 [00:09<00:08, 37.85it/s, est. speed input: 296.37 toks/s, output: 4741.94 toks/s]
+Processed prompts:  37%|███▋      | 190/512 [00:10<00:10, 30.80it/s, est. speed input: 297.22 toks/s, output: 4755.59 toks/s]
+Processed prompts:  38%|███▊      | 196/512 [00:10<00:09, 34.66it/s, est. speed input: 302.83 toks/s, output: 4845.27 toks/s]
+Processed prompts:  39%|███▉      | 201/512 [00:10<00:08, 37.73it/s, est. speed input: 307.52 toks/s, output: 4920.35 toks/s]
+Processed prompts:  40%|████      | 207/512 [00:10<00:08, 37.92it/s, est. speed input: 312.03 toks/s, output: 4992.49 toks/s]
+Processed prompts:  42%|████▏     | 213/512 [00:10<00:07, 41.70it/s, est. speed input: 317.70 toks/s, output: 5083.18 toks/s]
+Processed prompts:  43%|████▎     | 218/512 [00:10<00:08, 33.78it/s, est. speed input: 318.54 toks/s, output: 5096.62 toks/s]
+Processed prompts:  44%|████▍     | 224/512 [00:11<00:08, 35.90it/s, est. speed input: 323.04 toks/s, output: 5168.60 toks/s]
+Processed prompts:  45%|████▍     | 229/512 [00:11<00:07, 38.86it/s, est. speed input: 327.28 toks/s, output: 5236.42 toks/s]
+Processed prompts:  46%|████▌     | 236/512 [00:11<00:06, 44.34it/s, est. speed input: 333.78 toks/s, output: 5340.46 toks/s]
+Processed prompts:  47%|████▋     | 242/512 [00:11<00:06, 43.73it/s, est. speed input: 338.04 toks/s, output: 5408.56 toks/s]
+Processed prompts:  48%|████▊     | 247/512 [00:11<00:09, 27.77it/s, est. speed input: 334.44 toks/s, output: 5351.08 toks/s]
+Processed prompts:  49%|████▉     | 251/512 [00:12<00:14, 18.58it/s, est. speed input: 327.38 toks/s, output: 5238.11 toks/s]
+Processed prompts:  50%|████▉     | 254/512 [00:12<00:18, 13.98it/s, est. speed input: 320.13 toks/s, output: 5122.03 toks/s]
+Processed prompts:  50%|█████     | 257/512 [00:12<00:18, 13.70it/s, est. speed input: 318.03 toks/s, output: 5088.52 toks/s]
+Processed prompts:  51%|█████     | 259/512 [00:13<00:18, 13.65it/s, est. speed input: 316.86 toks/s, output: 5069.78 toks/s]
+Processed prompts:  51%|█████     | 262/512 [00:13<00:16, 15.26it/s, est. speed input: 317.27 toks/s, output: 5076.25 toks/s]
+Processed prompts:  52%|█████▏    | 265/512 [00:13<00:14, 17.22it/s, est. speed input: 318.09 toks/s, output: 5089.45 toks/s]
+Processed prompts:  53%|█████▎    | 269/512 [00:13<00:11, 20.34it/s, est. speed input: 319.77 toks/s, output: 5116.39 toks/s]
+Processed prompts:  53%|█████▎    | 272/512 [00:13<00:10, 22.28it/s, est. speed input: 320.95 toks/s, output: 5135.23 toks/s]
+Processed prompts:  54%|█████▍    | 277/512 [00:13<00:08, 26.85it/s, est. speed input: 323.82 toks/s, output: 5181.10 toks/s]
+Processed prompts:  56%|█████▌    | 285/512 [00:13<00:06, 36.99it/s, est. speed input: 330.15 toks/s, output: 5282.37 toks/s]
+Processed prompts:  57%|█████▋    | 290/512 [00:13<00:06, 34.04it/s, est. speed input: 331.75 toks/s, output: 5307.93 toks/s]
+Processed prompts:  57%|█████▋    | 294/512 [00:14<00:06, 34.09it/s, est. speed input: 333.54 toks/s, output: 5336.58 toks/s]
+Processed prompts:  58%|█████▊    | 298/512 [00:14<00:06, 35.10it/s, est. speed input: 335.58 toks/s, output: 5369.36 toks/s]
+Processed prompts:  59%|█████▉    | 302/512 [00:14<00:06, 32.79it/s, est. speed input: 336.70 toks/s, output: 5387.14 toks/s]
+Processed prompts:  61%|██████    | 310/512 [00:14<00:05, 39.07it/s, est. speed input: 341.92 toks/s, output: 5470.79 toks/s]
+Processed prompts:  62%|██████▏   | 315/512 [00:14<00:04, 41.39it/s, est. speed input: 345.00 toks/s, output: 5520.03 toks/s]
+Processed prompts:  62%|██████▎   | 320/512 [00:14<00:04, 43.19it/s, est. speed input: 348.02 toks/s, output: 5568.29 toks/s]
+Processed prompts:  64%|██████▎   | 326/512 [00:14<00:03, 47.27it/s, est. speed input: 352.09 toks/s, output: 5633.42 toks/s]
+Processed prompts:  65%|██████▍   | 331/512 [00:14<00:04, 44.67it/s, est. speed input: 354.44 toks/s, output: 5670.98 toks/s]
+Processed prompts:  66%|██████▌   | 336/512 [00:15<00:04, 42.94it/s, est. speed input: 356.74 toks/s, output: 5707.88 toks/s]
+Processed prompts:  67%|██████▋   | 341/512 [00:15<00:03, 43.99it/s, est. speed input: 359.50 toks/s, output: 5752.02 toks/s]
+Processed prompts:  69%|██████▉   | 355/512 [00:15<00:02, 68.95it/s, est. speed input: 371.71 toks/s, output: 5947.40 toks/s]
+Processed prompts:  72%|███████▏  | 367/512 [00:15<00:01, 79.47it/s, est. speed input: 381.38 toks/s, output: 6102.12 toks/s]
+Processed prompts:  73%|███████▎  | 376/512 [00:16<00:03, 34.34it/s, est. speed input: 375.80 toks/s, output: 6012.79 toks/s]
+Processed prompts:  75%|███████▍  | 383/512 [00:16<00:04, 27.68it/s, est. speed input: 373.44 toks/s, output: 5975.10 toks/s]
+Processed prompts:  76%|███████▌  | 388/512 [00:16<00:04, 27.61it/s, est. speed input: 374.15 toks/s, output: 5986.35 toks/s]
+Processed prompts:  77%|███████▋  | 393/512 [00:16<00:04, 28.20it/s, est. speed input: 375.26 toks/s, output: 6004.09 toks/s]
+Processed prompts:  78%|███████▊  | 397/512 [00:16<00:03, 29.59it/s, est. speed input: 376.62 toks/s, output: 6025.94 toks/s]
+Processed prompts:  78%|███████▊  | 401/512 [00:17<00:04, 27.09it/s, est. speed input: 376.17 toks/s, output: 6018.68 toks/s]
+Processed prompts:  79%|███████▉  | 405/512 [00:17<00:03, 29.06it/s, est. speed input: 377.56 toks/s, output: 6040.94 toks/s]
+Processed prompts:  80%|███████▉  | 409/512 [00:17<00:03, 26.68it/s, est. speed input: 377.22 toks/s, output: 6035.49 toks/s]
+Processed prompts:  81%|████████  | 413/512 [00:17<00:03, 28.27it/s, est. speed input: 378.32 toks/s, output: 6053.11 toks/s]
+Processed prompts:  82%|████████▏ | 418/512 [00:17<00:03, 30.87it/s, est. speed input: 380.05 toks/s, output: 6080.78 toks/s]
+Processed prompts:  82%|████████▏ | 422/512 [00:17<00:02, 31.80it/s, est. speed input: 381.18 toks/s, output: 6098.94 toks/s]
+Processed prompts:  84%|████████▍ | 429/512 [00:17<00:02, 40.67it/s, est. speed input: 385.31 toks/s, output: 6164.88 toks/s]
+Processed prompts:  86%|████████▌ | 439/512 [00:17<00:01, 54.11it/s, est. speed input: 391.85 toks/s, output: 6269.62 toks/s]
+Processed prompts:  88%|████████▊ | 449/512 [00:18<00:01, 62.72it/s, est. speed input: 398.11 toks/s, output: 6369.75 toks/s]
+Processed prompts:  89%|████████▉ | 458/512 [00:18<00:00, 69.17it/s, est. speed input: 403.77 toks/s, output: 6460.35 toks/s]
+Processed prompts:  93%|█████████▎| 477/512 [00:18<00:00, 101.56it/s, est. speed input: 418.21 toks/s, output: 6691.32 toks/s]
+Processed prompts:  97%|█████████▋| 497/512 [00:18<00:00, 127.49it/s, est. speed input: 433.28 toks/s, output: 6932.41 toks/s]
+Processed prompts: 100%|██████████| 512/512 [00:18<00:00, 127.49it/s, est. speed input: 445.18 toks/s, output: 7122.85 toks/s]
+Processed prompts: 100%|██████████| 512/512 [00:18<00:00, 27.82it/s, est. speed input: 445.18 toks/s, output: 7122.85 toks/s] 
+[rank0]:[W126 03:19:51.733666408 ProcessGroupNCCL.cpp:1524] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+
+[SUCCESS] 测试完成! 耗时: 43.0s
+
+测试结果:
+  Requests/s:   27.73
+  Tokens/s:     7542.40
+  Total Reqs:   512
+  Elapsed:      18.46s
+
+  [Decode 分析]
+  Total Decode Tokens:  131072
+  Decode Tokens/s:      7098.73
+
+
+------------------------------------------------------------
+  生成 CSV: Qwen2.5-7B-INT8
+------------------------------------------------------------
+[SUCCESS] CSV 保存到: /root/vllmbench/slidesparse/tools/throughput_benchmark_results/decode/RTX5080_cc120_INT8_py312_cu129_x86_64/cusparselt/2_6/Qwen2.5-7B-INT8_decode.csv
+
+预览:
+------------------------------------------------------------
+M_decode,prompt_len,max_num_seqs,num_prompts,N_decode,output_len,requests_per_s,tokens_per_s,elapsed_time_s
+512,16,512,512,256,256,27.7294,7542.3963,18.4642
+
+------------------------------------------------------------
+
+[INFO] 完成: 1 成功, 0 失败
+
+
+============================================================
+  Benchmark 完成!
+============================================================
+
+
+总计: 1 成功, 0 失败
+============================================================

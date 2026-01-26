@@ -71,6 +71,7 @@ python3 offline_autotune_algsearch.py --model Qwen2.5-0.5B,Llama3.2-1B --dtype a
 """
 
 import argparse
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -188,6 +189,41 @@ def get_dtype_for_cuda(dtype: str, inner_32: bool) -> Tuple[str, str]:
             return "fp8e4m3", "bf16"
 
 
+def detect_oom_error(output: str) -> Tuple[bool, Optional[str]]:
+    """
+    检测输出中是否包含 CUDA OOM 错误
+    
+    Returns:
+        (is_oom, suggestion): 是否为 OOM 错误，以及建议
+    """
+    oom_patterns = [
+        "CUDA out of memory",
+        "OutOfMemoryError",
+        "CUDA error: out of memory",
+        "RuntimeError: CUDA",
+    ]
+    
+    for pattern in oom_patterns:
+        if pattern in output:
+            # 尝试提取更多信息
+            suggestion = None
+            if "Tried to allocate" in output:
+                # 提取尝试分配的大小
+                match = re.search(r"Tried to allocate ([\d.]+) ([GM]iB)", output)
+                if match:
+                    size = match.group(1)
+                    unit = match.group(2)
+                    suggestion = (
+                        f"尝试分配 {size} {unit} 显存失败。\n"
+                        f"建议:\n"
+                        f"  1. 减小 M 列表: --m_list 64,128,256,512,1024,2048,4096,8192,16384\n"
+                        f"  2. 设置环境变量: export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True\n"
+                        f"  3. 重启进程清理显存碎片"
+                    )
+            return True, suggestion
+    return False, None
+
+
 def run_subprocess(cmd: List[str], name: str) -> Tuple[bool, str]:
     """
     运行子进程并捕获输出
@@ -209,6 +245,14 @@ def run_subprocess(cmd: List[str], name: str) -> Tuple[bool, str]:
         )
         output = result.stdout + result.stderr
         if result.returncode != 0:
+            # 检测 OOM 错误并提供建议
+            is_oom, suggestion = detect_oom_error(output)
+            if is_oom:
+                oom_msg = f"\n{'='*60}\n[OOM 检测] 显存不足错误\n{'='*60}\n"
+                if suggestion:
+                    oom_msg += suggestion + "\n"
+                oom_msg += "="*60 + "\n"
+                return False, oom_msg + output
             return False, output
         return True, output
     except subprocess.TimeoutExpired:
@@ -527,9 +571,40 @@ def print_summary(results: dict, kernel_mask: List[bool]) -> None:
             status = f"{Colors.YELLOW}[部分成功]{Colors.NC} ({success_count}/{len(kernel_results)})"
         
         print(f"  {kernel_name}: {status}")
+        
+        # 检查是否有 OOM 错误，单独列出
+        oom_failures = []
+        for key, (success, output) in kernel_results.items():
+            if not success and "[OOM 检测]" in output:
+                oom_failures.append(key)
+        
+        if oom_failures:
+            print(f"    {Colors.RED}⚠ OOM 错误:{Colors.NC} {', '.join(oom_failures)}")
     
     print()
     print(f"总计: 成功 {success_total}, 失败 {fail_total}, 跳过 {skip_total}")
+    
+    # 如果有 OOM 失败，打印统一建议
+    all_oom = False
+    for kernel_key in results:
+        for key, (success, output) in results[kernel_key].items():
+            if not success and "[OOM 检测]" in output:
+                all_oom = True
+                break
+        if all_oom:
+            break
+    
+    if all_oom:
+        print()
+        print(f"{Colors.YELLOW}{'='*60}{Colors.NC}")
+        print(f"{Colors.YELLOW}提示: 检测到显存不足 (OOM) 错误{Colors.NC}")
+        print(f"{Colors.YELLOW}{'='*60}{Colors.NC}")
+        print("可尝试以下方法解决:")
+        print("  1. 减小 M 列表: --m_list 64,128,256,512,1024,2048,4096,8192,16384")
+        print("  2. 设置环境变量: export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True")
+        print("  3. 单独运行失败的模型（避免显存碎片）")
+        print("  4. 重启进程清理 GPU 显存")
+        print(f"{Colors.YELLOW}{'='*60}{Colors.NC}")
 
 
 # =============================================================================

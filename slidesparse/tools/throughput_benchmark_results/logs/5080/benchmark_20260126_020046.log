@@ -1,0 +1,1111 @@
+======================================================================
+SlideSparse vLLM Throughput Benchmark Log
+Created: 2026-01-26 02:00:46
+======================================================================
+
+原始命令:
+  /root/vllmbench/slidesparse/tools/throughput_benchmark.py --model qwen2.5-7b-int8 --stage prefill --backend cusparselt --M 16384,32768,65536 --gpu-mem 0.65 --gpu-id 1 --sparsity 2_4
+
+命令行参数:
+  --model: qwen2.5-7b-int8
+  --backend: cusparselt
+  --sparsity: 2_4
+  --stage: prefill
+  --M: 16384,32768,65536
+  --N: None
+  --inner-32: False
+  --eager: False
+  --gpu-id: 1
+  --gpu-mem: 0.65
+  --dry-run: False
+  --list-models: False
+
+硬件信息:
+  GPU: RTX5080
+  Compute Capability: cc120
+  VRAM: 15.5 GB
+  CUDA: 12.9
+  Python: py312
+
+Backend 环境变量 (初始状态):
+  DISABLE_SLIDESPARSE: 未设置
+  USE_CUBLASLT: 未设置
+  USE_CUSPARSELT: 未设置
+  SPARSITY: 未设置
+  INNER_DTYPE_32: 未设置
+
+======================================================================
+
+
+============================================================
+  Qwen2.5-7B-INT8 | cuSPARSELt (2_4) | prefill
+============================================================
+
+[INFO] Checkpoint: /root/vllmbench/checkpoints_slidesparse/Qwen2.5-7B-INT8-SlideSparse-2_4
+[INFO] Output: /root/vllmbench/slidesparse/tools/throughput_benchmark_results/prefill/RTX5080_cc120_INT8_py312_cu129_x86_64/cusparselt/2_4
+
+============================================================
+[1/3] 测试 M=16384
+============================================================
+
+┌─────────────────────────────────────────────────────────────┐
+│                    测试参数                                  │
+├─────────────────────────────────────────────────────────────┤
+│ 模型:     Qwen2.5-7B-INT8                                 │
+│ Backend:  cuSPARSELt (2:4)                                │
+│ 阶段:     prefill                                         │
+├─────────────────────────────────────────────────────────────┤
+│ GEMM M 维度 (精确控制):
+│   目标 M        = 16384
+│   M_prefill     = 16384 (= 16 x 1024)
+│   M_decode      = 16
+│   batched_tokens = 16384 (控制 M 的关键参数)
+├─────────────────────────────────────────────────────────────┤
+│ vLLM 参数:
+│   --input-len              = 1024
+│   --output-len             = 1
+│   --num-prompts            = 2048
+│   --max-num-seqs           = 16
+│   --max-model-len          = 1025
+│   --max-num-batched-tokens = 16384
+│   --no-enable-chunked-prefill
+├─────────────────────────────────────────────────────────────┤
+│ 迭代次数:
+│   N_prefill = 128
+│   N_decode  = 0
+└─────────────────────────────────────────────────────────────┘
+
+[INFO] 开始测试...
+
+─── STDOUT ───
+When dataset path is not set, it will default to random dataset
+WARNING 01-26 02:00:57 [arg_utils.py:1869] This model does not officially support disabling chunked prefill. Disabling this manually may cause the engine to crash or produce incorrect outputs.
+(EngineCore_DP0 pid=813894) [INFO] Loading compress extension: cusparselt_compress_RTX5080_cc120_py312_cu129_x86_64.so
+(EngineCore_DP0 pid=813894) WARNING 01-26 02:01:08 [backends.py:609] Failed to read file <frozen os>
+Throughput: 24.47 requests/s, 25085.29 total tokens/s, 24.47 output tokens/s
+Total num prompt tokens:  2097152
+Total num output tokens:  2048
+
+
+─── STDERR ───
+[2026-01-26 02:00:57] INFO kernels.py:578: Triton kernel custom ops registered
+[2026-01-26 02:00:57] INFO kernels.py:627: Optimization enabled: Only preloading kernels for model 'Qwen2.5-7B-INT8'
+[2026-01-26 02:00:57] INFO kernels.py:109: Loaded tuned kernel for model: Qwen2.5-7B-INT8
+[2026-01-26 02:00:57] INFO kernels.py:155: Dequant+bias kernel loaded for model: Qwen2.5-7B-INT8
+[2026-01-26 02:00:57] INFO kernels.py:224: FP8 quant kernel loaded for model: Qwen2.5-7B-INT8
+[2026-01-26 02:00:57] INFO kernels.py:348: INT8 quant kernel loaded for model: Qwen2.5-7B-INT8
+[2026-01-26 02:00:57] INFO kernels.py:284: FP8 quant+slide kernel loaded for model: Qwen2.5-7B-INT8
+[2026-01-26 02:00:57] INFO kernels.py:408: INT8 quant+slide kernel loaded for model: Qwen2.5-7B-INT8
+[2026-01-26 02:00:57] INFO gemm_wrapper.py:157: Optimization enabled: Only loading GEMM configs for model 'Qwen2.5-7B-INT8'
+[2026-01-26 02:00:57] INFO gemm_wrapper.py:172: Loaded algorithm configs: cuBLASLt=1, cuSPARSELt=1 models
+[2026-01-26 02:00:57] INFO gemm_wrapper.py:944: cuBLASLt FP8 custom op registered: slidesparse::cublaslt_fp8_mm
+[2026-01-26 02:00:57] INFO gemm_wrapper.py:1009: cuSPARSELt FP8 custom op registered: slidesparse::cusparselt_fp8_mm
+[2026-01-26 02:00:57] INFO gemm_wrapper.py:1075: cuBLASLt INT8 custom op registered: slidesparse::cublaslt_int8_mm
+[2026-01-26 02:00:57] INFO gemm_wrapper.py:1141: cuSPARSELt INT8 custom op registered: slidesparse::cusparselt_int8_mm
+[2026-01-26 02:01:01] INFO kernels.py:578: Triton kernel custom ops registered
+[2026-01-26 02:01:01] INFO kernels.py:627: Optimization enabled: Only preloading kernels for model 'Qwen2.5-7B-INT8'
+[2026-01-26 02:01:01] INFO kernels.py:109: Loaded tuned kernel for model: Qwen2.5-7B-INT8
+[2026-01-26 02:01:01] INFO kernels.py:155: Dequant+bias kernel loaded for model: Qwen2.5-7B-INT8
+[2026-01-26 02:01:01] INFO kernels.py:224: FP8 quant kernel loaded for model: Qwen2.5-7B-INT8
+[2026-01-26 02:01:01] INFO kernels.py:348: INT8 quant kernel loaded for model: Qwen2.5-7B-INT8
+[2026-01-26 02:01:01] INFO kernels.py:284: FP8 quant+slide kernel loaded for model: Qwen2.5-7B-INT8
+[2026-01-26 02:01:01] INFO kernels.py:408: INT8 quant+slide kernel loaded for model: Qwen2.5-7B-INT8
+[2026-01-26 02:01:01] INFO gemm_wrapper.py:157: Optimization enabled: Only loading GEMM configs for model 'Qwen2.5-7B-INT8'
+[2026-01-26 02:01:01] INFO gemm_wrapper.py:172: Loaded algorithm configs: cuBLASLt=1, cuSPARSELt=1 models
+[2026-01-26 02:01:01] INFO gemm_wrapper.py:944: cuBLASLt FP8 custom op registered: slidesparse::cublaslt_fp8_mm
+[2026-01-26 02:01:01] INFO gemm_wrapper.py:1009: cuSPARSELt FP8 custom op registered: slidesparse::cusparselt_fp8_mm
+[2026-01-26 02:01:01] INFO gemm_wrapper.py:1075: cuBLASLt INT8 custom op registered: slidesparse::cublaslt_int8_mm
+[2026-01-26 02:01:01] INFO gemm_wrapper.py:1141: cuSPARSELt INT8 custom op registered: slidesparse::cusparselt_int8_mm
+(EngineCore_DP0 pid=813894) [2026-01-26 02:01:01] INFO SlideSparseLinearMethod_INT8.py:805: Wrapping CompressedTensorsW8A8Int8 with SlideSparse (cuSPARSELt)
+(EngineCore_DP0 pid=813894) [2026-01-26 02:01:01] INFO gemm_wrapper.py:870: cusparselt GEMM extension loaded: cusparselt_gemm_RTX5080_cc120_py312_cu129_x86_64.so
+(EngineCore_DP0 pid=813894) [2026-01-26 02:01:01] INFO SlideSparseLinearMethod_INT8.py:452: SlideSparseInt8LinearOp initialized (kernel=cuSPARSELt)
+(EngineCore_DP0 pid=813894) [2026-01-26 02:01:01] INFO SlideSparseLinearMethod_INT8.py:604: SlideSparseInt8LinearMethod: cuSPARSELt sparsity=2:4, expand_ratio=2.000
+(EngineCore_DP0 pid=813894) [2026-01-26 02:01:01] INFO SlideSparseLinearMethod_INT8.py:621: Preloaded INT8 Triton kernels for model: Qwen2.5-7B-INT8
+(EngineCore_DP0 pid=813894) [2026-01-26 02:01:01] INFO SlideSparseLinearMethod_INT8.py:625: SlideSparseInt8LinearMethod initialized, kernel=cuSPARSELt, symmetric=True
+(EngineCore_DP0 pid=813894) 
+Loading safetensors checkpoint shards:   0% Completed | 0/2 [00:00<?, ?it/s]
+(EngineCore_DP0 pid=813894) 
+Loading safetensors checkpoint shards:  50% Completed | 1/2 [00:01<00:01,  1.08s/it]
+(EngineCore_DP0 pid=813894) 
+Loading safetensors checkpoint shards: 100% Completed | 2/2 [00:02<00:00,  1.31s/it]
+(EngineCore_DP0 pid=813894) 
+Loading safetensors checkpoint shards: 100% Completed | 2/2 [00:02<00:00,  1.27s/it]
+(EngineCore_DP0 pid=813894) 
+(EngineCore_DP0 pid=813894) [2026-01-26 02:01:04] INFO SlideSparseLinearMethod_INT8.py:719: cuSPARSELt INT8 compression: [4608, 3584] -> 1D uint8
+(EngineCore_DP0 pid=813894) [2026-01-26 02:01:04] INFO SlideSparseLinearMethod_INT8.py:729: cuSPARSELt INT8 compression done: 12386304 bytes
+(EngineCore_DP0 pid=813894) [2026-01-26 02:01:04] INFO SlideSparseLinearMethod_INT8.py:719: cuSPARSELt INT8 compression: [3584, 3584] -> 1D uint8
+(EngineCore_DP0 pid=813894) [2026-01-26 02:01:04] INFO SlideSparseLinearMethod_INT8.py:729: cuSPARSELt INT8 compression done: 9633792 bytes
+(EngineCore_DP0 pid=813894) [2026-01-26 02:01:04] INFO SlideSparseLinearMethod_INT8.py:719: cuSPARSELt INT8 compression: [37888, 3584] -> 1D uint8
+(EngineCore_DP0 pid=813894) [2026-01-26 02:01:04] INFO SlideSparseLinearMethod_INT8.py:729: cuSPARSELt INT8 compression done: 101842944 bytes
+(EngineCore_DP0 pid=813894) [2026-01-26 02:01:04] INFO SlideSparseLinearMethod_INT8.py:719: cuSPARSELt INT8 compression: [3584, 18944] -> 1D uint8
+(EngineCore_DP0 pid=813894) [2026-01-26 02:01:04] INFO SlideSparseLinearMethod_INT8.py:729: cuSPARSELt INT8 compression done: 50921472 bytes
+(EngineCore_DP0 pid=813894) 2026-01-26 02:01:12,474 - INFO - autotuner.py:256 - flashinfer.jit: [Autotuner]: Autotuning process starts ...
+(EngineCore_DP0 pid=813894) 2026-01-26 02:01:12,489 - INFO - autotuner.py:262 - flashinfer.jit: [Autotuner]: Autotuning process ends
+(EngineCore_DP0 pid=813894) 
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):   0%|          | 0/7 [00:00<?, ?it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):  14%|█▍        | 1/7 [00:00<00:02,  2.29it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):  57%|█████▋    | 4/7 [00:00<00:00,  9.01it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE): 100%|██████████| 7/7 [00:00<00:00, 13.80it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE): 100%|██████████| 7/7 [00:00<00:00, 10.61it/s]
+(EngineCore_DP0 pid=813894) 
+Capturing CUDA graphs (decode, FULL):   0%|          | 0/5 [00:00<?, ?it/s]
+Capturing CUDA graphs (decode, FULL):  20%|██        | 1/5 [00:00<00:00,  7.48it/s]
+Capturing CUDA graphs (decode, FULL): 100%|██████████| 5/5 [00:00<00:00, 21.62it/s]
+Capturing CUDA graphs (decode, FULL): 100%|██████████| 5/5 [00:00<00:00, 19.41it/s]
+
+Adding requests:   0%|          | 0/2048 [00:00<?, ?it/s]
+Adding requests:   2%|▏         | 51/2048 [00:00<00:03, 505.45it/s]
+Adding requests:   5%|▌         | 108/2048 [00:00<00:03, 540.60it/s]
+Adding requests:   8%|▊         | 167/2048 [00:00<00:03, 560.38it/s]
+Adding requests:  11%|█         | 230/2048 [00:00<00:03, 585.63it/s]
+Adding requests:  14%|█▍        | 289/2048 [00:00<00:03, 581.78it/s]
+Adding requests:  17%|█▋        | 349/2048 [00:00<00:02, 585.72it/s]
+Adding requests:  20%|█▉        | 408/2048 [00:00<00:02, 586.19it/s]
+Adding requests:  23%|██▎       | 467/2048 [00:00<00:02, 582.70it/s]
+Adding requests:  26%|██▌       | 533/2048 [00:00<00:02, 603.86it/s]
+Adding requests:  29%|██▉       | 594/2048 [00:01<00:02, 593.91it/s]
+Adding requests:  32%|███▏      | 654/2048 [00:01<00:02, 568.65it/s]
+Adding requests:  35%|███▍      | 712/2048 [00:01<00:02, 569.60it/s]
+Adding requests:  38%|███▊      | 770/2048 [00:01<00:02, 553.36it/s]
+Adding requests:  40%|████      | 828/2048 [00:01<00:02, 559.51it/s]
+Adding requests:  43%|████▎     | 885/2048 [00:01<00:02, 561.37it/s]
+Adding requests:  46%|████▌     | 942/2048 [00:01<00:02, 550.75it/s]
+Adding requests:  49%|████▊     | 998/2048 [00:01<00:01, 547.17it/s]
+Adding requests:  51%|█████▏    | 1053/2048 [00:01<00:01, 547.90it/s]
+Adding requests:  54%|█████▍    | 1109/2048 [00:01<00:01, 549.46it/s]
+Adding requests:  57%|█████▋    | 1167/2048 [00:02<00:01, 555.64it/s]
+Adding requests:  60%|█████▉    | 1226/2048 [00:02<00:01, 564.19it/s]
+Adding requests:  63%|██████▎   | 1283/2048 [00:02<00:01, 553.38it/s]
+Adding requests:  65%|██████▌   | 1340/2048 [00:02<00:01, 555.09it/s]
+Adding requests:  68%|██████▊   | 1399/2048 [00:02<00:01, 562.29it/s]
+Adding requests:  71%|███████   | 1456/2048 [00:02<00:01, 562.81it/s]
+Adding requests:  74%|███████▍  | 1516/2048 [00:02<00:00, 571.33it/s]
+Adding requests:  77%|███████▋  | 1574/2048 [00:02<00:00, 560.82it/s]
+Adding requests:  80%|███████▉  | 1631/2048 [00:02<00:00, 550.37it/s]
+Adding requests:  82%|████████▏ | 1687/2048 [00:03<00:00, 545.12it/s]
+Adding requests:  85%|████████▌ | 1742/2048 [00:03<00:00, 542.62it/s]
+Adding requests:  88%|████████▊ | 1798/2048 [00:03<00:00, 546.11it/s]
+Adding requests:  90%|█████████ | 1853/2048 [00:03<00:00, 547.22it/s]
+Adding requests:  93%|█████████▎| 1912/2048 [00:03<00:00, 558.26it/s]
+Adding requests:  96%|█████████▌| 1968/2048 [00:03<00:00, 551.87it/s]
+Adding requests:  99%|█████████▉| 2024/2048 [00:03<00:00, 543.67it/s]
+Adding requests: 100%|██████████| 2048/2048 [00:03<00:00, 559.39it/s]
+
+Processed prompts:   0%|          | 0/2048 [00:00<?, ?it/s, est. speed input: 0.00 toks/s, output: 0.00 toks/s]
+Processed prompts:   4%|▍         | 86/2048 [00:00<00:07, 261.03it/s, est. speed input: 267309.88 toks/s, output: 261.04 toks/s]
+Processed prompts:   6%|▌         | 113/2048 [00:01<00:26, 72.33it/s, est. speed input: 88703.77 toks/s, output: 86.62 toks/s]  
+Processed prompts:   6%|▌         | 126/2048 [00:01<00:34, 55.60it/s, est. speed input: 71991.58 toks/s, output: 70.30 toks/s]
+Processed prompts:   7%|▋         | 134/2048 [00:02<00:45, 42.14it/s, est. speed input: 60190.44 toks/s, output: 58.78 toks/s]
+Processed prompts:   7%|▋         | 146/2048 [00:02<00:52, 36.37it/s, est. speed input: 54026.95 toks/s, output: 52.76 toks/s]
+Processed prompts:   8%|▊         | 158/2048 [00:03<00:57, 32.61it/s, est. speed input: 49705.82 toks/s, output: 48.54 toks/s]
+Processed prompts:   8%|▊         | 170/2048 [00:03<01:02, 30.10it/s, est. speed input: 46514.01 toks/s, output: 45.42 toks/s]
+Processed prompts:   9%|▉         | 182/2048 [00:04<01:05, 28.39it/s, est. speed input: 44051.17 toks/s, output: 43.02 toks/s]
+Processed prompts:   9%|▉         | 194/2048 [00:04<01:08, 27.22it/s, est. speed input: 42096.89 toks/s, output: 41.11 toks/s]
+Processed prompts:  10%|█         | 206/2048 [00:05<01:09, 26.42it/s, est. speed input: 40511.27 toks/s, output: 39.56 toks/s]
+Processed prompts:  11%|█         | 218/2048 [00:05<01:10, 25.86it/s, est. speed input: 39196.44 toks/s, output: 38.28 toks/s]
+Processed prompts:  11%|█         | 230/2048 [00:06<01:11, 25.48it/s, est. speed input: 38089.67 toks/s, output: 37.20 toks/s]
+Processed prompts:  12%|█▏        | 242/2048 [00:06<01:11, 25.20it/s, est. speed input: 37141.26 toks/s, output: 36.27 toks/s]
+Processed prompts:  12%|█▏        | 254/2048 [00:07<01:11, 25.01it/s, est. speed input: 36324.18 toks/s, output: 35.47 toks/s]
+Processed prompts:  13%|█▎        | 266/2048 [00:07<01:11, 24.88it/s, est. speed input: 35610.71 toks/s, output: 34.78 toks/s]
+Processed prompts:  14%|█▎        | 278/2048 [00:08<01:11, 24.78it/s, est. speed input: 34982.24 toks/s, output: 34.16 toks/s]
+Processed prompts:  14%|█▍        | 290/2048 [00:08<01:11, 24.71it/s, est. speed input: 34425.40 toks/s, output: 33.62 toks/s]
+Processed prompts:  15%|█▍        | 302/2048 [00:09<01:10, 24.66it/s, est. speed input: 33927.38 toks/s, output: 33.13 toks/s]
+Processed prompts:  15%|█▌        | 314/2048 [00:09<01:10, 24.63it/s, est. speed input: 33479.85 toks/s, output: 32.70 toks/s]
+Processed prompts:  16%|█▌        | 326/2048 [00:10<01:09, 24.60it/s, est. speed input: 33075.68 toks/s, output: 32.30 toks/s]
+Processed prompts:  17%|█▋        | 338/2048 [00:10<01:09, 24.59it/s, est. speed input: 32709.21 toks/s, output: 31.94 toks/s]
+Processed prompts:  17%|█▋        | 350/2048 [00:11<01:09, 24.58it/s, est. speed input: 32375.11 toks/s, output: 31.62 toks/s]
+Processed prompts:  18%|█▊        | 362/2048 [00:11<01:08, 24.52it/s, est. speed input: 32060.46 toks/s, output: 31.31 toks/s]
+Processed prompts:  18%|█▊        | 374/2048 [00:12<01:08, 24.53it/s, est. speed input: 31779.55 toks/s, output: 31.03 toks/s]
+Processed prompts:  19%|█▉        | 386/2048 [00:12<01:07, 24.53it/s, est. speed input: 31520.11 toks/s, output: 30.78 toks/s]
+Processed prompts:  19%|█▉        | 398/2048 [00:13<01:07, 24.54it/s, est. speed input: 31280.49 toks/s, output: 30.55 toks/s]
+Processed prompts:  20%|██        | 410/2048 [00:13<01:06, 24.54it/s, est. speed input: 31057.84 toks/s, output: 30.33 toks/s]
+Processed prompts:  21%|██        | 422/2048 [00:14<01:06, 24.54it/s, est. speed input: 30851.11 toks/s, output: 30.13 toks/s]
+Processed prompts:  21%|██        | 434/2048 [00:14<01:05, 24.54it/s, est. speed input: 30657.95 toks/s, output: 29.94 toks/s]
+Processed prompts:  22%|██▏       | 446/2048 [00:14<01:05, 24.54it/s, est. speed input: 30477.68 toks/s, output: 29.76 toks/s]
+Processed prompts:  22%|██▏       | 458/2048 [00:15<01:04, 24.54it/s, est. speed input: 30308.43 toks/s, output: 29.60 toks/s]
+Processed prompts:  23%|██▎       | 470/2048 [00:15<01:04, 24.54it/s, est. speed input: 30149.73 toks/s, output: 29.44 toks/s]
+Processed prompts:  24%|██▎       | 482/2048 [00:16<01:03, 24.54it/s, est. speed input: 30000.48 toks/s, output: 29.30 toks/s]
+Processed prompts:  24%|██▍       | 494/2048 [00:16<01:03, 24.53it/s, est. speed input: 29859.09 toks/s, output: 29.16 toks/s]
+Processed prompts:  25%|██▍       | 506/2048 [00:17<01:02, 24.53it/s, est. speed input: 29726.12 toks/s, output: 29.03 toks/s]
+Processed prompts:  25%|██▌       | 518/2048 [00:17<01:02, 24.53it/s, est. speed input: 29600.48 toks/s, output: 28.91 toks/s]
+Processed prompts:  26%|██▌       | 530/2048 [00:18<01:01, 24.53it/s, est. speed input: 29480.97 toks/s, output: 28.79 toks/s]
+Processed prompts:  26%|██▋       | 542/2048 [00:18<01:01, 24.53it/s, est. speed input: 29367.94 toks/s, output: 28.68 toks/s]
+Processed prompts:  27%|██▋       | 554/2048 [00:19<01:00, 24.53it/s, est. speed input: 29260.59 toks/s, output: 28.57 toks/s]
+Processed prompts:  28%|██▊       | 566/2048 [00:19<01:00, 24.53it/s, est. speed input: 29158.73 toks/s, output: 28.48 toks/s]
+Processed prompts:  28%|██▊       | 578/2048 [00:20<00:59, 24.53it/s, est. speed input: 29061.38 toks/s, output: 28.38 toks/s]
+Processed prompts:  29%|██▉       | 590/2048 [00:20<00:59, 24.52it/s, est. speed input: 28968.41 toks/s, output: 28.29 toks/s]
+Processed prompts:  29%|██▉       | 602/2048 [00:21<00:58, 24.52it/s, est. speed input: 28879.60 toks/s, output: 28.20 toks/s]
+Processed prompts:  30%|██▉       | 614/2048 [00:21<00:58, 24.52it/s, est. speed input: 28794.85 toks/s, output: 28.12 toks/s]
+Processed prompts:  31%|███       | 626/2048 [00:22<00:58, 24.51it/s, est. speed input: 28713.85 toks/s, output: 28.04 toks/s]
+Processed prompts:  31%|███       | 638/2048 [00:22<00:57, 24.51it/s, est. speed input: 28636.23 toks/s, output: 27.97 toks/s]
+Processed prompts:  32%|███▏      | 650/2048 [00:23<00:57, 24.51it/s, est. speed input: 28561.89 toks/s, output: 27.89 toks/s]
+Processed prompts:  32%|███▏      | 662/2048 [00:23<00:56, 24.51it/s, est. speed input: 28490.62 toks/s, output: 27.82 toks/s]
+Processed prompts:  33%|███▎      | 674/2048 [00:24<00:56, 24.51it/s, est. speed input: 28422.35 toks/s, output: 27.76 toks/s]
+Processed prompts:  33%|███▎      | 686/2048 [00:24<00:55, 24.51it/s, est. speed input: 28356.33 toks/s, output: 27.69 toks/s]
+Processed prompts:  34%|███▍      | 698/2048 [00:25<00:55, 24.51it/s, est. speed input: 28293.00 toks/s, output: 27.63 toks/s]
+Processed prompts:  35%|███▍      | 710/2048 [00:25<00:54, 24.50it/s, est. speed input: 28231.80 toks/s, output: 27.57 toks/s]
+Processed prompts:  35%|███▌      | 722/2048 [00:26<00:54, 24.50it/s, est. speed input: 28173.20 toks/s, output: 27.51 toks/s]
+Processed prompts:  36%|███▌      | 734/2048 [00:26<00:53, 24.50it/s, est. speed input: 28116.65 toks/s, output: 27.46 toks/s]
+Processed prompts:  36%|███▋      | 746/2048 [00:27<00:53, 24.50it/s, est. speed input: 28062.25 toks/s, output: 27.40 toks/s]
+Processed prompts:  37%|███▋      | 758/2048 [00:27<00:52, 24.50it/s, est. speed input: 28009.67 toks/s, output: 27.35 toks/s]
+Processed prompts:  38%|███▊      | 770/2048 [00:28<00:52, 24.50it/s, est. speed input: 27958.65 toks/s, output: 27.30 toks/s]
+Processed prompts:  38%|███▊      | 782/2048 [00:28<00:51, 24.50it/s, est. speed input: 27909.83 toks/s, output: 27.26 toks/s]
+Processed prompts:  39%|███▉      | 794/2048 [00:29<00:51, 24.50it/s, est. speed input: 27862.56 toks/s, output: 27.21 toks/s]
+Processed prompts:  39%|███▉      | 806/2048 [00:29<00:50, 24.50it/s, est. speed input: 27816.65 toks/s, output: 27.16 toks/s]
+Processed prompts:  40%|███▉      | 818/2048 [00:30<00:50, 24.50it/s, est. speed input: 27772.15 toks/s, output: 27.12 toks/s]
+Processed prompts:  41%|████      | 830/2048 [00:30<00:49, 24.49it/s, est. speed input: 27729.05 toks/s, output: 27.08 toks/s]
+Processed prompts:  41%|████      | 842/2048 [00:31<00:49, 24.50it/s, est. speed input: 27687.55 toks/s, output: 27.04 toks/s]
+Processed prompts:  42%|████▏     | 854/2048 [00:31<00:48, 24.49it/s, est. speed input: 27646.84 toks/s, output: 27.00 toks/s]
+Processed prompts:  42%|████▏     | 866/2048 [00:32<00:48, 24.49it/s, est. speed input: 27607.74 toks/s, output: 26.96 toks/s]
+Processed prompts:  43%|████▎     | 878/2048 [00:32<00:47, 24.49it/s, est. speed input: 27569.78 toks/s, output: 26.92 toks/s]
+Processed prompts:  43%|████▎     | 890/2048 [00:33<00:47, 24.49it/s, est. speed input: 27532.87 toks/s, output: 26.89 toks/s]
+Processed prompts:  44%|████▍     | 902/2048 [00:33<00:46, 24.49it/s, est. speed input: 27496.86 toks/s, output: 26.85 toks/s]
+Processed prompts:  45%|████▍     | 914/2048 [00:34<00:46, 24.49it/s, est. speed input: 27462.03 toks/s, output: 26.82 toks/s]
+Processed prompts:  45%|████▌     | 926/2048 [00:34<00:45, 24.49it/s, est. speed input: 27428.20 toks/s, output: 26.79 toks/s]
+Processed prompts:  46%|████▌     | 938/2048 [00:35<00:45, 24.48it/s, est. speed input: 27395.19 toks/s, output: 26.75 toks/s]
+Processed prompts:  46%|████▋     | 950/2048 [00:35<00:44, 24.49it/s, est. speed input: 27363.17 toks/s, output: 26.72 toks/s]
+Processed prompts:  47%|████▋     | 962/2048 [00:36<00:44, 24.49it/s, est. speed input: 27332.13 toks/s, output: 26.69 toks/s]
+Processed prompts:  48%|████▊     | 974/2048 [00:36<00:43, 24.48it/s, est. speed input: 27301.46 toks/s, output: 26.66 toks/s]
+Processed prompts:  48%|████▊     | 986/2048 [00:37<00:43, 24.48it/s, est. speed input: 27271.92 toks/s, output: 26.63 toks/s]
+Processed prompts:  49%|████▊     | 998/2048 [00:37<00:42, 24.48it/s, est. speed input: 27243.00 toks/s, output: 26.60 toks/s]
+Processed prompts:  49%|████▉     | 1010/2048 [00:38<00:42, 24.47it/s, est. speed input: 27214.76 toks/s, output: 26.58 toks/s]
+Processed prompts:  50%|████▉     | 1022/2048 [00:38<00:41, 24.48it/s, est. speed input: 27187.46 toks/s, output: 26.55 toks/s]
+Processed prompts:  50%|█████     | 1034/2048 [00:38<00:41, 24.48it/s, est. speed input: 27160.69 toks/s, output: 26.52 toks/s]
+Processed prompts:  51%|█████     | 1046/2048 [00:39<00:40, 24.47it/s, est. speed input: 27134.51 toks/s, output: 26.50 toks/s]
+Processed prompts:  52%|█████▏    | 1058/2048 [00:39<00:40, 24.48it/s, est. speed input: 27109.28 toks/s, output: 26.47 toks/s]
+Processed prompts:  52%|█████▏    | 1070/2048 [00:40<00:39, 24.48it/s, est. speed input: 27084.64 toks/s, output: 26.45 toks/s]
+Processed prompts:  53%|█████▎    | 1082/2048 [00:40<00:39, 24.48it/s, est. speed input: 27060.47 toks/s, output: 26.43 toks/s]
+Processed prompts:  53%|█████▎    | 1094/2048 [00:41<00:38, 24.48it/s, est. speed input: 27036.90 toks/s, output: 26.40 toks/s]
+Processed prompts:  54%|█████▍    | 1106/2048 [00:41<00:38, 24.48it/s, est. speed input: 27014.00 toks/s, output: 26.38 toks/s]
+Processed prompts:  55%|█████▍    | 1118/2048 [00:42<00:37, 24.48it/s, est. speed input: 26991.27 toks/s, output: 26.36 toks/s]
+Processed prompts:  55%|█████▌    | 1130/2048 [00:42<00:37, 24.47it/s, est. speed input: 26969.04 toks/s, output: 26.34 toks/s]
+Processed prompts:  56%|█████▌    | 1142/2048 [00:43<00:37, 24.47it/s, est. speed input: 26947.44 toks/s, output: 26.32 toks/s]
+Processed prompts:  56%|█████▋    | 1154/2048 [00:43<00:36, 24.47it/s, est. speed input: 26926.37 toks/s, output: 26.30 toks/s]
+Processed prompts:  57%|█████▋    | 1166/2048 [00:44<00:36, 24.47it/s, est. speed input: 26905.85 toks/s, output: 26.28 toks/s]
+Processed prompts:  58%|█████▊    | 1178/2048 [00:44<00:35, 24.47it/s, est. speed input: 26885.46 toks/s, output: 26.26 toks/s]
+Processed prompts:  58%|█████▊    | 1190/2048 [00:45<00:35, 24.47it/s, est. speed input: 26865.70 toks/s, output: 26.24 toks/s]
+Processed prompts:  59%|█████▊    | 1202/2048 [00:45<00:34, 24.47it/s, est. speed input: 26846.30 toks/s, output: 26.22 toks/s]
+Processed prompts:  59%|█████▉    | 1214/2048 [00:46<00:34, 24.47it/s, est. speed input: 26827.38 toks/s, output: 26.20 toks/s]
+Processed prompts:  60%|█████▉    | 1226/2048 [00:46<00:33, 24.47it/s, est. speed input: 26808.89 toks/s, output: 26.18 toks/s]
+Processed prompts:  60%|██████    | 1238/2048 [00:47<00:33, 24.47it/s, est. speed input: 26790.64 toks/s, output: 26.16 toks/s]
+Processed prompts:  61%|██████    | 1250/2048 [00:47<00:32, 24.47it/s, est. speed input: 26772.85 toks/s, output: 26.15 toks/s]
+Processed prompts:  62%|██████▏   | 1262/2048 [00:48<00:32, 24.47it/s, est. speed input: 26755.36 toks/s, output: 26.13 toks/s]
+Processed prompts:  62%|██████▏   | 1274/2048 [00:48<00:31, 24.46it/s, est. speed input: 26738.09 toks/s, output: 26.11 toks/s]
+Processed prompts:  63%|██████▎   | 1286/2048 [00:49<00:31, 24.46it/s, est. speed input: 26721.23 toks/s, output: 26.09 toks/s]
+Processed prompts:  63%|██████▎   | 1298/2048 [00:49<00:30, 24.46it/s, est. speed input: 26704.68 toks/s, output: 26.08 toks/s]
+Processed prompts:  64%|██████▍   | 1310/2048 [00:50<00:30, 24.46it/s, est. speed input: 26688.44 toks/s, output: 26.06 toks/s]
+Processed prompts:  65%|██████▍   | 1322/2048 [00:50<00:29, 24.46it/s, est. speed input: 26672.69 toks/s, output: 26.05 toks/s]
+Processed prompts:  65%|██████▌   | 1334/2048 [00:51<00:29, 24.46it/s, est. speed input: 26657.20 toks/s, output: 26.03 toks/s]
+Processed prompts:  66%|██████▌   | 1346/2048 [00:51<00:28, 24.46it/s, est. speed input: 26641.71 toks/s, output: 26.02 toks/s]
+Processed prompts:  66%|██████▋   | 1358/2048 [00:52<00:28, 24.46it/s, est. speed input: 26626.70 toks/s, output: 26.00 toks/s]
+Processed prompts:  67%|██████▋   | 1370/2048 [00:52<00:27, 24.46it/s, est. speed input: 26612.04 toks/s, output: 25.99 toks/s]
+Processed prompts:  67%|██████▋   | 1382/2048 [00:53<00:27, 24.45it/s, est. speed input: 26597.46 toks/s, output: 25.97 toks/s]
+Processed prompts:  68%|██████▊   | 1394/2048 [00:53<00:26, 24.46it/s, est. speed input: 26583.30 toks/s, output: 25.96 toks/s]
+Processed prompts:  69%|██████▊   | 1406/2048 [00:54<00:26, 24.45it/s, est. speed input: 26569.25 toks/s, output: 25.95 toks/s]
+Processed prompts:  69%|██████▉   | 1418/2048 [00:54<00:25, 24.45it/s, est. speed input: 26555.45 toks/s, output: 25.93 toks/s]
+Processed prompts:  70%|██████▉   | 1430/2048 [00:55<00:25, 24.46it/s, est. speed input: 26542.09 toks/s, output: 25.92 toks/s]
+Processed prompts:  70%|███████   | 1442/2048 [00:55<00:24, 24.45it/s, est. speed input: 26528.83 toks/s, output: 25.91 toks/s]
+Processed prompts:  71%|███████   | 1454/2048 [00:56<00:24, 24.45it/s, est. speed input: 26515.65 toks/s, output: 25.89 toks/s]
+Processed prompts:  72%|███████▏  | 1466/2048 [00:56<00:23, 24.45it/s, est. speed input: 26502.76 toks/s, output: 25.88 toks/s]
+Processed prompts:  72%|███████▏  | 1478/2048 [00:57<00:23, 24.45it/s, est. speed input: 26490.14 toks/s, output: 25.87 toks/s]
+Processed prompts:  73%|███████▎  | 1490/2048 [00:57<00:22, 24.45it/s, est. speed input: 26477.71 toks/s, output: 25.86 toks/s]
+Processed prompts:  73%|███████▎  | 1502/2048 [00:58<00:22, 24.44it/s, est. speed input: 26465.40 toks/s, output: 25.85 toks/s]
+Processed prompts:  74%|███████▍  | 1514/2048 [00:58<00:21, 24.45it/s, est. speed input: 26453.46 toks/s, output: 25.83 toks/s]
+Processed prompts:  75%|███████▍  | 1526/2048 [00:59<00:21, 24.44it/s, est. speed input: 26441.51 toks/s, output: 25.82 toks/s]
+Processed prompts:  75%|███████▌  | 1538/2048 [00:59<00:20, 24.44it/s, est. speed input: 26429.98 toks/s, output: 25.81 toks/s]
+Processed prompts:  76%|███████▌  | 1550/2048 [01:00<00:20, 24.44it/s, est. speed input: 26418.42 toks/s, output: 25.80 toks/s]
+Processed prompts:  76%|███████▋  | 1562/2048 [01:00<00:19, 24.43it/s, est. speed input: 26406.84 toks/s, output: 25.79 toks/s]
+Processed prompts:  77%|███████▋  | 1574/2048 [01:01<00:19, 24.44it/s, est. speed input: 26395.81 toks/s, output: 25.78 toks/s]
+Processed prompts:  77%|███████▋  | 1586/2048 [01:01<00:18, 24.44it/s, est. speed input: 26384.91 toks/s, output: 25.77 toks/s]
+Processed prompts:  78%|███████▊  | 1598/2048 [01:02<00:18, 24.44it/s, est. speed input: 26374.16 toks/s, output: 25.76 toks/s]
+Processed prompts:  79%|███████▊  | 1610/2048 [01:02<00:17, 24.43it/s, est. speed input: 26363.42 toks/s, output: 25.75 toks/s]
+Processed prompts:  79%|███████▉  | 1622/2048 [01:03<00:17, 24.44it/s, est. speed input: 26353.01 toks/s, output: 25.74 toks/s]
+Processed prompts:  80%|███████▉  | 1634/2048 [01:03<00:16, 24.43it/s, est. speed input: 26342.52 toks/s, output: 25.73 toks/s]
+Processed prompts:  80%|████████  | 1646/2048 [01:04<00:16, 24.42it/s, est. speed input: 26332.22 toks/s, output: 25.72 toks/s]
+Processed prompts:  81%|████████  | 1658/2048 [01:04<00:15, 24.43it/s, est. speed input: 26322.18 toks/s, output: 25.71 toks/s]
+Processed prompts:  82%|████████▏ | 1670/2048 [01:04<00:15, 24.43it/s, est. speed input: 26312.42 toks/s, output: 25.70 toks/s]
+Processed prompts:  82%|████████▏ | 1682/2048 [01:05<00:14, 24.43it/s, est. speed input: 26302.68 toks/s, output: 25.69 toks/s]
+Processed prompts:  83%|████████▎ | 1694/2048 [01:05<00:14, 24.43it/s, est. speed input: 26293.21 toks/s, output: 25.68 toks/s]
+Processed prompts:  83%|████████▎ | 1706/2048 [01:06<00:13, 24.44it/s, est. speed input: 26283.86 toks/s, output: 25.67 toks/s]
+Processed prompts:  84%|████████▍ | 1718/2048 [01:06<00:13, 24.42it/s, est. speed input: 26274.29 toks/s, output: 25.66 toks/s]
+Processed prompts:  84%|████████▍ | 1730/2048 [01:07<00:13, 24.42it/s, est. speed input: 26265.08 toks/s, output: 25.65 toks/s]
+Processed prompts:  85%|████████▌ | 1742/2048 [01:07<00:12, 24.43it/s, est. speed input: 26256.07 toks/s, output: 25.64 toks/s]
+Processed prompts:  86%|████████▌ | 1754/2048 [01:08<00:12, 24.43it/s, est. speed input: 26247.15 toks/s, output: 25.63 toks/s]
+Processed prompts:  86%|████████▌ | 1766/2048 [01:08<00:11, 24.43it/s, est. speed input: 26238.37 toks/s, output: 25.62 toks/s]
+Processed prompts:  87%|████████▋ | 1778/2048 [01:09<00:11, 24.43it/s, est. speed input: 26229.73 toks/s, output: 25.61 toks/s]
+Processed prompts:  87%|████████▋ | 1790/2048 [01:09<00:10, 24.43it/s, est. speed input: 26221.13 toks/s, output: 25.61 toks/s]
+Processed prompts:  88%|████████▊ | 1802/2048 [01:10<00:10, 24.42it/s, est. speed input: 26212.63 toks/s, output: 25.60 toks/s]
+Processed prompts:  89%|████████▊ | 1814/2048 [01:10<00:09, 24.42it/s, est. speed input: 26204.29 toks/s, output: 25.59 toks/s]
+Processed prompts:  89%|████████▉ | 1826/2048 [01:11<00:09, 24.42it/s, est. speed input: 26196.07 toks/s, output: 25.58 toks/s]
+Processed prompts:  90%|████████▉ | 1838/2048 [01:11<00:08, 24.43it/s, est. speed input: 26188.03 toks/s, output: 25.57 toks/s]
+Processed prompts:  90%|█████████ | 1850/2048 [01:12<00:08, 24.42it/s, est. speed input: 26180.00 toks/s, output: 25.57 toks/s]
+Processed prompts:  91%|█████████ | 1862/2048 [01:12<00:07, 24.42it/s, est. speed input: 26172.02 toks/s, output: 25.56 toks/s]
+Processed prompts:  92%|█████████▏| 1874/2048 [01:13<00:07, 24.42it/s, est. speed input: 26164.21 toks/s, output: 25.55 toks/s]
+Processed prompts:  92%|█████████▏| 1886/2048 [01:13<00:06, 24.42it/s, est. speed input: 26156.56 toks/s, output: 25.54 toks/s]
+Processed prompts:  93%|█████████▎| 1898/2048 [01:14<00:06, 24.42it/s, est. speed input: 26148.92 toks/s, output: 25.54 toks/s]
+Processed prompts:  93%|█████████▎| 1910/2048 [01:14<00:05, 24.42it/s, est. speed input: 26141.34 toks/s, output: 25.53 toks/s]
+Processed prompts:  94%|█████████▍| 1922/2048 [01:15<00:05, 24.41it/s, est. speed input: 26133.84 toks/s, output: 25.52 toks/s]
+Processed prompts:  94%|█████████▍| 1934/2048 [01:15<00:04, 24.41it/s, est. speed input: 26126.50 toks/s, output: 25.51 toks/s]
+Processed prompts:  95%|█████████▌| 1946/2048 [01:16<00:04, 24.42it/s, est. speed input: 26119.37 toks/s, output: 25.51 toks/s]
+Processed prompts:  96%|█████████▌| 1958/2048 [01:16<00:03, 24.42it/s, est. speed input: 26112.17 toks/s, output: 25.50 toks/s]
+Processed prompts:  96%|█████████▌| 1970/2048 [01:17<00:03, 24.42it/s, est. speed input: 26105.21 toks/s, output: 25.49 toks/s]
+Processed prompts:  97%|█████████▋| 1982/2048 [01:17<00:02, 24.42it/s, est. speed input: 26098.23 toks/s, output: 25.49 toks/s]
+Processed prompts:  97%|█████████▋| 1994/2048 [01:18<00:02, 24.42it/s, est. speed input: 26091.30 toks/s, output: 25.48 toks/s]
+Processed prompts:  98%|█████████▊| 2006/2048 [01:18<00:01, 24.41it/s, est. speed input: 26084.42 toks/s, output: 25.47 toks/s]
+Processed prompts:  99%|█████████▊| 2018/2048 [01:19<00:01, 24.41it/s, est. speed input: 26077.59 toks/s, output: 25.47 toks/s]
+Processed prompts:  99%|█████████▉| 2030/2048 [01:19<00:00, 24.42it/s, est. speed input: 26071.10 toks/s, output: 25.46 toks/s]
+Processed prompts: 100%|█████████▉| 2042/2048 [01:20<00:00, 27.89it/s, est. speed input: 26130.96 toks/s, output: 25.52 toks/s]
+Processed prompts: 100%|██████████| 2048/2048 [01:20<00:00, 27.89it/s, est. speed input: 26207.70 toks/s, output: 25.59 toks/s]
+Processed prompts: 100%|██████████| 2048/2048 [01:20<00:00, 25.59it/s, est. speed input: 26207.70 toks/s, output: 25.59 toks/s]
+[rank0]:[W126 02:02:38.955309251 ProcessGroupNCCL.cpp:1524] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+
+[SUCCESS] 测试完成! 耗时: 113.0s
+
+测试结果:
+  Requests/s:   24.47
+  Tokens/s:     25085.29
+  Total Reqs:   2048
+  Elapsed:      83.68s
+
+  [Prefill 分析]
+  Total Prefill Tokens: 2097152
+  Prefill Tokens/s:     25060.82
+
+============================================================
+[2/3] 测试 M=32768
+============================================================
+
+┌─────────────────────────────────────────────────────────────┐
+│                    测试参数                                  │
+├─────────────────────────────────────────────────────────────┤
+│ 模型:     Qwen2.5-7B-INT8                                 │
+│ Backend:  cuSPARSELt (2:4)                                │
+│ 阶段:     prefill                                         │
+├─────────────────────────────────────────────────────────────┤
+│ GEMM M 维度 (精确控制):
+│   目标 M        = 32768
+│   M_prefill     = 32768 (= 32 x 1024)
+│   M_decode      = 32
+│   batched_tokens = 32768 (控制 M 的关键参数)
+├─────────────────────────────────────────────────────────────┤
+│ vLLM 参数:
+│   --input-len              = 1024
+│   --output-len             = 1
+│   --num-prompts            = 4096
+│   --max-num-seqs           = 32
+│   --max-model-len          = 1025
+│   --max-num-batched-tokens = 32768
+│   --no-enable-chunked-prefill
+├─────────────────────────────────────────────────────────────┤
+│ 迭代次数:
+│   N_prefill = 128
+│   N_decode  = 0
+└─────────────────────────────────────────────────────────────┘
+
+[INFO] 开始测试...
+
+─── STDOUT ───
+When dataset path is not set, it will default to random dataset
+WARNING 01-26 02:02:57 [arg_utils.py:1869] This model does not officially support disabling chunked prefill. Disabling this manually may cause the engine to crash or produce incorrect outputs.
+(EngineCore_DP0 pid=815831) [INFO] Loading compress extension: cusparselt_compress_RTX5080_cc120_py312_cu129_x86_64.so
+(EngineCore_DP0 pid=815831) WARNING 01-26 02:03:07 [backends.py:609] Failed to read file <frozen os>
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866] EngineCore failed to start.
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866] Traceback (most recent call last):
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]   File "/root/vllmbench/vllm/v1/engine/core.py", line 857, in run_engine_core
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]     engine_core = EngineCoreProc(*args, **kwargs)
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]   File "/root/vllmbench/vllm/v1/engine/core.py", line 637, in __init__
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]     super().__init__(
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]   File "/root/vllmbench/vllm/v1/engine/core.py", line 109, in __init__
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]     num_gpu_blocks, num_cpu_blocks, kv_cache_config = self._initialize_kv_caches(
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]                                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]   File "/root/vllmbench/vllm/v1/engine/core.py", line 240, in _initialize_kv_caches
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]     available_gpu_memory = self.model_executor.determine_available_memory()
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]   File "/root/vllmbench/vllm/v1/executor/abstract.py", line 126, in determine_available_memory
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]     return self.collective_rpc("determine_available_memory")
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]   File "/root/vllmbench/vllm/v1/executor/uniproc_executor.py", line 75, in collective_rpc
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]     result = run_method(self.driver_worker, method, args, kwargs)
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]   File "/root/vllmbench/vllm/v1/serial_utils.py", line 461, in run_method
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]     return func(*args, **kwargs)
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/utils/_contextlib.py", line 120, in decorate_context
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]     return func(*args, **kwargs)
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]   File "/root/vllmbench/vllm/v1/worker/gpu_worker.py", line 340, in determine_available_memory
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]     self.model_runner.profile_run()
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]   File "/root/vllmbench/vllm/v1/worker/gpu_model_runner.py", line 4474, in profile_run
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]     hidden_states, last_hidden_states = self._dummy_run(
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]                                         ^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/utils/_contextlib.py", line 120, in decorate_context
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]     return func(*args, **kwargs)
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]   File "/root/vllmbench/vllm/v1/worker/gpu_model_runner.py", line 4198, in _dummy_run
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]     outputs = self.model(
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]               ^^^^^^^^^^^
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]   File "/root/vllmbench/vllm/compilation/cuda_graph.py", line 220, in __call__
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]     return self.runnable(*args, **kwargs)
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py", line 1775, in _wrapped_call_impl
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]     return self._call_impl(*args, **kwargs)
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py", line 1786, in _call_impl
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]     return forward_call(*args, **kwargs)
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]   File "/root/vllmbench/vllm/model_executor/models/qwen2.py", line 583, in forward
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]     hidden_states = self.model(
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]                     ^^^^^^^^^^^
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]   File "/root/vllmbench/vllm/compilation/decorators.py", line 526, in __call__
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]     output = TorchCompileWithNoGuardsWrapper.__call__(self, *args, **kwargs)
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]   File "/root/vllmbench/vllm/compilation/wrapper.py", line 218, in __call__
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]     return self._call_with_optional_nvtx_range(
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]   File "/root/vllmbench/vllm/compilation/wrapper.py", line 109, in _call_with_optional_nvtx_range
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]     return callable_fn(*args, **kwargs)
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/_dynamo/eval_frame.py", line 832, in compile_wrapper
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]     return fn(*args, **kwargs)
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]            ^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]   File "/root/vllmbench/vllm/model_executor/models/qwen2.py", line 418, in forward
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]     def forward(
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/_dynamo/eval_frame.py", line 1044, in _fn
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]     return fn(*args, **kwargs)
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]            ^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]   File "/root/vllmbench/vllm/compilation/caching.py", line 54, in __call__
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]     return self.optimized_call(*args, **kwargs)
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/fx/graph_module.py", line 837, in call_wrapped
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]     return self._wrapped_call(self, *args, **kwargs)
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/fx/graph_module.py", line 413, in __call__
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]     raise e
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/fx/graph_module.py", line 400, in __call__
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]     return super(self.cls, obj).__call__(*args, **kwargs)  # type: ignore[misc]
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py", line 1775, in _wrapped_call_impl
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]     return self._call_impl(*args, **kwargs)
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py", line 1786, in _call_impl
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]     return forward_call(*args, **kwargs)
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]   File "<eval_with_key>.58", line 332, in forward
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]     submod_4 = self.submod_4(getitem_8, s72, l_self_modules_layers_modules_1_modules_self_attn_modules_o_proj_parameters_weight_, l_self_modules_layers_modules_1_modules_self_attn_modules_o_proj_parameters_weight_scale_, l_self_modules_layers_modules_1_modules_post_attention_layernorm_parameters_weight_, getitem_9, l_self_modules_layers_modules_1_modules_mlp_modules_gate_up_proj_parameters_weight_, l_self_modules_layers_modules_1_modules_mlp_modules_gate_up_proj_parameters_weight_scale_, l_self_modules_layers_modules_1_modules_mlp_modules_down_proj_parameters_weight_, l_self_modules_layers_modules_1_modules_mlp_modules_down_proj_parameters_weight_scale_, l_self_modules_layers_modules_2_modules_input_layernorm_parameters_weight_, l_self_modules_layers_modules_2_modules_self_attn_modules_qkv_proj_parameters_weight_, l_self_modules_layers_modules_2_modules_self_attn_modules_qkv_proj_parameters_weight_scale_, l_self_modules_layers_modules_2_modules_self_attn_modules_qkv_proj_parameters_bias_, l_positions_, l_self_modules_layers_modules_0_modules_self_attn_modules_rotary_emb_buffers_cos_sin_cache_);  getitem_8 = l_self_modules_layers_modules_1_modules_self_attn_modules_o_proj_parameters_weight_ = l_self_modules_layers_modules_1_modules_self_attn_modules_o_proj_parameters_weight_scale_ = l_self_modules_layers_modules_1_modules_post_attention_layernorm_parameters_weight_ = getitem_9 = l_self_modules_layers_modules_1_modules_mlp_modules_gate_up_proj_parameters_weight_ = l_self_modules_layers_modules_1_modules_mlp_modules_gate_up_proj_parameters_weight_scale_ = l_self_modules_layers_modules_1_modules_mlp_modules_down_proj_parameters_weight_ = l_self_modules_layers_modules_1_modules_mlp_modules_down_proj_parameters_weight_scale_ = l_self_modules_layers_modules_2_modules_input_layernorm_parameters_weight_ = l_self_modules_layers_modules_2_modules_self_attn_modules_qkv_proj_parameters_weight_ = l_self_modules_layers_modules_2_modules_self_attn_modules_qkv_proj_parameters_weight_scale_ = l_self_modules_layers_modules_2_modules_self_attn_modules_qkv_proj_parameters_bias_ = None
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]   File "/root/vllmbench/vllm/compilation/cuda_graph.py", line 220, in __call__
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]     return self.runnable(*args, **kwargs)
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]   File "/root/vllmbench/vllm/compilation/piecewise_backend.py", line 178, in __call__
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]     return range_entry.runnable(*args)
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/_inductor/standalone_compile.py", line 63, in __call__
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]     return self._compiled_fn(*args)
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/_dynamo/eval_frame.py", line 1044, in _fn
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]     return fn(*args, **kwargs)
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]            ^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/_functorch/aot_autograd.py", line 1130, in forward
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]     return compiled_fn(full_args)
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 353, in runtime_wrapper
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]     all_outs = call_func_at_runtime_with_args(
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/_functorch/_aot_autograd/utils.py", line 129, in call_func_at_runtime_with_args
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]     out = normalize_as_list(f(args))
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]                             ^^^^^^^
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 526, in wrapper
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]     return compiled_fn(runtime_args)
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/_inductor/output_code.py", line 613, in __call__
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]     return self.current_callable(inputs)
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/_inductor/utils.py", line 2962, in run
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]     out = model(new_inputs)
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]           ^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]   File "/tmp/torchinductor_root/uh/cuhjk66tpkacyjr3tunftqid3hw564ybbxhlbtqhxdd2sqoz7wog.py", line 1078, in call
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]     buf14 = torch.ops.slidesparse.dequant_bias.default(reinterpret_tensor(buf13, (s72, 37888), (37888, 1), 0), reinterpret_tensor(buf11, (s72, ), (1, ), 0), arg7_1, None, 'bfloat16', 'Qwen2.5-7B-INT8')
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/_ops.py", line 841, in __call__
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]     return self._op(*args, **kwargs)
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]   File "/root/vllmbench/slidesparse/core/kernels.py", line 483, in _dequant_bias_impl
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]     return fn(gemm_output, scale_a, scale_b, bias, out_dtype)
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]   File "/root/vllmbench/slidesparse/csrc/fused_dequant_bias_triton/build/RTX5080_cc120_py312_cu129_x86_64/dequant_bias_tuned_Qwen2.5-7B.py", line 110, in dequant_bias_triton
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]     output = torch.empty((M, N), dtype=torch.bfloat16, device=gemm_output.device)
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866]              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=815831) ERROR 01-26 02:03:10 [core.py:866] torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 2.31 GiB. GPU 0 has a total capacity of 15.47 GiB of which 1.53 GiB is free. Including non-PyTorch memory, this process has 13.92 GiB memory in use. Of the allocated memory 9.86 GiB is allocated by PyTorch, and 3.70 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+
+
+─── STDERR ───
+[2026-01-26 02:02:57] INFO kernels.py:578: Triton kernel custom ops registered
+[2026-01-26 02:02:57] INFO kernels.py:627: Optimization enabled: Only preloading kernels for model 'Qwen2.5-7B-INT8'
+[2026-01-26 02:02:57] INFO kernels.py:109: Loaded tuned kernel for model: Qwen2.5-7B-INT8
+[2026-01-26 02:02:57] INFO kernels.py:155: Dequant+bias kernel loaded for model: Qwen2.5-7B-INT8
+[2026-01-26 02:02:57] INFO kernels.py:224: FP8 quant kernel loaded for model: Qwen2.5-7B-INT8
+[2026-01-26 02:02:57] INFO kernels.py:348: INT8 quant kernel loaded for model: Qwen2.5-7B-INT8
+[2026-01-26 02:02:57] INFO kernels.py:284: FP8 quant+slide kernel loaded for model: Qwen2.5-7B-INT8
+[2026-01-26 02:02:57] INFO kernels.py:408: INT8 quant+slide kernel loaded for model: Qwen2.5-7B-INT8
+[2026-01-26 02:02:57] INFO gemm_wrapper.py:157: Optimization enabled: Only loading GEMM configs for model 'Qwen2.5-7B-INT8'
+[2026-01-26 02:02:57] INFO gemm_wrapper.py:172: Loaded algorithm configs: cuBLASLt=1, cuSPARSELt=1 models
+[2026-01-26 02:02:57] INFO gemm_wrapper.py:944: cuBLASLt FP8 custom op registered: slidesparse::cublaslt_fp8_mm
+[2026-01-26 02:02:57] INFO gemm_wrapper.py:1009: cuSPARSELt FP8 custom op registered: slidesparse::cusparselt_fp8_mm
+[2026-01-26 02:02:57] INFO gemm_wrapper.py:1075: cuBLASLt INT8 custom op registered: slidesparse::cublaslt_int8_mm
+[2026-01-26 02:02:57] INFO gemm_wrapper.py:1141: cuSPARSELt INT8 custom op registered: slidesparse::cusparselt_int8_mm
+[2026-01-26 02:03:01] INFO kernels.py:578: Triton kernel custom ops registered
+[2026-01-26 02:03:01] INFO kernels.py:627: Optimization enabled: Only preloading kernels for model 'Qwen2.5-7B-INT8'
+[2026-01-26 02:03:01] INFO kernels.py:109: Loaded tuned kernel for model: Qwen2.5-7B-INT8
+[2026-01-26 02:03:01] INFO kernels.py:155: Dequant+bias kernel loaded for model: Qwen2.5-7B-INT8
+[2026-01-26 02:03:01] INFO kernels.py:224: FP8 quant kernel loaded for model: Qwen2.5-7B-INT8
+[2026-01-26 02:03:01] INFO kernels.py:348: INT8 quant kernel loaded for model: Qwen2.5-7B-INT8
+[2026-01-26 02:03:01] INFO kernels.py:284: FP8 quant+slide kernel loaded for model: Qwen2.5-7B-INT8
+[2026-01-26 02:03:01] INFO kernels.py:408: INT8 quant+slide kernel loaded for model: Qwen2.5-7B-INT8
+[2026-01-26 02:03:01] INFO gemm_wrapper.py:157: Optimization enabled: Only loading GEMM configs for model 'Qwen2.5-7B-INT8'
+[2026-01-26 02:03:01] INFO gemm_wrapper.py:172: Loaded algorithm configs: cuBLASLt=1, cuSPARSELt=1 models
+[2026-01-26 02:03:01] INFO gemm_wrapper.py:944: cuBLASLt FP8 custom op registered: slidesparse::cublaslt_fp8_mm
+[2026-01-26 02:03:01] INFO gemm_wrapper.py:1009: cuSPARSELt FP8 custom op registered: slidesparse::cusparselt_fp8_mm
+[2026-01-26 02:03:01] INFO gemm_wrapper.py:1075: cuBLASLt INT8 custom op registered: slidesparse::cublaslt_int8_mm
+[2026-01-26 02:03:01] INFO gemm_wrapper.py:1141: cuSPARSELt INT8 custom op registered: slidesparse::cusparselt_int8_mm
+(EngineCore_DP0 pid=815831) [2026-01-26 02:03:02] INFO SlideSparseLinearMethod_INT8.py:805: Wrapping CompressedTensorsW8A8Int8 with SlideSparse (cuSPARSELt)
+(EngineCore_DP0 pid=815831) [2026-01-26 02:03:02] INFO gemm_wrapper.py:870: cusparselt GEMM extension loaded: cusparselt_gemm_RTX5080_cc120_py312_cu129_x86_64.so
+(EngineCore_DP0 pid=815831) [2026-01-26 02:03:02] INFO SlideSparseLinearMethod_INT8.py:452: SlideSparseInt8LinearOp initialized (kernel=cuSPARSELt)
+(EngineCore_DP0 pid=815831) [2026-01-26 02:03:02] INFO SlideSparseLinearMethod_INT8.py:604: SlideSparseInt8LinearMethod: cuSPARSELt sparsity=2:4, expand_ratio=2.000
+(EngineCore_DP0 pid=815831) [2026-01-26 02:03:02] INFO SlideSparseLinearMethod_INT8.py:621: Preloaded INT8 Triton kernels for model: Qwen2.5-7B-INT8
+(EngineCore_DP0 pid=815831) [2026-01-26 02:03:02] INFO SlideSparseLinearMethod_INT8.py:625: SlideSparseInt8LinearMethod initialized, kernel=cuSPARSELt, symmetric=True
+(EngineCore_DP0 pid=815831) 
+Loading safetensors checkpoint shards:   0% Completed | 0/2 [00:00<?, ?it/s]
+(EngineCore_DP0 pid=815831) 
+Loading safetensors checkpoint shards:  50% Completed | 1/2 [00:00<00:00,  1.83it/s]
+(EngineCore_DP0 pid=815831) 
+Loading safetensors checkpoint shards: 100% Completed | 2/2 [00:01<00:00,  1.43it/s]
+(EngineCore_DP0 pid=815831) 
+Loading safetensors checkpoint shards: 100% Completed | 2/2 [00:01<00:00,  1.48it/s]
+(EngineCore_DP0 pid=815831) 
+(EngineCore_DP0 pid=815831) [2026-01-26 02:03:03] INFO SlideSparseLinearMethod_INT8.py:719: cuSPARSELt INT8 compression: [4608, 3584] -> 1D uint8
+(EngineCore_DP0 pid=815831) [2026-01-26 02:03:03] INFO SlideSparseLinearMethod_INT8.py:729: cuSPARSELt INT8 compression done: 12386304 bytes
+(EngineCore_DP0 pid=815831) [2026-01-26 02:03:03] INFO SlideSparseLinearMethod_INT8.py:719: cuSPARSELt INT8 compression: [3584, 3584] -> 1D uint8
+(EngineCore_DP0 pid=815831) [2026-01-26 02:03:03] INFO SlideSparseLinearMethod_INT8.py:729: cuSPARSELt INT8 compression done: 9633792 bytes
+(EngineCore_DP0 pid=815831) [2026-01-26 02:03:03] INFO SlideSparseLinearMethod_INT8.py:719: cuSPARSELt INT8 compression: [37888, 3584] -> 1D uint8
+(EngineCore_DP0 pid=815831) [2026-01-26 02:03:03] INFO SlideSparseLinearMethod_INT8.py:729: cuSPARSELt INT8 compression done: 101842944 bytes
+(EngineCore_DP0 pid=815831) [2026-01-26 02:03:03] INFO SlideSparseLinearMethod_INT8.py:719: cuSPARSELt INT8 compression: [3584, 18944] -> 1D uint8
+(EngineCore_DP0 pid=815831) [2026-01-26 02:03:03] INFO SlideSparseLinearMethod_INT8.py:729: cuSPARSELt INT8 compression done: 50921472 bytes
+(EngineCore_DP0 pid=815831) Process EngineCore_DP0:
+(EngineCore_DP0 pid=815831) Traceback (most recent call last):
+(EngineCore_DP0 pid=815831)   File "/usr/lib/python3.12/multiprocessing/process.py", line 314, in _bootstrap
+(EngineCore_DP0 pid=815831)     self.run()
+(EngineCore_DP0 pid=815831)   File "/usr/lib/python3.12/multiprocessing/process.py", line 108, in run
+(EngineCore_DP0 pid=815831)     self._target(*self._args, **self._kwargs)
+(EngineCore_DP0 pid=815831)   File "/root/vllmbench/vllm/v1/engine/core.py", line 870, in run_engine_core
+(EngineCore_DP0 pid=815831)     raise e
+(EngineCore_DP0 pid=815831)   File "/root/vllmbench/vllm/v1/engine/core.py", line 857, in run_engine_core
+(EngineCore_DP0 pid=815831)     engine_core = EngineCoreProc(*args, **kwargs)
+(EngineCore_DP0 pid=815831)                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=815831)   File "/root/vllmbench/vllm/v1/engine/core.py", line 637, in __init__
+(EngineCore_DP0 pid=815831)     super().__init__(
+(EngineCore_DP0 pid=815831)   File "/root/vllmbench/vllm/v1/engine/core.py", line 109, in __init__
+(EngineCore_DP0 pid=815831)     num_gpu_blocks, num_cpu_blocks, kv_cache_config = self._initialize_kv_caches(
+(EngineCore_DP0 pid=815831)                                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=815831)   File "/root/vllmbench/vllm/v1/engine/core.py", line 240, in _initialize_kv_caches
+(EngineCore_DP0 pid=815831)     available_gpu_memory = self.model_executor.determine_available_memory()
+(EngineCore_DP0 pid=815831)                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=815831)   File "/root/vllmbench/vllm/v1/executor/abstract.py", line 126, in determine_available_memory
+(EngineCore_DP0 pid=815831)     return self.collective_rpc("determine_available_memory")
+(EngineCore_DP0 pid=815831)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=815831)   File "/root/vllmbench/vllm/v1/executor/uniproc_executor.py", line 75, in collective_rpc
+(EngineCore_DP0 pid=815831)     result = run_method(self.driver_worker, method, args, kwargs)
+(EngineCore_DP0 pid=815831)              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=815831)   File "/root/vllmbench/vllm/v1/serial_utils.py", line 461, in run_method
+(EngineCore_DP0 pid=815831)     return func(*args, **kwargs)
+(EngineCore_DP0 pid=815831)            ^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=815831)   File "/usr/local/lib/python3.12/dist-packages/torch/utils/_contextlib.py", line 120, in decorate_context
+(EngineCore_DP0 pid=815831)     return func(*args, **kwargs)
+(EngineCore_DP0 pid=815831)            ^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=815831)   File "/root/vllmbench/vllm/v1/worker/gpu_worker.py", line 340, in determine_available_memory
+(EngineCore_DP0 pid=815831)     self.model_runner.profile_run()
+(EngineCore_DP0 pid=815831)   File "/root/vllmbench/vllm/v1/worker/gpu_model_runner.py", line 4474, in profile_run
+(EngineCore_DP0 pid=815831)     hidden_states, last_hidden_states = self._dummy_run(
+(EngineCore_DP0 pid=815831)                                         ^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=815831)   File "/usr/local/lib/python3.12/dist-packages/torch/utils/_contextlib.py", line 120, in decorate_context
+(EngineCore_DP0 pid=815831)     return func(*args, **kwargs)
+(EngineCore_DP0 pid=815831)            ^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=815831)   File "/root/vllmbench/vllm/v1/worker/gpu_model_runner.py", line 4198, in _dummy_run
+(EngineCore_DP0 pid=815831)     outputs = self.model(
+(EngineCore_DP0 pid=815831)               ^^^^^^^^^^^
+(EngineCore_DP0 pid=815831)   File "/root/vllmbench/vllm/compilation/cuda_graph.py", line 220, in __call__
+(EngineCore_DP0 pid=815831)     return self.runnable(*args, **kwargs)
+(EngineCore_DP0 pid=815831)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=815831)   File "/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py", line 1775, in _wrapped_call_impl
+(EngineCore_DP0 pid=815831)     return self._call_impl(*args, **kwargs)
+(EngineCore_DP0 pid=815831)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=815831)   File "/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py", line 1786, in _call_impl
+(EngineCore_DP0 pid=815831)     return forward_call(*args, **kwargs)
+(EngineCore_DP0 pid=815831)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=815831)   File "/root/vllmbench/vllm/model_executor/models/qwen2.py", line 583, in forward
+(EngineCore_DP0 pid=815831)     hidden_states = self.model(
+(EngineCore_DP0 pid=815831)                     ^^^^^^^^^^^
+(EngineCore_DP0 pid=815831)   File "/root/vllmbench/vllm/compilation/decorators.py", line 526, in __call__
+(EngineCore_DP0 pid=815831)     output = TorchCompileWithNoGuardsWrapper.__call__(self, *args, **kwargs)
+(EngineCore_DP0 pid=815831)              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=815831)   File "/root/vllmbench/vllm/compilation/wrapper.py", line 218, in __call__
+(EngineCore_DP0 pid=815831)     return self._call_with_optional_nvtx_range(
+(EngineCore_DP0 pid=815831)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=815831)   File "/root/vllmbench/vllm/compilation/wrapper.py", line 109, in _call_with_optional_nvtx_range
+(EngineCore_DP0 pid=815831)     return callable_fn(*args, **kwargs)
+(EngineCore_DP0 pid=815831)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=815831)   File "/usr/local/lib/python3.12/dist-packages/torch/_dynamo/eval_frame.py", line 832, in compile_wrapper
+(EngineCore_DP0 pid=815831)     return fn(*args, **kwargs)
+(EngineCore_DP0 pid=815831)            ^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=815831)   File "/root/vllmbench/vllm/model_executor/models/qwen2.py", line 418, in forward
+(EngineCore_DP0 pid=815831)     def forward(
+(EngineCore_DP0 pid=815831)   File "/usr/local/lib/python3.12/dist-packages/torch/_dynamo/eval_frame.py", line 1044, in _fn
+(EngineCore_DP0 pid=815831)     return fn(*args, **kwargs)
+(EngineCore_DP0 pid=815831)            ^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=815831)   File "/root/vllmbench/vllm/compilation/caching.py", line 54, in __call__
+(EngineCore_DP0 pid=815831)     return self.optimized_call(*args, **kwargs)
+(EngineCore_DP0 pid=815831)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=815831)   File "/usr/local/lib/python3.12/dist-packages/torch/fx/graph_module.py", line 837, in call_wrapped
+(EngineCore_DP0 pid=815831)     return self._wrapped_call(self, *args, **kwargs)
+(EngineCore_DP0 pid=815831)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=815831)   File "/usr/local/lib/python3.12/dist-packages/torch/fx/graph_module.py", line 413, in __call__
+(EngineCore_DP0 pid=815831)     raise e
+(EngineCore_DP0 pid=815831)   File "/usr/local/lib/python3.12/dist-packages/torch/fx/graph_module.py", line 400, in __call__
+(EngineCore_DP0 pid=815831)     return super(self.cls, obj).__call__(*args, **kwargs)  # type: ignore[misc]
+(EngineCore_DP0 pid=815831)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=815831)   File "/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py", line 1775, in _wrapped_call_impl
+(EngineCore_DP0 pid=815831)     return self._call_impl(*args, **kwargs)
+(EngineCore_DP0 pid=815831)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=815831)   File "/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py", line 1786, in _call_impl
+(EngineCore_DP0 pid=815831)     return forward_call(*args, **kwargs)
+(EngineCore_DP0 pid=815831)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=815831)   File "<eval_with_key>.58", line 332, in forward
+(EngineCore_DP0 pid=815831)     submod_4 = self.submod_4(getitem_8, s72, l_self_modules_layers_modules_1_modules_self_attn_modules_o_proj_parameters_weight_, l_self_modules_layers_modules_1_modules_self_attn_modules_o_proj_parameters_weight_scale_, l_self_modules_layers_modules_1_modules_post_attention_layernorm_parameters_weight_, getitem_9, l_self_modules_layers_modules_1_modules_mlp_modules_gate_up_proj_parameters_weight_, l_self_modules_layers_modules_1_modules_mlp_modules_gate_up_proj_parameters_weight_scale_, l_self_modules_layers_modules_1_modules_mlp_modules_down_proj_parameters_weight_, l_self_modules_layers_modules_1_modules_mlp_modules_down_proj_parameters_weight_scale_, l_self_modules_layers_modules_2_modules_input_layernorm_parameters_weight_, l_self_modules_layers_modules_2_modules_self_attn_modules_qkv_proj_parameters_weight_, l_self_modules_layers_modules_2_modules_self_attn_modules_qkv_proj_parameters_weight_scale_, l_self_modules_layers_modules_2_modules_self_attn_modules_qkv_proj_parameters_bias_, l_positions_, l_self_modules_layers_modules_0_modules_self_attn_modules_rotary_emb_buffers_cos_sin_cache_);  getitem_8 = l_self_modules_layers_modules_1_modules_self_attn_modules_o_proj_parameters_weight_ = l_self_modules_layers_modules_1_modules_self_attn_modules_o_proj_parameters_weight_scale_ = l_self_modules_layers_modules_1_modules_post_attention_layernorm_parameters_weight_ = getitem_9 = l_self_modules_layers_modules_1_modules_mlp_modules_gate_up_proj_parameters_weight_ = l_self_modules_layers_modules_1_modules_mlp_modules_gate_up_proj_parameters_weight_scale_ = l_self_modules_layers_modules_1_modules_mlp_modules_down_proj_parameters_weight_ = l_self_modules_layers_modules_1_modules_mlp_modules_down_proj_parameters_weight_scale_ = l_self_modules_layers_modules_2_modules_input_layernorm_parameters_weight_ = l_self_modules_layers_modules_2_modules_self_attn_modules_qkv_proj_parameters_weight_ = l_self_modules_layers_modules_2_modules_self_attn_modules_qkv_proj_parameters_weight_scale_ = l_self_modules_layers_modules_2_modules_self_attn_modules_qkv_proj_parameters_bias_ = None
+(EngineCore_DP0 pid=815831)                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=815831)   File "/root/vllmbench/vllm/compilation/cuda_graph.py", line 220, in __call__
+(EngineCore_DP0 pid=815831)     return self.runnable(*args, **kwargs)
+(EngineCore_DP0 pid=815831)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=815831)   File "/root/vllmbench/vllm/compilation/piecewise_backend.py", line 178, in __call__
+(EngineCore_DP0 pid=815831)     return range_entry.runnable(*args)
+(EngineCore_DP0 pid=815831)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=815831)   File "/usr/local/lib/python3.12/dist-packages/torch/_inductor/standalone_compile.py", line 63, in __call__
+(EngineCore_DP0 pid=815831)     return self._compiled_fn(*args)
+(EngineCore_DP0 pid=815831)            ^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=815831)   File "/usr/local/lib/python3.12/dist-packages/torch/_dynamo/eval_frame.py", line 1044, in _fn
+(EngineCore_DP0 pid=815831)     return fn(*args, **kwargs)
+(EngineCore_DP0 pid=815831)            ^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=815831)   File "/usr/local/lib/python3.12/dist-packages/torch/_functorch/aot_autograd.py", line 1130, in forward
+(EngineCore_DP0 pid=815831)     return compiled_fn(full_args)
+(EngineCore_DP0 pid=815831)            ^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=815831)   File "/usr/local/lib/python3.12/dist-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 353, in runtime_wrapper
+(EngineCore_DP0 pid=815831)     all_outs = call_func_at_runtime_with_args(
+(EngineCore_DP0 pid=815831)                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=815831)   File "/usr/local/lib/python3.12/dist-packages/torch/_functorch/_aot_autograd/utils.py", line 129, in call_func_at_runtime_with_args
+(EngineCore_DP0 pid=815831)     out = normalize_as_list(f(args))
+(EngineCore_DP0 pid=815831)                             ^^^^^^^
+(EngineCore_DP0 pid=815831)   File "/usr/local/lib/python3.12/dist-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 526, in wrapper
+(EngineCore_DP0 pid=815831)     return compiled_fn(runtime_args)
+(EngineCore_DP0 pid=815831)            ^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=815831)   File "/usr/local/lib/python3.12/dist-packages/torch/_inductor/output_code.py", line 613, in __call__
+(EngineCore_DP0 pid=815831)     return self.current_callable(inputs)
+(EngineCore_DP0 pid=815831)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=815831)   File "/usr/local/lib/python3.12/dist-packages/torch/_inductor/utils.py", line 2962, in run
+(EngineCore_DP0 pid=815831)     out = model(new_inputs)
+(EngineCore_DP0 pid=815831)           ^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=815831)   File "/tmp/torchinductor_root/uh/cuhjk66tpkacyjr3tunftqid3hw564ybbxhlbtqhxdd2sqoz7wog.py", line 1078, in call
+(EngineCore_DP0 pid=815831)     buf14 = torch.ops.slidesparse.dequant_bias.default(reinterpret_tensor(buf13, (s72, 37888), (37888, 1), 0), reinterpret_tensor(buf11, (s72, ), (1, ), 0), arg7_1, None, 'bfloat16', 'Qwen2.5-7B-INT8')
+(EngineCore_DP0 pid=815831)             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=815831)   File "/usr/local/lib/python3.12/dist-packages/torch/_ops.py", line 841, in __call__
+(EngineCore_DP0 pid=815831)     return self._op(*args, **kwargs)
+(EngineCore_DP0 pid=815831)            ^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=815831)   File "/root/vllmbench/slidesparse/core/kernels.py", line 483, in _dequant_bias_impl
+(EngineCore_DP0 pid=815831)     return fn(gemm_output, scale_a, scale_b, bias, out_dtype)
+(EngineCore_DP0 pid=815831)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=815831)   File "/root/vllmbench/slidesparse/csrc/fused_dequant_bias_triton/build/RTX5080_cc120_py312_cu129_x86_64/dequant_bias_tuned_Qwen2.5-7B.py", line 110, in dequant_bias_triton
+(EngineCore_DP0 pid=815831)     output = torch.empty((M, N), dtype=torch.bfloat16, device=gemm_output.device)
+(EngineCore_DP0 pid=815831)              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=815831) torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 2.31 GiB. GPU 0 has a total capacity of 15.47 GiB of which 1.53 GiB is free. Including non-PyTorch memory, this process has 13.92 GiB memory in use. Of the allocated memory 9.86 GiB is allocated by PyTorch, and 3.70 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+[rank0]:[W126 02:03:10.406938308 ProcessGroupNCCL.cpp:1524] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+Traceback (most recent call last):
+  File "/usr/local/bin/vllm", line 7, in <module>
+    sys.exit(main())
+             ^^^^^^
+  File "/root/vllmbench/vllm/entrypoints/cli/main.py", line 73, in main
+    args.dispatch_function(args)
+  File "/root/vllmbench/vllm/entrypoints/cli/benchmark/throughput.py", line 21, in cmd
+    main(args)
+  File "/root/vllmbench/vllm/benchmarks/throughput.py", line 730, in main
+    elapsed_time, request_outputs = run_vllm(
+                                    ^^^^^^^^^
+  File "/root/vllmbench/vllm/benchmarks/throughput.py", line 51, in run_vllm
+    llm = LLM(**dataclasses.asdict(engine_args))
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/entrypoints/llm.py", line 351, in __init__
+    self.llm_engine = LLMEngine.from_engine_args(
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/v1/engine/llm_engine.py", line 183, in from_engine_args
+    return cls(
+           ^^^^
+  File "/root/vllmbench/vllm/v1/engine/llm_engine.py", line 109, in __init__
+    self.engine_core = EngineCoreClient.make_client(
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/v1/engine/core_client.py", line 93, in make_client
+    return SyncMPClient(vllm_config, executor_class, log_stats)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/v1/engine/core_client.py", line 648, in __init__
+    super().__init__(
+  File "/root/vllmbench/vllm/v1/engine/core_client.py", line 477, in __init__
+    with launch_core_engines(vllm_config, executor_class, log_stats) as (
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/contextlib.py", line 144, in __exit__
+    next(self.gen)
+  File "/root/vllmbench/vllm/v1/engine/utils.py", line 903, in launch_core_engines
+    wait_for_engine_startup(
+  File "/root/vllmbench/vllm/v1/engine/utils.py", line 960, in wait_for_engine_startup
+    raise RuntimeError(
+RuntimeError: Engine core initialization failed. See root cause above. Failed core proc(s): {}
+
+[ERROR] 测试失败: M=32768 (exit code: 1)
+
+============================================================
+[3/3] 测试 M=65536
+============================================================
+
+┌─────────────────────────────────────────────────────────────┐
+│                    测试参数                                  │
+├─────────────────────────────────────────────────────────────┤
+│ 模型:     Qwen2.5-7B-INT8                                 │
+│ Backend:  cuSPARSELt (2:4)                                │
+│ 阶段:     prefill                                         │
+├─────────────────────────────────────────────────────────────┤
+│ GEMM M 维度 (精确控制):
+│   目标 M        = 65536
+│   M_prefill     = 65536 (= 64 x 1024)
+│   M_decode      = 64
+│   batched_tokens = 65536 (控制 M 的关键参数)
+├─────────────────────────────────────────────────────────────┤
+│ vLLM 参数:
+│   --input-len              = 1024
+│   --output-len             = 1
+│   --num-prompts            = 8192
+│   --max-num-seqs           = 64
+│   --max-model-len          = 1025
+│   --max-num-batched-tokens = 65536
+│   --no-enable-chunked-prefill
+├─────────────────────────────────────────────────────────────┤
+│ 迭代次数:
+│   N_prefill = 128
+│   N_decode  = 0
+└─────────────────────────────────────────────────────────────┘
+
+[INFO] 开始测试...
+
+─── STDOUT ───
+When dataset path is not set, it will default to random dataset
+WARNING 01-26 02:03:44 [arg_utils.py:1869] This model does not officially support disabling chunked prefill. Disabling this manually may cause the engine to crash or produce incorrect outputs.
+(EngineCore_DP0 pid=816738) [INFO] Loading compress extension: cusparselt_compress_RTX5080_cc120_py312_cu129_x86_64.so
+(EngineCore_DP0 pid=816738) WARNING 01-26 02:03:55 [backends.py:609] Failed to read file <frozen os>
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866] EngineCore failed to start.
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866] Traceback (most recent call last):
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]   File "/root/vllmbench/vllm/v1/engine/core.py", line 857, in run_engine_core
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]     engine_core = EngineCoreProc(*args, **kwargs)
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]   File "/root/vllmbench/vllm/v1/engine/core.py", line 637, in __init__
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]     super().__init__(
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]   File "/root/vllmbench/vllm/v1/engine/core.py", line 109, in __init__
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]     num_gpu_blocks, num_cpu_blocks, kv_cache_config = self._initialize_kv_caches(
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]                                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]   File "/root/vllmbench/vllm/v1/engine/core.py", line 240, in _initialize_kv_caches
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]     available_gpu_memory = self.model_executor.determine_available_memory()
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]   File "/root/vllmbench/vllm/v1/executor/abstract.py", line 126, in determine_available_memory
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]     return self.collective_rpc("determine_available_memory")
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]   File "/root/vllmbench/vllm/v1/executor/uniproc_executor.py", line 75, in collective_rpc
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]     result = run_method(self.driver_worker, method, args, kwargs)
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]   File "/root/vllmbench/vllm/v1/serial_utils.py", line 461, in run_method
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]     return func(*args, **kwargs)
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/utils/_contextlib.py", line 120, in decorate_context
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]     return func(*args, **kwargs)
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]   File "/root/vllmbench/vllm/v1/worker/gpu_worker.py", line 340, in determine_available_memory
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]     self.model_runner.profile_run()
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]   File "/root/vllmbench/vllm/v1/worker/gpu_model_runner.py", line 4474, in profile_run
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]     hidden_states, last_hidden_states = self._dummy_run(
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]                                         ^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/utils/_contextlib.py", line 120, in decorate_context
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]     return func(*args, **kwargs)
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]   File "/root/vllmbench/vllm/v1/worker/gpu_model_runner.py", line 4198, in _dummy_run
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]     outputs = self.model(
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]               ^^^^^^^^^^^
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]   File "/root/vllmbench/vllm/compilation/cuda_graph.py", line 220, in __call__
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]     return self.runnable(*args, **kwargs)
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py", line 1775, in _wrapped_call_impl
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]     return self._call_impl(*args, **kwargs)
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py", line 1786, in _call_impl
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]     return forward_call(*args, **kwargs)
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]   File "/root/vllmbench/vllm/model_executor/models/qwen2.py", line 583, in forward
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]     hidden_states = self.model(
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]                     ^^^^^^^^^^^
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]   File "/root/vllmbench/vllm/compilation/decorators.py", line 526, in __call__
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]     output = TorchCompileWithNoGuardsWrapper.__call__(self, *args, **kwargs)
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]   File "/root/vllmbench/vllm/compilation/wrapper.py", line 218, in __call__
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]     return self._call_with_optional_nvtx_range(
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]   File "/root/vllmbench/vllm/compilation/wrapper.py", line 109, in _call_with_optional_nvtx_range
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]     return callable_fn(*args, **kwargs)
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/_dynamo/eval_frame.py", line 845, in compile_wrapper
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]     raise e.remove_dynamo_frames() from None  # see TORCHDYNAMO_VERBOSE=1
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/_inductor/compile_fx.py", line 990, in _compile_fx_inner
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]     raise InductorError(e, currentframe()).with_traceback(
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/_inductor/compile_fx.py", line 974, in _compile_fx_inner
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]     mb_compiled_graph = fx_codegen_and_compile(
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]                         ^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/_inductor/compile_fx.py", line 1695, in fx_codegen_and_compile
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]     return scheme.codegen_and_compile(gm, example_inputs, inputs_to_check, graph_kwargs)
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/_inductor/compile_fx.py", line 1505, in codegen_and_compile
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]     compiled_module = graph.compile_to_module()
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]                       ^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/_inductor/graph.py", line 2319, in compile_to_module
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]     return self._compile_to_module()
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/_inductor/graph.py", line 2325, in _compile_to_module
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]     self.codegen_with_cpp_wrapper() if self.cpp_wrapper else self.codegen()
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]                                                              ^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/_inductor/graph.py", line 2271, in codegen
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]     result = self.wrapper_code.generate(self.is_inference)
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/_inductor/codegen/wrapper.py", line 1552, in generate
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]     return self._generate(is_inference)
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/_inductor/codegen/wrapper.py", line 1615, in _generate
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]     self.generate_and_run_autotune_block()
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]   File "/usr/local/lib/python3.12/dist-packages/torch/_inductor/codegen/wrapper.py", line 1695, in generate_and_run_autotune_block
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866]     raise RuntimeError(f"Failed to run autotuning code block: {e}") from e
+(EngineCore_DP0 pid=816738) ERROR 01-26 02:03:58 [core.py:866] torch._inductor.exc.InductorError: RuntimeError: Failed to run autotuning code block: CUDA out of memory. Tried to allocate 4.62 GiB. GPU 0 has a total capacity of 15.47 GiB of which 4.43 GiB is free. Including non-PyTorch memory, this process has 11.01 GiB memory in use. Of the allocated memory 8.86 GiB is allocated by PyTorch, and 1.79 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+
+
+─── STDERR ───
+[2026-01-26 02:03:44] INFO kernels.py:578: Triton kernel custom ops registered
+[2026-01-26 02:03:44] INFO kernels.py:627: Optimization enabled: Only preloading kernels for model 'Qwen2.5-7B-INT8'
+[2026-01-26 02:03:44] INFO kernels.py:109: Loaded tuned kernel for model: Qwen2.5-7B-INT8
+[2026-01-26 02:03:44] INFO kernels.py:155: Dequant+bias kernel loaded for model: Qwen2.5-7B-INT8
+[2026-01-26 02:03:44] INFO kernels.py:224: FP8 quant kernel loaded for model: Qwen2.5-7B-INT8
+[2026-01-26 02:03:44] INFO kernels.py:348: INT8 quant kernel loaded for model: Qwen2.5-7B-INT8
+[2026-01-26 02:03:44] INFO kernels.py:284: FP8 quant+slide kernel loaded for model: Qwen2.5-7B-INT8
+[2026-01-26 02:03:44] INFO kernels.py:408: INT8 quant+slide kernel loaded for model: Qwen2.5-7B-INT8
+[2026-01-26 02:03:44] INFO gemm_wrapper.py:157: Optimization enabled: Only loading GEMM configs for model 'Qwen2.5-7B-INT8'
+[2026-01-26 02:03:44] INFO gemm_wrapper.py:172: Loaded algorithm configs: cuBLASLt=1, cuSPARSELt=1 models
+[2026-01-26 02:03:44] INFO gemm_wrapper.py:944: cuBLASLt FP8 custom op registered: slidesparse::cublaslt_fp8_mm
+[2026-01-26 02:03:44] INFO gemm_wrapper.py:1009: cuSPARSELt FP8 custom op registered: slidesparse::cusparselt_fp8_mm
+[2026-01-26 02:03:44] INFO gemm_wrapper.py:1075: cuBLASLt INT8 custom op registered: slidesparse::cublaslt_int8_mm
+[2026-01-26 02:03:44] INFO gemm_wrapper.py:1141: cuSPARSELt INT8 custom op registered: slidesparse::cusparselt_int8_mm
+[2026-01-26 02:03:48] INFO kernels.py:578: Triton kernel custom ops registered
+[2026-01-26 02:03:48] INFO kernels.py:627: Optimization enabled: Only preloading kernels for model 'Qwen2.5-7B-INT8'
+[2026-01-26 02:03:48] INFO kernels.py:109: Loaded tuned kernel for model: Qwen2.5-7B-INT8
+[2026-01-26 02:03:48] INFO kernels.py:155: Dequant+bias kernel loaded for model: Qwen2.5-7B-INT8
+[2026-01-26 02:03:48] INFO kernels.py:224: FP8 quant kernel loaded for model: Qwen2.5-7B-INT8
+[2026-01-26 02:03:48] INFO kernels.py:348: INT8 quant kernel loaded for model: Qwen2.5-7B-INT8
+[2026-01-26 02:03:48] INFO kernels.py:284: FP8 quant+slide kernel loaded for model: Qwen2.5-7B-INT8
+[2026-01-26 02:03:48] INFO kernels.py:408: INT8 quant+slide kernel loaded for model: Qwen2.5-7B-INT8
+[2026-01-26 02:03:48] INFO gemm_wrapper.py:157: Optimization enabled: Only loading GEMM configs for model 'Qwen2.5-7B-INT8'
+[2026-01-26 02:03:48] INFO gemm_wrapper.py:172: Loaded algorithm configs: cuBLASLt=1, cuSPARSELt=1 models
+[2026-01-26 02:03:48] INFO gemm_wrapper.py:944: cuBLASLt FP8 custom op registered: slidesparse::cublaslt_fp8_mm
+[2026-01-26 02:03:48] INFO gemm_wrapper.py:1009: cuSPARSELt FP8 custom op registered: slidesparse::cusparselt_fp8_mm
+[2026-01-26 02:03:48] INFO gemm_wrapper.py:1075: cuBLASLt INT8 custom op registered: slidesparse::cublaslt_int8_mm
+[2026-01-26 02:03:48] INFO gemm_wrapper.py:1141: cuSPARSELt INT8 custom op registered: slidesparse::cusparselt_int8_mm
+(EngineCore_DP0 pid=816738) [2026-01-26 02:03:49] INFO SlideSparseLinearMethod_INT8.py:805: Wrapping CompressedTensorsW8A8Int8 with SlideSparse (cuSPARSELt)
+(EngineCore_DP0 pid=816738) [2026-01-26 02:03:49] INFO gemm_wrapper.py:870: cusparselt GEMM extension loaded: cusparselt_gemm_RTX5080_cc120_py312_cu129_x86_64.so
+(EngineCore_DP0 pid=816738) [2026-01-26 02:03:49] INFO SlideSparseLinearMethod_INT8.py:452: SlideSparseInt8LinearOp initialized (kernel=cuSPARSELt)
+(EngineCore_DP0 pid=816738) [2026-01-26 02:03:49] INFO SlideSparseLinearMethod_INT8.py:604: SlideSparseInt8LinearMethod: cuSPARSELt sparsity=2:4, expand_ratio=2.000
+(EngineCore_DP0 pid=816738) [2026-01-26 02:03:49] INFO SlideSparseLinearMethod_INT8.py:621: Preloaded INT8 Triton kernels for model: Qwen2.5-7B-INT8
+(EngineCore_DP0 pid=816738) [2026-01-26 02:03:49] INFO SlideSparseLinearMethod_INT8.py:625: SlideSparseInt8LinearMethod initialized, kernel=cuSPARSELt, symmetric=True
+(EngineCore_DP0 pid=816738) 
+Loading safetensors checkpoint shards:   0% Completed | 0/2 [00:00<?, ?it/s]
+(EngineCore_DP0 pid=816738) 
+Loading safetensors checkpoint shards:  50% Completed | 1/2 [00:00<00:00,  1.82it/s]
+(EngineCore_DP0 pid=816738) 
+Loading safetensors checkpoint shards: 100% Completed | 2/2 [00:01<00:00,  1.43it/s]
+(EngineCore_DP0 pid=816738) 
+Loading safetensors checkpoint shards: 100% Completed | 2/2 [00:01<00:00,  1.48it/s]
+(EngineCore_DP0 pid=816738) 
+(EngineCore_DP0 pid=816738) [2026-01-26 02:03:51] INFO SlideSparseLinearMethod_INT8.py:719: cuSPARSELt INT8 compression: [4608, 3584] -> 1D uint8
+(EngineCore_DP0 pid=816738) [2026-01-26 02:03:51] INFO SlideSparseLinearMethod_INT8.py:729: cuSPARSELt INT8 compression done: 12386304 bytes
+(EngineCore_DP0 pid=816738) [2026-01-26 02:03:51] INFO SlideSparseLinearMethod_INT8.py:719: cuSPARSELt INT8 compression: [3584, 3584] -> 1D uint8
+(EngineCore_DP0 pid=816738) [2026-01-26 02:03:51] INFO SlideSparseLinearMethod_INT8.py:729: cuSPARSELt INT8 compression done: 9633792 bytes
+(EngineCore_DP0 pid=816738) [2026-01-26 02:03:51] INFO SlideSparseLinearMethod_INT8.py:719: cuSPARSELt INT8 compression: [37888, 3584] -> 1D uint8
+(EngineCore_DP0 pid=816738) [2026-01-26 02:03:51] INFO SlideSparseLinearMethod_INT8.py:729: cuSPARSELt INT8 compression done: 101842944 bytes
+(EngineCore_DP0 pid=816738) [2026-01-26 02:03:51] INFO SlideSparseLinearMethod_INT8.py:719: cuSPARSELt INT8 compression: [3584, 18944] -> 1D uint8
+(EngineCore_DP0 pid=816738) [2026-01-26 02:03:51] INFO SlideSparseLinearMethod_INT8.py:729: cuSPARSELt INT8 compression done: 50921472 bytes
+(EngineCore_DP0 pid=816738) [rank0]:W0126 02:03:58.348000 816738 torch/_inductor/codegen/triton_combo_kernel.py:110] ComboKernels: 1 large pointwise nodes are separated
+(EngineCore_DP0 pid=816738) Process EngineCore_DP0:
+(EngineCore_DP0 pid=816738) Traceback (most recent call last):
+(EngineCore_DP0 pid=816738)   File "/usr/lib/python3.12/multiprocessing/process.py", line 314, in _bootstrap
+(EngineCore_DP0 pid=816738)     self.run()
+(EngineCore_DP0 pid=816738)   File "/usr/lib/python3.12/multiprocessing/process.py", line 108, in run
+(EngineCore_DP0 pid=816738)     self._target(*self._args, **self._kwargs)
+(EngineCore_DP0 pid=816738)   File "/root/vllmbench/vllm/v1/engine/core.py", line 870, in run_engine_core
+(EngineCore_DP0 pid=816738)     raise e
+(EngineCore_DP0 pid=816738)   File "/root/vllmbench/vllm/v1/engine/core.py", line 857, in run_engine_core
+(EngineCore_DP0 pid=816738)     engine_core = EngineCoreProc(*args, **kwargs)
+(EngineCore_DP0 pid=816738)                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=816738)   File "/root/vllmbench/vllm/v1/engine/core.py", line 637, in __init__
+(EngineCore_DP0 pid=816738)     super().__init__(
+(EngineCore_DP0 pid=816738)   File "/root/vllmbench/vllm/v1/engine/core.py", line 109, in __init__
+(EngineCore_DP0 pid=816738)     num_gpu_blocks, num_cpu_blocks, kv_cache_config = self._initialize_kv_caches(
+(EngineCore_DP0 pid=816738)                                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=816738)   File "/root/vllmbench/vllm/v1/engine/core.py", line 240, in _initialize_kv_caches
+(EngineCore_DP0 pid=816738)     available_gpu_memory = self.model_executor.determine_available_memory()
+(EngineCore_DP0 pid=816738)                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=816738)   File "/root/vllmbench/vllm/v1/executor/abstract.py", line 126, in determine_available_memory
+(EngineCore_DP0 pid=816738)     return self.collective_rpc("determine_available_memory")
+(EngineCore_DP0 pid=816738)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=816738)   File "/root/vllmbench/vllm/v1/executor/uniproc_executor.py", line 75, in collective_rpc
+(EngineCore_DP0 pid=816738)     result = run_method(self.driver_worker, method, args, kwargs)
+(EngineCore_DP0 pid=816738)              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=816738)   File "/root/vllmbench/vllm/v1/serial_utils.py", line 461, in run_method
+(EngineCore_DP0 pid=816738)     return func(*args, **kwargs)
+(EngineCore_DP0 pid=816738)            ^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=816738)   File "/usr/local/lib/python3.12/dist-packages/torch/utils/_contextlib.py", line 120, in decorate_context
+(EngineCore_DP0 pid=816738)     return func(*args, **kwargs)
+(EngineCore_DP0 pid=816738)            ^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=816738)   File "/root/vllmbench/vllm/v1/worker/gpu_worker.py", line 340, in determine_available_memory
+(EngineCore_DP0 pid=816738)     self.model_runner.profile_run()
+(EngineCore_DP0 pid=816738)   File "/root/vllmbench/vllm/v1/worker/gpu_model_runner.py", line 4474, in profile_run
+(EngineCore_DP0 pid=816738)     hidden_states, last_hidden_states = self._dummy_run(
+(EngineCore_DP0 pid=816738)                                         ^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=816738)   File "/usr/local/lib/python3.12/dist-packages/torch/utils/_contextlib.py", line 120, in decorate_context
+(EngineCore_DP0 pid=816738)     return func(*args, **kwargs)
+(EngineCore_DP0 pid=816738)            ^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=816738)   File "/root/vllmbench/vllm/v1/worker/gpu_model_runner.py", line 4198, in _dummy_run
+(EngineCore_DP0 pid=816738)     outputs = self.model(
+(EngineCore_DP0 pid=816738)               ^^^^^^^^^^^
+(EngineCore_DP0 pid=816738)   File "/root/vllmbench/vllm/compilation/cuda_graph.py", line 220, in __call__
+(EngineCore_DP0 pid=816738)     return self.runnable(*args, **kwargs)
+(EngineCore_DP0 pid=816738)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=816738)   File "/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py", line 1775, in _wrapped_call_impl
+(EngineCore_DP0 pid=816738)     return self._call_impl(*args, **kwargs)
+(EngineCore_DP0 pid=816738)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=816738)   File "/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py", line 1786, in _call_impl
+(EngineCore_DP0 pid=816738)     return forward_call(*args, **kwargs)
+(EngineCore_DP0 pid=816738)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=816738)   File "/root/vllmbench/vllm/model_executor/models/qwen2.py", line 583, in forward
+(EngineCore_DP0 pid=816738)     hidden_states = self.model(
+(EngineCore_DP0 pid=816738)                     ^^^^^^^^^^^
+(EngineCore_DP0 pid=816738)   File "/root/vllmbench/vllm/compilation/decorators.py", line 526, in __call__
+(EngineCore_DP0 pid=816738)     output = TorchCompileWithNoGuardsWrapper.__call__(self, *args, **kwargs)
+(EngineCore_DP0 pid=816738)              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=816738)   File "/root/vllmbench/vllm/compilation/wrapper.py", line 218, in __call__
+(EngineCore_DP0 pid=816738)     return self._call_with_optional_nvtx_range(
+(EngineCore_DP0 pid=816738)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=816738)   File "/root/vllmbench/vllm/compilation/wrapper.py", line 109, in _call_with_optional_nvtx_range
+(EngineCore_DP0 pid=816738)     return callable_fn(*args, **kwargs)
+(EngineCore_DP0 pid=816738)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=816738)   File "/usr/local/lib/python3.12/dist-packages/torch/_dynamo/eval_frame.py", line 845, in compile_wrapper
+(EngineCore_DP0 pid=816738)     raise e.remove_dynamo_frames() from None  # see TORCHDYNAMO_VERBOSE=1
+(EngineCore_DP0 pid=816738)     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=816738)   File "/usr/local/lib/python3.12/dist-packages/torch/_inductor/compile_fx.py", line 990, in _compile_fx_inner
+(EngineCore_DP0 pid=816738)     raise InductorError(e, currentframe()).with_traceback(
+(EngineCore_DP0 pid=816738)   File "/usr/local/lib/python3.12/dist-packages/torch/_inductor/compile_fx.py", line 974, in _compile_fx_inner
+(EngineCore_DP0 pid=816738)     mb_compiled_graph = fx_codegen_and_compile(
+(EngineCore_DP0 pid=816738)                         ^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=816738)   File "/usr/local/lib/python3.12/dist-packages/torch/_inductor/compile_fx.py", line 1695, in fx_codegen_and_compile
+(EngineCore_DP0 pid=816738)     return scheme.codegen_and_compile(gm, example_inputs, inputs_to_check, graph_kwargs)
+(EngineCore_DP0 pid=816738)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=816738)   File "/usr/local/lib/python3.12/dist-packages/torch/_inductor/compile_fx.py", line 1505, in codegen_and_compile
+(EngineCore_DP0 pid=816738)     compiled_module = graph.compile_to_module()
+(EngineCore_DP0 pid=816738)                       ^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=816738)   File "/usr/local/lib/python3.12/dist-packages/torch/_inductor/graph.py", line 2319, in compile_to_module
+(EngineCore_DP0 pid=816738)     return self._compile_to_module()
+(EngineCore_DP0 pid=816738)            ^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=816738)   File "/usr/local/lib/python3.12/dist-packages/torch/_inductor/graph.py", line 2325, in _compile_to_module
+(EngineCore_DP0 pid=816738)     self.codegen_with_cpp_wrapper() if self.cpp_wrapper else self.codegen()
+(EngineCore_DP0 pid=816738)                                                              ^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=816738)   File "/usr/local/lib/python3.12/dist-packages/torch/_inductor/graph.py", line 2271, in codegen
+(EngineCore_DP0 pid=816738)     result = self.wrapper_code.generate(self.is_inference)
+(EngineCore_DP0 pid=816738)              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=816738)   File "/usr/local/lib/python3.12/dist-packages/torch/_inductor/codegen/wrapper.py", line 1552, in generate
+(EngineCore_DP0 pid=816738)     return self._generate(is_inference)
+(EngineCore_DP0 pid=816738)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=816738)   File "/usr/local/lib/python3.12/dist-packages/torch/_inductor/codegen/wrapper.py", line 1615, in _generate
+(EngineCore_DP0 pid=816738)     self.generate_and_run_autotune_block()
+(EngineCore_DP0 pid=816738)   File "/usr/local/lib/python3.12/dist-packages/torch/_inductor/codegen/wrapper.py", line 1695, in generate_and_run_autotune_block
+(EngineCore_DP0 pid=816738)     raise RuntimeError(f"Failed to run autotuning code block: {e}") from e
+(EngineCore_DP0 pid=816738) torch._inductor.exc.InductorError: RuntimeError: Failed to run autotuning code block: CUDA out of memory. Tried to allocate 4.62 GiB. GPU 0 has a total capacity of 15.47 GiB of which 4.43 GiB is free. Including non-PyTorch memory, this process has 11.01 GiB memory in use. Of the allocated memory 8.86 GiB is allocated by PyTorch, and 1.79 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+[rank0]:[W126 02:03:58.760518977 ProcessGroupNCCL.cpp:1524] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+Traceback (most recent call last):
+  File "/usr/local/bin/vllm", line 7, in <module>
+    sys.exit(main())
+             ^^^^^^
+  File "/root/vllmbench/vllm/entrypoints/cli/main.py", line 73, in main
+    args.dispatch_function(args)
+  File "/root/vllmbench/vllm/entrypoints/cli/benchmark/throughput.py", line 21, in cmd
+    main(args)
+  File "/root/vllmbench/vllm/benchmarks/throughput.py", line 730, in main
+    elapsed_time, request_outputs = run_vllm(
+                                    ^^^^^^^^^
+  File "/root/vllmbench/vllm/benchmarks/throughput.py", line 51, in run_vllm
+    llm = LLM(**dataclasses.asdict(engine_args))
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/entrypoints/llm.py", line 351, in __init__
+    self.llm_engine = LLMEngine.from_engine_args(
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/v1/engine/llm_engine.py", line 183, in from_engine_args
+    return cls(
+           ^^^^
+  File "/root/vllmbench/vllm/v1/engine/llm_engine.py", line 109, in __init__
+    self.engine_core = EngineCoreClient.make_client(
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/v1/engine/core_client.py", line 93, in make_client
+    return SyncMPClient(vllm_config, executor_class, log_stats)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/v1/engine/core_client.py", line 648, in __init__
+    super().__init__(
+  File "/root/vllmbench/vllm/v1/engine/core_client.py", line 477, in __init__
+    with launch_core_engines(vllm_config, executor_class, log_stats) as (
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/contextlib.py", line 144, in __exit__
+    next(self.gen)
+  File "/root/vllmbench/vllm/v1/engine/utils.py", line 903, in launch_core_engines
+    wait_for_engine_startup(
+  File "/root/vllmbench/vllm/v1/engine/utils.py", line 960, in wait_for_engine_startup
+    raise RuntimeError(
+RuntimeError: Engine core initialization failed. See root cause above. Failed core proc(s): {}
+
+[ERROR] 测试失败: M=65536 (exit code: 1)
+
+
+------------------------------------------------------------
+  生成 CSV: Qwen2.5-7B-INT8
+------------------------------------------------------------
+[SUCCESS] CSV 保存到: /root/vllmbench/slidesparse/tools/throughput_benchmark_results/prefill/RTX5080_cc120_INT8_py312_cu129_x86_64/cusparselt/2_4/Qwen2.5-7B-INT8_prefill.csv
+
+预览:
+------------------------------------------------------------
+M_prefill,prompt_len,max_num_seqs,num_prompts,N_prefill,requests_per_s,tokens_per_s,elapsed_time_s
+16384,1024,16,2048,128,24.4735,25085.2939,83.6825
+32768,1024,32,4096,128,-1.0000,-1.0000,-1.0000
+65536,1024,64,8192,128,-1.0000,-1.0000,-1.0000
+
+------------------------------------------------------------
+
+[INFO] 完成: 1 成功, 2 失败
+
+
+============================================================
+  Benchmark 完成!
+============================================================
+
+
+总计: 1 成功, 2 失败
+============================================================

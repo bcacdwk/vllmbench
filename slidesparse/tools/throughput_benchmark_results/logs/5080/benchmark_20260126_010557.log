@@ -1,0 +1,83 @@
+======================================================================
+SlideSparse vLLM Throughput Benchmark Log
+Created: 2026-01-26 01:05:57
+======================================================================
+
+原始命令:
+  /root/vllmbench/slidesparse/tools/throughput_benchmark.py --model llama3.2-1b-int8 --stage prefill --backend cusparselt --M 65536 --gpu-mem 0.9 --sparsity 2_4
+
+命令行参数:
+  --model: llama3.2-1b-int8
+  --backend: cusparselt
+  --sparsity: 2_4
+  --stage: prefill
+  --M: 65536
+  --N: None
+  --inner-32: False
+  --eager: False
+  --gpu-id: 0
+  --gpu-mem: 0.9
+  --dry-run: False
+  --list-models: False
+
+硬件信息:
+  GPU: RTX5080
+  Compute Capability: cc120
+  VRAM: 15.5 GB
+  CUDA: 12.9
+  Python: py312
+
+Backend 环境变量 (初始状态):
+  DISABLE_SLIDESPARSE: 未设置
+  USE_CUBLASLT: 未设置
+  USE_CUSPARSELT: 未设置
+  SPARSITY: 未设置
+  INNER_DTYPE_32: 未设置
+
+======================================================================
+
+
+============================================================
+  Llama3.2-1B-INT8 | cuSPARSELt (2_4) | prefill
+============================================================
+
+[INFO] Checkpoint: /root/vllmbench/checkpoints_slidesparse/Llama3.2-1B-INT8-SlideSparse-2_4
+[INFO] Output: /root/vllmbench/slidesparse/tools/throughput_benchmark_results/prefill/RTX5080_cc120_INT8_py312_cu129_x86_64/cusparselt/2_4
+
+============================================================
+[1/1] 测试 M=65536
+============================================================
+
+┌─────────────────────────────────────────────────────────────┐
+│                    测试参数                                  │
+├─────────────────────────────────────────────────────────────┤
+│ 模型:     Llama3.2-1B-INT8                                │
+│ Backend:  cuSPARSELt (2:4)                                │
+│ 阶段:     prefill                                         │
+├─────────────────────────────────────────────────────────────┤
+│ GEMM M 维度 (精确控制):
+│   目标 M        = 65536
+│   M_prefill     = 65536 (= 64 x 1024)
+│   M_decode      = 64
+│   batched_tokens = 65536 (控制 M 的关键参数)
+├─────────────────────────────────────────────────────────────┤
+│ vLLM 参数:
+│   --input-len              = 1024
+│   --output-len             = 1
+│   --num-prompts            = 8192
+│   --max-num-seqs           = 64
+│   --max-model-len          = 1025
+│   --max-num-batched-tokens = 65536
+│   --no-enable-chunked-prefill
+├─────────────────────────────────────────────────────────────┤
+│ 迭代次数:
+│   N_prefill = 128
+│   N_decode  = 0
+└─────────────────────────────────────────────────────────────┘
+
+[INFO] 开始测试...
+
+============================================================
+测试被中断!
+当前结果目录: /root/vllmbench/slidesparse/tools/throughput_benchmark_results/prefill/RTX5080_cc120_INT8_py312_cu129_x86_64/cusparselt/2_4
+============================================================

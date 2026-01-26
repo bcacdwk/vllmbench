@@ -212,6 +212,7 @@ def prepare_and_prune_weight(
 def prepare_activation(
     A_bf16: torch.Tensor,
     dtype: str,
+    memory_efficient: bool = True,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     准备激活矩阵。
@@ -220,9 +221,15 @@ def prepare_activation(
         (A_transposed, A_q):
             A_transposed: 转置后的激活 [K, M] (用于 CUDA)
             A_q: 原始量化激活 [M, K] (用于 verify)
+    
+    Args:
+        A_bf16: 输入激活矩阵 [M, K]
+        dtype: 目标数据类型
+        memory_efficient: 启用显存优化模式（会修改输入张量）
     """
     if dtype == "int8":
-        A_q, _ = quantize_int8(A_bf16)
+        # 使用 inplace 模式减少显存占用
+        A_q, _ = quantize_int8(A_bf16, inplace=memory_efficient)
     elif dtype == "fp8e4m3":
         A_q = to_fp8_e4m3(A_bf16)
     else:
@@ -469,6 +476,48 @@ def search_single_nk(
     }
 
 
+def estimate_memory_mb(M: int, K: int, dtype: str) -> float:
+    """估算单个 NK 搜索所需的峰值显存 (MB)"""
+    # A 矩阵 (bf16): M × K × 2 bytes
+    a_bf16_mb = (M * K * 2) / (1024 * 1024)
+    # A 量化后: M × K × (1 或 1 bytes for int8/fp8)
+    a_q_mb = (M * K * 1) / (1024 * 1024)
+    # quantize_int8 中间结果 (如果非 inplace): M × K × 4 bytes (float32 temp)
+    temp_mb = (M * K * 4) / (1024 * 1024) if dtype == "int8" else 0
+    
+    # 总估算 (带安全余量 1.5x)
+    return (a_bf16_mb + a_q_mb + temp_mb) * 1.5
+
+
+def get_adaptive_max_m(K: int, m_list: List[int], dtype: str, 
+                       gpu_memory_limit_mb: Optional[float] = None) -> int:
+    """
+    根据 K 值和 GPU 可用显存，自适应计算最大可用的 M 值。
+    
+    Args:
+        K: 当前 NK 的 K 维度
+        m_list: M 值列表
+        dtype: 数据类型
+        gpu_memory_limit_mb: GPU 显存限制 (MB)，None 则自动检测
+    
+    Returns:
+        安全的最大 M 值
+    """
+    if gpu_memory_limit_mb is None:
+        # 获取当前可用显存，保留 2GB 余量
+        free_mem = torch.cuda.mem_get_info()[0] / (1024 * 1024)
+        gpu_memory_limit_mb = max(free_mem - 2048, 1024)  # 至少保留 1GB 可用
+    
+    # 从大到小尝试 M 值
+    sorted_m = sorted(m_list, reverse=True)
+    for m in sorted_m:
+        if estimate_memory_mb(m, K, dtype) < gpu_memory_limit_mb:
+            return m
+    
+    # 如果都不行，返回最小的 M
+    return min(m_list)
+
+
 def run_search(
     lib: ctypes.CDLL,
     dtype: str,
@@ -482,6 +531,7 @@ def run_search(
     do_api_search: bool = True,
     verify: bool = False,
     verbose: bool = True,
+    memory_safe: bool = True,
 ) -> Dict:
     """
     运行完整的算法搜索。
@@ -490,6 +540,9 @@ def run_search(
     1. 收集更多候选 (search_topk=16) 用于重排序
     2. 使用 smart_score 综合考虑 latency/workspace/split_k
     3. 应用 rerank_candidates 进行重排序，保留 final_topk=3
+    
+    Args:
+        memory_safe: 启用内存安全模式，自动限制大 K 时的 M 值
     """
     results = []
     max_M = max(m_list)
@@ -510,9 +563,19 @@ def run_search(
         if verbose:
             print(f"    NK {nk_id+1}/{total_nk}: ({N}, {K})", flush=True)
         
+        # 内存安全模式：自适应调整当前 NK 可用的最大 M
+        if memory_safe:
+            current_max_M = get_adaptive_max_m(K, m_list, dtype)
+            if current_max_M < max_M and verbose:
+                print(f"      [内存安全] K={K} 较大，限制 M_max: {max_M} -> {current_max_M}")
+            effective_m_list = [m for m in m_list if m <= current_max_M]
+        else:
+            current_max_M = max_M
+            effective_m_list = m_list
+        
         # 生成随机数据
         W = torch.randn(N, K, device="cuda", dtype=torch.bfloat16)
-        A = torch.randn(max_M, K, device="cuda", dtype=torch.bfloat16)
+        A = torch.randn(current_max_M, K, device="cuda", dtype=torch.bfloat16)
         
         # 剪枝权重 (不需要预压缩，CUDA 内部会对每个 alg_id 重新压缩)
         # W_q_pruned [N, K] 是剪枝后的权重，用于 verify
@@ -524,7 +587,7 @@ def run_search(
         
         nk_m_results = {}
         
-        for M in m_list:
+        for M in effective_m_list:  # 使用自适应的 M 列表
             # 切片 (A_transposed 是 K x M_max, 切片得到 K x M)
             A_slice = A_transposed[:, :M]
             # verify 用的 A_q 切片 (M, K) -> (M_slice, K)
@@ -562,17 +625,18 @@ def run_search(
                     verify_stats["warned"] += 1
         
         # 重排序：综合考虑 latency/workspace/split_k，保留 top3
-        reranked_results = rerank_candidates(nk_m_results, m_list, final_topk=topk)
+        reranked_results = rerank_candidates(nk_m_results, effective_m_list, final_topk=topk)
         
         nk_results = {
             "nk_id": nk_id,
             "N": N,
             "K": K,
             "m_results": reranked_results,
+            "effective_m_list": effective_m_list,  # 记录实际使用的 M 列表
         }
         
         if verbose:
-            first_m = m_list[0]
+            first_m = effective_m_list[0] if effective_m_list else m_list[0]
             first_result = reranked_results.get(first_m, {})
             alg_count = first_result.get("alg_count", 0)
             num_valid = first_result.get("num_valid", 0)
@@ -580,9 +644,11 @@ def run_search(
         
         results.append(nk_results)
         
+        # 及时清理显存，避免累积
         del W, A, W_pruned, A_transposed, A_q
         if verify:
             del W_q_pruned
+        torch.cuda.empty_cache()  # 每个 NK 后立即清理
     
     torch.cuda.empty_cache()
     

@@ -150,19 +150,29 @@ def load_search_extension(
 # 数据准备工具
 # =============================================================================
 
-def quantize_int8(x: torch.Tensor) -> tuple:
+def quantize_int8(x: torch.Tensor, inplace: bool = False) -> tuple:
     """
     将 BF16/FP16 张量量化到 INT8。
     
     Args:
         x: 输入张量
+        inplace: 是否原地操作（节省显存，但会修改输入）
     
     Returns:
         (quantized_tensor, scale)
     """
     abs_max = x.abs().max().item()
     scale = 127.0 / abs_max if abs_max > 0 else 1.0
-    q = (x * scale).round().clamp(-128, 127).to(torch.int8)
+    
+    # 使用分步操作减少峰值显存
+    if inplace:
+        x.mul_(scale)
+        x.round_()
+        x.clamp_(-128, 127)
+        q = x.to(torch.int8)
+    else:
+        # 原始实现，保持兼容性
+        q = (x * scale).round().clamp(-128, 127).to(torch.int8)
     return q, scale
 
 
