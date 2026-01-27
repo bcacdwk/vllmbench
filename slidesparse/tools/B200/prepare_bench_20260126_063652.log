@@ -1,0 +1,407 @@
+======================================================================
+SlideSparse Prepare Benchmark Log
+Started: 2026-01-26 06:36:52
+======================================================================
+
+Hardware:
+  GPU: NVIDIA B200 (cc100)
+  Python: py312
+  CUDA: cu129
+  Arch: x86_64
+
+[INFO] 日志文件: /root/vllmbench/slidesparse/tools/prepare_bench_20260126_063652.log
+[INFO] 跳过 Task 1: 模型下载
+[INFO] 跳过 Task 2: 模型转换 (SlideSparse)
+
+======================================================================
+TASK 3: 离线粗调优 (cuBLAS + quant_only)
+Started: 2026-01-26 06:36:52
+======================================================================
+
+[INFO] 执行: /usr/bin/python3 /root/vllmbench/slidesparse/tools/offline_autotune_algsearch.py --model Llama3.2-1B,Llama3.2-3B,Qwen2.5-7B,Qwen2.5-14B --dtype all --m_list 256,1024,4096,16384,32768 --Lmax 10 --warmup 25 --repeat 50 --kernels 1,0,0,0,1
+
+
+============================================================
+  SlideSparse 统一离线调优
+============================================================
+
+  GPU:           NVIDIA B200 (cc100)
+  Python:        py312
+  CUDA:          cu129
+  Arch:          x86_64
+
+  数据类型:      ['int8', 'fp8']
+  输出类型:      bf16
+  高精度累加:    否
+  模型 (base):   ['Llama3.2-1B', 'Llama3.2-3B', 'Qwen2.5-7B', 'Qwen2.5-14B']
+  Lmax:          10
+  M-quick:       否
+  M 列表:        [256, 1024, 4096, 16384, 32768]
+  Warmup/Repeat: 25/50
+
+  Kernel 调优:
+    ✓ cuBLASLt GEMM
+    ✗ cuSPARSELt GEMM
+    ✗ Triton Dequant + Bias
+    ✗ Triton Quant + Slide
+    ✓ Triton Quant Only
+
+============================================================
+  Step 0: 编译 CUDA 扩展
+============================================================
+
+
+------------------------------------------------------------
+  编译 cublaslt
+------------------------------------------------------------
+[INFO] 执行: /usr/bin/python3 /root/vllmbench/slidesparse/csrc/cublaslt_gemm/build_cublaslt.py build --force
+[SUCCESS] cublaslt 编译成功
+
+------------------------------------------------------------
+  编译 cusparselt
+------------------------------------------------------------
+[INFO] 执行: /usr/bin/python3 /root/vllmbench/slidesparse/csrc/cusparselt_gemm/build_cusparselt.py build --force
+[SUCCESS] cusparselt 编译成功
+
+------------------------------------------------------------
+  编译 compress
+------------------------------------------------------------
+[INFO] 执行: /usr/bin/python3 /root/vllmbench/slidesparse/weight_convert/build_compress.py build --force
+[SUCCESS] compress 编译成功
+
+============================================================
+  Step 1: cuBLASLt GEMM
+============================================================
+
+
+------------------------------------------------------------
+  模型: Llama3.2-1B
+------------------------------------------------------------
+[INFO] NK 组合数: 16 (from Llama3.2-1B-INT8)
+[INFO] dtype=int8, outdtype=int32
+[INFO] 执行: /usr/bin/python3 /root/vllmbench/slidesparse/search/cuBLASLt_AlgSearch/alg_search.py --dtype int8 --outdtype int32 --model Llama3.2-1B-INT8 --warmup 25 --repeat 50 --compile --Lmax 10 --m_list 256,1024,4096,16384,32768
+[SUCCESS] cuBLASLt GEMM (int8) 完成
+[INFO] dtype=fp8e4m3, outdtype=bf16
+[INFO] 执行: /usr/bin/python3 /root/vllmbench/slidesparse/search/cuBLASLt_AlgSearch/alg_search.py --dtype fp8e4m3 --outdtype bf16 --model Llama3.2-1B-FP8 --warmup 25 --repeat 50 --compile --Lmax 10 --m_list 256,1024,4096,16384,32768
+[SUCCESS] cuBLASLt GEMM (fp8) 完成
+
+------------------------------------------------------------
+  模型: Llama3.2-3B
+------------------------------------------------------------
+[INFO] NK 组合数: 16 (from Llama3.2-3B-INT8)
+[INFO] dtype=int8, outdtype=int32
+[INFO] 执行: /usr/bin/python3 /root/vllmbench/slidesparse/search/cuBLASLt_AlgSearch/alg_search.py --dtype int8 --outdtype int32 --model Llama3.2-3B-INT8 --warmup 25 --repeat 50 --compile --Lmax 10 --m_list 256,1024,4096,16384,32768
+[SUCCESS] cuBLASLt GEMM (int8) 完成
+[INFO] dtype=fp8e4m3, outdtype=bf16
+[INFO] 执行: /usr/bin/python3 /root/vllmbench/slidesparse/search/cuBLASLt_AlgSearch/alg_search.py --dtype fp8e4m3 --outdtype bf16 --model Llama3.2-3B-FP8 --warmup 25 --repeat 50 --compile --Lmax 10 --m_list 256,1024,4096,16384,32768
+[SUCCESS] cuBLASLt GEMM (fp8) 完成
+
+------------------------------------------------------------
+  模型: Qwen2.5-7B
+------------------------------------------------------------
+[INFO] NK 组合数: 16 (from Qwen2.5-7B-INT8)
+[INFO] dtype=int8, outdtype=int32
+[INFO] 执行: /usr/bin/python3 /root/vllmbench/slidesparse/search/cuBLASLt_AlgSearch/alg_search.py --dtype int8 --outdtype int32 --model Qwen2.5-7B-INT8 --warmup 25 --repeat 50 --compile --Lmax 10 --m_list 256,1024,4096,16384,32768
+[SUCCESS] cuBLASLt GEMM (int8) 完成
+[INFO] dtype=fp8e4m3, outdtype=bf16
+[INFO] 执行: /usr/bin/python3 /root/vllmbench/slidesparse/search/cuBLASLt_AlgSearch/alg_search.py --dtype fp8e4m3 --outdtype bf16 --model Qwen2.5-7B-FP8 --warmup 25 --repeat 50 --compile --Lmax 10 --m_list 256,1024,4096,16384,32768
+[SUCCESS] cuBLASLt GEMM (fp8) 完成
+
+------------------------------------------------------------
+  模型: Qwen2.5-14B
+------------------------------------------------------------
+[INFO] NK 组合数: 16 (from Qwen2.5-14B-INT8)
+[INFO] dtype=int8, outdtype=int32
+[INFO] 执行: /usr/bin/python3 /root/vllmbench/slidesparse/search/cuBLASLt_AlgSearch/alg_search.py --dtype int8 --outdtype int32 --model Qwen2.5-14B-INT8 --warmup 25 --repeat 50 --compile --Lmax 10 --m_list 256,1024,4096,16384,32768
+[SUCCESS] cuBLASLt GEMM (int8) 完成
+[INFO] dtype=fp8e4m3, outdtype=bf16
+[INFO] 执行: /usr/bin/python3 /root/vllmbench/slidesparse/search/cuBLASLt_AlgSearch/alg_search.py --dtype fp8e4m3 --outdtype bf16 --model Qwen2.5-14B-FP8 --warmup 25 --repeat 50 --compile --Lmax 10 --m_list 256,1024,4096,16384,32768
+[SUCCESS] cuBLASLt GEMM (fp8) 完成
+
+============================================================
+  Step 2: cuSPARSELt GEMM [跳过]
+============================================================
+
+
+============================================================
+  Step 3: Triton Dequant + Bias [跳过]
+============================================================
+
+
+============================================================
+  Step 4: Triton Quant + Slide [跳过]
+============================================================
+
+
+============================================================
+  Step 5: Triton Quant Only
+============================================================
+
+
+------------------------------------------------------------
+  模型: Llama3.2-1B
+------------------------------------------------------------
+[INFO] NK 组合数: 16 (from Llama3.2-1B-INT8)
+[INFO] 执行: /usr/bin/python3 /root/vllmbench/slidesparse/csrc/quant_only_triton/autotune_autogen_quant_only.py --model Llama3.2-1B-INT8 --warmup 25 --repeat 50 --Lmax 10 --m_list 256,1024,4096,16384,32768
+[SUCCESS] Triton Quant Only 完成
+
+------------------------------------------------------------
+  模型: Llama3.2-3B
+------------------------------------------------------------
+[INFO] NK 组合数: 16 (from Llama3.2-3B-INT8)
+[INFO] 执行: /usr/bin/python3 /root/vllmbench/slidesparse/csrc/quant_only_triton/autotune_autogen_quant_only.py --model Llama3.2-3B-INT8 --warmup 25 --repeat 50 --Lmax 10 --m_list 256,1024,4096,16384,32768
+[SUCCESS] Triton Quant Only 完成
+
+------------------------------------------------------------
+  模型: Qwen2.5-7B
+------------------------------------------------------------
+[INFO] NK 组合数: 16 (from Qwen2.5-7B-INT8)
+[INFO] 执行: /usr/bin/python3 /root/vllmbench/slidesparse/csrc/quant_only_triton/autotune_autogen_quant_only.py --model Qwen2.5-7B-INT8 --warmup 25 --repeat 50 --Lmax 10 --m_list 256,1024,4096,16384,32768
+[SUCCESS] Triton Quant Only 完成
+
+------------------------------------------------------------
+  模型: Qwen2.5-14B
+------------------------------------------------------------
+[INFO] NK 组合数: 16 (from Qwen2.5-14B-INT8)
+[INFO] 执行: /usr/bin/python3 /root/vllmbench/slidesparse/csrc/quant_only_triton/autotune_autogen_quant_only.py --model Qwen2.5-14B-INT8 --warmup 25 --repeat 50 --Lmax 10 --m_list 256,1024,4096,16384,32768
+[SUCCESS] Triton Quant Only 完成
+
+============================================================
+  调优总结
+============================================================
+
+  cuBLASLt GEMM: [全部成功] (8/8)
+  cuSPARSELt GEMM: [跳过]
+  Triton Dequant + Bias: [跳过]
+  Triton Quant + Slide: [跳过]
+  Triton Quant Only: [全部成功] (4/4)
+
+总计: 成功 12, 失败 0, 跳过 3
+
+----------------------------------------------------------------------
+TASK 3: 离线粗调优 (cuBLAS + quant_only) - SUCCESS
+Duration: 966.3 seconds (16.1 minutes)
+----------------------------------------------------------------------
+
+
+======================================================================
+TASK 4: 离线细调优 (cuSPARSE + Triton)
+Started: 2026-01-26 06:52:58
+======================================================================
+
+[INFO] 执行: /usr/bin/python3 /root/vllmbench/slidesparse/tools/offline_autotune_algsearch.py --model Llama3.2-1B,Llama3.2-3B,Qwen2.5-7B,Qwen2.5-14B --dtype all --m_list 64,128,256,512,1024,2048,4096,8192,16384,32768,65536 --Lmax 10 --warmup 25 --repeat 50 --kernels 0,1,1,1,0
+
+
+============================================================
+  SlideSparse 统一离线调优
+============================================================
+
+  GPU:           NVIDIA B200 (cc100)
+  Python:        py312
+  CUDA:          cu129
+  Arch:          x86_64
+
+  数据类型:      ['int8', 'fp8']
+  输出类型:      bf16
+  高精度累加:    否
+  模型 (base):   ['Llama3.2-1B', 'Llama3.2-3B', 'Qwen2.5-7B', 'Qwen2.5-14B']
+  Lmax:          10
+  M-quick:       否
+  M 列表:        [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536]
+  Warmup/Repeat: 25/50
+
+  Kernel 调优:
+    ✗ cuBLASLt GEMM
+    ✓ cuSPARSELt GEMM
+    ✓ Triton Dequant + Bias
+    ✓ Triton Quant + Slide
+    ✗ Triton Quant Only
+
+============================================================
+  Step 0: 编译 CUDA 扩展
+============================================================
+
+
+------------------------------------------------------------
+  编译 cublaslt
+------------------------------------------------------------
+[INFO] 执行: /usr/bin/python3 /root/vllmbench/slidesparse/csrc/cublaslt_gemm/build_cublaslt.py build --force
+[SUCCESS] cublaslt 编译成功
+
+------------------------------------------------------------
+  编译 cusparselt
+------------------------------------------------------------
+[INFO] 执行: /usr/bin/python3 /root/vllmbench/slidesparse/csrc/cusparselt_gemm/build_cusparselt.py build --force
+[SUCCESS] cusparselt 编译成功
+
+------------------------------------------------------------
+  编译 compress
+------------------------------------------------------------
+[INFO] 执行: /usr/bin/python3 /root/vllmbench/slidesparse/weight_convert/build_compress.py build --force
+[SUCCESS] compress 编译成功
+
+============================================================
+  Step 1: cuBLASLt GEMM [跳过]
+============================================================
+
+
+============================================================
+  Step 2: cuSPARSELt GEMM
+============================================================
+
+
+------------------------------------------------------------
+  模型: Llama3.2-1B
+------------------------------------------------------------
+[INFO] NK 组合数: 16 (from Llama3.2-1B-INT8)
+[INFO] dtype=int8, outdtype=bf16
+[INFO] 执行: /usr/bin/python3 /root/vllmbench/slidesparse/search/cuSPARSELt_AlgSearch/alg_search.py --dtype int8 --outdtype bf16 --model Llama3.2-1B-INT8 --warmup 25 --repeat 50 --compile --Lmax 10 --m_list 64,128,256,512,1024,2048,4096,8192,16384,32768,65536
+[SUCCESS] cuSPARSELt GEMM (int8) 完成
+[INFO] dtype=fp8e4m3, outdtype=bf16
+[INFO] 执行: /usr/bin/python3 /root/vllmbench/slidesparse/search/cuSPARSELt_AlgSearch/alg_search.py --dtype fp8e4m3 --outdtype bf16 --model Llama3.2-1B-FP8 --warmup 25 --repeat 50 --compile --Lmax 10 --m_list 64,128,256,512,1024,2048,4096,8192,16384,32768,65536
+[SUCCESS] cuSPARSELt GEMM (fp8) 完成
+
+------------------------------------------------------------
+  模型: Llama3.2-3B
+------------------------------------------------------------
+[INFO] NK 组合数: 16 (from Llama3.2-3B-INT8)
+[INFO] dtype=int8, outdtype=bf16
+[INFO] 执行: /usr/bin/python3 /root/vllmbench/slidesparse/search/cuSPARSELt_AlgSearch/alg_search.py --dtype int8 --outdtype bf16 --model Llama3.2-3B-INT8 --warmup 25 --repeat 50 --compile --Lmax 10 --m_list 64,128,256,512,1024,2048,4096,8192,16384,32768,65536
+[SUCCESS] cuSPARSELt GEMM (int8) 完成
+[INFO] dtype=fp8e4m3, outdtype=bf16
+[INFO] 执行: /usr/bin/python3 /root/vllmbench/slidesparse/search/cuSPARSELt_AlgSearch/alg_search.py --dtype fp8e4m3 --outdtype bf16 --model Llama3.2-3B-FP8 --warmup 25 --repeat 50 --compile --Lmax 10 --m_list 64,128,256,512,1024,2048,4096,8192,16384,32768,65536
+[SUCCESS] cuSPARSELt GEMM (fp8) 完成
+
+------------------------------------------------------------
+  模型: Qwen2.5-7B
+------------------------------------------------------------
+[INFO] NK 组合数: 16 (from Qwen2.5-7B-INT8)
+[INFO] dtype=int8, outdtype=bf16
+[INFO] 执行: /usr/bin/python3 /root/vllmbench/slidesparse/search/cuSPARSELt_AlgSearch/alg_search.py --dtype int8 --outdtype bf16 --model Qwen2.5-7B-INT8 --warmup 25 --repeat 50 --compile --Lmax 10 --m_list 64,128,256,512,1024,2048,4096,8192,16384,32768,65536
+[SUCCESS] cuSPARSELt GEMM (int8) 完成
+[INFO] dtype=fp8e4m3, outdtype=bf16
+[INFO] 执行: /usr/bin/python3 /root/vllmbench/slidesparse/search/cuSPARSELt_AlgSearch/alg_search.py --dtype fp8e4m3 --outdtype bf16 --model Qwen2.5-7B-FP8 --warmup 25 --repeat 50 --compile --Lmax 10 --m_list 64,128,256,512,1024,2048,4096,8192,16384,32768,65536
+[SUCCESS] cuSPARSELt GEMM (fp8) 完成
+
+------------------------------------------------------------
+  模型: Qwen2.5-14B
+------------------------------------------------------------
+[INFO] NK 组合数: 16 (from Qwen2.5-14B-INT8)
+[INFO] dtype=int8, outdtype=bf16
+[INFO] 执行: /usr/bin/python3 /root/vllmbench/slidesparse/search/cuSPARSELt_AlgSearch/alg_search.py --dtype int8 --outdtype bf16 --model Qwen2.5-14B-INT8 --warmup 25 --repeat 50 --compile --Lmax 10 --m_list 64,128,256,512,1024,2048,4096,8192,16384,32768,65536
+[SUCCESS] cuSPARSELt GEMM (int8) 完成
+[INFO] dtype=fp8e4m3, outdtype=bf16
+[INFO] 执行: /usr/bin/python3 /root/vllmbench/slidesparse/search/cuSPARSELt_AlgSearch/alg_search.py --dtype fp8e4m3 --outdtype bf16 --model Qwen2.5-14B-FP8 --warmup 25 --repeat 50 --compile --Lmax 10 --m_list 64,128,256,512,1024,2048,4096,8192,16384,32768,65536
+[SUCCESS] cuSPARSELt GEMM (fp8) 完成
+
+============================================================
+  Step 3: Triton Dequant + Bias
+============================================================
+
+
+------------------------------------------------------------
+  模型: Llama3.2-1B
+------------------------------------------------------------
+[INFO] NK 组合数: 16 (from Llama3.2-1B-INT8)
+[INFO] 执行: /usr/bin/python3 /root/vllmbench/slidesparse/csrc/fused_dequant_bias_triton/autotune_autogen_dequant_bias.py --model Llama3.2-1B-INT8 --warmup 25 --repeat 50 --Lmax 10 --m_list 64,128,256,512,1024,2048,4096,8192,16384,32768,65536
+[SUCCESS] Triton Dequant + Bias 完成
+
+------------------------------------------------------------
+  模型: Llama3.2-3B
+------------------------------------------------------------
+[INFO] NK 组合数: 16 (from Llama3.2-3B-INT8)
+[INFO] 执行: /usr/bin/python3 /root/vllmbench/slidesparse/csrc/fused_dequant_bias_triton/autotune_autogen_dequant_bias.py --model Llama3.2-3B-INT8 --warmup 25 --repeat 50 --Lmax 10 --m_list 64,128,256,512,1024,2048,4096,8192,16384,32768,65536
+[SUCCESS] Triton Dequant + Bias 完成
+
+------------------------------------------------------------
+  模型: Qwen2.5-7B
+------------------------------------------------------------
+[INFO] NK 组合数: 16 (from Qwen2.5-7B-INT8)
+[INFO] 执行: /usr/bin/python3 /root/vllmbench/slidesparse/csrc/fused_dequant_bias_triton/autotune_autogen_dequant_bias.py --model Qwen2.5-7B-INT8 --warmup 25 --repeat 50 --Lmax 10 --m_list 64,128,256,512,1024,2048,4096,8192,16384,32768,65536
+[SUCCESS] Triton Dequant + Bias 完成
+
+------------------------------------------------------------
+  模型: Qwen2.5-14B
+------------------------------------------------------------
+[INFO] NK 组合数: 16 (from Qwen2.5-14B-INT8)
+[INFO] 执行: /usr/bin/python3 /root/vllmbench/slidesparse/csrc/fused_dequant_bias_triton/autotune_autogen_dequant_bias.py --model Qwen2.5-14B-INT8 --warmup 25 --repeat 50 --Lmax 10 --m_list 64,128,256,512,1024,2048,4096,8192,16384,32768,65536
+[SUCCESS] Triton Dequant + Bias 完成
+
+============================================================
+  Step 4: Triton Quant + Slide
+============================================================
+
+
+------------------------------------------------------------
+  模型: Llama3.2-1B
+------------------------------------------------------------
+[INFO] NK 组合数: 16 (from Llama3.2-1B-INT8)
+[INFO] 执行: /usr/bin/python3 /root/vllmbench/slidesparse/csrc/fused_quant_slide_triton/autotune_autogen_quant_slide.py --model Llama3.2-1B-INT8 --warmup 25 --repeat 50 --Lmax 10 --m_list 64,128,256,512,1024,2048,4096,8192,16384,32768,65536
+[SUCCESS] Triton Quant + Slide 完成
+
+------------------------------------------------------------
+  模型: Llama3.2-3B
+------------------------------------------------------------
+[INFO] NK 组合数: 16 (from Llama3.2-3B-INT8)
+[INFO] 执行: /usr/bin/python3 /root/vllmbench/slidesparse/csrc/fused_quant_slide_triton/autotune_autogen_quant_slide.py --model Llama3.2-3B-INT8 --warmup 25 --repeat 50 --Lmax 10 --m_list 64,128,256,512,1024,2048,4096,8192,16384,32768,65536
+[SUCCESS] Triton Quant + Slide 完成
+
+------------------------------------------------------------
+  模型: Qwen2.5-7B
+------------------------------------------------------------
+[INFO] NK 组合数: 16 (from Qwen2.5-7B-INT8)
+[INFO] 执行: /usr/bin/python3 /root/vllmbench/slidesparse/csrc/fused_quant_slide_triton/autotune_autogen_quant_slide.py --model Qwen2.5-7B-INT8 --warmup 25 --repeat 50 --Lmax 10 --m_list 64,128,256,512,1024,2048,4096,8192,16384,32768,65536
+[SUCCESS] Triton Quant + Slide 完成
+
+------------------------------------------------------------
+  模型: Qwen2.5-14B
+------------------------------------------------------------
+[INFO] NK 组合数: 16 (from Qwen2.5-14B-INT8)
+[INFO] 执行: /usr/bin/python3 /root/vllmbench/slidesparse/csrc/fused_quant_slide_triton/autotune_autogen_quant_slide.py --model Qwen2.5-14B-INT8 --warmup 25 --repeat 50 --Lmax 10 --m_list 64,128,256,512,1024,2048,4096,8192,16384,32768,65536
+[SUCCESS] Triton Quant + Slide 完成
+
+============================================================
+  Step 5: Triton Quant Only [跳过]
+============================================================
+
+
+============================================================
+  调优总结
+============================================================
+
+  cuBLASLt GEMM: [跳过]
+  cuSPARSELt GEMM: [全部成功] (8/8)
+  Triton Dequant + Bias: [全部成功] (4/4)
+  Triton Quant + Slide: [全部成功] (4/4)
+  Triton Quant Only: [跳过]
+
+总计: 成功 16, 失败 0, 跳过 2
+
+----------------------------------------------------------------------
+TASK 4: 离线细调优 (cuSPARSE + Triton) - SUCCESS
+Duration: 21728.7 seconds (362.1 minutes)
+----------------------------------------------------------------------
+
+[INFO] 跳过 Task 5: 简单端到端 Benchmark
+[INFO] 跳过 Task 6: 完整 Prefill Benchmark
+[INFO] 跳过 Task 7: 完整 Decode Benchmark
+
+
+============================================================
+  最终总结
+============================================================
+
+
+  Task 1: 模型下载 - SKIPPED
+  Task 2: 模型转换 (SlideSparse) - SKIPPED
+  Task 3: 离线粗调优 (cuBLAS + quant_only) - SUCCESS (966.3s)
+  Task 4: 离线细调优 (cuSPARSE + Triton) - SUCCESS (21728.7s)
+  Task 5: 简单端到端 Benchmark - SKIPPED
+  Task 6: 完整 Prefill Benchmark - SKIPPED
+  Task 7: 完整 Decode Benchmark - SKIPPED
+
+  总计: 2 成功, 0 失败, 5 跳过
+  总耗时: 22695.0 秒 (6.30 小时)
+
+[INFO] 日志文件: /root/vllmbench/slidesparse/tools/prepare_bench_20260126_063652.log
+[INFO] 状态文件: /root/vllmbench/slidesparse/tools/prepare_bench_20260126_063652_status.json

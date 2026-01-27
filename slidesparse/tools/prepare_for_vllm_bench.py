@@ -33,7 +33,7 @@ Usage:
     tmux new -s vllm_bench
 
     # 2. 在 tmux 里运行脚本
-    cd /root/vllmbench/slidesparse/tools && python3 prepare_for_vllm_bench.py --task 1,1,1,1,1,1,1 --gpu 0 
+    cd /root/vllmbench/slidesparse/tools && python3 prepare_for_vllm_bench.py --task 0,0,1,1,0,0,0 --gpu 0 
     
     # 3. 脚本开始运行后，可以按下以下组合键将其放到后台运行
     # Ctrl+B 后 按 D 退出保持运行
