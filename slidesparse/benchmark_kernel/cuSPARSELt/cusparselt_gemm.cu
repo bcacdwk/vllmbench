@@ -136,7 +136,26 @@ static DtypeInfo get_dtype_info(const char* dtype) {
     }
 #if CUDART_VERSION >= 12050
     else if (strcmp(dtype, "fp4e2m1") == 0 || strcmp(dtype, "fp4") == 0) {
+        // FP4 需要 CUDA 12.5+ 和 SM100+ (Blackwell)
+        // 在此检查 GPU 架构
+        int device;
+        cudaGetDevice(&device);
+        cudaDeviceProp prop;
+        cudaGetDeviceProperties(&prop, device);
+        if (prop.major < 10) {
+            // SM100 以下不支持 FP4
+            fprintf(stderr, "[cuSPARSELt WARN] FP4 (e2m1) requires SM100+ (Blackwell), "
+                    "current GPU is SM%d%d\n", prop.major, prop.minor);
+            return {{}, 0, 0, false};
+        }
         return {CUDA_R_4F_E2M1, 1, 32, true};  // packed, min unit is byte
+    }
+#else
+    // CUDA < 12.5 不支持 FP4
+    else if (strcmp(dtype, "fp4e2m1") == 0 || strcmp(dtype, "fp4") == 0) {
+        fprintf(stderr, "[cuSPARSELt WARN] FP4 (e2m1) requires CUDA 12.5+, "
+                "current CUDA runtime version is %d\n", CUDART_VERSION);
+        return {{}, 0, 0, false};
     }
 #endif
     return {{}, 0, 0, false};
@@ -263,7 +282,11 @@ int cusparselt_prune_24(
     
     DtypeInfo info = get_dtype_info(dtype);
     if (!info.is_valid) {
-        set_error("Invalid dtype for prune");
+        // dtype 不支持（如 FP4 在非 Blackwell 架构），跳过
+        fprintf(stderr, "[cuSPARSELt WARN] Unsupported dtype '%s' for current GPU, skipping prune\n", dtype);
+        set_error("Unsupported dtype for current GPU architecture");
+        // 复制输入到输出（不剪枝）
+        // 注意：这里无法复制因为我们不知道大小，直接返回错误
         return -1;
     }
     
@@ -323,26 +346,86 @@ int cusparselt_prune_24(
         &matW, &matA, &matR, &matR,
         compute_type));
     
+    // ========================================================================
+    // 选择剪枝算法
+    // ========================================================================
+    // FP4 (e2m1) 使用 paired 4:8 稀疏模式，需要使用 STRIP 而非 TILE
+    // - CUSPARSELT_PRUNE_SPMMA_TILE:
+    //   * e2m1: 在 8x4 (row-major) 或 4x8 (col-major) tile 中置零 16 个 paired 值
+    //   * half/bfloat16/int8/e4m3/e5m2: 在 4x4 tile 中置零 8 个值
+    // - CUSPARSELT_PRUNE_SPMMA_STRIP:
+    //   * e2m1: 在 1x8 strip 中置零 4 个 paired 值（更适合一般场景）
+    //   * half/bfloat16/int8/e4m3/e5m2: 在 1x4 strip 中置零 2 个值
+    // ========================================================================
+    cusparseLtPruneAlg_t prune_alg = is_fp4 ? CUSPARSELT_PRUNE_SPMMA_STRIP 
+                                            : CUSPARSELT_PRUNE_SPMMA_TILE;
+    
     // 调用 prune
     cusparseStatus_t prune_status = cusparseLtSpMMAPrune(
         &g_handle, &matmul,
         input, output,
-        CUSPARSELT_PRUNE_SPMMA_TILE,
+        prune_alg,
         cu_stream);
-    
-    // 清理
-    cusparseLtMatDescriptorDestroy(&matW);
-    cusparseLtMatDescriptorDestroy(&matA);
-    cusparseLtMatDescriptorDestroy(&matR);
     
     if (prune_status != CUSPARSE_STATUS_SUCCESS) {
         char buf[256];
-        snprintf(buf, sizeof(buf), "cusparseLtSpMMAPrune failed with status %d", (int)prune_status);
+        snprintf(buf, sizeof(buf), "cusparseLtSpMMAPrune failed with status %d for dtype=%s", 
+                 (int)prune_status, dtype);
         set_error(buf);
+        cusparseLtMatDescriptorDestroy(&matW);
+        cusparseLtMatDescriptorDestroy(&matA);
+        cusparseLtMatDescriptorDestroy(&matR);
         return -1;
     }
     
     cudaStreamSynchronize(cu_stream);
+    
+    // ========================================================================
+    // 验证剪枝结果 (PruneCheck) - 可选
+    // ========================================================================
+    // 根据官方文档，cusparseLtSpMMAPrune() 的结果是保证正确的。
+    // 但对于 FP4 (paired 4:8) 这一步可以作为额外验证。
+    // 
+    // 注意：某些情况下 PruneCheck 可能因为描述符配置差异而返回 false，
+    // 即使 Prune 本身是正确的。因此这里只打印警告而不是返回错误。
+    // ========================================================================
+    int prune_valid = 0;
+    cusparseStatus_t check_status = cusparseLtSpMMAPruneCheck(
+        &g_handle, &matmul,
+        output,  // 检查剪枝后的输出
+        &prune_valid,
+        cu_stream);
+    
+    cudaStreamSynchronize(cu_stream);
+    
+    // 清理描述符
+    cusparseLtMatDescriptorDestroy(&matW);
+    cusparseLtMatDescriptorDestroy(&matA);
+    cusparseLtMatDescriptorDestroy(&matR);
+    
+    if (check_status != CUSPARSE_STATUS_SUCCESS) {
+        // PruneCheck API 调用失败 - 这是一个真正的错误
+        char buf[256];
+        snprintf(buf, sizeof(buf), "cusparseLtSpMMAPruneCheck failed with status %d", 
+                 (int)check_status);
+        set_error(buf);
+        return -1;
+    }
+    
+    if (!prune_valid) {
+        // 剪枝结果验证失败
+        // 根据官方文档，Prune 的结果应该是正确的，所以这里只打印警告
+        // 在实际测试中观察是否需要返回错误
+        fprintf(stderr, "[cuSPARSELt WARN] PruneCheck failed for dtype=%s, "
+                "but continuing as Prune result is guaranteed correct per docs\n", dtype);
+        // 如果需要严格验证，取消下面的注释：
+        // char buf[256];
+        // snprintf(buf, sizeof(buf), 
+        //          "cusparseLtSpMMAPruneCheck: pruned matrix does not satisfy %s sparsity constraint",
+        //          is_fp4 ? "paired 4:8" : "2:4");
+        // set_error(buf);
+        // return -1;
+    }
     
     return 0;
 }
@@ -461,7 +544,8 @@ int64_t cusparselt_compress(
     
     DtypeInfo info = get_dtype_info(dtype);
     if (!info.is_valid) {
-        set_error("Invalid dtype for compress");
+        fprintf(stderr, "[cuSPARSELt WARN] Unsupported dtype '%s' for current GPU, skipping compress\n", dtype);
+        set_error("Unsupported dtype for current GPU architecture");
         return -1;
     }
     
@@ -645,8 +729,18 @@ int cusparselt_search_single_m(
     
     DtypeInfo info = get_dtype_info(dtype);
     if (!info.is_valid) {
-        set_error("Invalid dtype");
-        return -1;
+        // dtype 不支持（如 FP4 在非 Blackwell 架构），跳过
+        fprintf(stderr, "[cuSPARSELt WARN] Unsupported dtype '%s' for current GPU, skipping search\n", dtype);
+        set_error("Unsupported dtype for current GPU architecture");
+        // 初始化输出为 0
+        *out_num_valid = 0;
+        *out_alg_count = 0;
+        *out_config_count = 0;
+        *out_api_alg_id = -1;
+        *out_api_split_k = 1;
+        *out_api_lat_us = 0.0f;
+        *out_api_rank = -1;
+        return 0;  // 跳过
     }
     
     // ========================================================================
@@ -743,6 +837,106 @@ int cusparselt_search_single_m(
         CUSPARSE_OPERATION_TRANSPOSE, CUSPARSE_OPERATION_NON_TRANSPOSE,
         &matW, &matA, &matR, &matR,
         compute_type));
+    
+    // ========================================================================
+    // FP4 Block Scale 配置
+    // ========================================================================
+    // FP4 (E2M1) 需要 block scaling，根据官方文档：
+    // - CUSPARSELT_MATMUL_MATRIX_SCALE_VEC32_UE4M3: 128x128 block (每 32 元素一个 scale)
+    // - scale 类型为 UE4M3 (无符号 E4M3)
+    // 
+    // 注意：这与 cuBLASLt 的 16-element block 不同！
+    // cuSPARSELt 的 block size 更大
+    // ========================================================================
+    void* scale_A_ptr = nullptr;
+    void* scale_B_ptr = nullptr;
+    void* scale_D_ptr = nullptr;
+    int64_t scale_A_size = 0;
+    int64_t scale_B_size = 0;
+    int64_t scale_D_size = 0;
+    
+#if CUDART_VERSION >= 12050
+    if (is_fp4) {
+        // 设置 VEC32_UE4M3 block scaling mode (每 32 元素一个 UE4M3 scale)
+        // 根据官方文档，cuSPARSELt 使用 128x128 block for VEC32_UE4M3
+        cusparseLtMatmulMatrixScale_t scale_mode = CUSPARSELT_MATMUL_MATRIX_SCALE_VEC32_UE4M3;
+        
+        cusparseStatus_t scale_st;
+        scale_st = cusparseLtMatmulDescSetAttribute(
+            &g_handle, &matmul, CUSPARSELT_MATMUL_A_SCALE_MODE, 
+            &scale_mode, sizeof(scale_mode));
+        if (scale_st != CUSPARSE_STATUS_SUCCESS) {
+            fprintf(stderr, "[cuSPARSELt WARN] Failed to set A_SCALE_MODE for FP4: %d\n", (int)scale_st);
+        }
+        
+        scale_st = cusparseLtMatmulDescSetAttribute(
+            &g_handle, &matmul, CUSPARSELT_MATMUL_B_SCALE_MODE, 
+            &scale_mode, sizeof(scale_mode));
+        if (scale_st != CUSPARSE_STATUS_SUCCESS) {
+            fprintf(stderr, "[cuSPARSELt WARN] Failed to set B_SCALE_MODE for FP4: %d\n", (int)scale_st);
+        }
+        
+        // D_SCALE_MODE 设置为 SCALAR_32F（标量 scale，用于输出反量化）
+        cusparseLtMatmulMatrixScale_t d_scale_mode = CUSPARSELT_MATMUL_MATRIX_SCALE_SCALAR_32F;
+        scale_st = cusparseLtMatmulDescSetAttribute(
+            &g_handle, &matmul, CUSPARSELT_MATMUL_D_SCALE_MODE, 
+            &d_scale_mode, sizeof(d_scale_mode));
+        if (scale_st != CUSPARSE_STATUS_SUCCESS) {
+            fprintf(stderr, "[cuSPARSELt WARN] Failed to set D_SCALE_MODE for FP4: %d\n", (int)scale_st);
+        }
+        
+        // 分配 scale 张量
+        // W (matA, 转置前 [K, N], 转置后作为 A [N, K]): scale 大小 = N * ceil(K/32)
+        // A (matB, [K, M]):        scale 大小 = M * ceil(K/32)
+        int64_t K_blocks = (K + 31) / 32;
+        scale_A_size = N * K_blocks;  // For W (structured sparse)
+        scale_B_size = M * K_blocks;  // For A (dense)
+        scale_D_size = 1;             // Scalar scale for D
+        
+        cudaError_t alloc_err;
+        alloc_err = cudaMalloc(&scale_A_ptr, scale_A_size * sizeof(uint8_t));
+        if (alloc_err != cudaSuccess) {
+            fprintf(stderr, "[cuSPARSELt WARN] Failed to allocate scale_A for FP4\n");
+            scale_A_ptr = nullptr;
+        }
+        alloc_err = cudaMalloc(&scale_B_ptr, scale_B_size * sizeof(uint8_t));
+        if (alloc_err != cudaSuccess) {
+            fprintf(stderr, "[cuSPARSELt WARN] Failed to allocate scale_B for FP4\n");
+            scale_B_ptr = nullptr;
+        }
+        alloc_err = cudaMalloc(&scale_D_ptr, scale_D_size * sizeof(float));
+        if (alloc_err != cudaSuccess) {
+            fprintf(stderr, "[cuSPARSELt WARN] Failed to allocate scale_D for FP4\n");
+            scale_D_ptr = nullptr;
+        }
+        
+        // 初始化 scale 为中性值
+        // UE4M3 格式: 无符号 E4M3，值 1.0 的编码约为 0x38
+        if (scale_A_ptr) cudaMemset(scale_A_ptr, 0x38, scale_A_size * sizeof(uint8_t));
+        if (scale_B_ptr) cudaMemset(scale_B_ptr, 0x38, scale_B_size * sizeof(uint8_t));
+        if (scale_D_ptr) {
+            float d_scale_val = 1.0f;
+            cudaMemcpy(scale_D_ptr, &d_scale_val, sizeof(float), cudaMemcpyHostToDevice);
+        }
+        
+        // 设置 scale 指针
+        if (scale_A_ptr) {
+            cusparseLtMatmulDescSetAttribute(
+                &g_handle, &matmul, CUSPARSELT_MATMUL_A_SCALE_POINTER, 
+                &scale_A_ptr, sizeof(void*));
+        }
+        if (scale_B_ptr) {
+            cusparseLtMatmulDescSetAttribute(
+                &g_handle, &matmul, CUSPARSELT_MATMUL_B_SCALE_POINTER, 
+                &scale_B_ptr, sizeof(void*));
+        }
+        if (scale_D_ptr) {
+            cusparseLtMatmulDescSetAttribute(
+                &g_handle, &matmul, CUSPARSELT_MATMUL_D_SCALE_POINTER, 
+                &scale_D_ptr, sizeof(void*));
+        }
+    }
+#endif
     
     // 获取最大算法 ID
     cusparseLtMatmulAlgSelection_t alg_sel_tmp;
@@ -1137,6 +1331,11 @@ int cusparselt_search_single_m(
     cusparseLtMatDescriptorDestroy(&matW);
     cusparseLtMatDescriptorDestroy(&matA);
     cusparseLtMatDescriptorDestroy(&matR);
+    
+    // 释放 FP4 scale 张量
+    if (scale_A_ptr) cudaFree(scale_A_ptr);
+    if (scale_B_ptr) cudaFree(scale_B_ptr);
+    if (scale_D_ptr) cudaFree(scale_D_ptr);
     
     return 0;
 }

@@ -106,17 +106,48 @@ static cublasLtHandle_t get_cublaslt_handle() {
 // 数据类型转换
 // ============================================================================
 
+// 检查 FP4 硬件支持
+static bool check_fp4_support() {
+#if CUDART_VERSION >= 12050
+    int device;
+    cudaGetDevice(&device);
+    cudaDeviceProp prop;
+    cudaGetDeviceProperties(&prop, device);
+    // FP4 需要 SM100+ (Blackwell)
+    return (prop.major >= 10);
+#else
+    return false;
+#endif
+}
+
 // 获取输入数据类型
-static cudaDataType to_cuda_input_dtype(const char* dtype) {
+// 返回 CUDA_R_32F 表示不支持的类型
+static cudaDataType to_cuda_input_dtype(const char* dtype, bool* supported = nullptr) {
+  if (supported) *supported = true;
+  
   if (std::strcmp(dtype, "fp16") == 0) return CUDA_R_16F;
   if (std::strcmp(dtype, "bf16") == 0) return CUDA_R_16BF;
   if (std::strcmp(dtype, "int8") == 0) return CUDA_R_8I;
   if (std::strcmp(dtype, "fp8e4m3") == 0 || std::strcmp(dtype, "fp8") == 0) return CUDA_R_8F_E4M3;
 #if CUDART_VERSION >= 12050
-  if (std::strcmp(dtype, "fp4e2m1") == 0 || std::strcmp(dtype, "fp4") == 0) return CUDA_R_4F_E2M1;
+  if (std::strcmp(dtype, "fp4e2m1") == 0 || std::strcmp(dtype, "fp4") == 0) {
+    if (!check_fp4_support()) {
+      std::fprintf(stderr, "[cuBLASLt WARN] FP4 (e2m1) requires SM100+ (Blackwell), skipping\n");
+      if (supported) *supported = false;
+      return CUDA_R_32F;
+    }
+    return CUDA_R_4F_E2M1;
+  }
+#else
+  if (std::strcmp(dtype, "fp4e2m1") == 0 || std::strcmp(dtype, "fp4") == 0) {
+    std::fprintf(stderr, "[cuBLASLt WARN] FP4 (e2m1) requires CUDA 12.5+, skipping\n");
+    if (supported) *supported = false;
+    return CUDA_R_32F;
+  }
 #endif
-  throw std::invalid_argument("Unsupported dtype: " + std::string(dtype) + 
-                              ". Supported: fp16, bf16, int8, fp8e4m3, fp4e2m1");
+  // 未知类型
+  if (supported) *supported = false;
+  return CUDA_R_32F;
 }
 
 // 输出类型 - 根据 cuBLASLt 硬件限制设置
@@ -337,8 +368,17 @@ int cublaslt_search_single_m(
         return 0;
     }
 
-    // 获取数据类型配置
-    cudaDataType type_AB = to_cuda_input_dtype(dtype);
+    // 获取数据类型配置（检查是否支持）
+    bool dtype_supported = true;
+    cudaDataType type_AB = to_cuda_input_dtype(dtype, &dtype_supported);
+    if (!dtype_supported) {
+        // dtype 不支持（如 FP4 在非 Blackwell 上），跳过
+        if (out_num_valid) *out_num_valid = 0;
+        if (out_alg_count) *out_alg_count = 0;
+        set_error("Unsupported dtype for current GPU architecture");
+        return 0;  // 返回成功但无结果（跳过）
+    }
+    
     cudaDataType type_C = to_cuda_output_dtype(dtype);
     cublasComputeType_t comp_type = get_compute_type(dtype);
     cudaDataType scale_type = get_scale_type(dtype);

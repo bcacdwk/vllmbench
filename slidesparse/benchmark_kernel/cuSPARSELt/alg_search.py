@@ -178,92 +178,123 @@ def prepare_and_prune_weight(
     lib: ctypes.CDLL,
     W_bf16: torch.Tensor,
     dtype: str,
-) -> Tuple[torch.Tensor, torch.Tensor]:
+) -> Tuple[Optional[torch.Tensor], Optional[torch.Tensor], Optional[str]]:
     """
     准备并剪枝权重矩阵
     
+    对于 FP4 (E2M1)：
+    - cuSPARSELt 期望 packed format（每字节 2 个 FP4 值）
+    - 但维度参数使用逻辑维度（未打包的 K）
+    - cuSPARSELt 会正确处理 paired 4:8 稀疏约束
+    
     Returns:
-        (W_pruned, W_q): 
-            W_pruned: 剪枝后的矩阵 [K, N] (列主序)
-            W_q: 原始量化权重 [N, K]
+        (W_pruned, W_q, error_msg): 
+            W_pruned: 剪枝后的矩阵 [K_packed, N] (列主序)，K_packed = K//2 for FP4
+            W_q: 原始量化权重 [N, K] or [N, K//2] for FP4
+            error_msg: 错误信息，成功时为 None
     """
-    N, K = W_bf16.shape
-    dtype_lower = dtype.lower()
-    is_fp4 = dtype_lower in ("fp4e2m1", "fp4")
-    
-    # 量化
-    if dtype_lower == "int8":
-        W_q, _ = quantize_int8(W_bf16)
-    elif dtype_lower in ("fp8e4m3", "fp8"):
-        W_q = to_fp8_e4m3(W_bf16)
-    elif dtype_lower == "fp16":
-        W_q = W_bf16.to(torch.float16)
-    elif dtype_lower == "bf16":
-        W_q = W_bf16
-    elif is_fp4:
-        # FP4 打包：K 维度减半
-        W_q = to_fp4_e2m1_packed(W_bf16)  # [N, K//2]
-    else:
-        raise ValueError(f"Unsupported dtype: {dtype}")
-    
-    # 转置为 K x N (列主序存储)
-    # 对于 FP4，维度已经是打包后的
-    W_t = W_q.t()
-    
-    # Prune 2:4
-    W_pruned = torch.empty_like(W_t)
-    
-    # 对于 FP4，传递打包后的 K_effective (K/2)
-    K_effective = K // 2 if is_fp4 else K
-    ret = lib.cusparselt_prune_24(
-        W_t.data_ptr(),
-        W_pruned.data_ptr(),
-        K_effective, N,  # FP4 传 K/2
-        dtype.encode(),
-        None,
-    )
-    if ret != 0:
-        error = lib.cusparselt_alg_search_get_last_error()
-        raise RuntimeError(f"Prune failed: {error.decode() if error else 'unknown'}")
-    
-    torch.cuda.synchronize()
-    
-    return W_pruned, W_q
+    try:
+        N, K = W_bf16.shape  # 逻辑维度
+        dtype_lower = dtype.lower()
+        is_fp4 = dtype_lower in ("fp4e2m1", "fp4")
+        
+        # 量化
+        if dtype_lower == "int8":
+            W_q, _ = quantize_int8(W_bf16)
+        elif dtype_lower in ("fp8e4m3", "fp8"):
+            W_q = to_fp8_e4m3(W_bf16)
+        elif dtype_lower == "fp16":
+            W_q = W_bf16.to(torch.float16)
+        elif dtype_lower == "bf16":
+            W_q = W_bf16
+        elif is_fp4:
+            # FP4 打包：K 维度减半（每字节 2 个 FP4 值）
+            W_q = to_fp4_e2m1_packed(W_bf16)  # [N, K//2]
+        else:
+            return None, None, f"Unsupported dtype: {dtype}"
+        
+        # 转置为列主序存储
+        # 对于 FP4，W_q 形状是 [N, K//2]，转置后 [K//2, N]
+        W_t = W_q.t()
+        
+        # Prune 2:4 (或 paired 4:8 for FP4)
+        W_pruned = torch.empty_like(W_t)
+        
+        # ========================================================================
+        # 关键：cuSPARSELt 期望逻辑维度，而不是打包后的维度
+        # ========================================================================
+        # 对于 FP4：传递逻辑 K（未打包），cuSPARSELt 内部会正确处理 packed format
+        # 对于其他类型：正常传递 K
+        # ========================================================================
+        ret = lib.cusparselt_prune_24(
+            W_t.data_ptr(),
+            W_pruned.data_ptr(),
+            K, N,  # 始终传递逻辑维度 K（不是 K//2）
+            dtype.encode(),
+            None,
+        )
+        if ret != 0:
+            error = lib.cusparselt_alg_search_get_last_error()
+            error_msg = error.decode() if error else 'unknown error'
+            return None, None, f"Prune failed: {error_msg}"
+        
+        torch.cuda.synchronize()
+        
+        return W_pruned, W_q, None
+        
+    except torch.cuda.OutOfMemoryError as e:
+        torch.cuda.empty_cache()
+        return None, None, f"CUDA OOM during prune: {e}"
+    except Exception as e:
+        return None, None, f"Exception during prune: {e}"
 
 
 def prepare_activation(
     A_bf16: torch.Tensor,
     dtype: str,
-) -> Tuple[torch.Tensor, torch.Tensor]:
+) -> Tuple[Optional[torch.Tensor], Optional[torch.Tensor], Optional[str]]:
     """
     准备激活矩阵
     
+    对于 FP4 (E2M1)：
+    - cuSPARSELt 期望 packed format（每字节 2 个 FP4 值）
+    - 但维度参数使用逻辑维度（未打包的 K）
+    
     Returns:
-        (A_transposed, A_q):
-            A_transposed: 转置后的激活 [K, M] (用于 CUDA)
-            A_q: 原始量化激活 [M, K]
+        (A_transposed, A_q, error_msg):
+            A_transposed: 转置后的激活 [K_packed, M] or [K, M] (用于 CUDA)
+            A_q: 原始量化激活 [M, K] or [M, K//2] for FP4
+            error_msg: 错误信息，成功时为 None
     """
-    dtype_lower = dtype.lower()
-    is_fp4 = dtype_lower in ("fp4e2m1", "fp4")
-    
-    if dtype_lower == "int8":
-        A_q, _ = quantize_int8(A_bf16)
-    elif dtype_lower in ("fp8e4m3", "fp8"):
-        A_q = to_fp8_e4m3(A_bf16)
-    elif dtype_lower == "fp16":
-        A_q = A_bf16.to(torch.float16)
-    elif dtype_lower == "bf16":
-        A_q = A_bf16
-    elif is_fp4:
-        # FP4 打包：K 维度减半
-        A_q = to_fp4_e2m1_packed(A_bf16)  # [M, K//2]
-    else:
-        raise ValueError(f"Unsupported dtype: {dtype}")
-    
-    # 转置为 K x M (列主序)
-    A_transposed = A_q.t()
-    
-    return A_transposed, A_q
+    try:
+        dtype_lower = dtype.lower()
+        is_fp4 = dtype_lower in ("fp4e2m1", "fp4")
+        
+        if dtype_lower == "int8":
+            A_q, _ = quantize_int8(A_bf16)
+        elif dtype_lower in ("fp8e4m3", "fp8"):
+            A_q = to_fp8_e4m3(A_bf16)
+        elif dtype_lower == "fp16":
+            A_q = A_bf16.to(torch.float16)
+        elif dtype_lower == "bf16":
+            A_q = A_bf16
+        elif is_fp4:
+            # FP4 打包：K 维度减半（每字节 2 个 FP4 值）
+            A_q = to_fp4_e2m1_packed(A_bf16)  # [M, K//2]
+        else:
+            return None, None, f"Unsupported dtype: {dtype}"
+        
+        # 转置为列主序
+        # 对于 FP4，A_q 形状是 [M, K//2]，转置后 [K//2, M]
+        A_transposed = A_q.t()
+        
+        return A_transposed, A_q, None
+        
+    except torch.cuda.OutOfMemoryError as e:
+        torch.cuda.empty_cache()
+        return None, None, f"CUDA OOM during activation prep: {e}"
+    except Exception as e:
+        return None, None, f"Exception during activation prep: {e}"
 
 
 # =============================================================================
@@ -407,33 +438,80 @@ def run_search(
         effective_m_list = [N] if is_square_mode else m_list
         max_M = max(effective_m_list)
         
-        # 生成随机数据
-        W = torch.randn(N, K, device="cuda", dtype=torch.bfloat16)
-        A = torch.randn(max_M, K, device="cuda", dtype=torch.bfloat16)
-        
-        # 剪枝权重
-        W_pruned, W_q = prepare_and_prune_weight(lib, W, dtype)
-        
-        # 准备激活
-        A_transposed, A_q = prepare_activation(A, dtype)
-        
         nk_results = {
             "nk_id": nk_id,
             "N": N,
             "K": K,
             "m_results": {},
+            "skipped": False,
+            "skip_reason": None,
         }
         
-        # FP4 打包后 K 维度减半，需要传递实际的 K_effective 给 CUDA
-        is_fp4 = dtype.lower() in ("fp4e2m1", "fp4")
-        K_effective = K // 2 if is_fp4 else K
+        try:
+            # 生成随机数据
+            W = torch.randn(N, K, device="cuda", dtype=torch.bfloat16)
+            A = torch.randn(max_M, K, device="cuda", dtype=torch.bfloat16)
+        except torch.cuda.OutOfMemoryError as e:
+            if verbose:
+                print(f"      ⚠ CUDA OOM 生成数据，跳过 NK=({N}, {K})")
+            nk_results["skipped"] = True
+            nk_results["skip_reason"] = f"CUDA OOM: {e}"
+            for M in effective_m_list:
+                search_stats["total"] += 1
+                search_stats["errors"] += 1
+                nk_results["m_results"][M] = {"error": str(e), "results": [], "num_valid": 0, "alg_count": 0}
+            results.append(nk_results)
+            torch.cuda.empty_cache()
+            continue
+        
+        # 剪枝权重
+        W_pruned, W_q, prune_error = prepare_and_prune_weight(lib, W, dtype)
+        if prune_error:
+            if verbose:
+                print(f"      ⚠ 权重剪枝失败: {prune_error}")
+            nk_results["skipped"] = True
+            nk_results["skip_reason"] = prune_error
+            for M in effective_m_list:
+                search_stats["total"] += 1
+                search_stats["errors"] += 1
+                nk_results["m_results"][M] = {"error": prune_error, "results": [], "num_valid": 0, "alg_count": 0}
+            results.append(nk_results)
+            del W, A
+            torch.cuda.empty_cache()
+            continue
+        
+        # 准备激活
+        A_transposed, A_q, act_error = prepare_activation(A, dtype)
+        if act_error:
+            if verbose:
+                print(f"      ⚠ 激活准备失败: {act_error}")
+            nk_results["skipped"] = True
+            nk_results["skip_reason"] = act_error
+            for M in effective_m_list:
+                search_stats["total"] += 1
+                search_stats["errors"] += 1
+                nk_results["m_results"][M] = {"error": act_error, "results": [], "num_valid": 0, "alg_count": 0}
+            results.append(nk_results)
+            del W, A, W_pruned, W_q
+            torch.cuda.empty_cache()
+            continue
+        
+        # ====================================================================
+        # 关键：cuSPARSELt 期望逻辑维度，即使数据是 packed format
+        # ====================================================================
+        # 对于 FP4：
+        # - 数据已经是 packed（每字节 2 个 FP4 值）
+        # - 但传给 cuSPARSELt 的维度参数是逻辑维度 K（不是 K//2）
+        # - cuSPARSELt 内部会正确处理 packed format 和 paired 4:8 稀疏
+        # ====================================================================
         
         for M in effective_m_list:
             # 切片
             A_slice = A_transposed[:, :M]
             
+            # 传递逻辑维度 K（不是 K//2）给 cuSPARSELt
             out = search_single_nk(
-                lib, N, K_effective, M,  # FP4 传 K/2，其他传 K
+                lib, N, K, M,  # 始终使用逻辑维度 K
                 W_pruned, A_slice,
                 dtype,
                 warmup, repeat, topk,
@@ -592,16 +670,30 @@ def save_results(
     }
     
     nk_entries = {}
+    skipped_nk = []  # 记录跳过的 NK
+    
     for nk_res in search_ret["results"]:
         N, K = nk_res["N"], nk_res["K"]
         nk_key = f"({N},{K})"
         
+        # 记录跳过的 NK
+        if nk_res.get("skipped", False):
+            skipped_nk.append({
+                "N": N, "K": K, 
+                "reason": nk_res.get("skip_reason", "unknown")
+            })
+        
         m_thresholds = []
         alg_by_m = {}
+        errors_by_m = {}
         
         # 遍历实际存在的 M 结果（Square 模式下只有 M=N）
         for M, m_res in nk_res["m_results"].items():
             results = m_res.get("results", [])
+            error = m_res.get("error")
+            
+            if error:
+                errors_by_m[str(M)] = error
             
             if results:
                 m_thresholds.append(M)
@@ -614,10 +706,19 @@ def save_results(
                     "lat_us": r["lat_us"],
                 }
         
-        nk_entries[nk_key] = {
+        entry = {
             "m_thresholds": m_thresholds,
             "alg_by_m": alg_by_m,
         }
+        if errors_by_m:
+            entry["errors_by_m"] = errors_by_m
+            
+        nk_entries[nk_key] = entry
+    
+    # 添加搜索统计到 meta
+    meta["search_stats"] = search_ret.get("search_stats", {})
+    if skipped_nk:
+        meta["skipped_nk"] = skipped_nk
     
     json_payload = {
         "meta": meta,
@@ -646,6 +747,9 @@ def parse_args():
   python3 alg_search.py --dtype int8 --model Qwen2.5-0.5B
   python3 alg_search.py --dtype fp8e4m3 --model Llama3.2-1B --sparsity 2_8
   
+  # Model-based 模式 + Lmax（生成 L=4,6,...,Lmax 的所有 slided NK）
+  python3 alg_search.py --dtype fp8e4m3 --model Qwen2.5-0.5B --Lmax 8
+  
   # Square 模式 (不指定 --model 或 --model square)
   python3 alg_search.py --dtype bf16
   python3 alg_search.py --dtype bf16 --model square --sparsity 2_6
@@ -655,6 +759,8 @@ def parse_args():
                    help="数据类型 (fp16, bf16, int8, fp8e4m3, fp4e2m1)")
     p.add_argument("--model", default=None,
                    help="模型名称（不指定或指定 'square' 进入 Square 模式）")
+    p.add_argument("--Lmax", type=int, default=None,
+                   help="最大 L 值，用于 slide sparse。如果指定，会生成 L=4,6,...,Lmax 的所有 NK")
     p.add_argument("--sparsity", type=str, default=None,
                    help="稀疏度配置 (如 2_4, 2_6, 2_8)，会自动计算 K_slide")
     p.add_argument("--M-quick", action="store_true", dest="m_quick",
@@ -678,20 +784,21 @@ def main():
     args = parse_args()
     
     if not torch.cuda.is_available():
-        raise RuntimeError("需要 CUDA 环境")
+        print("[ERROR] 需要 CUDA 环境")
+        sys.exit(1)
     
     # 检查 dtype 支持
     supported, reason = check_dtype_support(args.dtype)
     if not supported:
-        print(f"[ERROR] {reason}")
+        print(f"[SKIP] dtype={args.dtype}: {reason}")
         print(f"[INFO] 当前 GPU 支持的类型: {get_supported_dtypes_for_gpu()}")
-        sys.exit(1)
+        sys.exit(0)  # 跳过
     
     # 检查 cuSPARSELt 支持
     cusparselt_ok, cusparselt_reason = check_cusparselt_support()
     if not cusparselt_ok:
-        print(f"[ERROR] {cusparselt_reason}")
-        sys.exit(1)
+        print(f"[SKIP] cuSPARSELt: {cusparselt_reason}")
+        sys.exit(0)  # 跳过
     
     # 确定运行模式
     is_square_mode = (args.model is None or args.model.lower() == "square")
@@ -707,17 +814,23 @@ def main():
     # 确保 M 是 32 的倍数
     m_list = [pad_to_alignment(m) for m in m_list]
     
-    # 获取 NK 列表（Square 模式会使用 m_list 构建 M=N=K）
-    nk_list, model_name, mode = get_nk_list_for_benchmark(
-        model=args.model,
-        m_list=m_list if is_square_mode else None
-    )
+    # 获取 NK 列表（传入 L_max 支持 slide sparse）
+    try:
+        nk_list, model_name, mode = get_nk_list_for_benchmark(
+            model=args.model,
+            L_max=args.Lmax,  # 使用新的 Lmax 参数
+            m_list=m_list if is_square_mode else None
+        )
+    except Exception as e:
+        print(f"[ERROR] 获取 NK 列表失败: {e}")
+        sys.exit(1)
     
     # 如果指定了 sparsity，计算 K_slide
     sparsity = args.sparsity
     if sparsity:
         k_factor = get_k_expansion_factor(sparsity)
-        nk_list = [(n, calculate_k_slide(k, sparsity)) for n, k in nk_list]
+        # 传入 dtype 以便 FP4 使用 64 对齐
+        nk_list = [(n, calculate_k_slide(k, sparsity, dtype=args.dtype)) for n, k in nk_list]
         print(f"[INFO] Sparsity={sparsity}, K_factor={k_factor:.3f}")
         print(f"[INFO] NK list adjusted: {nk_list[:5]}..." if len(nk_list) > 5 else f"[INFO] NK list adjusted: {nk_list}")
     
@@ -733,6 +846,8 @@ def main():
     print(f"GPU: {hw_info.gpu_full_name} ({hw_info.cc_tag})")
     print(f"Mode: {mode.upper()}")
     print(f"Model: {model_name}")
+    if args.Lmax:
+        print(f"Lmax: {args.Lmax} (slide sparse L=4,6,...,{args.Lmax})")
     print(f"dtype: {args.dtype} -> {args.dtype} (same input/output)")
     if sparsity:
         print(f"Sparsity: {sparsity}")
@@ -748,19 +863,28 @@ def main():
     print("[1/4] 编译 CUDA 扩展...")
     src_path = SCRIPT_DIR / "cusparselt_gemm.cu"
     build_dir = SCRIPT_DIR / "build"
-    so_path = build_benchmark_extension(
-        name="cusparselt_gemm",
-        source_file=src_path,
-        build_dir=build_dir,
-        backend="cusparselt",
-        force=args.compile,
-    )
+    try:
+        so_path = build_benchmark_extension(
+            name="cusparselt_gemm",
+            source_file=src_path,
+            build_dir=build_dir,
+            backend="cusparselt",
+            force=args.compile,
+        )
+    except Exception as e:
+        print(f"[ERROR] CUDA 扩展编译失败: {e}")
+        sys.exit(1)
     
     print("[2/4] 加载 CUDA 扩展...")
-    lib = load_benchmark_extension(so_path, backend="cusparselt", setup_func=setup_lib_signatures)
+    try:
+        lib = load_benchmark_extension(so_path, backend="cusparselt", setup_func=setup_lib_signatures)
+    except Exception as e:
+        print(f"[ERROR] CUDA 扩展加载失败: {e}")
+        sys.exit(1)
     
     if not lib.cusparselt_alg_search_is_available():
-        raise RuntimeError("cuSPARSELt 不可用")
+        print("[SKIP] cuSPARSELt 不可用（可能需要更新驱动或 CUDA 版本）")
+        sys.exit(0)  # 优雅跳过
     print("✓ cuSPARSELt 可用")
     
     supports_segment_k_hw = bool(lib.cusparselt_supports_segment_k())

@@ -157,8 +157,11 @@ SUPPORTED_DTYPES = ["fp16", "bf16", "int8", "fp8e4m3", "fp4e2m1"]
 # 默认稀疏度列表
 DEFAULT_SPARSITY_LIST = ["2_4", "2_6", "2_8", "2_10"]
 
-# 对齐要求 (MNK 都必须是 32 的倍数)
+# 对齐要求
+# - 标准对齐: 32（FP16/BF16/INT8/FP8）
+# - FP4 对齐: 64（因为 FP4 使用 VEC32_UE4M3 scale mode，需要更大的 block 对齐）
 ALIGNMENT = 32
+ALIGNMENT_FP4 = 64  # FP4 需要 64 的倍数
 
 
 # =============================================================================
@@ -265,7 +268,12 @@ def parse_sparsity_config(sparsity: str) -> Tuple[int, int]:
     return Z, L
 
 
-def calculate_k_slide(K: int, sparsity: str, align_to: int = ALIGNMENT) -> int:
+def calculate_k_slide(
+    K: int, 
+    sparsity: str, 
+    align_to: Optional[int] = None,
+    dtype: Optional[str] = None,
+) -> int:
     """
     计算 SlideSparse 稀疏化后的 K 维度 (K_slide)
     
@@ -283,15 +291,18 @@ def calculate_k_slide(K: int, sparsity: str, align_to: int = ALIGNMENT) -> int:
     - 2_10: ratio = 2*(10-2)/10 = 1.6, K_slide = 1.6*K
     - 2_inf: ratio = 2.0, K_slide = 2*K (理论上限)
     
-    注意: cuSPARSELt 要求 K 必须是 32 的倍数
+    注意: 
+    - 标准类型 (FP16/BF16/INT8/FP8): K 必须是 32 的倍数
+    - FP4 (E2M1): K 必须是 64 的倍数（因为 scale mode VEC32_UE4M3 需要更大的 block）
     
     Args:
         K: 原始 K 维度
         sparsity: 稀疏度配置 (如 "2_4", "2_8")
-        align_to: 对齐要求 (默认 32)
+        align_to: 对齐要求 (默认根据 dtype 自动选择)
+        dtype: 数据类型，用于确定对齐要求 (可选)
     
     Returns:
-        K_slide: slide 后的 K 维度 (向上对齐到 align_to)
+        K_slide: slide 后的 K 维度 (向上对齐)
     """
     Z, L = parse_sparsity_config(sparsity)
     
@@ -300,6 +311,13 @@ def calculate_k_slide(K: int, sparsity: str, align_to: int = ALIGNMENT) -> int:
         ratio = 2.0
     else:
         ratio = 2.0 * (L - Z) / L
+    
+    # 确定对齐要求
+    if align_to is None:
+        if dtype and dtype.lower() in ("fp4e2m1", "fp4"):
+            align_to = ALIGNMENT_FP4  # 64 for FP4
+        else:
+            align_to = ALIGNMENT  # 32 for others
     
     K_slide_raw = K * ratio
     K_slide = ((int(K_slide_raw) + align_to - 1) // align_to) * align_to
@@ -545,6 +563,36 @@ def to_fp4_e2m1_packed(x: torch.Tensor) -> torch.Tensor:
     return packed.view(new_shape)
 
 
+def to_fp4_e2m1_unpacked(x: torch.Tensor) -> torch.Tensor:
+    """
+    将 BF16/FP16 张量转换为未打包的 FP4E2M1 格式 (用于 cuSPARSELt)
+    
+    cuSPARSELt 的 FP4 API 期望：
+    - 输入数据已经是 packed format（每字节 2 个 FP4 值）
+    - 但传递的维度是逻辑维度（未打包的元素数量）
+    - cuSPARSELt 内部会正确处理 paired 4:8 稀疏约束
+    
+    本函数返回打包后的数据，但调用者应该使用原始逻辑维度。
+    
+    FP4 E2M1 可表示的值（带符号）：
+    - 正值：0, 0.5, 1, 1.5, 2, 3, 4, 6
+    - 负值：-0, -0.5, -1, -1.5, -2, -3, -4, -6
+    
+    Args:
+        x: 输入张量 (BF16/FP16)，形状 [N, K]
+    
+    Returns:
+        打包后的张量，形状 [N, K//2]，dtype=uint8
+        
+    Note:
+        返回的张量形状是 [N, K//2]，但对于 cuSPARSELt 调用，
+        应该传递逻辑维度 (N, K)，而不是打包后的维度。
+    """
+    # 实际上 cuSPARSELt 期望的就是 packed format
+    # 只是调用时维度参数不同
+    return to_fp4_e2m1_packed(x)
+
+
 def quantize_tensor(x: torch.Tensor, dtype: str) -> torch.Tensor:
     """
     根据 dtype 量化/转换张量
@@ -614,33 +662,87 @@ def get_output_torch_dtype(dtype: str, backend: str = "cublaslt") -> torch.dtype
 
 
 # =============================================================================
-# NK 列表处理
+# NK 列表处理（复用 slidesparse.utils 的统一工具）
 # =============================================================================
+
+# 导入统一的 NK 获取工具
+from slidesparse.utils import (
+    get_nk_list_for_search,
+    model_base_name,
+)
+
+
+def get_sparsity_list_for_benchmark(L_max: Optional[int] = None) -> List[str]:
+    """
+    生成用于 benchmark 的稀疏度列表
+    
+    与参考代码一致：
+    - L_max=None: 只返回 ["2_4"]（标准 2:4 稀疏）
+    - L_max 指定: 返回 ["2_4", "2_6", ..., "2_{L_max}", "2_inf"]
+    
+    特殊之处：在 L_max 时额外加上 2_inf
+    
+    Args:
+        L_max: 最大 L 值。如果为 None，只返回标准 2:4 稀疏。
+    
+    Returns:
+        稀疏度字符串列表，如 ["2_4", "2_6", "2_8", "2_inf"]
+    
+    Example:
+        >>> get_sparsity_list_for_benchmark()
+        ['2_4']
+        >>> get_sparsity_list_for_benchmark(8)
+        ['2_4', '2_6', '2_8', '2_inf']
+        >>> get_sparsity_list_for_benchmark(10)
+        ['2_4', '2_6', '2_8', '2_10', '2_inf']
+    """
+    if L_max is None:
+        return ["2_4"]
+    
+    if L_max < 4:
+        raise ValueError(f"L_max 必须 >= 4，当前值: {L_max}")
+    
+    sparsity_list = []
+    for L in range(4, L_max + 1, 2):
+        sparsity_list.append(f"2_{L}")
+    
+    # 特殊：在 L_max 时额外加上 2_inf（理论上限）
+    sparsity_list.append("2_inf")
+    
+    return sparsity_list
+
 
 def get_nk_list_for_benchmark(
     model: Optional[str] = None,
-    N: Optional[int] = None,
-    K: Optional[int] = None,
+    L_max: Optional[int] = None,
     m_list: Optional[List[int]] = None,
+    checkpoints_dir: Optional[Union[str, Path]] = None,
 ) -> Tuple[List[Tuple[int, int]], str, str]:
     """
-    获取用于 benchmark 的 NK 列表
+    获取用于 benchmark 的 NK 列表（复用 get_nk_list_for_search）
     
     支持两种模式:
-    1. Model-based 模式: 从模型 checkpoint 提取真实 NK，使用 M_QUICK_LIST
-    2. Square 模式: model=None 或 model="square"，M=N=K 使用 m_list 或默认 M_QUICK_LIST
+    1. Model-based 模式: 从模型 checkpoint 提取真实 NK
+       - L_max=None: 获取原始 NK
+       - L_max 指定: 获取 L=4,6,...,L_max 的所有 slided NK
+    2. Square 模式: model=None 或 model="square"，M=N=K 使用 m_list
     
     Args:
         model: 模型名称（可选，None 或 "square" 进入 Square 模式）
-        N: N 维度（仅当指定具体 model 时有效）
-        K: K 维度（仅当指定具体 model 时有效）
-        m_list: 自定义 M 列表（仅 Square 模式有效）
+               支持完整路径、checkpoint 目录名、或 base name
+        L_max: 最大 L 值（用于 slide sparse），与 get_nk_list_for_search 一致
+        m_list: 自定义 M 列表（仅 Square 模式有效，作为 M=N=K 的值）
+        checkpoints_dir: 自定义 checkpoints 目录路径
     
     Returns:
         (nk_list, model_name, mode)
         - nk_list: [(N1, K1), (N2, K2), ...] 列表
         - model_name: 模型名称或 "SQUARE"
         - mode: "model" 或 "square"
+    
+    Note:
+        本函数直接复用 slidesparse.utils.get_nk_list_for_search，
+        保证与参考代码（offline_autotune_algsearch.py）的逻辑一致。
     """
     # Square 模式: model=None 或 model="square"
     if model is None or model.lower() == "square":
@@ -649,24 +751,21 @@ def get_nk_list_for_benchmark(
         nk_list = [(m, m) for m in square_list]
         return nk_list, "SQUARE", "square"
     
-    # Model-based 模式
+    # Model-based 模式：直接调用统一工具
     try:
-        # get_model_nk_sizes 返回 Dict[str, Tuple[int, int]]，需要提取 values
-        nk_dict = get_model_nk_sizes(model)
-        # 按固定顺序提取 NK: qkv, wo, w13, w2
-        layer_order = ["qkv", "wo", "w13", "w2"]
-        nk_list = []
-        for layer in layer_order:
-            if layer in nk_dict:
-                n, k = nk_dict[layer]
-                nk_list.append((pad_to_alignment(n), pad_to_alignment(k)))
+        nk_list, model_name = get_nk_list_for_search(
+            model=model,
+            L_max=L_max,
+            checkpoints_dir=checkpoints_dir,
+        )
         
-        if not nk_list:
-            raise ValueError("No valid NK sizes found in model")
+        # 对齐到 32
+        nk_list = [(pad_to_alignment(n), pad_to_alignment(k)) for n, k in nk_list]
         
-        return nk_list, model, "model"
-    except Exception as e:
-        print(f"[WARN] Failed to get NK from model '{model}': {e}")
+        return nk_list, model_name, "model"
+    except ValueError as e:
+        # 未找到模型，fallback 到 Square 模式
+        print(f"[WARN] {e}")
         print("[INFO] Falling back to Square mode")
         square_list = m_list if m_list else list(M_QUICK_LIST)
         nk_list = [(m, m) for m in square_list]
@@ -795,7 +894,7 @@ def merge_benchmark_results(
     cusparselt_data = {}
     for nk_res in cusparselt_results.get("results", []):
         N, K = nk_res["N"], nk_res["K"]
-        K_slide = calculate_k_slide(K, sparsity)
+        K_slide = calculate_k_slide(K, sparsity, dtype=dtype)
         for M, m_res in nk_res.get("m_results", {}).items():
             results = m_res.get("results", [])
             if results:
@@ -808,7 +907,7 @@ def merge_benchmark_results(
     
     # 匹配并生成结果
     for (M, N, K), dense in sorted(cublaslt_data.items()):
-        K_slide = calculate_k_slide(K, sparsity)
+        K_slide = calculate_k_slide(K, sparsity, dtype=dtype)
         sparse_key = (M, N, K_slide)
         
         if sparse_key in cusparselt_data:
@@ -926,6 +1025,7 @@ __all__ = [
     "get_k_expansion_factor",
     "get_sparsity_ratio",
     "pad_to_alignment",
+    "get_sparsity_list_for_benchmark",  # 新增：生成稀疏度列表
     # 编译与加载
     "build_benchmark_extension",
     "load_benchmark_extension",
@@ -938,6 +1038,8 @@ __all__ = [
     "get_output_torch_dtype",
     # NK 列表
     "get_nk_list_for_benchmark",
+    "get_nk_list_for_search",  # 重导出参考代码工具
+    "model_base_name",  # 重导出参考代码工具
     # 文件命名
     "build_hw_folder_name",
     "build_result_filename",

@@ -239,37 +239,68 @@ def run_search(
         effective_m_list = [N] if is_square_mode else m_list
         max_M = max(effective_m_list)
         
-        # 生成随机数据
-        W = torch.randn(N, K, device="cuda", dtype=torch.bfloat16)
-        A = torch.randn(max_M, K, device="cuda", dtype=torch.bfloat16)
+        nk_results = {
+            "nk_id": nk_id,
+            "N": N,
+            "K": K,  # 报告原始 K，CUDA 端知道实际存储是 K/2
+            "m_results": {},
+            "skipped": False,
+            "skip_reason": None,
+        }
         
-        # 量化 (行主序)
-        if dtype in ("fp16", "bf16"):
-            # FP16/BF16 直接转换
-            W_q = W.to(DTYPE_CONFIG[dtype]["torch_dtype"])
-            A_q = A.to(DTYPE_CONFIG[dtype]["torch_dtype"])
-        elif is_fp4:
-            # FP4 打包：K 维度减半
-            W_q = quantize_tensor(W, dtype)  # [N, K//2] packed
-            A_q = quantize_tensor(A, dtype)  # [M, K//2] packed
-        else:
-            W_q = quantize_tensor(W, dtype)
-            A_q = quantize_tensor(A, dtype)
+        try:
+            # 生成随机数据
+            W = torch.randn(N, K, device="cuda", dtype=torch.bfloat16)
+            A = torch.randn(max_M, K, device="cuda", dtype=torch.bfloat16)
+        except torch.cuda.OutOfMemoryError as e:
+            if verbose:
+                print(f"      ⚠ CUDA OOM 生成数据，跳过 NK=({N}, {K})")
+            nk_results["skipped"] = True
+            nk_results["skip_reason"] = f"CUDA OOM: {e}"
+            for M in effective_m_list:
+                search_stats["total"] += 1
+                search_stats["errors"] += 1
+                nk_results["m_results"][M] = {"error": str(e), "results": [], "num_valid": 0, "alg_count": 0}
+            results.append(nk_results)
+            torch.cuda.empty_cache()
+            continue
+        
+        try:
+            # 量化 (行主序)
+            if dtype in ("fp16", "bf16"):
+                # FP16/BF16 直接转换
+                W_q = W.to(DTYPE_CONFIG[dtype]["torch_dtype"])
+                A_q = A.to(DTYPE_CONFIG[dtype]["torch_dtype"])
+            elif is_fp4:
+                # FP4 打包：K 维度减半
+                W_q = quantize_tensor(W, dtype)  # [N, K//2] packed
+                A_q = quantize_tensor(A, dtype)  # [M, K//2] packed
+            else:
+                W_q = quantize_tensor(W, dtype)
+                A_q = quantize_tensor(A, dtype)
+        except Exception as e:
+            if verbose:
+                print(f"      ⚠ 量化失败: {e}")
+            nk_results["skipped"] = True
+            nk_results["skip_reason"] = f"Quantize error: {e}"
+            for M in effective_m_list:
+                search_stats["total"] += 1
+                search_stats["errors"] += 1
+                nk_results["m_results"][M] = {"error": str(e), "results": [], "num_valid": 0, "alg_count": 0}
+            results.append(nk_results)
+            del W, A
+            torch.cuda.empty_cache()
+            continue
         
         # 转置为列主序供 cuBLASLt 使用
         # 对于 FP4，维度已经是打包后的
         W_q_col = W_q.t()  # [K_packed, N], stride (1, K_packed) 列主序
         A_q_col = A_q.t()  # [K_packed, Mmax], stride (1, K_packed) 列主序
         
-        nk_results = {
-            "nk_id": nk_id,
-            "N": N,
-            "K": K,  # 报告原始 K，CUDA 端知道实际存储是 K/2
-            "m_results": {},
-        }
-        
         # FP4 打包后 K 维度减半，需要传递实际的 K_effective 给 CUDA
+        # 但 TOPS 计算应该用原始的 K（逻辑维度）
         K_effective = K // 2 if is_fp4 else K
+        K_logical = K  # 保留原始 K 用于 TOPS 计算
         
         for M in effective_m_list:
             # 列主序切片供 CUDA 使用
@@ -281,6 +312,13 @@ def run_search(
                 dtype,
                 warmup, repeat, topk,
             )
+            
+            # FP4: 用原始 K 重新计算 TOPS（因为 CUDA 端用的是 K_effective）
+            if is_fp4 and out.get("results"):
+                for r in out["results"]:
+                    if r.get("lat_us", 0) > 0:
+                        ops = 2.0 * M * N * K_logical
+                        r["tops"] = ops / (r["lat_us"] / 1e6) / 1e12
             
             nk_results["m_results"][M] = out
             
@@ -421,16 +459,30 @@ def save_results(
     }
     
     nk_entries = {}
+    skipped_nk = []  # 记录跳过的 NK
+    
     for nk_res in search_ret["results"]:
         N, K = nk_res["N"], nk_res["K"]
         nk_key = f"({N},{K})"
         
+        # 记录跳过的 NK
+        if nk_res.get("skipped", False):
+            skipped_nk.append({
+                "N": N, "K": K, 
+                "reason": nk_res.get("skip_reason", "unknown")
+            })
+        
         m_thresholds = []
         alg_by_m = {}
+        errors_by_m = {}
         
         # 遍历实际存在的 M 结果（Square 模式下只有 M=N）
         for M, m_res in nk_res["m_results"].items():
             results = m_res.get("results", [])
+            error = m_res.get("error")
+            
+            if error:
+                errors_by_m[str(M)] = error
             
             if results:
                 m_thresholds.append(M)
@@ -444,10 +496,19 @@ def save_results(
                         "lat_us": r["lat_us"],
                     }
         
-        nk_entries[nk_key] = {
+        entry = {
             "m_thresholds": m_thresholds,
             "alg_by_m": alg_by_m,
         }
+        if errors_by_m:
+            entry["errors_by_m"] = errors_by_m
+            
+        nk_entries[nk_key] = entry
+    
+    # 添加搜索统计到 meta
+    meta["search_stats"] = search_ret.get("search_stats", {})
+    if skipped_nk:
+        meta["skipped_nk"] = skipped_nk
     
     json_payload = {
         "meta": meta,
@@ -476,6 +537,9 @@ def parse_args():
   python3 alg_search.py --dtype int8 --model Qwen2.5-0.5B
   python3 alg_search.py --dtype fp8e4m3 --model Llama3.2-1B
   
+  # Model-based 模式 + Lmax（生成 L=4,6,...,Lmax 的所有 slided NK）
+  python3 alg_search.py --dtype fp8e4m3 --model Qwen2.5-0.5B --Lmax 8
+  
   # Square 模式 (不指定 --model 或 --model square)
   python3 alg_search.py --dtype bf16
   python3 alg_search.py --dtype bf16 --model square
@@ -485,6 +549,8 @@ def parse_args():
                    help="数据类型 (fp16, bf16, int8, fp8e4m3, fp4e2m1)")
     p.add_argument("--model", default=None,
                    help="模型名称（不指定或指定 'square' 进入 Square 模式）")
+    p.add_argument("--Lmax", type=int, default=None,
+                   help="最大 L 值，用于 slide sparse。如果指定，会生成 L=4,6,...,Lmax 的所有 NK")
     p.add_argument("--M-quick", action="store_true", dest="m_quick",
                    help="使用快速 M 列表 (仅 Model-based 模式有效)")
     p.add_argument("--m_list", type=str, default=None,
@@ -502,14 +568,15 @@ def main():
     args = parse_args()
     
     if not torch.cuda.is_available():
-        raise RuntimeError("需要 CUDA 环境")
+        print("[ERROR] 需要 CUDA 环境")
+        sys.exit(1)
     
     # 检查 dtype 支持
     supported, reason = check_dtype_support(args.dtype)
     if not supported:
-        print(f"[ERROR] {reason}")
+        print(f"[SKIP] dtype={args.dtype}: {reason}")
         print(f"[INFO] 当前 GPU 支持的类型: {get_supported_dtypes_for_gpu()}")
-        sys.exit(1)
+        sys.exit(0)  # 跳过
     
     # 确定运行模式
     is_square_mode = (args.model is None or args.model.lower() == "square")
@@ -525,11 +592,17 @@ def main():
     # 确保 M 是 32 的倍数
     m_list = [pad_to_alignment(m) for m in m_list]
     
-    # 获取 NK 列表（Square 模式会使用 m_list 构建 M=N=K）
-    nk_list, model_name, mode = get_nk_list_for_benchmark(
-        model=args.model,
-        m_list=m_list if is_square_mode else None
-    )
+    # 获取 NK 列表（传入 L_max 支持 slide sparse）
+    try:
+        nk_list, model_name, mode = get_nk_list_for_benchmark(
+            model=args.model,
+            L_max=args.Lmax,  # 使用新的 Lmax 参数
+            m_list=m_list if is_square_mode else None
+        )
+    except Exception as e:
+        print(f"[ERROR] 获取 NK 列表失败: {e}")
+        sys.exit(1)
+        
     # 显示配置
     print("=" * 60)
     print("cuBLASLt Dense GEMM 算法搜索")
@@ -537,6 +610,8 @@ def main():
     print(f"GPU: {hw_info.gpu_full_name} ({hw_info.cc_tag})")
     print(f"Mode: {mode.upper()}")
     print(f"Model: {model_name}")
+    if args.Lmax:
+        print(f"Lmax: {args.Lmax} (slide sparse L=4,6,...,{args.Lmax})")
     print(f"dtype: {args.dtype} -> {args.dtype} (same input/output)")
     print(f"warmup={args.warmup}, repeat={args.repeat}")
     print()
@@ -548,19 +623,28 @@ def main():
     print("[1/4] 编译 CUDA 扩展...")
     src_path = SCRIPT_DIR / "cublaslt_gemm.cu"
     build_dir = SCRIPT_DIR / "build"
-    so_path = build_benchmark_extension(
-        name="cublaslt_gemm",
-        source_file=src_path,
-        build_dir=build_dir,
-        backend="cublaslt",
-        force=args.compile,
-    )
+    try:
+        so_path = build_benchmark_extension(
+            name="cublaslt_gemm",
+            source_file=src_path,
+            build_dir=build_dir,
+            backend="cublaslt",
+            force=args.compile,
+        )
+    except Exception as e:
+        print(f"[ERROR] CUDA 扩展编译失败: {e}")
+        sys.exit(1)
     
     print("[2/4] 加载 CUDA 扩展...")
-    lib = load_benchmark_extension(so_path, backend="cublaslt", setup_func=setup_lib_signatures)
+    try:
+        lib = load_benchmark_extension(so_path, backend="cublaslt", setup_func=setup_lib_signatures)
+    except Exception as e:
+        print(f"[ERROR] CUDA 扩展加载失败: {e}")
+        sys.exit(1)
     
     if not lib.cublaslt_alg_search_is_available():
-        raise RuntimeError("cuBLASLt 不可用")
+        print("[SKIP] cuBLASLt 不可用（可能需要更新驱动或 CUDA 版本）")
+        sys.exit(0)  # 跳过
     print("✓ cuBLASLt 可用")
     
     print()

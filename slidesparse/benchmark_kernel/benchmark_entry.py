@@ -9,12 +9,15 @@ SlideSparse Kernel Benchmark 统一入口
 两种运行模式:
 =============
 1. Model-based 模式: 指定 --model <model_name>，从模型 checkpoint 提取真实 NK 尺寸
+   - 支持 --Lmax 参数：自动生成 L=4,6,...,Lmax 的所有 slided NK
 2. Square 模式: --model 不指定或指定为 "square"，M=N=K=[64, 128, ..., 16384]
 
 核心功能:
 =========
 - 对 cuBLASLt dense GEMM 和 cuSPARSELt sparse GEMM 进行算法搜索
-- 支持多种稀疏度配置 (2_4, 2_6, 2_8, 2_10, 2_inf)
+- 支持多种稀疏度配置：
+  - --Lmax: 自动生成 2_4, 2_6, ..., 2_Lmax 以及 2_inf（推荐）
+  - --sparsity: 手动指定稀疏度列表（兼容旧用法）
 - 计算并输出加速比 (Sparse / Dense)
 
 支持的数据类型:
@@ -37,20 +40,21 @@ Sparsity 参数说明:
 
 用法示例:
 =========
-# Model-based 模式 (使用 M_QUICK_LIST)
-python benchmark_entry.py --model Qwen2.5-0.5B --dtype fp8e4m3 --sparsity 2_8
+# Model-based 模式（推荐使用 --Lmax）
+python benchmark_entry.py --model Qwen2.5-0.5B --dtype fp8e4m3 --Lmax 8
+# 等效于 --sparsity 2_4,2_6,2_8,2_inf
 
 # Square 模式 (不指定 --model)
-python benchmark_entry.py --dtype int8
+python benchmark_entry.py --dtype int8 --Lmax 10
 
-# 测试所有 dtype
-python benchmark_entry.py --model square --dtype all --sparsity 2_4
+# 测试所有 dtype（使用默认 sparsity=2_4）
+python benchmark_entry.py --model square --dtype all
 
-# 测试多种稀疏度
-python benchmark_entry.py --model Llama3.2-1B --dtype fp8e4m3 --sparsity 2_4,2_6,2_8,2_inf
+# 手动指定稀疏度（兼容旧用法）
+python benchmark_entry.py --model Llama3.2-1B --dtype fp8e4m3 --sparsity 2_4,2_8
 
-# 只测试 cuBLASLt
-python benchmark_entry.py --model Qwen2.5-0.5B --dtype bf16 --backend cublaslt
+# 只测试 cuBLASLt (无需 sparsity)
+python benchmark_entry.py --model Llama3.2-1B --dtype all --backend cublaslt
 """
 
 import argparse
@@ -85,6 +89,7 @@ from slidesparse.benchmark_kernel.utils import (
     calculate_k_slide,
     get_k_expansion_factor,
     pad_to_alignment,
+    get_sparsity_list_for_benchmark,  # 新增：根据 Lmax 生成稀疏度列表
     # NK 列表
     get_nk_list_for_benchmark,
     # 文件命名
@@ -277,7 +282,7 @@ def compute_and_save_speedup(
         except:
             continue
         
-        K_slide = calculate_k_slide(K, sparsity)
+        K_slide = calculate_k_slide(K, sparsity, dtype=dtype)
         for m_str, m_data in nk_data.get("alg_by_m", {}).items():
             M = int(m_str)
             if m_data:
@@ -289,7 +294,7 @@ def compute_and_save_speedup(
     # 生成结果行
     result_rows = []
     for (M, N, K), dense in sorted(cublaslt_index.items()):
-        K_slide = calculate_k_slide(K, sparsity)
+        K_slide = calculate_k_slide(K, sparsity, dtype=dtype)
         sparse_key = (M, N, K_slide)
         
         if sparse_key in cusparselt_index:
@@ -397,20 +402,21 @@ def parse_args():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例:
-  # Model-based 模式 (使用 M_QUICK_LIST)
-  python benchmark_entry.py --model Qwen2.5-0.5B --dtype fp8e4m3 --sparsity 2_8
+  # Model-based 模式（推荐使用 --Lmax）
+  python benchmark_entry.py --model Qwen2.5-0.5B --dtype fp8e4m3 --Lmax 8
+  # 等效于 --sparsity 2_4,2_6,2_8,2_inf
   
-  # Square 模式 (不指定 --model，M=N=K=[64, 128, ..., 65536])
-  python benchmark_entry.py --dtype int8
+  # Square 模式 (不指定 --model)
+  python benchmark_entry.py --dtype int8 --Lmax 10
   
-  # Square 模式 (显式指定)
-  python benchmark_entry.py --model square --dtype bf16
+  # 只测试标准 2:4 稀疏（默认）
+  python benchmark_entry.py --model Llama3.2-1B --dtype bf16
   
-  # 只测试 cuBLASLt
-  python benchmark_entry.py --model Qwen2.5-0.5B --dtype bf16 --backend cublaslt
+  # 只测试 cuBLASLt（无需指定 sparsity）
+  python benchmark_entry.py --model Qwen2.5-0.5B --dtype all --backend cublaslt
   
-  # 测试多种稀疏度
-  python benchmark_entry.py --model Llama3.2-1B --dtype fp8e4m3 --sparsity 2_4,2_6,2_8
+  # 手动指定稀疏度（兼容旧用法）
+  python benchmark_entry.py --model Llama3.2-1B --dtype fp8e4m3 --sparsity 2_4,2_8
         """
     )
     
@@ -420,8 +426,15 @@ def parse_args():
     p.add_argument("--dtype", type=str, required=True,
                    choices=SUPPORTED_DTYPES + ["all"],
                    help="数据类型 (fp16, bf16, int8, fp8e4m3, fp4e2m1, all)")
-    p.add_argument("--sparsity", type=str, default="2_4",
-                   help="稀疏度配置，逗号分隔 (2_4, 2_6, 2_8, 2_10, 2_inf)")
+    
+    # 稀疏度配置（Lmax 和 sparsity 二选一）
+    sparsity_group = p.add_mutually_exclusive_group()
+    sparsity_group.add_argument("--Lmax", type=int, default=None,
+                   help="最大 L 值。自动生成 2_4, 2_6, ..., 2_Lmax 以及 2_inf。"
+                        "例如 --Lmax 8 等效于 --sparsity 2_4,2_6,2_8,2_inf")
+    sparsity_group.add_argument("--sparsity", type=str, default=None,
+                   help="手动指定稀疏度列表，逗号分隔 (2_4, 2_6, 2_8, 2_10, 2_inf)")
+    
     p.add_argument("--backend", type=str, default="all",
                    choices=["all", "cublaslt", "cusparselt"],
                    help="测试后端")
@@ -566,11 +579,6 @@ def main():
     else:
         dtype_list = [args.dtype]
     
-    # 确定运行模式
-    is_square_mode = (args.model is None or args.model.lower() == "square")
-    model_name = "SQUARE" if is_square_mode else args.model
-    mode = "square" if is_square_mode else "model"
-    
     # 统一 m_list 处理逻辑（两种模式完全一致）
     if args.m_list:
         m_list = [int(x.strip()) for x in args.m_list.split(",")]
@@ -580,7 +588,34 @@ def main():
         m_list = list(M_QUICK_LIST)  # 默认: [16, 128, 1024, 4096, 16384]
     
     m_list = [pad_to_alignment(m) for m in m_list]
-    sparsity_list = [s.strip() for s in args.sparsity.split(",")]
+    
+    # 生成稀疏度列表：--Lmax 优先，否则使用 --sparsity，默认 ["2_4"]
+    if args.Lmax is not None:
+        # 使用 Lmax 自动生成稀疏度列表（与参考代码一致 + 2_inf）
+        sparsity_list = get_sparsity_list_for_benchmark(args.Lmax)
+        print(f"[INFO] Lmax={args.Lmax}, 稀疏度列表: {sparsity_list}")
+    elif args.sparsity:
+        # 手动指定稀疏度（兼容旧用法）
+        sparsity_list = [s.strip() for s in args.sparsity.split(",")]
+    else:
+        # 默认：只测试标准 2:4 稀疏
+        sparsity_list = ["2_4"]
+    
+    # 使用 get_nk_list_for_benchmark 统一判断模式和获取 model_name
+    # 这样确保模型路径查找逻辑与子脚本一致
+    is_square_mode = (args.model is None or args.model.lower() == "square")
+    
+    if is_square_mode:
+        # Square 模式
+        model_name = "SQUARE"
+        mode = "square"
+    else:
+        # Model-based 模式：使用 get_nk_list_for_benchmark 获取正确的 model_name
+        # 注意：这里我们不传入 L_max，因为 L_max 只影响稀疏度列表，不影响 model_name
+        _, model_name, mode = get_nk_list_for_benchmark(
+            model=args.model,
+            m_list=m_list if is_square_mode else None,
+        )
     
     # 显示配置
     print("=" * 60)
