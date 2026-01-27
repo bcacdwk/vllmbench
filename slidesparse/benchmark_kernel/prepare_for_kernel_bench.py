@@ -38,7 +38,13 @@ Usage:
     # 在 tmux 中运行
     tmux new -s kernel_bench
     cd /root/vllmbench/slidesparse/benchmark_kernel && python3 prepare_for_kernel_bench.py --task 1,1,1,1,1,1 --gpu 0
-    # Ctrl+B 后 按 D 退出保持运行
+
+    tmux detach
+
+    # 4. 重新连接 tmux 会话
+    tmux attach -t kernel_bench
+
+    tmux kill-session -t kernel_bench
 """
 
 import argparse
