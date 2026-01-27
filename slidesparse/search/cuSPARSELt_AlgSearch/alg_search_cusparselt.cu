@@ -873,7 +873,12 @@ int cusparselt_search_single_m(
                 split_k_candidates.push_back(sk);
             }
         }
-        if (test_segment_k && !g_disable_segment_k) {
+        // Segment-K：需要 SM90+ 且 N >= 400
+        // 实测发现 N < 400 时 segment-k 可能卡死，与 M/K 无关
+        constexpr int64_t SEGMENT_K_MIN_N = 400;
+        bool hw_supports_segment_k = check_segment_k_support();
+        bool shape_safe_for_segment_k = (N >= SEGMENT_K_MIN_N);
+        if (test_segment_k && !g_disable_segment_k && hw_supports_segment_k && shape_safe_for_segment_k) {
             split_k_candidates.push_back(-1);  // Segment-K
         }
         

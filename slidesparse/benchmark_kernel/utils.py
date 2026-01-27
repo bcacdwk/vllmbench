@@ -135,7 +135,7 @@ DTYPE_CONFIG = {
     },
     "fp4e2m1": {
         "cuda_input": "CUDA_R_4F_E2M1",
-        "cuda_output": "CUDA_R_16BF",  # FP4 必须输出 BF16
+        "cuda_output": "CUDA_R_16BF",  # FP4 输出 BF16（cuBLASLt Table 4 第一行）
         "cuda_compute": "CUDA_R_32F",
         "cublaslt_compute": "CUBLAS_COMPUTE_32F",
         "cusparselt_compute": "CUSPARSE_COMPUTE_32F",
@@ -144,9 +144,9 @@ DTYPE_CONFIG = {
         "out_elem_size": 2,  # BF16 = 2 bytes
         "min_cc": 100,  # Blackwell+
         "torch_dtype": None,  # PyTorch 尚未原生支持 FP4
-        "torch_out_dtype": torch.bfloat16,
-        "cublaslt_out_dtype": torch.bfloat16,
-        "cusparselt_out_dtype": torch.bfloat16,
+        "torch_out_dtype": torch.bfloat16,  # 输出 BF16
+        "cublaslt_out_dtype": torch.bfloat16,  # cuBLASLt FP4 输出 BF16
+        "cusparselt_out_dtype": torch.bfloat16,  # cuSPARSELt FP4 输出 BF16
         "requires_scale": True,  # FP4 cuBLASLt 强制要求 scale
     },
 }
@@ -499,11 +499,6 @@ def to_fp4_e2m1_packed(x: torch.Tensor) -> torch.Tensor:
     Returns:
         打包后的张量，形状 [N, K//2]，dtype=uint8
     """
-    # FP4 E2M1 可表示的正值（按 4-bit 编码顺序）
-    # 编码: 0=0.0, 1=0.5, 2=1.0, 3=1.5, 4=2.0, 5=3.0, 6=4.0, 7=6.0
-    # 带符号时，最高位是符号位（正=0，负=1）
-    fp4_values = torch.tensor([0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0], device=x.device, dtype=torch.float32)
-    
     # 转为 float32 进行计算
     x_fp32 = x.to(torch.float32)
     original_shape = x_fp32.shape
@@ -525,15 +520,15 @@ def to_fp4_e2m1_packed(x: torch.Tensor) -> torch.Tensor:
     # 缩放到 FP4 范围（最大值 6.0）
     max_val = abs_vals.max().item()
     if max_val > 0:
-        scale = 6.0 / max_val
-        abs_vals = abs_vals * scale
+        abs_vals = abs_vals * (6.0 / max_val)
     
-    # 找到最近的 FP4 值（使用 argmin）
-    # 扩展维度进行广播比较
-    abs_vals_expanded = abs_vals.unsqueeze(1)  # [N, 1]
-    fp4_expanded = fp4_values.unsqueeze(0)     # [1, 8]
-    distances = (abs_vals_expanded - fp4_expanded).abs()
-    fp4_indices = distances.argmin(dim=1).to(torch.uint8)  # 3-bit 值域 [0, 7]
+    # 使用 bucketize 进行高效量化（内存友好）
+    # FP4 E2M1 可表示的正值: [0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0]
+    # 相邻值的中点作为边界:  [0.25, 0.75, 1.25, 1.75, 2.5, 3.5, 5.0]
+    # bucketize 返回的索引正好对应 FP4 值的索引
+    boundaries = torch.tensor([0.25, 0.75, 1.25, 1.75, 2.5, 3.5, 5.0], 
+                              device=x.device, dtype=torch.float32)
+    fp4_indices = torch.bucketize(abs_vals, boundaries).to(torch.uint8)
     
     # 组合符号位和数值位：sign(1bit) | value(3bits) = 4-bit
     fp4_codes = (signs << 3) | fp4_indices  # 4-bit 编码

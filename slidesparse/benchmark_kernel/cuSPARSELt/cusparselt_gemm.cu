@@ -267,6 +267,25 @@ int cusparselt_prune_24(
         return -1;
     }
     
+    // ========================================================================
+    // 维度检查 - FP4/FP8/INT8 需要 32 的倍数
+    // ========================================================================
+    bool is_fp4 = (strcmp(dtype, "fp4e2m1") == 0 || strcmp(dtype, "fp4") == 0);
+    bool is_8bit = (strcmp(dtype, "int8") == 0 || strcmp(dtype, "fp8e4m3") == 0 || 
+                   strcmp(dtype, "fp8") == 0 || is_fp4);
+    
+    int sparse_align = is_8bit ? 32 : 16;
+    
+    if (rows % sparse_align != 0 || cols % sparse_align != 0) {
+        fprintf(stderr, "[cuSPARSELt WARN] prune_24: Skipping W[rows=%lld, cols=%lld], "
+                "requires multiples of %d for dtype=%s\n",
+                (long long)rows, (long long)cols, sparse_align, dtype);
+        // 复制输入到输出（不剪枝）
+        size_t elem_size = info.elem_size;
+        cudaMemcpy(output, input, rows * cols * elem_size, cudaMemcpyDeviceToDevice);
+        return 0;
+    }
+    
     cudaStream_t cu_stream = stream ? (cudaStream_t)stream : nullptr;
     
     int64_t dummy_M = 32;
@@ -339,6 +358,22 @@ int64_t cusparselt_get_compressed_size(
     
     DtypeInfo info = get_dtype_info(dtype);
     if (!info.is_valid) return -1;
+    
+    // ========================================================================
+    // 维度检查 - FP4/FP8/INT8 需要 32 的倍数
+    // ========================================================================
+    bool is_fp4 = (strcmp(dtype, "fp4e2m1") == 0 || strcmp(dtype, "fp4") == 0);
+    bool is_8bit = (strcmp(dtype, "int8") == 0 || strcmp(dtype, "fp8e4m3") == 0 || 
+                   strcmp(dtype, "fp8") == 0 || is_fp4);
+    
+    int sparse_align = is_8bit ? 32 : 16;
+    
+    if (rows % sparse_align != 0 || cols % sparse_align != 0) {
+        fprintf(stderr, "[cuSPARSELt WARN] get_compressed_size: W[rows=%lld, cols=%lld] "
+                "requires multiples of %d for dtype=%s\n",
+                (long long)rows, (long long)cols, sparse_align, dtype);
+        return -1;
+    }
     
     int64_t dummy_M = 32;
     cusparseOrder_t order = CUSPARSE_ORDER_COL;
@@ -428,6 +463,22 @@ int64_t cusparselt_compress(
     if (!info.is_valid) {
         set_error("Invalid dtype for compress");
         return -1;
+    }
+    
+    // ========================================================================
+    // 维度检查 - FP4/FP8/INT8 需要 32 的倍数
+    // ========================================================================
+    bool is_fp4 = (strcmp(dtype, "fp4e2m1") == 0 || strcmp(dtype, "fp4") == 0);
+    bool is_8bit = (strcmp(dtype, "int8") == 0 || strcmp(dtype, "fp8e4m3") == 0 || 
+                   strcmp(dtype, "fp8") == 0 || is_fp4);
+    
+    int sparse_align = is_8bit ? 32 : 16;
+    
+    if (rows % sparse_align != 0 || cols % sparse_align != 0) {
+        fprintf(stderr, "[cuSPARSELt WARN] compress: Skipping W[rows=%lld, cols=%lld], "
+                "requires multiples of %d for dtype=%s\n",
+                (long long)rows, (long long)cols, sparse_align, dtype);
+        return -1;  // 无法压缩
     }
     
     cudaStream_t cu_stream = stream ? (cudaStream_t)stream : nullptr;
@@ -598,6 +649,43 @@ int cusparselt_search_single_m(
         return -1;
     }
     
+    // ========================================================================
+    // 维度检查 - 根据 cuSPARSELt 官方文档要求
+    // ========================================================================
+    // FP4/FP8/INT8: Sparse 矩阵 rows/cols/ld 必须是 32 的倍数
+    //               Dense 矩阵 rows/cols/ld 必须是 16 的倍数
+    // FP16/BF16:    Sparse 矩阵必须是 16 的倍数，Dense 必须是 8 的倍数
+    // ========================================================================
+    bool is_fp4 = (strcmp(dtype, "fp4e2m1") == 0 || strcmp(dtype, "fp4") == 0);
+    bool is_8bit = (strcmp(dtype, "int8") == 0 || strcmp(dtype, "fp8e4m3") == 0 || 
+                   strcmp(dtype, "fp8") == 0 || is_fp4);
+    
+    int sparse_align = is_8bit ? 32 : 16;  // Sparse 矩阵对齐要求
+    int dense_align = is_8bit ? 16 : 8;    // Dense 矩阵对齐要求
+    
+    // 检查 Sparse 矩阵 W [K, N] 的维度
+    if (K % sparse_align != 0 || N % sparse_align != 0) {
+        fprintf(stderr, "[cuSPARSELt WARN] Skipping: Sparse matrix W[K=%lld, N=%lld] "
+                "requires K,N to be multiples of %d for dtype=%s\n",
+                (long long)K, (long long)N, sparse_align, dtype);
+        return 0;  // 返回成功但无结果，不是错误
+    }
+    
+    // 检查 Dense 矩阵 A [K, M] 的维度
+    if (K % dense_align != 0 || M % dense_align != 0) {
+        fprintf(stderr, "[cuSPARSELt WARN] Skipping: Dense matrix A[K=%lld, M=%lld] "
+                "requires K,M to be multiples of %d for dtype=%s\n",
+                (long long)K, (long long)M, dense_align, dtype);
+        return 0;  // 返回成功但无结果
+    }
+    
+    // FP4 额外检查：M 必须是 32 的倍数（实测发现的限制）
+    if (is_fp4 && M % 32 != 0) {
+        fprintf(stderr, "[cuSPARSELt WARN] Skipping: FP4 requires M=%lld to be a multiple of 32\n",
+                (long long)M);
+        return 0;
+    }
+    
     cudaStream_t cu_stream = stream ? (cudaStream_t)stream : nullptr;
     cudaDataType_t out_type = get_out_dtype(dtype);
     cusparseComputeType compute_type = get_compute_type(dtype);
@@ -620,13 +708,9 @@ int cusparselt_search_single_m(
         out_valid[i] = 0;
     }
     
+    // cuSPARSELt 所有数据类型都使用 float 作为 alpha/beta
+    // 这与 cuBLASLt 不同（cuBLASLt INT8 需要 int32 scale）
     float alpha = 1.0f, beta = 0.0f;
-    int32_t alpha_i = 1, beta_i = 0;
-    
-    // INT8 需要使用 INT32 scale
-    bool use_int_scale = (strcmp(dtype, "int8") == 0);
-    const void* alpha_ptr = use_int_scale ? (const void*)&alpha_i : (const void*)&alpha;
-    const void* beta_ptr = use_int_scale ? (const void*)&beta_i : (const void*)&beta;
     
     // 创建基础矩阵描述符
     cusparseOrder_t order = CUSPARSE_ORDER_COL;
@@ -725,8 +809,8 @@ int cusparselt_search_single_m(
                     cusparseLtMatmulGetWorkspace(&g_handle, &plan_api, &ws_api);
                     
                     cusparseStatus_t search_st = cusparseLtMatmulSearch(
-                        &g_handle, &plan_api, alpha_ptr, W_comp_api, A_ptr,
-                        beta_ptr, R_ptr, R_ptr, shared_workspace, &cu_stream, 1);
+                        &g_handle, &plan_api, &alpha, W_comp_api, A_ptr,
+                        &beta, R_ptr, R_ptr, shared_workspace, &cu_stream, 1);
                     
                     if (search_st == CUSPARSE_STATUS_SUCCESS) {
                         int api_alg_id = 0, api_split_k_val = 1;
@@ -742,8 +826,8 @@ int cusparselt_search_single_m(
                         
                         for (int i = 0; i < warmup && success; ++i) {
                             cusparseStatus_t st = cusparseLtMatmul(
-                                &g_handle, &plan_api, alpha_ptr, W_comp_api, A_ptr,
-                                beta_ptr, R_ptr, R_ptr, shared_workspace, &cu_stream, 1);
+                                &g_handle, &plan_api, &alpha, W_comp_api, A_ptr,
+                                &beta, R_ptr, R_ptr, shared_workspace, &cu_stream, 1);
                             if (st != CUSPARSE_STATUS_SUCCESS) success = false;
                         }
                         cudaStreamSynchronize(cu_stream);
@@ -756,8 +840,8 @@ int cusparselt_search_single_m(
                             
                             for (int r = 0; r < repeat && success; ++r) {
                                 cusparseStatus_t st = cusparseLtMatmul(
-                                    &g_handle, &plan_api, alpha_ptr, W_comp_api, A_ptr,
-                                    beta_ptr, R_ptr, R_ptr, shared_workspace, &cu_stream, 1);
+                                    &g_handle, &plan_api, &alpha, W_comp_api, A_ptr,
+                                    &beta, R_ptr, R_ptr, shared_workspace, &cu_stream, 1);
                                 if (st != CUSPARSE_STATUS_SUCCESS) success = false;
                             }
                             
@@ -864,10 +948,12 @@ int cusparselt_search_single_m(
                 split_k_candidates.push_back(sk);
             }
         }
-        // 关键：只有在硬件支持 segment-k（SM90+）且参数请求时才测试
-        // 这是防止卡死的关键预拦截
+        // Segment-K：需要 SM90+ 且 N >= 400
+        // 实测发现 N < 400 时 segment-k 可能卡死，与 M/K 无关
+        constexpr int64_t SEGMENT_K_MIN_N = 400;
         bool hw_supports_segment_k = check_segment_k_support();
-        if (test_segment_k && !g_disable_segment_k && hw_supports_segment_k) {
+        bool shape_safe_for_segment_k = (N >= SEGMENT_K_MIN_N);
+        if (test_segment_k && !g_disable_segment_k && hw_supports_segment_k && shape_safe_for_segment_k) {
             split_k_candidates.push_back(-1);
         }
         
@@ -933,8 +1019,8 @@ int cusparselt_search_single_m(
             
             for (int i = 0; i < warmup && success; ++i) {
                 cusparseStatus_t st = cusparseLtMatmul(
-                    &g_handle, &plan, alpha_ptr, W_compressed, A_ptr,
-                    beta_ptr, R_ptr, R_ptr, workspace, &cu_stream, 1);
+                    &g_handle, &plan, &alpha, W_compressed, A_ptr,
+                    &beta, R_ptr, R_ptr, workspace, &cu_stream, 1);
                 if (st != CUSPARSE_STATUS_SUCCESS) success = false;
             }
             cudaStreamSynchronize(cu_stream);
@@ -961,8 +1047,8 @@ int cusparselt_search_single_m(
                 
                 for (int r = 0; r < repeat && success; ++r) {
                     cusparseStatus_t st = cusparseLtMatmul(
-                        &g_handle, &plan, alpha_ptr, W_compressed, A_ptr,
-                        beta_ptr, R_ptr, R_ptr, workspace, &cu_stream, 1);
+                        &g_handle, &plan, &alpha, W_compressed, A_ptr,
+                        &beta, R_ptr, R_ptr, workspace, &cu_stream, 1);
                     if (st != CUSPARSE_STATUS_SUCCESS) success = false;
                 }
                 

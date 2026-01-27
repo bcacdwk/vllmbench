@@ -133,8 +133,8 @@ def search_single_nk(
     """
     搜索单个 (N, K, M) 组合的最佳算法
     """
-    # 分配输出缓冲：直接按列主序 stride 分配 [N, M]
-    # 注意：INT8 输出 INT32，FP8/FP4 输出 BF16
+    # 分配输出缓冲：直接按列主序 stride 分配
+    # FP4 输出为 BF16（根据 cuBLASLt Table 4）
     R_torch_dtype = get_output_torch_dtype(dtype, backend="cublaslt")
     R_out = torch.empty_strided((N, M), (1, N), dtype=R_torch_dtype, device=W_q_col.device)
     R_out.zero_()
@@ -268,12 +268,15 @@ def run_search(
             "m_results": {},
         }
         
+        # FP4 打包后 K 维度减半，需要传递实际的 K_effective 给 CUDA
+        K_effective = K // 2 if is_fp4 else K
+        
         for M in effective_m_list:
             # 列主序切片供 CUDA 使用
             A_slice_col = A_q_col[:, :M]
             
             out = search_single_nk(
-                lib, N, K, M,
+                lib, N, K_effective, M,  # FP4 传 K/2，其他传 K
                 W_q_col, A_slice_col,
                 dtype,
                 warmup, repeat, topk,

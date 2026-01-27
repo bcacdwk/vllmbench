@@ -213,11 +213,12 @@ def prepare_and_prune_weight(
     # Prune 2:4
     W_pruned = torch.empty_like(W_t)
     
-    # 对于 FP4，传递原始 K（CUDA 端知道实际存储是 K/2）
+    # 对于 FP4，传递打包后的 K_effective (K/2)
+    K_effective = K // 2 if is_fp4 else K
     ret = lib.cusparselt_prune_24(
         W_t.data_ptr(),
         W_pruned.data_ptr(),
-        K, N,
+        K_effective, N,  # FP4 传 K/2
         dtype.encode(),
         None,
     )
@@ -423,12 +424,16 @@ def run_search(
             "m_results": {},
         }
         
+        # FP4 打包后 K 维度减半，需要传递实际的 K_effective 给 CUDA
+        is_fp4 = dtype.lower() in ("fp4e2m1", "fp4")
+        K_effective = K // 2 if is_fp4 else K
+        
         for M in effective_m_list:
             # 切片
             A_slice = A_transposed[:, :M]
             
             out = search_single_nk(
-                lib, N, K, M,
+                lib, N, K_effective, M,  # FP4 传 K/2，其他传 K
                 W_pruned, A_slice,
                 dtype,
                 warmup, repeat, topk,

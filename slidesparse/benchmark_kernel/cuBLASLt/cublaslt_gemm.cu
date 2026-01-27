@@ -130,7 +130,9 @@ static cudaDataType to_cuda_output_dtype(const char* dtype) {
   if (std::strcmp(dtype, "int8") == 0) return CUDA_R_32I;  // INT8 → INT32
   if (std::strcmp(dtype, "fp8e4m3") == 0 || std::strcmp(dtype, "fp8") == 0) return CUDA_R_16BF;  // FP8 → BF16
 #if CUDART_VERSION >= 12050
-  if (std::strcmp(dtype, "fp4e2m1") == 0 || std::strcmp(dtype, "fp4") == 0) return CUDA_R_16BF;  // FP4 → BF16
+  // FP4 输出为 BF16，因为 FP4 输出需要额外的 D_SCALE 配置
+  // 文档 Table 4 第一行: AType=FP4, BType=FP4, CType=BF16, DType=BF16
+  if (std::strcmp(dtype, "fp4e2m1") == 0 || std::strcmp(dtype, "fp4") == 0) return CUDA_R_16BF;
 #endif
   return CUDA_R_16BF;  // 默认 BF16
 }
@@ -303,6 +305,37 @@ int cublaslt_search_single_m(
       return -1;
     }
     if (topk <= 0) topk = 3;
+    
+    // ========================================================================
+    // 维度检查 - 根据 cuBLASLt 官方文档要求
+    // ========================================================================
+    // 对于所有类型，cuBLASLt 对维度有一定对齐要求
+    // FP4/FP8/INT8: 通常需要更严格的对齐 (16 或 32)
+    // FP16/BF16:    8 的倍数
+    // ========================================================================
+    bool is_fp4 = (std::strcmp(dtype, "fp4e2m1") == 0 || std::strcmp(dtype, "fp4") == 0);
+    bool is_8bit = (std::strcmp(dtype, "int8") == 0 || std::strcmp(dtype, "fp8e4m3") == 0 || 
+                   std::strcmp(dtype, "fp8") == 0 || is_fp4);
+    
+    int align_req = is_8bit ? 16 : 8;  // 基本对齐要求
+    
+    // FP4 特殊要求：M 必须是 32 的倍数（与 cuSPARSELt 类似）
+    if (is_fp4 && M % 32 != 0) {
+        std::fprintf(stderr, "[cuBLASLt WARN] Skipping: FP4 requires M=%lld to be a multiple of 32\n",
+                (long long)M);
+        if (out_num_valid) *out_num_valid = 0;
+        if (out_alg_count) *out_alg_count = 0;
+        return 0;  // 返回成功但无结果
+    }
+    
+    // FP4 特殊要求：K 必须是 32 的倍数
+    if (is_fp4 && K % 32 != 0) {
+        std::fprintf(stderr, "[cuBLASLt WARN] Skipping: FP4 requires K=%lld to be a multiple of 32\n",
+                (long long)K);
+        if (out_num_valid) *out_num_valid = 0;
+        if (out_alg_count) *out_alg_count = 0;
+        return 0;
+    }
 
     // 获取数据类型配置
     cudaDataType type_AB = to_cuda_input_dtype(dtype);
@@ -330,15 +363,57 @@ int cublaslt_search_single_m(
     int64_t lda = K;
 
     // R[N,M] 存储维度 (列主序)
+    // FP4 输出为 BF16，不需要打包
     int64_t num_R_rows = N;
     int64_t num_R_cols = M;
-    int64_t ldr = N;
+    int64_t ldr = num_R_rows;
 
     // 创建矩阵乘法描述符
     cublasLtMatmulDesc_t matmulDesc = nullptr;
     CHECK_CUBLASLT(cublasLtMatmulDescCreate(&matmulDesc, comp_type, scale_type));
     CHECK_CUBLASLT(cublasLtMatmulDescSetAttribute(matmulDesc, CUBLASLT_MATMUL_DESC_TRANSA, &opW, sizeof(opW)));
     CHECK_CUBLASLT(cublasLtMatmulDescSetAttribute(matmulDesc, CUBLASLT_MATMUL_DESC_TRANSB, &opA, sizeof(opA)));
+
+    // === FP4 Block Scale 配置 ===
+    // FP4 需要 16-element 1D block scaling (CUBLASLT_MATMUL_MATRIX_SCALE_VEC16_UE4M3)
+    // Scale 张量类型为 UE4M3 (无符号 E4M3)，每 16 个元素一个 scale
+    void* scale_A_ptr = nullptr;
+    void* scale_B_ptr = nullptr;
+    int64_t scale_A_size = 0;
+    int64_t scale_B_size = 0;
+
+#if CUDART_VERSION >= 12050
+    if (is_fp4) {
+        // 设置 16-element 1D block scaling mode
+        cublasLtMatmulMatrixScale_t scaleMode = CUBLASLT_MATMUL_MATRIX_SCALE_VEC16_UE4M3;
+        CHECK_CUBLASLT(cublasLtMatmulDescSetAttribute(
+            matmulDesc, CUBLASLT_MATMUL_DESC_A_SCALE_MODE, &scaleMode, sizeof(scaleMode)));
+        CHECK_CUBLASLT(cublasLtMatmulDescSetAttribute(
+            matmulDesc, CUBLASLT_MATMUL_DESC_B_SCALE_MODE, &scaleMode, sizeof(scaleMode)));
+        
+        // 分配 scale 张量 (UE4M3 类型 = 1 字节，每 16 个元素一个 scale)
+        // W (matA, 转置后 [N, K]): scale 大小 = N * ceil(K/16)
+        // A (matB, [K, M]):        scale 大小 = M * ceil(K/16)
+        int64_t K_blocks = (K + 15) / 16;
+        scale_A_size = N * K_blocks;  // For W (作为 A 矩阵)
+        scale_B_size = M * K_blocks;  // For A (作为 B 矩阵)
+        
+        CHECK_CUDA(cudaMalloc(&scale_A_ptr, scale_A_size * sizeof(uint8_t)));
+        CHECK_CUDA(cudaMalloc(&scale_B_ptr, scale_B_size * sizeof(uint8_t)));
+        
+        // 初始化 scale 为中性值
+        // UE4M3 格式: 无符号 E4M3，值 1.0 的编码约为 0x38 (exp=7-bias=7=0, mant=0)
+        // 实际上对于 benchmark，我们用常数填充，让 cuBLASLt 自行处理
+        CHECK_CUDA(cudaMemset(scale_A_ptr, 0x38, scale_A_size * sizeof(uint8_t)));
+        CHECK_CUDA(cudaMemset(scale_B_ptr, 0x38, scale_B_size * sizeof(uint8_t)));
+        
+        // 设置 scale 指针
+        CHECK_CUBLASLT(cublasLtMatmulDescSetAttribute(
+            matmulDesc, CUBLASLT_MATMUL_DESC_A_SCALE_POINTER, &scale_A_ptr, sizeof(void*)));
+        CHECK_CUBLASLT(cublasLtMatmulDescSetAttribute(
+            matmulDesc, CUBLASLT_MATMUL_DESC_B_SCALE_POINTER, &scale_B_ptr, sizeof(void*)));
+    }
+#endif
 
     // 创建矩阵布局描述符
     cublasLtMatrixLayout_t layoutW = nullptr, layoutA = nullptr, layoutR = nullptr;
@@ -381,6 +456,10 @@ int cublaslt_search_single_m(
       cublasLtMatrixLayoutDestroy(layoutA);
       cublasLtMatrixLayoutDestroy(layoutR);
       cublasLtMatmulDescDestroy(matmulDesc);
+      
+      // 释放 FP4 scale 张量
+      if (scale_A_ptr) cudaFree(scale_A_ptr);
+      if (scale_B_ptr) cudaFree(scale_B_ptr);
       
       if (out_num_valid) *out_num_valid = 0;
       return 0;
@@ -479,6 +558,10 @@ int cublaslt_search_single_m(
 
     // 释放 workspace
     if (workspace) cudaFree(workspace);
+
+    // 释放 FP4 scale 张量
+    if (scale_A_ptr) cudaFree(scale_A_ptr);
+    if (scale_B_ptr) cudaFree(scale_B_ptr);
 
     // 排序并填充输出
     std::sort(records.begin(), records.end(),
