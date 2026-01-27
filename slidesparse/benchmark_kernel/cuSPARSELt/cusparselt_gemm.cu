@@ -161,29 +161,70 @@ static DtypeInfo get_dtype_info(const char* dtype) {
     return {{}, 0, 0, false};
 }
 
-// 输出类型 - 根据 cuSPARSELt 硬件限制设置
+// =============================================================================
+// 输出类型配置 - 低精度输出策略
+// =============================================================================
+// 根据 cuSPARSELt 官方文档 cusparseLtMatmul() 支持的数据类型表：
 // - FP16/BF16: 输出与输入相同
-// - INT8: 输出 BF16 (cuSPARSELt 支持 INT8 → BF16)
-// - FP8: 输出 BF16
+// - INT8: 低精度输出 INT8 (需要 D_OUT_SCALE)
+// - FP8: 低精度输出 FP8 E4M3 (需要 D_OUT_SCALE)
 // - FP4: 输出 BF16
+// =============================================================================
+
+// D 矩阵输出类型
 static cudaDataType_t get_out_dtype(const char* dtype) {
     if (strcmp(dtype, "fp16") == 0) return CUDA_R_16F;
     if (strcmp(dtype, "bf16") == 0) return CUDA_R_16BF;
-    if (strcmp(dtype, "int8") == 0) return CUDA_R_16BF;  // INT8 → BF16
-    if (strcmp(dtype, "fp8e4m3") == 0 || strcmp(dtype, "fp8") == 0) return CUDA_R_16BF;
+    if (strcmp(dtype, "int8") == 0) return CUDA_R_8I;    // INT8 低精度输出
+    if (strcmp(dtype, "fp8e4m3") == 0 || strcmp(dtype, "fp8") == 0) return CUDA_R_8F_E4M3;  // FP8 低精度输出
 #if CUDART_VERSION >= 12050
-    if (strcmp(dtype, "fp4e2m1") == 0 || strcmp(dtype, "fp4") == 0) return CUDA_R_16BF;
+    if (strcmp(dtype, "fp4e2m1") == 0 || strcmp(dtype, "fp4") == 0) return CUDA_R_16BF;  // FP4 输出 BF16 (保持高精度)
 #endif
     return CUDA_R_16BF;  // 默认 BF16
+}
+
+// C 矩阵类型 - 根据 cuSPARSELt 表格强制要求
+// - INT8 输出 → C 必须是 INT8
+// - FP8 输出 → C 必须是 FP16 或 BF16
+// - FP4 输出 → C 必须是 FP16 或 BF16
+static cudaDataType_t get_c_dtype(const char* dtype) {
+    if (strcmp(dtype, "fp16") == 0) return CUDA_R_16F;
+    if (strcmp(dtype, "bf16") == 0) return CUDA_R_16BF;
+    if (strcmp(dtype, "int8") == 0) return CUDA_R_8I;    // INT8 输出要求 C=INT8
+    if (strcmp(dtype, "fp8e4m3") == 0 || strcmp(dtype, "fp8") == 0) return CUDA_R_16BF;  // FP8 输出要求 C=BF16
+#if CUDART_VERSION >= 12050
+    if (strcmp(dtype, "fp4e2m1") == 0 || strcmp(dtype, "fp4") == 0) return CUDA_R_16BF;  // FP4 输出要求 C=BF16
+#endif
+    return CUDA_R_16BF;  // 默认 BF16
+}
+
+// C 矩阵元素大小
+static int get_c_dtype_size(const char* dtype) {
+    if (strcmp(dtype, "fp16") == 0) return 2;
+    if (strcmp(dtype, "bf16") == 0) return 2;
+    if (strcmp(dtype, "int8") == 0) return 1;  // INT8 = 1 byte
+    if (strcmp(dtype, "fp8e4m3") == 0 || strcmp(dtype, "fp8") == 0) return 2;  // C=BF16
+#if CUDART_VERSION >= 12050
+    if (strcmp(dtype, "fp4e2m1") == 0 || strcmp(dtype, "fp4") == 0) return 2;  // C=BF16
+#endif
+    return 2;  // 默认 BF16 = 2 bytes
+}
+
+// 检查是否需要输出 Scale（低精度输出必须设置）
+static bool needs_output_scale(const char* dtype) {
+    if (strcmp(dtype, "int8") == 0) return true;
+    if (strcmp(dtype, "fp8e4m3") == 0 || strcmp(dtype, "fp8") == 0) return true;
+    // FP4 输出 BF16，不需要 output scale
+    return false;
 }
 
 static int get_out_dtype_size(const char* dtype) {
     if (strcmp(dtype, "fp16") == 0) return 2;
     if (strcmp(dtype, "bf16") == 0) return 2;
-    if (strcmp(dtype, "int8") == 0) return 2;  // BF16 输出
-    if (strcmp(dtype, "fp8e4m3") == 0 || strcmp(dtype, "fp8") == 0) return 2;  // BF16 输出
+    if (strcmp(dtype, "int8") == 0) return 1;  // INT8 低精度输出 = 1 byte
+    if (strcmp(dtype, "fp8e4m3") == 0 || strcmp(dtype, "fp8") == 0) return 1;  // FP8 低精度输出 = 1 byte
 #if CUDART_VERSION >= 12050
-    if (strcmp(dtype, "fp4e2m1") == 0 || strcmp(dtype, "fp4") == 0) return 2;  // BF16 输出
+    if (strcmp(dtype, "fp4e2m1") == 0 || strcmp(dtype, "fp4") == 0) return 2;  // FP4 输出 BF16 = 2 bytes
 #endif
     return 2;  // 默认 BF16 = 2 bytes
 }
@@ -314,7 +355,8 @@ int cusparselt_prune_24(
     int64_t dummy_M = 32;
     cusparseOrder_t order = CUSPARSE_ORDER_COL;
     cusparseComputeType compute_type = get_compute_type(dtype);
-    cudaDataType_t out_dtype = get_out_dtype(dtype);  // 获取正确的输出类型
+    cudaDataType_t c_dtype = get_c_dtype(dtype);    // C 矩阵类型（按表格要求）
+    cudaDataType_t d_dtype = get_out_dtype(dtype);  // D 矩阵输出类型
     
     // W (稀疏, structured) - [rows, cols] = [K, N]
     cusparseLtMatDescriptor_t matW;
@@ -331,19 +373,26 @@ int cusparselt_prune_24(
         rows, dummy_M, rows,
         16, info.cuda_type, order));
     
-    // R (dense) - [N, M] - 使用正确的输出类型
-    cusparseLtMatDescriptor_t matR;
+    // C (dense) - [N, M] - 按表格要求的类型
+    cusparseLtMatDescriptor_t matC;
     CHECK_CUSPARSELT(cusparseLtDenseDescriptorInit(
-        &g_handle, &matR,
+        &g_handle, &matC,
         cols, dummy_M, cols,
-        16, out_dtype, order));  // 使用输出类型而不是输入类型
+        16, c_dtype, order));
     
-    // 创建 matmul 描述符
+    // D (dense) - [N, M] - 输出类型
+    cusparseLtMatDescriptor_t matD;
+    CHECK_CUSPARSELT(cusparseLtDenseDescriptorInit(
+        &g_handle, &matD,
+        cols, dummy_M, cols,
+        16, d_dtype, order));
+    
+    // 创建 matmul 描述符 - 分开传入 matC 和 matD
     cusparseLtMatmulDescriptor_t matmul;
     CHECK_CUSPARSELT(cusparseLtMatmulDescriptorInit(
         &g_handle, &matmul,
         CUSPARSE_OPERATION_TRANSPOSE, CUSPARSE_OPERATION_NON_TRANSPOSE,
-        &matW, &matA, &matR, &matR,
+        &matW, &matA, &matC, &matD,
         compute_type));
     
     // ========================================================================
@@ -374,7 +423,8 @@ int cusparselt_prune_24(
         set_error(buf);
         cusparseLtMatDescriptorDestroy(&matW);
         cusparseLtMatDescriptorDestroy(&matA);
-        cusparseLtMatDescriptorDestroy(&matR);
+        cusparseLtMatDescriptorDestroy(&matC);
+        cusparseLtMatDescriptorDestroy(&matD);
         return -1;
     }
     
@@ -401,7 +451,8 @@ int cusparselt_prune_24(
     // 清理描述符
     cusparseLtMatDescriptorDestroy(&matW);
     cusparseLtMatDescriptorDestroy(&matA);
-    cusparseLtMatDescriptorDestroy(&matR);
+    cusparseLtMatDescriptorDestroy(&matC);
+    cusparseLtMatDescriptorDestroy(&matD);
     
     if (check_status != CUSPARSE_STATUS_SUCCESS) {
         // PruneCheck API 调用失败 - 这是一个真正的错误
@@ -416,8 +467,8 @@ int cusparselt_prune_24(
         // 剪枝结果验证失败
         // 根据官方文档，Prune 的结果应该是正确的，所以这里只打印警告
         // 在实际测试中观察是否需要返回错误
-        fprintf(stderr, "[cuSPARSELt WARN] PruneCheck failed for dtype=%s, "
-                "but continuing as Prune result is guaranteed correct per docs\n", dtype);
+        //fprintf(stderr, "[cuSPARSELt WARN] PruneCheck failed for dtype=%s, "
+        //        "but continuing as Prune result is guaranteed correct per docs\n", dtype);
         // 如果需要严格验证，取消下面的注释：
         // char buf[256];
         // snprintf(buf, sizeof(buf), 
@@ -461,10 +512,11 @@ int64_t cusparselt_get_compressed_size(
     int64_t dummy_M = 32;
     cusparseOrder_t order = CUSPARSE_ORDER_COL;
     cusparseComputeType compute_type = get_compute_type(dtype);
-    cudaDataType_t out_dtype = get_out_dtype(dtype);  // 获取正确的输出类型
+    cudaDataType_t c_dtype = get_c_dtype(dtype);    // C 矩阵类型
+    cudaDataType_t d_dtype = get_out_dtype(dtype);  // D 矩阵输出类型
     
     // 创建描述符
-    cusparseLtMatDescriptor_t matW, matA, matR;
+    cusparseLtMatDescriptor_t matW, matA, matC, matD;
     cusparseStatus_t status;
     
     status = cusparseLtStructuredDescriptorInit(
@@ -480,10 +532,19 @@ int64_t cusparselt_get_compressed_size(
     }
     
     status = cusparseLtDenseDescriptorInit(
-        &g_handle, &matR, cols, dummy_M, cols, 16, out_dtype, order);  // 使用输出类型
+        &g_handle, &matC, cols, dummy_M, cols, 16, c_dtype, order);  // C 矩阵类型
     if (status != CUSPARSE_STATUS_SUCCESS) {
         cusparseLtMatDescriptorDestroy(&matW);
         cusparseLtMatDescriptorDestroy(&matA);
+        return -1;
+    }
+    
+    status = cusparseLtDenseDescriptorInit(
+        &g_handle, &matD, cols, dummy_M, cols, 16, d_dtype, order);  // D 矩阵输出类型
+    if (status != CUSPARSE_STATUS_SUCCESS) {
+        cusparseLtMatDescriptorDestroy(&matW);
+        cusparseLtMatDescriptorDestroy(&matA);
+        cusparseLtMatDescriptorDestroy(&matC);
         return -1;
     }
     
@@ -491,11 +552,12 @@ int64_t cusparselt_get_compressed_size(
     status = cusparseLtMatmulDescriptorInit(
         &g_handle, &matmul,
         CUSPARSE_OPERATION_TRANSPOSE, CUSPARSE_OPERATION_NON_TRANSPOSE,
-        &matW, &matA, &matR, &matR, compute_type);
+        &matW, &matA, &matC, &matD, compute_type);  // 分开 matC 和 matD
     if (status != CUSPARSE_STATUS_SUCCESS) {
         cusparseLtMatDescriptorDestroy(&matW);
         cusparseLtMatDescriptorDestroy(&matA);
-        cusparseLtMatDescriptorDestroy(&matR);
+        cusparseLtMatDescriptorDestroy(&matC);
+        cusparseLtMatDescriptorDestroy(&matD);
         return -1;
     }
     
@@ -505,7 +567,8 @@ int64_t cusparselt_get_compressed_size(
     if (status != CUSPARSE_STATUS_SUCCESS) {
         cusparseLtMatDescriptorDestroy(&matW);
         cusparseLtMatDescriptorDestroy(&matA);
-        cusparseLtMatDescriptorDestroy(&matR);
+        cusparseLtMatDescriptorDestroy(&matC);
+        cusparseLtMatDescriptorDestroy(&matD);
         return -1;
     }
     
@@ -515,7 +578,8 @@ int64_t cusparselt_get_compressed_size(
         cusparseLtMatmulAlgSelectionDestroy(&alg_sel);
         cusparseLtMatDescriptorDestroy(&matW);
         cusparseLtMatDescriptorDestroy(&matA);
-        cusparseLtMatDescriptorDestroy(&matR);
+        cusparseLtMatDescriptorDestroy(&matC);
+        cusparseLtMatDescriptorDestroy(&matD);
         return -1;
     }
     
@@ -526,7 +590,8 @@ int64_t cusparselt_get_compressed_size(
     cusparseLtMatmulAlgSelectionDestroy(&alg_sel);
     cusparseLtMatDescriptorDestroy(&matW);
     cusparseLtMatDescriptorDestroy(&matA);
-    cusparseLtMatDescriptorDestroy(&matR);
+    cusparseLtMatDescriptorDestroy(&matC);
+    cusparseLtMatDescriptorDestroy(&matD);
     
     return (status == CUSPARSE_STATUS_SUCCESS) ? (int64_t)compressed_size : -1;
 }
@@ -570,10 +635,11 @@ int64_t cusparselt_compress(
     int64_t dummy_M = 32;
     cusparseOrder_t order = CUSPARSE_ORDER_COL;
     cusparseComputeType compute_type = get_compute_type(dtype);
-    cudaDataType_t out_dtype = get_out_dtype(dtype);  // 获取正确的输出类型
+    cudaDataType_t c_dtype = get_c_dtype(dtype);    // C 矩阵类型
+    cudaDataType_t d_dtype = get_out_dtype(dtype);  // D 矩阵输出类型
     
     // 创建描述符
-    cusparseLtMatDescriptor_t matW, matA, matR;
+    cusparseLtMatDescriptor_t matW, matA, matC, matD;
     cusparseStatus_t status;
     
     status = cusparseLtStructuredDescriptorInit(
@@ -590,11 +656,21 @@ int64_t cusparselt_compress(
     }
     
     status = cusparseLtDenseDescriptorInit(
-        &g_handle, &matR, cols, dummy_M, cols, 16, out_dtype, order);  // 使用输出类型
+        &g_handle, &matC, cols, dummy_M, cols, 16, c_dtype, order);  // C 矩阵类型
     if (status != CUSPARSE_STATUS_SUCCESS) {
         cusparseLtMatDescriptorDestroy(&matW);
         cusparseLtMatDescriptorDestroy(&matA);
-        set_error("Failed to init matR");
+        set_error("Failed to init matC");
+        return -1;
+    }
+    
+    status = cusparseLtDenseDescriptorInit(
+        &g_handle, &matD, cols, dummy_M, cols, 16, d_dtype, order);  // D 矩阵输出类型
+    if (status != CUSPARSE_STATUS_SUCCESS) {
+        cusparseLtMatDescriptorDestroy(&matW);
+        cusparseLtMatDescriptorDestroy(&matA);
+        cusparseLtMatDescriptorDestroy(&matC);
+        set_error("Failed to init matD");
         return -1;
     }
     
@@ -602,11 +678,12 @@ int64_t cusparselt_compress(
     status = cusparseLtMatmulDescriptorInit(
         &g_handle, &matmul,
         CUSPARSE_OPERATION_TRANSPOSE, CUSPARSE_OPERATION_NON_TRANSPOSE,
-        &matW, &matA, &matR, &matR, compute_type);
+        &matW, &matA, &matC, &matD, compute_type);  // 分开 matC 和 matD
     if (status != CUSPARSE_STATUS_SUCCESS) {
         cusparseLtMatDescriptorDestroy(&matW);
         cusparseLtMatDescriptorDestroy(&matA);
-        cusparseLtMatDescriptorDestroy(&matR);
+        cusparseLtMatDescriptorDestroy(&matC);
+        cusparseLtMatDescriptorDestroy(&matD);
         set_error("Failed to init matmul");
         return -1;
     }
@@ -617,7 +694,8 @@ int64_t cusparselt_compress(
     if (status != CUSPARSE_STATUS_SUCCESS) {
         cusparseLtMatDescriptorDestroy(&matW);
         cusparseLtMatDescriptorDestroy(&matA);
-        cusparseLtMatDescriptorDestroy(&matR);
+        cusparseLtMatDescriptorDestroy(&matC);
+        cusparseLtMatDescriptorDestroy(&matD);
         set_error("Failed to init alg_sel");
         return -1;
     }
@@ -628,7 +706,8 @@ int64_t cusparselt_compress(
         cusparseLtMatmulAlgSelectionDestroy(&alg_sel);
         cusparseLtMatDescriptorDestroy(&matW);
         cusparseLtMatDescriptorDestroy(&matA);
-        cusparseLtMatDescriptorDestroy(&matR);
+        cusparseLtMatDescriptorDestroy(&matC);
+        cusparseLtMatDescriptorDestroy(&matD);
         set_error("Failed to init plan");
         return -1;
     }
@@ -641,7 +720,8 @@ int64_t cusparselt_compress(
         cusparseLtMatmulAlgSelectionDestroy(&alg_sel);
         cusparseLtMatDescriptorDestroy(&matW);
         cusparseLtMatDescriptorDestroy(&matA);
-        cusparseLtMatDescriptorDestroy(&matR);
+        cusparseLtMatDescriptorDestroy(&matC);
+        cusparseLtMatDescriptorDestroy(&matD);
         set_error("Failed to get compressed size");
         return -1;
     }
@@ -655,7 +735,8 @@ int64_t cusparselt_compress(
             cusparseLtMatmulAlgSelectionDestroy(&alg_sel);
             cusparseLtMatDescriptorDestroy(&matW);
             cusparseLtMatDescriptorDestroy(&matA);
-            cusparseLtMatDescriptorDestroy(&matR);
+            cusparseLtMatDescriptorDestroy(&matC);
+            cusparseLtMatDescriptorDestroy(&matD);
             set_error("Failed to allocate compress buffer");
             return -1;
         }
@@ -669,7 +750,8 @@ int64_t cusparselt_compress(
     cusparseLtMatmulAlgSelectionDestroy(&alg_sel);
     cusparseLtMatDescriptorDestroy(&matW);
     cusparseLtMatDescriptorDestroy(&matA);
-    cusparseLtMatDescriptorDestroy(&matR);
+    cusparseLtMatDescriptorDestroy(&matC);
+    cusparseLtMatDescriptorDestroy(&matD);
     
     if (status != CUSPARSE_STATUS_SUCCESS) {
         set_error("cusparseLtSpMMACompress failed");
@@ -781,8 +863,10 @@ int cusparselt_search_single_m(
     }
     
     cudaStream_t cu_stream = stream ? (cudaStream_t)stream : nullptr;
-    cudaDataType_t out_type = get_out_dtype(dtype);
+    cudaDataType_t c_type = get_c_dtype(dtype);    // C 矩阵类型（按表格要求）
+    cudaDataType_t d_type = get_out_dtype(dtype);  // D 矩阵输出类型
     cusparseComputeType compute_type = get_compute_type(dtype);
+    bool need_output_scale = needs_output_scale(dtype);  // 低精度输出需要 Scale
     
     // 初始化输出
     *out_num_valid = 0;
@@ -809,7 +893,7 @@ int cusparselt_search_single_m(
     // 创建基础矩阵描述符
     cusparseOrder_t order = CUSPARSE_ORDER_COL;
     
-    cusparseLtMatDescriptor_t matW, matA, matR;
+    cusparseLtMatDescriptor_t matW, matA, matC, matD;
     
     // W (稀疏, structured) - 存储为 [K, N], 转置后为 [N, K]
     CHECK_CUSPARSELT(cusparseLtStructuredDescriptorInit(
@@ -824,41 +908,125 @@ int cusparselt_search_single_m(
         K, M, K,
         16, info.cuda_type, order));
     
-    // R (dense) - [N, M]
+    // C (dense) - [N, M] - 按表格要求的类型
     CHECK_CUSPARSELT(cusparseLtDenseDescriptorInit(
-        &g_handle, &matR,
+        &g_handle, &matC,
         N, M, N,
-        16, out_type, order));
+        16, c_type, order));
     
-    // 创建 matmul 描述符
+    // D (dense) - [N, M] - 输出类型
+    CHECK_CUSPARSELT(cusparseLtDenseDescriptorInit(
+        &g_handle, &matD,
+        N, M, N,
+        16, d_type, order));
+    
+    // 创建 matmul 描述符 - 分开传入 matC 和 matD
     cusparseLtMatmulDescriptor_t matmul;
     CHECK_CUSPARSELT(cusparseLtMatmulDescriptorInit(
         &g_handle, &matmul,
         CUSPARSE_OPERATION_TRANSPOSE, CUSPARSE_OPERATION_NON_TRANSPOSE,
-        &matW, &matA, &matR, &matR,
+        &matW, &matA, &matC, &matD,
         compute_type));
     
     // ========================================================================
-    // FP4 Block Scale 配置
+    // 低精度输出 Scale 配置
+    // ========================================================================
+    // 【关键】低精度输出 (INT8/FP8/FP4) 必须设置 D_OUT_SCALE，不能“裸奔”！
+    // - 即使我们想要 "scale=1.0"，也必须显式设置
+    // - D_OUT_SCALE_MODE = SCALAR_32F
+    // - D_OUT_SCALE_POINTER = device 上的 1.0f
+    // ========================================================================
+    void* d_out_scale_ptr = nullptr;
+    
+    // FP4 输入 scale 指针
+    void* scale_A_ptr = nullptr;
+    void* scale_B_ptr = nullptr;
+    int64_t scale_A_size = 0;
+    int64_t scale_B_size = 0;
+    
+    if (need_output_scale) {
+        if (is_fp4) {
+            // ============================================================
+            // FP4 输出: 必须使用 Block Scale (VEC32_UE4M3)
+            // D matrix is [N, M] col-major, Block Scale size = M * ceil(N/32)
+            // FP4 动态范围极窄，cuSPARSELt kernel 强制写 Block Scale 数据！
+            // ============================================================
+            int64_t N_blocks = (N + 31) / 32;
+            int64_t d_out_scale_size = M * N_blocks;  // 单位: bytes (UE4M3 每个 1 字节)
+            
+            cudaError_t alloc_err = cudaMalloc(&d_out_scale_ptr, d_out_scale_size);
+            if (alloc_err != cudaSuccess) {
+                fprintf(stderr, "[cuSPARSELt WARN] Failed to allocate d_out_scale for FP4 (size=%ld)\n", (long)d_out_scale_size);
+                cusparseLtMatDescriptorDestroy(&matW);
+                cusparseLtMatDescriptorDestroy(&matA);
+                cusparseLtMatDescriptorDestroy(&matC);
+                cusparseLtMatDescriptorDestroy(&matD);
+                return -1;
+            }
+            // 初始化为中性值 (UE4M3 格式 1.0 ≈ 0x38)
+            cudaMemset(d_out_scale_ptr, 0x38, d_out_scale_size);
+            
+            // 设置 D_OUT_SCALE_MODE = VEC32_UE4M3 (Block Scale)
+            cusparseLtMatmulMatrixScale_t d_scale_mode = CUSPARSELT_MATMUL_MATRIX_SCALE_VEC32_UE4M3;
+            cusparseStatus_t scale_st = cusparseLtMatmulDescSetAttribute(
+                &g_handle, &matmul, CUSPARSELT_MATMUL_D_OUT_SCALE_MODE,
+                &d_scale_mode, sizeof(d_scale_mode));
+            if (scale_st != CUSPARSE_STATUS_SUCCESS) {
+                fprintf(stderr, "[cuSPARSELt WARN] Failed to set D_OUT_SCALE_MODE (VEC32_UE4M3) for FP4: %d\n", (int)scale_st);
+            }
+            
+            // 设置 D_OUT_SCALE_POINTER
+            scale_st = cusparseLtMatmulDescSetAttribute(
+                &g_handle, &matmul, CUSPARSELT_MATMUL_D_OUT_SCALE_POINTER,
+                &d_out_scale_ptr, sizeof(void*));
+            if (scale_st != CUSPARSE_STATUS_SUCCESS) {
+                fprintf(stderr, "[cuSPARSELt WARN] Failed to set D_OUT_SCALE_POINTER for FP4: %d\n", (int)scale_st);
+            }
+        } else {
+            // ============================================================
+            // INT8/FP8 输出: 使用 Scalar Scale (SCALAR_32F)
+            // ============================================================
+            cudaError_t alloc_err = cudaMalloc(&d_out_scale_ptr, sizeof(float));
+            if (alloc_err != cudaSuccess) {
+                fprintf(stderr, "[cuSPARSELt WARN] Failed to allocate d_out_scale\n");
+                cusparseLtMatDescriptorDestroy(&matW);
+                cusparseLtMatDescriptorDestroy(&matA);
+                cusparseLtMatDescriptorDestroy(&matC);
+                cusparseLtMatDescriptorDestroy(&matD);
+                return -1;
+            }
+            float scale_val = 1.0f;
+            cudaMemcpy(d_out_scale_ptr, &scale_val, sizeof(float), cudaMemcpyHostToDevice);
+            
+            // 设置 D_OUT_SCALE_MODE = SCALAR_32F
+            cusparseLtMatmulMatrixScale_t d_scale_mode = CUSPARSELT_MATMUL_MATRIX_SCALE_SCALAR_32F;
+            cusparseStatus_t scale_st = cusparseLtMatmulDescSetAttribute(
+                &g_handle, &matmul, CUSPARSELT_MATMUL_D_OUT_SCALE_MODE,
+                &d_scale_mode, sizeof(d_scale_mode));
+            if (scale_st != CUSPARSE_STATUS_SUCCESS) {
+                fprintf(stderr, "[cuSPARSELt WARN] Failed to set D_OUT_SCALE_MODE: %d\n", (int)scale_st);
+            }
+            
+            // 设置 D_OUT_SCALE_POINTER
+            scale_st = cusparseLtMatmulDescSetAttribute(
+                &g_handle, &matmul, CUSPARSELT_MATMUL_D_OUT_SCALE_POINTER,
+                &d_out_scale_ptr, sizeof(void*));
+            if (scale_st != CUSPARSE_STATUS_SUCCESS) {
+                fprintf(stderr, "[cuSPARSELt WARN] Failed to set D_OUT_SCALE_POINTER: %d\n", (int)scale_st);
+            }
+        }
+    }
+    
+#if CUDART_VERSION >= 12050
+    // ========================================================================
+    // FP4 Block Scale 配置 (输入端)
     // ========================================================================
     // FP4 (E2M1) 需要 block scaling，根据官方文档：
     // - CUSPARSELT_MATMUL_MATRIX_SCALE_VEC32_UE4M3: 128x128 block (每 32 元素一个 scale)
     // - scale 类型为 UE4M3 (无符号 E4M3)
-    // 
-    // 注意：这与 cuBLASLt 的 16-element block 不同！
-    // cuSPARSELt 的 block size 更大
     // ========================================================================
-    void* scale_A_ptr = nullptr;
-    void* scale_B_ptr = nullptr;
-    void* scale_D_ptr = nullptr;
-    int64_t scale_A_size = 0;
-    int64_t scale_B_size = 0;
-    int64_t scale_D_size = 0;
-    
-#if CUDART_VERSION >= 12050
     if (is_fp4) {
         // 设置 VEC32_UE4M3 block scaling mode (每 32 元素一个 UE4M3 scale)
-        // 根据官方文档，cuSPARSELt 使用 128x128 block for VEC32_UE4M3
         cusparseLtMatmulMatrixScale_t scale_mode = CUSPARSELT_MATMUL_MATRIX_SCALE_VEC32_UE4M3;
         
         cusparseStatus_t scale_st;
@@ -876,22 +1044,12 @@ int cusparselt_search_single_m(
             fprintf(stderr, "[cuSPARSELt WARN] Failed to set B_SCALE_MODE for FP4: %d\n", (int)scale_st);
         }
         
-        // D_SCALE_MODE 设置为 SCALAR_32F（标量 scale，用于输出反量化）
-        cusparseLtMatmulMatrixScale_t d_scale_mode = CUSPARSELT_MATMUL_MATRIX_SCALE_SCALAR_32F;
-        scale_st = cusparseLtMatmulDescSetAttribute(
-            &g_handle, &matmul, CUSPARSELT_MATMUL_D_SCALE_MODE, 
-            &d_scale_mode, sizeof(d_scale_mode));
-        if (scale_st != CUSPARSE_STATUS_SUCCESS) {
-            fprintf(stderr, "[cuSPARSELt WARN] Failed to set D_SCALE_MODE for FP4: %d\n", (int)scale_st);
-        }
-        
-        // 分配 scale 张量
-        // W (matA, 转置前 [K, N], 转置后作为 A [N, K]): scale 大小 = N * ceil(K/32)
+        // 分配输入 scale 张量
+        // W (matA, 转置前 [K, N]): scale 大小 = N * ceil(K/32)
         // A (matB, [K, M]):        scale 大小 = M * ceil(K/32)
         int64_t K_blocks = (K + 31) / 32;
         scale_A_size = N * K_blocks;  // For W (structured sparse)
         scale_B_size = M * K_blocks;  // For A (dense)
-        scale_D_size = 1;             // Scalar scale for D
         
         cudaError_t alloc_err;
         alloc_err = cudaMalloc(&scale_A_ptr, scale_A_size * sizeof(uint8_t));
@@ -904,20 +1062,11 @@ int cusparselt_search_single_m(
             fprintf(stderr, "[cuSPARSELt WARN] Failed to allocate scale_B for FP4\n");
             scale_B_ptr = nullptr;
         }
-        alloc_err = cudaMalloc(&scale_D_ptr, scale_D_size * sizeof(float));
-        if (alloc_err != cudaSuccess) {
-            fprintf(stderr, "[cuSPARSELt WARN] Failed to allocate scale_D for FP4\n");
-            scale_D_ptr = nullptr;
-        }
         
         // 初始化 scale 为中性值
         // UE4M3 格式: 无符号 E4M3，值 1.0 的编码约为 0x38
         if (scale_A_ptr) cudaMemset(scale_A_ptr, 0x38, scale_A_size * sizeof(uint8_t));
         if (scale_B_ptr) cudaMemset(scale_B_ptr, 0x38, scale_B_size * sizeof(uint8_t));
-        if (scale_D_ptr) {
-            float d_scale_val = 1.0f;
-            cudaMemcpy(scale_D_ptr, &d_scale_val, sizeof(float), cudaMemcpyHostToDevice);
-        }
         
         // 设置 scale 指针
         if (scale_A_ptr) {
@@ -929,11 +1078,6 @@ int cusparselt_search_single_m(
             cusparseLtMatmulDescSetAttribute(
                 &g_handle, &matmul, CUSPARSELT_MATMUL_B_SCALE_POINTER, 
                 &scale_B_ptr, sizeof(void*));
-        }
-        if (scale_D_ptr) {
-            cusparseLtMatmulDescSetAttribute(
-                &g_handle, &matmul, CUSPARSELT_MATMUL_D_SCALE_POINTER, 
-                &scale_D_ptr, sizeof(void*));
         }
     }
 #endif
@@ -955,17 +1099,36 @@ int cusparselt_search_single_m(
     if (attr_status != CUSPARSE_STATUS_SUCCESS || max_alg_id <= 0) {
         cusparseLtMatDescriptorDestroy(&matW);
         cusparseLtMatDescriptorDestroy(&matA);
-        cusparseLtMatDescriptorDestroy(&matR);
+        cusparseLtMatDescriptorDestroy(&matC);
+        cusparseLtMatDescriptorDestroy(&matD);
+        if (d_out_scale_ptr) cudaFree(d_out_scale_ptr);
+        if (scale_A_ptr) cudaFree(scale_A_ptr);
+        if (scale_B_ptr) cudaFree(scale_B_ptr);
         set_error("Failed to get max algorithm ID");
         return -1;
     }
     
     *out_alg_count = max_alg_id;
     
-    // 共享 workspace
+    // 共享 workspace - 显式处理分配失败以正确清理资源
     void* shared_workspace = nullptr;
     size_t current_workspace_size = MAX_WORKSPACE_SIZE;
-    CHECK_CUDA(cudaMalloc(&shared_workspace, current_workspace_size));
+    {
+        cudaError_t ws_alloc_err = cudaMalloc(&shared_workspace, current_workspace_size);
+        if (ws_alloc_err != cudaSuccess) {
+            cusparseLtMatDescriptorDestroy(&matW);
+            cusparseLtMatDescriptorDestroy(&matA);
+            cusparseLtMatDescriptorDestroy(&matC);
+            cusparseLtMatDescriptorDestroy(&matD);
+            if (d_out_scale_ptr) cudaFree(d_out_scale_ptr);
+            if (scale_A_ptr) cudaFree(scale_A_ptr);
+            if (scale_B_ptr) cudaFree(scale_B_ptr);
+            char buf[512];
+            snprintf(buf, sizeof(buf), "Failed to allocate shared workspace (%zu bytes)", current_workspace_size);
+            set_error(buf);
+            return -1;
+        }
+    }
     
     // 收集所有有效结果
     std::vector<AlgRecord> records;
@@ -1330,12 +1493,15 @@ int cusparselt_search_single_m(
     cudaFree(shared_workspace);
     cusparseLtMatDescriptorDestroy(&matW);
     cusparseLtMatDescriptorDestroy(&matA);
-    cusparseLtMatDescriptorDestroy(&matR);
+    cusparseLtMatDescriptorDestroy(&matC);
+    cusparseLtMatDescriptorDestroy(&matD);
     
-    // 释放 FP4 scale 张量
+    // 释放低精度输出 scale
+    if (d_out_scale_ptr) cudaFree(d_out_scale_ptr);
+    
+    // 释放 FP4 输入 scale 张量
     if (scale_A_ptr) cudaFree(scale_A_ptr);
     if (scale_B_ptr) cudaFree(scale_B_ptr);
-    if (scale_D_ptr) cudaFree(scale_D_ptr);
     
     return 0;
 }

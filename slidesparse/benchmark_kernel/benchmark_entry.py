@@ -45,7 +45,7 @@ python benchmark_entry.py --model Qwen2.5-0.5B --dtype fp8e4m3 --Lmax 8
 # 等效于 --sparsity 2_4,2_6,2_8,2_inf
 
 # Square 模式 (不指定 --model)
-python benchmark_entry.py --dtype int8 --Lmax 10
+python benchmark_entry.py --dtype all -- --Lmax 10
 
 # 测试所有 dtype（使用默认 sparsity=2_4）
 python benchmark_entry.py --model square --dtype all
@@ -55,6 +55,10 @@ python benchmark_entry.py --model Llama3.2-1B --dtype fp8e4m3 --sparsity 2_4,2_8
 
 # 只测试 cuBLASLt (无需 sparsity)
 python benchmark_entry.py --model Llama3.2-1B --dtype all --backend cublaslt
+
+
+python benchmark_entry.py --model Llama3.2-1B --M-quick --dtype all --backend cusparselt --sparsity 2_4,2_6
+
 """
 
 import argparse
@@ -89,11 +93,13 @@ from slidesparse.benchmark_kernel.utils import (
     calculate_k_slide,
     get_k_expansion_factor,
     pad_to_alignment,
-    get_sparsity_list_for_benchmark,  # 新增：根据 Lmax 生成稀疏度列表
+    get_sparsity_list_for_benchmark,
     # NK 列表
     get_nk_list_for_benchmark,
-    # 文件命名
+    # 文件命名与目录
     build_hw_folder_name,
+    build_dtype_folder_name,
+    build_output_dir,
     build_result_filename,
     # 结果整合
     compute_speedup,
@@ -144,11 +150,11 @@ def run_cublaslt_search(
     print(f"[cuBLASLt] Running: {' '.join(cmd)}")
     result = subprocess.run(cmd)
     
-    # 获取结果文件路径
+    # 获取结果文件路径（新结构：hw_folder/dtype_folder/file）
     if result.returncode == 0:
-        hw_folder = build_hw_folder_name()
-        json_filename = build_result_filename("alg_search", model.upper(), dtype, "json")
-        json_path = out_dir / hw_folder / json_filename
+        result_dir = build_output_dir(out_dir, dtype)
+        json_filename = build_result_filename("alg_search", model.upper(), "json")
+        json_path = result_dir / json_filename
         if json_path.exists():
             return result.returncode, json_path
     
@@ -196,11 +202,11 @@ def run_cusparselt_search(
     print(f"[cuSPARSELt] Running: {' '.join(cmd)}")
     result = subprocess.run(cmd)
     
-    # 获取结果文件路径
+    # 获取结果文件路径（新结构：hw_folder/dtype_folder/file）
     if result.returncode == 0:
-        hw_folder = build_hw_folder_name()
-        json_filename = build_result_filename("alg_search", model.upper(), dtype, "json", sparsity)
-        json_path = out_dir / hw_folder / json_filename
+        result_dir = build_output_dir(out_dir, dtype)
+        json_filename = build_result_filename("alg_search", model.upper(), "json", sparsity)
+        json_path = result_dir / json_filename
         if json_path.exists():
             return result.returncode, json_path
     
@@ -242,7 +248,7 @@ def compute_and_save_speedup(
     out_dir = output_dir / hw_folder
     out_dir.mkdir(parents=True, exist_ok=True)
     
-    csv_filename = build_result_filename("speedup", model_name, dtype, "csv", sparsity)
+    csv_filename = build_result_filename("speedup", model_name, "csv", sparsity)
     csv_path = out_dir / csv_filename
     
     k_factor = get_k_expansion_factor(sparsity)

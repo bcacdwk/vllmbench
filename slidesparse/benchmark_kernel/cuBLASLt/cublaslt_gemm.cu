@@ -150,38 +150,53 @@ static cudaDataType to_cuda_input_dtype(const char* dtype, bool* supported = nul
   return CUDA_R_32F;
 }
 
-// 输出类型 - 根据 cuBLASLt 硬件限制设置
-// - FP16/BF16: 输出与输入相同
-// - INT8: 必须输出 INT32 (cuBLASLt COMPUTE_32I 限制)
-// - FP8: 必须输出 BF16 或 FP32 (cuBLASLt 限制)
-// - FP4: 必须输出 BF16 或 FP32
+// 累加器类型 (C 矩阵)
+// - INT8 + PEDANTIC: CType = INT8
+// - FP8 + FP8 输出: CType = BF16
+// - FP4: CType = BF16（根据 Table 4 CType 列）
+// - FP16/BF16: CType = 与输出相同
+static cudaDataType to_cuda_accumulator_dtype(const char* dtype) {
+  // INT8 + PEDANTIC 模式：C 和 D 都可以是 INT8
+  if (std::strcmp(dtype, "int8") == 0) return CUDA_R_8I;
+  // FP8 输出时，CType 应该是 BF16
+  if (std::strcmp(dtype, "fp8e4m3") == 0 || std::strcmp(dtype, "fp8") == 0) return CUDA_R_16BF;
+  if (std::strcmp(dtype, "fp4e2m1") == 0 || std::strcmp(dtype, "fp4") == 0) return CUDA_R_16BF;  // FP4 累加用 BF16
+  // FP16/BF16: C 和 D 可以相同类型
+  if (std::strcmp(dtype, "fp16") == 0) return CUDA_R_16F;
+  if (std::strcmp(dtype, "bf16") == 0) return CUDA_R_16BF;
+  return CUDA_R_32F;  // 默认 FP32
+}
+
+// 输出类型 (D 矩阵) - 低精度输出，与输入类型相同
+// 这是最终写入显存的类型，实现低 IO 开销
 static cudaDataType to_cuda_output_dtype(const char* dtype) {
   if (std::strcmp(dtype, "fp16") == 0) return CUDA_R_16F;
   if (std::strcmp(dtype, "bf16") == 0) return CUDA_R_16BF;
-  if (std::strcmp(dtype, "int8") == 0) return CUDA_R_32I;  // INT8 → INT32
-  if (std::strcmp(dtype, "fp8e4m3") == 0 || std::strcmp(dtype, "fp8") == 0) return CUDA_R_16BF;  // FP8 → BF16
+  if (std::strcmp(dtype, "int8") == 0) return CUDA_R_8I;      // INT8 → INT8
+  if (std::strcmp(dtype, "fp8e4m3") == 0 || std::strcmp(dtype, "fp8") == 0) return CUDA_R_8F_E4M3;  // FP8 → FP8
 #if CUDART_VERSION >= 12050
-  // FP4 输出为 BF16，因为 FP4 输出需要额外的 D_SCALE 配置
-  // 文档 Table 4 第一行: AType=FP4, BType=FP4, CType=BF16, DType=BF16
-  if (std::strcmp(dtype, "fp4e2m1") == 0 || std::strcmp(dtype, "fp4") == 0) return CUDA_R_16BF;
+  // 暂时测试：FP4 输出改为 BF16，验证其他配置是否正确
+  if (std::strcmp(dtype, "fp4e2m1") == 0 || std::strcmp(dtype, "fp4") == 0) return CUDA_R_16BF;  // FP4 → BF16 (临时)
 #endif
   return CUDA_R_16BF;  // 默认 BF16
 }
 
 // 获取计算类型
+// 注意：INT8 输出需要 PEDANTIC 模式
 static cublasComputeType_t get_compute_type(const char* dtype) {
   if (std::strcmp(dtype, "int8") == 0) {
-    return CUBLAS_COMPUTE_32I;  // INT8 使用 INT32 累加
+    // INT8 输出需要 CUBLAS_COMPUTE_32I_PEDANTIC + FP32 scale
+    return CUBLAS_COMPUTE_32I_PEDANTIC;
   }
   return CUBLAS_COMPUTE_32F;  // FP16/BF16/FP8/FP4 都使用 FP32 累加
 }
 
 // 获取 scale 类型
+// 注意：INT8 输出需要 FP32 scale（不是 INT32）
 static cudaDataType get_scale_type(const char* dtype) {
-  if (std::strcmp(dtype, "int8") == 0) {
-    return CUDA_R_32I;  // INT8 需要 INT32 scale
-  }
-  return CUDA_R_32F;  // 其他类型使用 FP32 scale
+  // INT8 + PEDANTIC 需要 FP32 scale（根据 Table 2 第二行）
+  // 其他类型也使用 FP32 scale
+  return CUDA_R_32F;
 }
 
 // 获取输入元素大小 (字节)
@@ -193,13 +208,13 @@ static int get_elem_size(const char* dtype) {
   return 1;
 }
 
-// 获取输出元素大小 (字节)
+// 获取输出元素大小 (字节) - 低精度输出
 static int get_out_elem_size(const char* dtype) {
   if (std::strcmp(dtype, "fp16") == 0 || std::strcmp(dtype, "bf16") == 0) return 2;
-  if (std::strcmp(dtype, "int8") == 0) return 4;  // INT32 输出
-  if (std::strcmp(dtype, "fp8e4m3") == 0 || std::strcmp(dtype, "fp8") == 0) return 2;  // BF16 输出
-  if (std::strcmp(dtype, "fp4e2m1") == 0 || std::strcmp(dtype, "fp4") == 0) return 2;  // BF16 输出
-  return 2;
+  if (std::strcmp(dtype, "int8") == 0) return 1;  // INT8 输出
+  if (std::strcmp(dtype, "fp8e4m3") == 0 || std::strcmp(dtype, "fp8") == 0) return 1;  // FP8 输出
+  if (std::strcmp(dtype, "fp4e2m1") == 0 || std::strcmp(dtype, "fp4") == 0) return 1;  // FP4 打包输出 (2 值/字节，但按字节算)
+  return 1;
 }
 
 // ============================================================================
@@ -225,7 +240,7 @@ struct AlgRecord {
 };
 
 // ============================================================================
-// 错误处理基础设施
+// 错误处理
 // ============================================================================
 
 static thread_local char g_last_error[1024] = "";
@@ -338,7 +353,7 @@ int cublaslt_search_single_m(
     if (topk <= 0) topk = 3;
     
     // ========================================================================
-    // 维度检查 - 根据 cuBLASLt 官方文档要求
+    // 维度检查
     // ========================================================================
     // 对于所有类型，cuBLASLt 对维度有一定对齐要求
     // FP4/FP8/INT8: 通常需要更严格的对齐 (16 或 32)
@@ -379,7 +394,11 @@ int cublaslt_search_single_m(
         return 0;  // 返回成功但无结果（跳过）
     }
     
-    cudaDataType type_C = to_cuda_output_dtype(dtype);
+    // 关键修改：分开定义累加器类型 (C) 和输出类型 (D)
+    // - type_C_acc: 累加器类型，必须是高精度 (INT32/FP32/BF16)
+    // - type_D_out: 输出类型，低精度 (与输入相同)
+    cudaDataType type_C_acc = to_cuda_accumulator_dtype(dtype);  // 累加器（高精度）
+    cudaDataType type_D_out = to_cuda_output_dtype(dtype);       // 输出（低精度）
     cublasComputeType_t comp_type = get_compute_type(dtype);
     cudaDataType scale_type = get_scale_type(dtype);
 
@@ -424,14 +443,14 @@ int cublaslt_search_single_m(
 
 #if CUDART_VERSION >= 12050
     if (is_fp4) {
-        // 设置 16-element 1D block scaling mode
+        // 设置 16-element 1D block scaling mode（仅 A 和 B）
         cublasLtMatmulMatrixScale_t scaleMode = CUBLASLT_MATMUL_MATRIX_SCALE_VEC16_UE4M3;
         CHECK_CUBLASLT(cublasLtMatmulDescSetAttribute(
             matmulDesc, CUBLASLT_MATMUL_DESC_A_SCALE_MODE, &scaleMode, sizeof(scaleMode)));
         CHECK_CUBLASLT(cublasLtMatmulDescSetAttribute(
             matmulDesc, CUBLASLT_MATMUL_DESC_B_SCALE_MODE, &scaleMode, sizeof(scaleMode)));
         
-        // 分配 scale 张量 (UE4M3 类型 = 1 字节，每 16 个元素一个 scale)
+        // 分配 A/B scale 张量 (UE4M3 类型 = 1 字节，每 16 个元素一个 scale)
         // W (matA, 转置后 [N, K]): scale 大小 = N * ceil(K/16)
         // A (matB, [K, M]):        scale 大小 = M * ceil(K/16)
         int64_t K_blocks = (K + 15) / 16;
@@ -441,13 +460,12 @@ int cublaslt_search_single_m(
         CHECK_CUDA(cudaMalloc(&scale_A_ptr, scale_A_size * sizeof(uint8_t)));
         CHECK_CUDA(cudaMalloc(&scale_B_ptr, scale_B_size * sizeof(uint8_t)));
         
-        // 初始化 scale 为中性值
+        // 初始化 A/B scale 为中性值
         // UE4M3 格式: 无符号 E4M3，值 1.0 的编码约为 0x38 (exp=7-bias=7=0, mant=0)
-        // 实际上对于 benchmark，我们用常数填充，让 cuBLASLt 自行处理
         CHECK_CUDA(cudaMemset(scale_A_ptr, 0x38, scale_A_size * sizeof(uint8_t)));
         CHECK_CUDA(cudaMemset(scale_B_ptr, 0x38, scale_B_size * sizeof(uint8_t)));
         
-        // 设置 scale 指针
+        // 设置 A/B scale 指针
         CHECK_CUBLASLT(cublasLtMatmulDescSetAttribute(
             matmulDesc, CUBLASLT_MATMUL_DESC_A_SCALE_POINTER, &scale_A_ptr, sizeof(void*)));
         CHECK_CUBLASLT(cublasLtMatmulDescSetAttribute(
@@ -456,13 +474,23 @@ int cublaslt_search_single_m(
 #endif
 
     // 创建矩阵布局描述符
-    cublasLtMatrixLayout_t layoutW = nullptr, layoutA = nullptr, layoutR = nullptr;
+    // 关键修改：分开创建 C (累加器) 和 D (输出) 的布局
+    cublasLtMatrixLayout_t layoutW = nullptr, layoutA = nullptr;
+    cublasLtMatrixLayout_t layoutC = nullptr, layoutD = nullptr;  // C 累加器, D 输出
+    
+    // W 和 A 输入布局
     CHECK_CUBLASLT(cublasLtMatrixLayoutCreate(&layoutW, type_AB, num_W_rows, num_W_cols, ldw));
     CHECK_CUBLASLT(cublasLtMatrixLayoutSetAttribute(layoutW, CUBLASLT_MATRIX_LAYOUT_ORDER, &orderW, sizeof(orderW)));
     CHECK_CUBLASLT(cublasLtMatrixLayoutCreate(&layoutA, type_AB, num_A_rows, num_A_cols, lda));
     CHECK_CUBLASLT(cublasLtMatrixLayoutSetAttribute(layoutA, CUBLASLT_MATRIX_LAYOUT_ORDER, &orderA, sizeof(orderA)));
-    CHECK_CUBLASLT(cublasLtMatrixLayoutCreate(&layoutR, type_C, num_R_rows, num_R_cols, ldr));
-    CHECK_CUBLASLT(cublasLtMatrixLayoutSetAttribute(layoutR, CUBLASLT_MATRIX_LAYOUT_ORDER, &orderR, sizeof(orderR)));
+    
+    // C 矩阵布局 - 累加器（高精度）
+    CHECK_CUBLASLT(cublasLtMatrixLayoutCreate(&layoutC, type_C_acc, num_R_rows, num_R_cols, ldr));
+    CHECK_CUBLASLT(cublasLtMatrixLayoutSetAttribute(layoutC, CUBLASLT_MATRIX_LAYOUT_ORDER, &orderR, sizeof(orderR)));
+    
+    // D 矩阵布局 - 输出（低精度，与输入相同）
+    CHECK_CUBLASLT(cublasLtMatrixLayoutCreate(&layoutD, type_D_out, num_R_rows, num_R_cols, ldr));
+    CHECK_CUBLASLT(cublasLtMatrixLayoutSetAttribute(layoutD, CUBLASLT_MATRIX_LAYOUT_ORDER, &orderR, sizeof(orderR)));
 
     // 创建算法偏好
     cublasLtMatmulPreference_t preference = nullptr;
@@ -479,12 +507,13 @@ int cublaslt_search_single_m(
         &reduction_scheme_mask, sizeof(reduction_scheme_mask)));
 
     // 获取可用算法
+    // 关键修改：使用分开的 layoutC 和 layoutD
     const int max_algo_count = 128;
     cublasLtMatmulHeuristicResult_t heuristicResult[max_algo_count];
     int returnedAlgoCount = 0;
 
     cublasStatus_t heur_status = cublasLtMatmulAlgoGetHeuristic(
-        handle, matmulDesc, layoutW, layoutA, layoutR, layoutR,
+        handle, matmulDesc, layoutW, layoutA, layoutC, layoutD,
         preference, max_algo_count, heuristicResult, &returnedAlgoCount);
 
     if (out_alg_count) *out_alg_count = returnedAlgoCount;
@@ -494,7 +523,8 @@ int cublaslt_search_single_m(
       cublasLtMatmulPreferenceDestroy(preference);
       cublasLtMatrixLayoutDestroy(layoutW);
       cublasLtMatrixLayoutDestroy(layoutA);
-      cublasLtMatrixLayoutDestroy(layoutR);
+      cublasLtMatrixLayoutDestroy(layoutC);
+      cublasLtMatrixLayoutDestroy(layoutD);
       cublasLtMatmulDescDestroy(matmulDesc);
       
       // 释放 FP4 scale 张量
@@ -512,9 +542,8 @@ int cublaslt_search_single_m(
 
     // alpha/beta 类型需要与 scale_type 匹配
     float alpha_f = 1.0f, beta_f = 0.0f;
-    int32_t alpha_i = 1, beta_i = 0;
-    const void* alpha_ptr = (scale_type == CUDA_R_32I) ? (const void*)&alpha_i : (const void*)&alpha_f;
-    const void* beta_ptr = (scale_type == CUDA_R_32I) ? (const void*)&beta_i : (const void*)&beta_f;
+    const void* alpha_ptr = &alpha_f;
+    const void* beta_ptr = &beta_f;
     
     std::vector<AlgRecord> records;
 
@@ -544,11 +573,12 @@ int cublaslt_search_single_m(
       bool success = true;
 
       // 预热
+      // 关键修改：使用分开的 layoutC 和 layoutD
       for (int i = 0; i < warmup && success; ++i) {
         cublasStatus_t st = cublasLtMatmul(
             handle, matmulDesc, alpha_ptr,
             W_ptr, layoutW, A_ptr, layoutA, beta_ptr,
-            R_ptr, layoutR, R_ptr, layoutR,
+            R_ptr, layoutC, R_ptr, layoutD,
             algo, ws_ptr, ws_size, stream);
         if (st != CUBLAS_STATUS_SUCCESS) success = false;
       }
@@ -567,7 +597,7 @@ int cublaslt_search_single_m(
           cublasStatus_t st = cublasLtMatmul(
               handle, matmulDesc, alpha_ptr,
               W_ptr, layoutW, A_ptr, layoutA, beta_ptr,
-              R_ptr, layoutR, R_ptr, layoutR,
+              R_ptr, layoutC, R_ptr, layoutD,
               algo, ws_ptr, ws_size, stream);
           if (st != CUBLAS_STATUS_SUCCESS) success = false;
         }
@@ -636,7 +666,8 @@ int cublaslt_search_single_m(
     cublasLtMatmulPreferenceDestroy(preference);
     cublasLtMatrixLayoutDestroy(layoutW);
     cublasLtMatrixLayoutDestroy(layoutA);
-    cublasLtMatrixLayoutDestroy(layoutR);
+    cublasLtMatrixLayoutDestroy(layoutC);
+    cublasLtMatrixLayoutDestroy(layoutD);
     cublasLtMatmulDescDestroy(matmulDesc);
 
     return 0;

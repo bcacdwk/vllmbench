@@ -69,10 +69,14 @@ from slidesparse.benchmark_kernel.utils import (
     # 编译与加载
     build_benchmark_extension,
     load_benchmark_extension,
-    # 文件命名
+    # 文件命名与目录
     build_hw_folder_name,
+    build_dtype_folder_name,
+    build_output_dir,
     build_result_filename,
     build_csv_header_lines,
+    # 增量保存
+    IncrementalResultSaver,
 )
 
 
@@ -132,12 +136,29 @@ def search_single_nk(
 ) -> Dict[str, Any]:
     """
     搜索单个 (N, K, M) 组合的最佳算法
+    
+    添加了异常捕获，防止 ctypes 调用崩溃导致整个进程终止。
     """
-    # 分配输出缓冲：直接按列主序 stride 分配
-    # FP4 输出为 BF16（根据 cuBLASLt Table 4）
-    R_torch_dtype = get_output_torch_dtype(dtype, backend="cublaslt")
-    R_out = torch.empty_strided((N, M), (1, N), dtype=R_torch_dtype, device=W_q_col.device)
-    R_out.zero_()
+    try:
+        # 分配输出缓冲：直接按列主序 stride 分配
+        # FP4 输出为 BF16（根据 cuBLASLt Table 4）
+        R_torch_dtype = get_output_torch_dtype(dtype, backend="cublaslt")
+        R_out = torch.empty_strided((N, M), (1, N), dtype=R_torch_dtype, device=W_q_col.device)
+        R_out.zero_()
+    except torch.cuda.OutOfMemoryError as e:
+        return {
+            "results": [],
+            "num_valid": 0,
+            "alg_count": 0,
+            "error": f"CUDA OOM allocating output buffer: {e}",
+        }
+    except Exception as e:
+        return {
+            "results": [],
+            "num_valid": 0,
+            "alg_count": 0,
+            "error": f"Error allocating output buffer: {e}",
+        }
     
     # 分配输出数组
     out_alg_ids = (ctypes.c_int * topk)()
@@ -150,27 +171,42 @@ def search_single_nk(
     out_num_valid = ctypes.c_int(0)
     out_alg_count = ctypes.c_int(0)
     
-    # 调用 C 函数
-    ret = lib.cublaslt_search_single_m(
-        W_q_col.data_ptr(),
-        A_q_col.data_ptr(),
-        R_out.data_ptr(),
-        N, K, M,
-        dtype.encode(),
-        warmup,
-        repeat,
-        topk,
-        out_alg_ids,
-        out_lat_us,
-        out_tops,
-        out_workspace,
-        out_waves_count,
-        out_algo_data,
-        out_valid,
-        ctypes.byref(out_num_valid),
-        ctypes.byref(out_alg_count),
-        None,  # 使用默认 stream
-    )
+    # 调用 C 函数（带异常捕获）
+    try:
+        ret = lib.cublaslt_search_single_m(
+            W_q_col.data_ptr(),
+            A_q_col.data_ptr(),
+            R_out.data_ptr(),
+            N, K, M,
+            dtype.encode(),
+            warmup,
+            repeat,
+            topk,
+            out_alg_ids,
+            out_lat_us,
+            out_tops,
+            out_workspace,
+            out_waves_count,
+            out_algo_data,
+            out_valid,
+            ctypes.byref(out_num_valid),
+            ctypes.byref(out_alg_count),
+            None,  # 使用默认 stream
+        )
+    except OSError as e:
+        return {
+            "results": [],
+            "num_valid": 0,
+            "alg_count": 0,
+            "error": f"CUDA call OSError: {e}",
+        }
+    except Exception as e:
+        return {
+            "results": [],
+            "num_valid": 0,
+            "alg_count": 0,
+            "error": f"CUDA call exception: {type(e).__name__} - {e}",
+        }
     
     if ret != 0:
         error = lib.cublaslt_alg_search_get_last_error()
@@ -213,6 +249,7 @@ def run_search(
     topk: int = 3,
     verbose: bool = True,
     is_square_mode: bool = False,
+    incremental_saver: Optional[IncrementalResultSaver] = None,
 ) -> Dict:
     """
     运行完整的算法搜索
@@ -220,6 +257,7 @@ def run_search(
     Args:
         is_square_mode: 如果为 True，只测试 M=N=K 的组合
                        （此时 nk_list 应该是 [(m,m) for m in m_list]）
+        incremental_saver: 增量保存器（可选），用于每完成一个 NK 就保存进度
     """
     results = []
     total_nk = len(nk_list)
@@ -262,6 +300,23 @@ def run_search(
                 search_stats["errors"] += 1
                 nk_results["m_results"][M] = {"error": str(e), "results": [], "num_valid": 0, "alg_count": 0}
             results.append(nk_results)
+            # 增量保存
+            if incremental_saver:
+                incremental_saver.add_nk_result(nk_results)
+            torch.cuda.empty_cache()
+            continue
+        except Exception as e:
+            if verbose:
+                print(f"      ⚠ 生成数据失败: {e}")
+            nk_results["skipped"] = True
+            nk_results["skip_reason"] = f"Data generation error: {e}"
+            for M in effective_m_list:
+                search_stats["total"] += 1
+                search_stats["errors"] += 1
+                nk_results["m_results"][M] = {"error": str(e), "results": [], "num_valid": 0, "alg_count": 0}
+            results.append(nk_results)
+            if incremental_saver:
+                incremental_saver.add_nk_result(nk_results)
             torch.cuda.empty_cache()
             continue
         
@@ -288,6 +343,8 @@ def run_search(
                 search_stats["errors"] += 1
                 nk_results["m_results"][M] = {"error": str(e), "results": [], "num_valid": 0, "alg_count": 0}
             results.append(nk_results)
+            if incremental_saver:
+                incremental_saver.add_nk_result(nk_results)
             del W, A
             torch.cuda.empty_cache()
             continue
@@ -341,6 +398,10 @@ def run_search(
         
         results.append(nk_results)
         
+        # 增量保存
+        if incremental_saver:
+            incremental_saver.add_nk_result(nk_results)
+        
         # 释放
         del W, A, W_q, A_q
         torch.cuda.empty_cache()
@@ -367,7 +428,7 @@ def run_search(
 
 
 # =============================================================================
-# 结果保存
+# 结果保存（使用增量保存器）
 # =============================================================================
 
 def save_results(
@@ -380,147 +441,31 @@ def save_results(
     repeat: int,
 ) -> Path:
     """
-    保存搜索结果到 CSV 和 JSON 文件
+    保存搜索结果到 CSV 和 JSON 文件（使用增量保存器以支持原子写入）
+    
+    注意：此函数现在仅作为兼容接口。推荐在 run_search 时直接使用 IncrementalResultSaver。
     """
-    hw_folder = build_hw_folder_name()
-    subdir = out_dir / hw_folder
-    subdir.mkdir(parents=True, exist_ok=True)
-    
-    csv_filename = build_result_filename("alg_search", model_name, dtype, "csv")
-    json_filename = build_result_filename("alg_search", model_name, dtype, "json")
-    csv_path = subdir / csv_filename
-    json_path = subdir / json_filename
-    
-    alg_count = search_ret.get("max_alg_count", 0)
-    
-    # === CSV 生成 ===
-    header_lines = build_csv_header_lines(
+    # 创建增量保存器
+    saver = IncrementalResultSaver(
+        out_dir=out_dir,
         model_name=model_name,
         dtype=dtype,
+        backend="cuBLASLt",
         mode=mode,
         warmup=warmup,
         repeat=repeat,
-        verify=False,
         m_list=search_ret["M_list"],
         nk_list=search_ret["NK_list"],
-        backend="cuBLASLt",
-        alg_count=alg_count,
     )
     
-    csv_lines = list(header_lines)
-    csv_lines.append("M,N,K,alg_count,tops_1,lat_us_1,alg_id_1,workspace_1,tops_2,lat_us_2,alg_id_2,workspace_2,tops_3,lat_us_3,alg_id_3,workspace_3")
-    
-    csv_rows = []
+    # 添加所有结果
     for nk_res in search_ret["results"]:
-        N, K = nk_res["N"], nk_res["K"]
-        
-        # 遍历实际存在的 M 结果（Square 模式下只有 M=N）
-        for M, m_res in nk_res["m_results"].items():
-            results = m_res.get("results", [])
-            
-            values = [str(M), str(N), str(K), str(m_res.get("alg_count", 0))]
-            
-            for k in range(3):
-                if k < len(results):
-                    r = results[k]
-                    values.extend([
-                        f"{r['tops']:.6f}",
-                        f"{r['lat_us']:.3f}",
-                        str(r['alg_id']),
-                        str(r['workspace']),
-                    ])
-                else:
-                    values.extend(["", "", "", ""])
-            
-            csv_rows.append((M, N, K, ",".join(values)))
+        saver.add_nk_result(nk_res, save_progress=False)
     
-    csv_rows.sort(key=lambda x: (x[0], x[1], x[2]))
-    for _, _, _, line in csv_rows:
-        csv_lines.append(line)
+    # 最终保存
+    saver.finalize()
     
-    csv_path.write_text("\n".join(csv_lines))
-    
-    # === JSON 生成 ===
-    meta = {
-        "gpu_name": hw_info.gpu_full_name,
-        "gpu_short_name": hw_info.gpu_name,
-        "compute_capability": hw_info.cc_tag,
-        "model_name": model_name,
-        "mode": mode,
-        "backend": "cuBLASLt",
-        "dtype": dtype,
-        "alg_count": alg_count,
-        "warmup": warmup,
-        "repeat": repeat,
-        "torch_version": torch.__version__,
-        "time": datetime.datetime.now().isoformat(),
-        "M_list": search_ret["M_list"],
-        "NK_list": [[n, k] for n, k in search_ret["NK_list"]],
-    }
-    
-    nk_entries = {}
-    skipped_nk = []  # 记录跳过的 NK
-    
-    for nk_res in search_ret["results"]:
-        N, K = nk_res["N"], nk_res["K"]
-        nk_key = f"({N},{K})"
-        
-        # 记录跳过的 NK
-        if nk_res.get("skipped", False):
-            skipped_nk.append({
-                "N": N, "K": K, 
-                "reason": nk_res.get("skip_reason", "unknown")
-            })
-        
-        m_thresholds = []
-        alg_by_m = {}
-        errors_by_m = {}
-        
-        # 遍历实际存在的 M 结果（Square 模式下只有 M=N）
-        for M, m_res in nk_res["m_results"].items():
-            results = m_res.get("results", [])
-            error = m_res.get("error")
-            
-            if error:
-                errors_by_m[str(M)] = error
-            
-            if results:
-                m_thresholds.append(M)
-                r = results[0]  # top1
-                if "algo_data" in r:
-                    algo_b64 = base64.b64encode(r["algo_data"]).decode('ascii')
-                    alg_by_m[str(M)] = {
-                        "algo_data": algo_b64,
-                        "workspace": r.get("workspace", 0),
-                        "tops": r["tops"],
-                        "lat_us": r["lat_us"],
-                    }
-        
-        entry = {
-            "m_thresholds": m_thresholds,
-            "alg_by_m": alg_by_m,
-        }
-        if errors_by_m:
-            entry["errors_by_m"] = errors_by_m
-            
-        nk_entries[nk_key] = entry
-    
-    # 添加搜索统计到 meta
-    meta["search_stats"] = search_ret.get("search_stats", {})
-    if skipped_nk:
-        meta["skipped_nk"] = skipped_nk
-    
-    json_payload = {
-        "meta": meta,
-        "nk_entries": nk_entries,
-    }
-    
-    json_path.write_text(json.dumps(json_payload, indent=2, ensure_ascii=False))
-    
-    print(f"    CSV: {csv_path}")
-    print(f"    JSON: {json_path}")
-    
-    return subdir
+    return saver.get_output_dir()
 
 
 # =============================================================================
@@ -655,6 +600,19 @@ def main():
         print(f"      NK 组合: {len(nk_list)} 个, M 列表: {m_list}")
     print()
     
+    # 创建增量保存器（每完成一个 NK 就保存进度）
+    incremental_saver = IncrementalResultSaver(
+        out_dir=out_dir,
+        model_name=model_name,
+        dtype=args.dtype,
+        backend="cuBLASLt",
+        mode=mode,
+        warmup=args.warmup,
+        repeat=args.repeat,
+        m_list=m_list,
+        nk_list=nk_list,
+    )
+    
     ret = run_search(
         lib,
         args.dtype,
@@ -665,19 +623,14 @@ def main():
         topk=3,
         verbose=True,
         is_square_mode=is_square_mode,
+        incremental_saver=incremental_saver,
     )
     
     print()
     print("[4/4] 保存结果...")
-    saved_dir = save_results(
-        out_dir,
-        model_name,
-        args.dtype,
-        mode,
-        ret,
-        args.warmup,
-        args.repeat,
-    )
+    # 使用增量保存器的 finalize 方法进行原子写入
+    csv_path, json_path = incremental_saver.finalize()
+    saved_dir = incremental_saver.get_output_dir()
     
     print()
     print(f"✓ 完成! 结果已保存到: {saved_dir}")

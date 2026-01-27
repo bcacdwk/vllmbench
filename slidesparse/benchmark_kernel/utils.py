@@ -9,14 +9,19 @@ SlideSparse Benchmark Kernel 专用工具库
 - Sparsity 计算与 K_slide 转换
 - 数据准备与量化
 - 结果整合与加速比计算
+- 增量保存与原子写入
 
 该工具库依赖顶层 slidesparse.utils，提供 benchmark 场景的封装。
 """
 
+import base64
 import ctypes
 import datetime
 import json
+import os
+import shutil
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
@@ -68,10 +73,11 @@ SQUARE_M_LIST = [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384]
 # =============================================================================
 
 # 5 种数据精度的完整配置
-# 注意：INT8 和 FP8/FP4 有输出类型限制
-# - INT8 + cuBLASLt: 必须输出 INT32
-# - INT8 + cuSPARSELt: 必须输出 BF16
-# - FP8/FP4: 必须输出 BF16
+# 低精度输出策略：输入 = 输出（减少 IO 开销）
+# - FP16/BF16: 输入输出相同
+# - INT8: cuBLASLt/cuSPARSELt 都输出 INT8
+# - FP8: cuBLASLt/cuSPARSELt 都输出 FP8
+# - FP4: cuBLASLt 输出 BF16, cuSPARSELt 输出 FP4
 DTYPE_CONFIG = {
     "fp16": {
         "cuda_input": "CUDA_R_16F",
@@ -105,49 +111,49 @@ DTYPE_CONFIG = {
     },
     "int8": {
         "cuda_input": "CUDA_R_8I",
-        "cuda_output": "CUDA_R_32I",  # cuBLASLt INT8 必须 INT32 输出
+        "cuda_output": "CUDA_R_8I",  # 低精度输出：INT8
         "cuda_compute": "CUDA_R_32I",
         "cublaslt_compute": "CUBLAS_COMPUTE_32I",
         "cusparselt_compute": "CUSPARSE_COMPUTE_32I",
         "scale_type": "CUDA_R_32I",
         "elem_size": 1,
-        "out_elem_size": 4,  # INT32 = 4 bytes (cuBLASLt) or 2 bytes BF16 (cuSPARSELt)
+        "out_elem_size": 1,  # INT8 = 1 byte
         "min_cc": 75,
         "torch_dtype": torch.int8,
-        "torch_out_dtype": torch.int32,  # 通用输出类型
-        "cublaslt_out_dtype": torch.int32,  # cuBLASLt: INT32
-        "cusparselt_out_dtype": torch.bfloat16,  # cuSPARSELt: BF16
+        "torch_out_dtype": torch.int8,  # 低精度输出
+        "cublaslt_out_dtype": torch.int8,  # cuBLASLt: INT8 输出
+        "cusparselt_out_dtype": torch.int8,  # cuSPARSELt: INT8 低精度输出
     },
     "fp8e4m3": {
         "cuda_input": "CUDA_R_8F_E4M3",
-        "cuda_output": "CUDA_R_16BF",  # FP8 必须输出 BF16
+        "cuda_output": "CUDA_R_8F_E4M3",  # 低精度输出：FP8
         "cuda_compute": "CUDA_R_32F",
         "cublaslt_compute": "CUBLAS_COMPUTE_32F",
         "cusparselt_compute": "CUSPARSE_COMPUTE_32F",
         "scale_type": "CUDA_R_32F",
         "elem_size": 1,
-        "out_elem_size": 2,  # BF16 = 2 bytes
+        "out_elem_size": 1,  # FP8 = 1 byte
         "min_cc": 89,  # Ada Lovelace+
         "torch_dtype": torch.float8_e4m3fn,
-        "torch_out_dtype": torch.bfloat16,
-        "cublaslt_out_dtype": torch.bfloat16,
-        "cusparselt_out_dtype": torch.bfloat16,
+        "torch_out_dtype": torch.float8_e4m3fn,  # 低精度输出
+        "cublaslt_out_dtype": torch.float8_e4m3fn,  # cuBLASLt: FP8 输出
+        "cusparselt_out_dtype": torch.float8_e4m3fn,  # cuSPARSELt: FP8 低精度输出
     },
     "fp4e2m1": {
         "cuda_input": "CUDA_R_4F_E2M1",
-        "cuda_output": "CUDA_R_16BF",  # FP4 输出 BF16（cuBLASLt Table 4 第一行）
+        "cuda_output": "CUDA_R_4F_E2M1",  # 低精度输出：FP4 (打包格式)
         "cuda_compute": "CUDA_R_32F",
         "cublaslt_compute": "CUBLAS_COMPUTE_32F",
         "cusparselt_compute": "CUSPARSE_COMPUTE_32F",
         "scale_type": "CUDA_R_32F",
         "elem_size": 0.5,  # 4-bit packed (2 values per byte)
-        "out_elem_size": 2,  # BF16 = 2 bytes
+        "out_elem_size": 0.5,  # FP4 打包输出 (2 values per byte)
         "min_cc": 100,  # Blackwell+
         "torch_dtype": None,  # PyTorch 尚未原生支持 FP4
-        "torch_out_dtype": torch.bfloat16,  # 输出 BF16
-        "cublaslt_out_dtype": torch.bfloat16,  # cuBLASLt FP4 输出 BF16
-        "cusparselt_out_dtype": torch.bfloat16,  # cuSPARSELt FP4 输出 BF16
-        "requires_scale": True,  # FP4 cuBLASLt 强制要求 scale
+        "torch_out_dtype": torch.uint8,  # FP4 打包存储使用 uint8
+        "cublaslt_out_dtype": torch.uint8,  # cuBLASLt FP4 打包输出
+        "cusparselt_out_dtype": torch.bfloat16,  # cuSPARSELt: FP4 输出 BF16 (保持高精度)
+        "requires_scale": True,  # FP4 强制要求 scale
     },
 }
 
@@ -789,32 +795,59 @@ def build_hw_folder_name() -> str:
     )
 
 
+def build_dtype_folder_name(dtype: str) -> str:
+    """
+    构建 dtype 子文件夹名称
+    
+    格式: {dtype} (规范化后的大写)
+    示例: FP16, BF16, INT8, FP8, FP4
+    """
+    dtype_upper = dtype.upper()
+    if dtype_upper == "FP8E4M3":
+        return "FP8"
+    elif dtype_upper == "FP4E2M1":
+        return "FP4"
+    else:
+        return dtype_upper
+
+
+def build_output_dir(base_dir: Path, dtype: str) -> Path:
+    """
+    构建完整的输出目录路径（包含硬件和dtype子文件夹）
+    
+    结构: {base_dir}/{hw_folder}/{dtype_folder}/
+    示例: alg_search_results/H100_cc90_py312_cu124_x86_64/FP8/
+    
+    Args:
+        base_dir: 基础输出目录
+        dtype: 数据类型
+    
+    Returns:
+        完整的输出目录路径
+    """
+    hw_folder = build_hw_folder_name()
+    dtype_folder = build_dtype_folder_name(dtype)
+    return base_dir / hw_folder / dtype_folder
+
+
 def build_result_filename(
     prefix: str,
     model_name: str,
-    dtype: str,
     ext: str,
     sparsity: Optional[str] = None,
 ) -> str:
     """
     构建结果文件名
     
-    格式: {prefix}_{model}_{dtype}[_{sparsity}].{ext}
-    示例: alg_search_Qwen2.5-0.5B_FP8E4M3.csv
-          speedup_Qwen2.5-0.5B_FP8E4M3_2_8.csv
+    格式: {prefix}_{model}[_{sparsity}].{ext}
+    示例: alg_search_Qwen2.5-0.5B-FP8.csv
+          speedup_Qwen2.5-0.5B-FP8_2_8.csv
     """
-    dtype_upper = dtype.upper()
-    if dtype_upper == "FP8E4M3":
-        dtype_str = "FP8"
-    elif dtype_upper == "FP4E2M1":
-        dtype_str = "FP4"
-    else:
-        dtype_str = dtype_upper
     
     if sparsity:
-        return f"{prefix}_{model_name}_{dtype_str}_{sparsity}.{ext}"
+        return f"{prefix}_{model_name}_{sparsity}.{ext}"
     else:
-        return f"{prefix}_{model_name}_{dtype_str}.{ext}"
+        return f"{prefix}_{model_name}.{ext}"
 
 
 # =============================================================================
@@ -863,7 +896,7 @@ def merge_benchmark_results(
     out_dir = output_dir / hw_folder
     out_dir.mkdir(parents=True, exist_ok=True)
     
-    csv_filename = build_result_filename("speedup", model_name, dtype, "csv", sparsity)
+    csv_filename = build_result_filename("speedup", model_name, "csv", sparsity)
     csv_path = out_dir / csv_filename
     
     k_factor = get_k_expansion_factor(sparsity)
@@ -1001,6 +1034,459 @@ def build_csv_header_lines(
 
 
 # =============================================================================
+# 增量保存与原子写入
+# =============================================================================
+
+def atomic_write_json(filepath: Path, data: Dict, indent: int = 2) -> None:
+    """
+    原子写入 JSON 文件（使用临时文件 + 重命名）
+    
+    防止写入中断导致文件损坏。
+    
+    Args:
+        filepath: 目标文件路径
+        data: 要写入的数据字典
+        indent: JSON 缩进
+    """
+    filepath = Path(filepath)
+    filepath.parent.mkdir(parents=True, exist_ok=True)
+    
+    # 在同一目录创建临时文件，确保在同一文件系统上
+    temp_fd, temp_path = tempfile.mkstemp(
+        suffix='.tmp',
+        prefix=filepath.stem + '_',
+        dir=filepath.parent
+    )
+    
+    try:
+        with os.fdopen(temp_fd, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=indent, ensure_ascii=False)
+            f.flush()
+            os.fsync(f.fileno())  # 确保数据写入磁盘
+        
+        # 原子重命名（在同一文件系统上是原子操作）
+        shutil.move(temp_path, filepath)
+    except Exception:
+        # 清理临时文件
+        if os.path.exists(temp_path):
+            os.unlink(temp_path)
+        raise
+
+
+def atomic_write_csv(filepath: Path, lines: List[str]) -> None:
+    """
+    原子写入 CSV 文件（使用临时文件 + 重命名）
+    
+    防止写入中断导致文件损坏。
+    
+    Args:
+        filepath: 目标文件路径
+        lines: CSV 行列表
+    """
+    filepath = Path(filepath)
+    filepath.parent.mkdir(parents=True, exist_ok=True)
+    
+    # 在同一目录创建临时文件
+    temp_fd, temp_path = tempfile.mkstemp(
+        suffix='.tmp',
+        prefix=filepath.stem + '_',
+        dir=filepath.parent
+    )
+    
+    try:
+        with os.fdopen(temp_fd, 'w', encoding='utf-8') as f:
+            f.write("\n".join(lines))
+            f.flush()
+            os.fsync(f.fileno())
+        
+        shutil.move(temp_path, filepath)
+    except Exception:
+        if os.path.exists(temp_path):
+            os.unlink(temp_path)
+        raise
+
+
+class IncrementalResultSaver:
+    """
+    增量结果保存器
+    
+    支持在搜索过程中增量保存结果，防止长时间运行的任务因中断导致数据丢失。
+    每完成一个 NK 组合的搜索后自动保存当前进度。
+    
+    特性：
+    - 使用临时文件 + 原子重命名，防止写入中断导致文件损坏
+    - 自动维护 CSV 和 JSON 两种格式
+    - 最终保存的文件格式与原来完全一致
+    
+    使用示例:
+        saver = IncrementalResultSaver(
+            out_dir=out_dir,
+            model_name="Qwen2.5-0.5B",
+            dtype="fp8e4m3",
+            backend="cuBLASLt",
+            mode="model",
+            warmup=25,
+            repeat=100,
+            m_list=[16, 128, 1024, 4096],
+            nk_list=[(4096, 4096), (4096, 11008)],
+        )
+        
+        for nk_res in search_results:
+            saver.add_nk_result(nk_res)
+        
+        csv_path, json_path = saver.finalize()
+    """
+    
+    def __init__(
+        self,
+        out_dir: Path,
+        model_name: str,
+        dtype: str,
+        backend: str,
+        mode: str,
+        warmup: int,
+        repeat: int,
+        m_list: List[int],
+        nk_list: List[Tuple[int, int]],
+        sparsity: Optional[str] = None,
+    ):
+        """
+        初始化增量保存器
+        
+        Args:
+            out_dir: 输出目录（不含 hw_folder 和 dtype_folder）
+            model_name: 模型名称
+            dtype: 数据类型
+            backend: 后端名称 (cuBLASLt / cuSPARSELt)
+            mode: 运行模式 (model / square)
+            warmup: 预热次数
+            repeat: 测量次数
+            m_list: M 列表
+            nk_list: NK 列表
+            sparsity: 稀疏度配置（仅 cuSPARSELt）
+        """
+        self.out_dir = Path(out_dir)
+        self.model_name = model_name
+        self.dtype = dtype
+        self.backend = backend
+        self.mode = mode
+        self.warmup = warmup
+        self.repeat = repeat
+        self.m_list = m_list
+        self.nk_list = nk_list
+        self.sparsity = sparsity
+        
+        # 搜索结果
+        self.results: List[Dict] = []
+        self.max_alg_count = 0
+        self.max_config_count = 0
+        self.search_stats = {"total": 0, "success": 0, "failed": 0, "errors": 0}
+        self.skipped_nk: List[Dict] = []
+        
+        # 构建输出路径
+        self.subdir = build_output_dir(self.out_dir, self.dtype)
+        self.subdir.mkdir(parents=True, exist_ok=True)
+        
+        csv_filename = build_result_filename("alg_search", model_name, "csv", sparsity)
+        json_filename = build_result_filename("alg_search", model_name, "json", sparsity)
+        self.csv_path = self.subdir / csv_filename
+        self.json_path = self.subdir / json_filename
+        
+        # 进度 JSON 路径（用于增量保存）
+        progress_filename = build_result_filename("alg_search", model_name, "progress.json", sparsity)
+        self.progress_path = self.subdir / progress_filename
+    
+    def add_nk_result(
+        self,
+        nk_result: Dict,
+        save_progress: bool = True,
+    ) -> None:
+        """
+        添加一个 NK 组合的搜索结果
+        
+        Args:
+            nk_result: NK 搜索结果，格式:
+                {
+                    "nk_id": int,
+                    "N": int,
+                    "K": int,
+                    "m_results": {M: {...}, ...},
+                    "skipped": bool,
+                    "skip_reason": str or None,
+                }
+            save_progress: 是否立即保存进度文件
+        """
+        self.results.append(nk_result)
+        
+        # 更新统计信息
+        if nk_result.get("skipped", False):
+            self.skipped_nk.append({
+                "N": nk_result["N"],
+                "K": nk_result["K"],
+                "reason": nk_result.get("skip_reason", "unknown"),
+            })
+        
+        # 更新 alg_count 和搜索统计
+        for M, m_res in nk_result.get("m_results", {}).items():
+            alg_count = m_res.get("alg_count", 0)
+            if alg_count > self.max_alg_count:
+                self.max_alg_count = alg_count
+            
+            config_count = m_res.get("config_count", 0)
+            if config_count > self.max_config_count:
+                self.max_config_count = config_count
+            
+            # 更新搜索统计
+            self.search_stats["total"] += 1
+            if m_res.get("error"):
+                self.search_stats["errors"] += 1
+            elif m_res.get("num_valid", 0) > 0:
+                self.search_stats["success"] += 1
+            else:
+                self.search_stats["failed"] += 1
+        
+        # 增量保存进度
+        if save_progress:
+            self._save_progress()
+    
+    def _convert_bytes_to_base64(self, obj: Any) -> Any:
+        """递归将 bytes 类型转换为 base64 编码字符串，使其可 JSON 序列化"""
+        if isinstance(obj, bytes):
+            return base64.b64encode(obj).decode('ascii')
+        elif isinstance(obj, dict):
+            return {k: self._convert_bytes_to_base64(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [self._convert_bytes_to_base64(item) for item in obj]
+        else:
+            return obj
+    
+    def _save_progress(self) -> None:
+        """保存当前进度到临时 JSON 文件"""
+        # 将 results 中的 bytes 类型转换为 base64
+        serializable_results = self._convert_bytes_to_base64(self.results)
+        
+        progress_data = {
+            "meta": self._build_meta(),
+            "results": serializable_results,
+            "completed_nk_count": len(self.results),
+            "total_nk_count": len(self.nk_list),
+            "search_stats": self.search_stats,
+            "last_updated": datetime.datetime.now().isoformat(),
+        }
+        atomic_write_json(self.progress_path, progress_data)
+    
+    def _build_meta(self) -> Dict:
+        """构建元数据"""
+        meta = {
+            "gpu_name": hw_info.gpu_full_name,
+            "gpu_short_name": hw_info.gpu_name,
+            "compute_capability": hw_info.cc_tag,
+            "model_name": self.model_name,
+            "mode": self.mode,
+            "backend": self.backend,
+            "dtype": self.dtype,
+            "alg_count": self.max_alg_count,
+            "warmup": self.warmup,
+            "repeat": self.repeat,
+            "torch_version": torch.__version__,
+            "time": datetime.datetime.now().isoformat(),
+            "M_list": self.m_list,
+            "NK_list": [[n, k] for n, k in self.nk_list],
+            "search_stats": self.search_stats,
+        }
+        
+        if self.sparsity:
+            meta["sparsity"] = self.sparsity
+        
+        if self.max_config_count > 0:
+            meta["config_count"] = self.max_config_count
+        
+        if self.skipped_nk:
+            meta["skipped_nk"] = self.skipped_nk
+        
+        return meta
+    
+    def _build_nk_entries(self) -> Dict:
+        """构建 nk_entries 结构（与原格式一致）"""
+        nk_entries = {}
+        
+        for nk_res in self.results:
+            N, K = nk_res["N"], nk_res["K"]
+            nk_key = f"({N},{K})"
+            
+            m_thresholds = []
+            alg_by_m = {}
+            errors_by_m = {}
+            
+            for M, m_res in nk_res.get("m_results", {}).items():
+                results = m_res.get("results", [])
+                error = m_res.get("error")
+                
+                if error:
+                    errors_by_m[str(M)] = error
+                
+                if results:
+                    m_thresholds.append(M)
+                    r = results[0]  # top1
+                    
+                    entry_data = {
+                        "workspace": r.get("workspace", 0),
+                        "tops": r["tops"],
+                        "lat_us": r["lat_us"],
+                    }
+                    
+                    # cuBLASLt 特有: algo_data
+                    if "algo_data" in r:
+                        algo_b64 = base64.b64encode(r["algo_data"]).decode('ascii')
+                        entry_data["algo_data"] = algo_b64
+                    
+                    # cuSPARSELt 特有: alg_id, split_k
+                    if "alg_id" in r:
+                        entry_data["alg_id"] = r["alg_id"]
+                    if "split_k" in r:
+                        entry_data["split_k"] = r.get("split_k", 1)
+                    
+                    alg_by_m[str(M)] = entry_data
+            
+            entry = {
+                "m_thresholds": m_thresholds,
+                "alg_by_m": alg_by_m,
+            }
+            if errors_by_m:
+                entry["errors_by_m"] = errors_by_m
+            
+            nk_entries[nk_key] = entry
+        
+        return nk_entries
+    
+    def _build_csv_lines(self) -> List[str]:
+        """构建 CSV 内容行"""
+        header_lines = build_csv_header_lines(
+            model_name=self.model_name,
+            dtype=self.dtype,
+            mode=self.mode,
+            warmup=self.warmup,
+            repeat=self.repeat,
+            verify=False,
+            m_list=self.m_list,
+            nk_list=self.nk_list,
+            backend=self.backend,
+            alg_count=self.max_alg_count,
+            config_count=self.max_config_count,
+            sparsity=self.sparsity,
+        )
+        
+        csv_lines = list(header_lines)
+        
+        # 根据 backend 确定 CSV 列
+        if self.backend.lower() == "cusparselt":
+            csv_lines.append(
+                "M,N,K,alg_count,tops_1,lat_us_1,alg_id_1,split_k_1,workspace_1,"
+                "tops_2,lat_us_2,alg_id_2,split_k_2,workspace_2,"
+                "tops_3,lat_us_3,alg_id_3,split_k_3,workspace_3"
+            )
+        else:  # cuBLASLt
+            csv_lines.append(
+                "M,N,K,alg_count,tops_1,lat_us_1,alg_id_1,workspace_1,"
+                "tops_2,lat_us_2,alg_id_2,workspace_2,"
+                "tops_3,lat_us_3,alg_id_3,workspace_3"
+            )
+        
+        csv_rows = []
+        for nk_res in self.results:
+            N, K = nk_res["N"], nk_res["K"]
+            
+            for M, m_res in nk_res.get("m_results", {}).items():
+                results = m_res.get("results", [])
+                values = [str(M), str(N), str(K), str(m_res.get("alg_count", 0))]
+                
+                for k in range(3):
+                    if k < len(results):
+                        r = results[k]
+                        if self.backend.lower() == "cusparselt":
+                            values.extend([
+                                f"{r['tops']:.6f}",
+                                f"{r['lat_us']:.3f}",
+                                str(r.get('alg_id', -1)),
+                                str(r.get('split_k', 1)),
+                                str(r.get('workspace', 0)),
+                            ])
+                        else:  # cuBLASLt
+                            values.extend([
+                                f"{r['tops']:.6f}",
+                                f"{r['lat_us']:.3f}",
+                                str(r.get('alg_id', -1)),
+                                str(r.get('workspace', 0)),
+                            ])
+                    else:
+                        if self.backend.lower() == "cusparselt":
+                            values.extend(["", "", "", "", ""])
+                        else:
+                            values.extend(["", "", "", ""])
+                
+                csv_rows.append((M, N, K, ",".join(values)))
+        
+        csv_rows.sort(key=lambda x: (x[0], x[1], x[2]))
+        for _, _, _, line in csv_rows:
+            csv_lines.append(line)
+        
+        return csv_lines
+    
+    def finalize(self) -> Tuple[Path, Path]:
+        """
+        最终保存并返回文件路径
+        
+        Returns:
+            (csv_path, json_path)
+        """
+        # 构建最终 JSON
+        json_payload = {
+            "meta": self._build_meta(),
+            "nk_entries": self._build_nk_entries(),
+        }
+        
+        # 原子写入最终文件
+        atomic_write_json(self.json_path, json_payload)
+        atomic_write_csv(self.csv_path, self._build_csv_lines())
+        
+        # 删除进度文件
+        if self.progress_path.exists():
+            self.progress_path.unlink()
+        
+        print(f"    CSV: {self.csv_path}")
+        print(f"    JSON: {self.json_path}")
+        
+        return self.csv_path, self.json_path
+    
+    def get_output_dir(self) -> Path:
+        """获取输出目录"""
+        return self.subdir
+
+
+def safe_ctypes_call(func: Callable, *args, error_msg: str = "CUDA call failed") -> Tuple[int, Optional[str]]:
+    """
+    安全的 ctypes 调用包装器
+    
+    捕获 ctypes 调用中可能发生的异常。
+    
+    Args:
+        func: ctypes 函数
+        *args: 函数参数
+        error_msg: 错误消息前缀
+    
+    Returns:
+        (return_code, error_message): 返回码和错误消息（成功时为 None）
+    """
+    try:
+        ret = func(*args)
+        return ret, None
+    except OSError as e:
+        return -1, f"{error_msg}: OSError - {e}"
+    except Exception as e:
+        return -1, f"{error_msg}: {type(e).__name__} - {e}"
+
+
+# =============================================================================
 # 导出接口
 # =============================================================================
 
@@ -1025,7 +1511,7 @@ __all__ = [
     "get_k_expansion_factor",
     "get_sparsity_ratio",
     "pad_to_alignment",
-    "get_sparsity_list_for_benchmark",  # 新增：生成稀疏度列表
+    "get_sparsity_list_for_benchmark",
     # 编译与加载
     "build_benchmark_extension",
     "load_benchmark_extension",
@@ -1038,15 +1524,22 @@ __all__ = [
     "get_output_torch_dtype",
     # NK 列表
     "get_nk_list_for_benchmark",
-    "get_nk_list_for_search",  # 重导出参考代码工具
-    "model_base_name",  # 重导出参考代码工具
-    # 文件命名
+    "get_nk_list_for_search",
+    "model_base_name",
+    # 文件命名与目录
     "build_hw_folder_name",
+    "build_dtype_folder_name",
+    "build_output_dir",
     "build_result_filename",
     # 结果整合
     "compute_speedup",
     "merge_benchmark_results",
     "build_csv_header_lines",
+    # 增量保存与原子写入
+    "atomic_write_json",
+    "atomic_write_csv",
+    "IncrementalResultSaver",
+    "safe_ctypes_call",
     # 重导出
     "hw_info",
 ]
