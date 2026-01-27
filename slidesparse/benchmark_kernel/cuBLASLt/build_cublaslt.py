@@ -3,16 +3,11 @@
 """
 cuBLASLt GEMM Extension Build Script
 
-这是一个智能编译脚本，直接复用顶层 slidesparse.utils 中的编译工具。
-
 文件名格式
 ==========
 {prefix}_{GPU}_{CC}_{PyVer}_{CUDAVer}_{Arch}.so
 
-注意：文件名不包含 dtype，因为此扩展运行时支持多种数据类型（FP8E4M3, INT8）
-
 示例:
-    cublaslt_gemm_RTX5080_cc120_py312_cu129_x86_64.so
     cublaslt_gemm_H100_cc90_py312_cu124_x86_64.so
 
 使用方法
@@ -22,9 +17,6 @@ cuBLASLt GEMM Extension Build Script
     
 强制重新编译：
     python3 build_cublaslt.py build --force
-
-查看帮助：
-    python3 build_cublaslt.py --help
 """
 
 import sys
@@ -64,7 +56,7 @@ def get_extension_name() -> str:
 
 def build_extension(force: bool = False, verbose: bool = True) -> Path:
     """
-    编译 cuBLASLt 扩展（直接调用顶层 build_cuda_extension）
+    编译 cuBLASLt 扩展
     """
     ext_name = get_extension_name()
     
@@ -83,7 +75,6 @@ def build_extension(force: bool = False, verbose: bool = True) -> Path:
         print(f"Arch: {hw_info.arch_tag}")
         print("=" * 60)
     
-    # 直接使用 nvcc 编译（不依赖 PyTorch，编译速度快）
     return build_cuda_extension_direct(
         name=ext_name,
         source_file=SOURCE_FILE,
@@ -96,7 +87,7 @@ def build_extension(force: bool = False, verbose: bool = True) -> Path:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Build cuBLASLt GEMM extension for SlideSparse",
+        description="Build cuBLASLt GEMM extension",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例:
@@ -120,7 +111,7 @@ def main():
         print("cuBLASLt GEMM Extension Info")
         print("=" * 60)
         print(f"Extension name: {get_extension_name()}.so")
-        print(f"Supported types: FP8E4M3, INT8")
+        print(f"Supported types: FP16, BF16, INT8, FP8E4M3, FP4E2M1")
         print("-" * 60)
         print_system_info()
         print("-" * 60)
