@@ -1,0 +1,225 @@
+======================================================================
+SlideSparse vLLM Throughput Benchmark Log
+Created: 2026-01-26 20:44:08
+======================================================================
+
+原始命令:
+  /root/vllmbench/slidesparse/tools/throughput_benchmark.py --model qwen2.5-14b-int8 --backend cusparselt --stage prefill --M 16384 --gpu-mem 0.95 --sparsity 2_8
+
+命令行参数:
+  --model: qwen2.5-14b-int8
+  --backend: cusparselt
+  --sparsity: 2_8
+  --stage: prefill
+  --M: 16384
+  --N: None
+  --inner-32: False
+  --eager: False
+  --gpu-id: 0
+  --gpu-mem: 0.95
+  --dry-run: False
+  --list-models: False
+
+硬件信息:
+  GPU: RTX4090
+  Compute Capability: cc89
+  VRAM: 24.0 GB
+  CUDA: 12.9
+  Python: py312
+
+Backend 环境变量 (初始状态):
+  DISABLE_SLIDESPARSE: 未设置
+  USE_CUBLASLT: 未设置
+  USE_CUSPARSELT: 未设置
+  SPARSITY: 未设置
+  INNER_DTYPE_32: 未设置
+
+======================================================================
+
+
+============================================================
+  Qwen2.5-14B-INT8 | cuSPARSELt (2_8) | prefill
+============================================================
+
+[INFO] Checkpoint: /root/vllmbench/checkpoints_slidesparse/Qwen2.5-14B-INT8-SlideSparse-2_8
+[INFO] Output: /root/vllmbench/slidesparse/tools/throughput_benchmark_results/prefill/RTX4090_cc89_INT8_py312_cu129_x86_64/cusparselt/2_8
+
+============================================================
+[1/1] 测试 M=16384
+============================================================
+
+┌─────────────────────────────────────────────────────────────┐
+│                    测试参数                                  │
+├─────────────────────────────────────────────────────────────┤
+│ 模型:     Qwen2.5-14B-INT8                                │
+│ Backend:  cuSPARSELt (2:8)                                │
+│ 阶段:     prefill                                         │
+├─────────────────────────────────────────────────────────────┤
+│ GEMM M 维度 (精确控制):
+│   目标 M        = 16384
+│   M_prefill     = 16384 (= 16 x 1024)
+│   M_decode      = 16
+│   batched_tokens = 16384 (控制 M 的关键参数)
+├─────────────────────────────────────────────────────────────┤
+│ vLLM 参数:
+│   --input-len              = 1024
+│   --output-len             = 1
+│   --num-prompts            = 2048
+│   --max-num-seqs           = 16
+│   --max-model-len          = 1025
+│   --max-num-batched-tokens = 16384
+│   --no-enable-chunked-prefill
+├─────────────────────────────────────────────────────────────┤
+│ 迭代次数:
+│   N_prefill = 128
+│   N_decode  = 0
+└─────────────────────────────────────────────────────────────┘
+
+[INFO] 开始测试...
+
+─── STDOUT ───
+When dataset path is not set, it will default to random dataset
+WARNING 01-26 20:44:32 [arg_utils.py:1869] This model does not officially support disabling chunked prefill. Disabling this manually may cause the engine to crash or produce incorrect outputs.
+WARNING 01-26 20:44:33 [interface.py:465] Using 'pin_memory=False' as WSL is detected. This may slow down the performance.
+(EngineCore_DP0 pid=1049897) ERROR 01-26 20:44:42 [core.py:866] EngineCore failed to start.
+(EngineCore_DP0 pid=1049897) ERROR 01-26 20:44:42 [core.py:866] Traceback (most recent call last):
+(EngineCore_DP0 pid=1049897) ERROR 01-26 20:44:42 [core.py:866]   File "/root/vllmbench/vllm/v1/engine/core.py", line 857, in run_engine_core
+(EngineCore_DP0 pid=1049897) ERROR 01-26 20:44:42 [core.py:866]     engine_core = EngineCoreProc(*args, **kwargs)
+(EngineCore_DP0 pid=1049897) ERROR 01-26 20:44:42 [core.py:866]                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=1049897) ERROR 01-26 20:44:42 [core.py:866]   File "/root/vllmbench/vllm/v1/engine/core.py", line 637, in __init__
+(EngineCore_DP0 pid=1049897) ERROR 01-26 20:44:42 [core.py:866]     super().__init__(
+(EngineCore_DP0 pid=1049897) ERROR 01-26 20:44:42 [core.py:866]   File "/root/vllmbench/vllm/v1/engine/core.py", line 102, in __init__
+(EngineCore_DP0 pid=1049897) ERROR 01-26 20:44:42 [core.py:866]     self.model_executor = executor_class(vllm_config)
+(EngineCore_DP0 pid=1049897) ERROR 01-26 20:44:42 [core.py:866]                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=1049897) ERROR 01-26 20:44:42 [core.py:866]   File "/root/vllmbench/vllm/v1/executor/abstract.py", line 101, in __init__
+(EngineCore_DP0 pid=1049897) ERROR 01-26 20:44:42 [core.py:866]     self._init_executor()
+(EngineCore_DP0 pid=1049897) ERROR 01-26 20:44:42 [core.py:866]   File "/root/vllmbench/vllm/v1/executor/uniproc_executor.py", line 47, in _init_executor
+(EngineCore_DP0 pid=1049897) ERROR 01-26 20:44:42 [core.py:866]     self.driver_worker.init_device()
+(EngineCore_DP0 pid=1049897) ERROR 01-26 20:44:42 [core.py:866]   File "/root/vllmbench/vllm/v1/worker/worker_base.py", line 326, in init_device
+(EngineCore_DP0 pid=1049897) ERROR 01-26 20:44:42 [core.py:866]     self.worker.init_device()  # type: ignore
+(EngineCore_DP0 pid=1049897) ERROR 01-26 20:44:42 [core.py:866]     ^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=1049897) ERROR 01-26 20:44:42 [core.py:866]   File "/root/vllmbench/vllm/v1/worker/gpu_worker.py", line 247, in init_device
+(EngineCore_DP0 pid=1049897) ERROR 01-26 20:44:42 [core.py:866]     raise ValueError(
+(EngineCore_DP0 pid=1049897) ERROR 01-26 20:44:42 [core.py:866] ValueError: Free memory on device (22.39/23.99 GiB) on startup is less than desired GPU memory utilization (0.95, 22.79 GiB). Decrease GPU memory utilization or reduce GPU memory used by other processes.
+
+
+─── STDERR ───
+[2026-01-26 20:44:31] INFO kernels.py:578: Triton kernel custom ops registered
+[2026-01-26 20:44:32] INFO kernels.py:627: Optimization enabled: Only preloading kernels for model 'Qwen2.5-14B-INT8'
+[2026-01-26 20:44:32] INFO kernels.py:109: Loaded tuned kernel for model: Qwen2.5-14B-INT8
+[2026-01-26 20:44:32] INFO kernels.py:155: Dequant+bias kernel loaded for model: Qwen2.5-14B-INT8
+[2026-01-26 20:44:32] INFO kernels.py:224: FP8 quant kernel loaded for model: Qwen2.5-14B-INT8
+[2026-01-26 20:44:32] INFO kernels.py:348: INT8 quant kernel loaded for model: Qwen2.5-14B-INT8
+[2026-01-26 20:44:32] INFO kernels.py:284: FP8 quant+slide kernel loaded for model: Qwen2.5-14B-INT8
+[2026-01-26 20:44:32] INFO kernels.py:408: INT8 quant+slide kernel loaded for model: Qwen2.5-14B-INT8
+[2026-01-26 20:44:32] INFO gemm_wrapper.py:157: Optimization enabled: Only loading GEMM configs for model 'Qwen2.5-14B-INT8'
+[2026-01-26 20:44:32] INFO gemm_wrapper.py:172: Loaded algorithm configs: cuBLASLt=1, cuSPARSELt=1 models
+[2026-01-26 20:44:32] INFO gemm_wrapper.py:944: cuBLASLt FP8 custom op registered: slidesparse::cublaslt_fp8_mm
+[2026-01-26 20:44:32] INFO gemm_wrapper.py:1009: cuSPARSELt FP8 custom op registered: slidesparse::cusparselt_fp8_mm
+[2026-01-26 20:44:32] INFO gemm_wrapper.py:1075: cuBLASLt INT8 custom op registered: slidesparse::cublaslt_int8_mm
+[2026-01-26 20:44:32] INFO gemm_wrapper.py:1141: cuSPARSELt INT8 custom op registered: slidesparse::cusparselt_int8_mm
+[2026-01-26 20:44:39] INFO kernels.py:578: Triton kernel custom ops registered
+[2026-01-26 20:44:39] INFO kernels.py:627: Optimization enabled: Only preloading kernels for model 'Qwen2.5-14B-INT8'
+[2026-01-26 20:44:39] INFO kernels.py:109: Loaded tuned kernel for model: Qwen2.5-14B-INT8
+[2026-01-26 20:44:39] INFO kernels.py:155: Dequant+bias kernel loaded for model: Qwen2.5-14B-INT8
+[2026-01-26 20:44:39] INFO kernels.py:224: FP8 quant kernel loaded for model: Qwen2.5-14B-INT8
+[2026-01-26 20:44:39] INFO kernels.py:348: INT8 quant kernel loaded for model: Qwen2.5-14B-INT8
+[2026-01-26 20:44:39] INFO kernels.py:284: FP8 quant+slide kernel loaded for model: Qwen2.5-14B-INT8
+[2026-01-26 20:44:39] INFO kernels.py:408: INT8 quant+slide kernel loaded for model: Qwen2.5-14B-INT8
+[2026-01-26 20:44:39] INFO gemm_wrapper.py:157: Optimization enabled: Only loading GEMM configs for model 'Qwen2.5-14B-INT8'
+[2026-01-26 20:44:39] INFO gemm_wrapper.py:172: Loaded algorithm configs: cuBLASLt=1, cuSPARSELt=1 models
+[2026-01-26 20:44:39] INFO gemm_wrapper.py:944: cuBLASLt FP8 custom op registered: slidesparse::cublaslt_fp8_mm
+[2026-01-26 20:44:39] INFO gemm_wrapper.py:1009: cuSPARSELt FP8 custom op registered: slidesparse::cusparselt_fp8_mm
+[2026-01-26 20:44:39] INFO gemm_wrapper.py:1075: cuBLASLt INT8 custom op registered: slidesparse::cublaslt_int8_mm
+[2026-01-26 20:44:39] INFO gemm_wrapper.py:1141: cuSPARSELt INT8 custom op registered: slidesparse::cusparselt_int8_mm
+(EngineCore_DP0 pid=1049897) Process EngineCore_DP0:
+(EngineCore_DP0 pid=1049897) Traceback (most recent call last):
+(EngineCore_DP0 pid=1049897)   File "/usr/lib/python3.12/multiprocessing/process.py", line 314, in _bootstrap
+(EngineCore_DP0 pid=1049897)     self.run()
+(EngineCore_DP0 pid=1049897)   File "/usr/lib/python3.12/multiprocessing/process.py", line 108, in run
+(EngineCore_DP0 pid=1049897)     self._target(*self._args, **self._kwargs)
+(EngineCore_DP0 pid=1049897)   File "/root/vllmbench/vllm/v1/engine/core.py", line 870, in run_engine_core
+(EngineCore_DP0 pid=1049897)     raise e
+(EngineCore_DP0 pid=1049897)   File "/root/vllmbench/vllm/v1/engine/core.py", line 857, in run_engine_core
+(EngineCore_DP0 pid=1049897)     engine_core = EngineCoreProc(*args, **kwargs)
+(EngineCore_DP0 pid=1049897)                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=1049897)   File "/root/vllmbench/vllm/v1/engine/core.py", line 637, in __init__
+(EngineCore_DP0 pid=1049897)     super().__init__(
+(EngineCore_DP0 pid=1049897)   File "/root/vllmbench/vllm/v1/engine/core.py", line 102, in __init__
+(EngineCore_DP0 pid=1049897)     self.model_executor = executor_class(vllm_config)
+(EngineCore_DP0 pid=1049897)                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=1049897)   File "/root/vllmbench/vllm/v1/executor/abstract.py", line 101, in __init__
+(EngineCore_DP0 pid=1049897)     self._init_executor()
+(EngineCore_DP0 pid=1049897)   File "/root/vllmbench/vllm/v1/executor/uniproc_executor.py", line 47, in _init_executor
+(EngineCore_DP0 pid=1049897)     self.driver_worker.init_device()
+(EngineCore_DP0 pid=1049897)   File "/root/vllmbench/vllm/v1/worker/worker_base.py", line 326, in init_device
+(EngineCore_DP0 pid=1049897)     self.worker.init_device()  # type: ignore
+(EngineCore_DP0 pid=1049897)     ^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=1049897)   File "/root/vllmbench/vllm/v1/worker/gpu_worker.py", line 247, in init_device
+(EngineCore_DP0 pid=1049897)     raise ValueError(
+(EngineCore_DP0 pid=1049897) ValueError: Free memory on device (22.39/23.99 GiB) on startup is less than desired GPU memory utilization (0.95, 22.79 GiB). Decrease GPU memory utilization or reduce GPU memory used by other processes.
+[rank0]:[W126 20:44:42.651252844 ProcessGroupNCCL.cpp:1524] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+Traceback (most recent call last):
+  File "/usr/local/bin/vllm", line 7, in <module>
+    sys.exit(main())
+             ^^^^^^
+  File "/root/vllmbench/vllm/entrypoints/cli/main.py", line 73, in main
+    args.dispatch_function(args)
+  File "/root/vllmbench/vllm/entrypoints/cli/benchmark/throughput.py", line 21, in cmd
+    main(args)
+  File "/root/vllmbench/vllm/benchmarks/throughput.py", line 730, in main
+    elapsed_time, request_outputs = run_vllm(
+                                    ^^^^^^^^^
+  File "/root/vllmbench/vllm/benchmarks/throughput.py", line 51, in run_vllm
+    llm = LLM(**dataclasses.asdict(engine_args))
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/entrypoints/llm.py", line 351, in __init__
+    self.llm_engine = LLMEngine.from_engine_args(
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/v1/engine/llm_engine.py", line 183, in from_engine_args
+    return cls(
+           ^^^^
+  File "/root/vllmbench/vllm/v1/engine/llm_engine.py", line 109, in __init__
+    self.engine_core = EngineCoreClient.make_client(
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/v1/engine/core_client.py", line 93, in make_client
+    return SyncMPClient(vllm_config, executor_class, log_stats)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/v1/engine/core_client.py", line 648, in __init__
+    super().__init__(
+  File "/root/vllmbench/vllm/v1/engine/core_client.py", line 477, in __init__
+    with launch_core_engines(vllm_config, executor_class, log_stats) as (
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/contextlib.py", line 144, in __exit__
+    next(self.gen)
+  File "/root/vllmbench/vllm/v1/engine/utils.py", line 903, in launch_core_engines
+    wait_for_engine_startup(
+  File "/root/vllmbench/vllm/v1/engine/utils.py", line 960, in wait_for_engine_startup
+    raise RuntimeError(
+RuntimeError: Engine core initialization failed. See root cause above. Failed core proc(s): {}
+
+[ERROR] 测试失败: M=16384 (exit code: 1)
+
+
+------------------------------------------------------------
+  生成 CSV: Qwen2.5-14B-INT8
+------------------------------------------------------------
+[SUCCESS] CSV 保存到: /root/vllmbench/slidesparse/tools/throughput_benchmark_results/prefill/RTX4090_cc89_INT8_py312_cu129_x86_64/cusparselt/2_8/Qwen2.5-14B-INT8_prefill.csv
+
+预览:
+------------------------------------------------------------
+M_prefill,prompt_len,max_num_seqs,num_prompts,N_prefill,requests_per_s,tokens_per_s,elapsed_time_s
+16384,1024,16,2048,128,-1.0000,-1.0000,-1.0000
+
+------------------------------------------------------------
+
+[INFO] 完成: 0 成功, 1 失败
+
+
+============================================================
+  Benchmark 完成!
+============================================================
+
+
+总计: 0 成功, 1 失败
+============================================================
