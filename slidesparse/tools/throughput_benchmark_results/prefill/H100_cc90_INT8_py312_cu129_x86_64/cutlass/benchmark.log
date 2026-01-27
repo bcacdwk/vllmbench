@@ -667,3 +667,336 @@ Processed prompts: 100%|██████████| 128/128 [00:00<00:00, 20
 Processed prompts: 100%|██████████| 128/128 [00:00<00:00, 200.02it/s, est. speed input: 51223.98 toks/s, output: 200.08 toks/s]
 [rank0]:[W126 04:58:46.236721205 ProcessGroupNCCL.cpp:1524] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
 
+
+========== M=16 ==========
+Time: 2026-01-26 07:28:55
+Backend: CUTLASS (SlideSparse fallback)
+Checkpoint: /root/vllmbench/checkpoints/Llama3.2-1B-INT8
+Params: prompt_len=16, output_len=1, num_prompts=128, max_num_seqs=1
+Command: vllm bench throughput --model /root/vllmbench/checkpoints/Llama3.2-1B-INT8 --dataset-name random --input-len 16 --output-len 1 --num-prompts 128 --max-num-seqs 1 --max-model-len 17 --max-num-batched-tokens 17 --no-enable-chunked-prefill --gpu-memory-utilization 0.8 --disable-log-stats --output-json /root/vllmbench/slidesparse/tools/throughput_benchmark_results/prefill/H100_cc90_INT8_py312_cu129_x86_64/cutlass/json/Llama3.2-1B-INT8_M16.json
+
+STDOUT:
+When dataset path is not set, it will default to random dataset
+WARNING 01-26 07:29:02 [arg_utils.py:1869] This model does not officially support disabling chunked prefill. Disabling this manually may cause the engine to crash or produce incorrect outputs.
+Throughput: 197.62 requests/s, 3359.61 total tokens/s, 197.62 output tokens/s
+Total num prompt tokens:  2048
+Total num output tokens:  128
+
+STDERR:
+[2026-01-26 07:29:01] INFO kernels.py:578: Triton kernel custom ops registered
+[2026-01-26 07:29:02] INFO kernels.py:109: Loaded tuned kernel for model: Qwen2.5-7B
+[2026-01-26 07:29:02] INFO kernels.py:155: Dequant+bias kernel loaded for model: Qwen2.5-7B
+[2026-01-26 07:29:02] INFO kernels.py:109: Loaded tuned kernel for model: Llama3.2-3B
+[2026-01-26 07:29:02] INFO kernels.py:155: Dequant+bias kernel loaded for model: Llama3.2-3B
+[2026-01-26 07:29:02] INFO kernels.py:109: Loaded tuned kernel for model: Llama3.2-1B
+[2026-01-26 07:29:02] INFO kernels.py:155: Dequant+bias kernel loaded for model: Llama3.2-1B
+[2026-01-26 07:29:02] INFO kernels.py:109: Loaded tuned kernel for model: Qwen2.5-14B
+[2026-01-26 07:29:02] INFO kernels.py:155: Dequant+bias kernel loaded for model: Qwen2.5-14B
+[2026-01-26 07:29:02] INFO kernels.py:224: FP8 quant kernel loaded for model: Qwen2.5-7B
+[2026-01-26 07:29:02] INFO kernels.py:348: INT8 quant kernel loaded for model: Qwen2.5-7B
+[2026-01-26 07:29:02] INFO kernels.py:224: FP8 quant kernel loaded for model: Qwen2.5-14B
+[2026-01-26 07:29:02] INFO kernels.py:348: INT8 quant kernel loaded for model: Qwen2.5-14B
+[2026-01-26 07:29:02] INFO kernels.py:224: FP8 quant kernel loaded for model: Llama3.2-3B
+[2026-01-26 07:29:02] INFO kernels.py:348: INT8 quant kernel loaded for model: Llama3.2-3B
+[2026-01-26 07:29:02] INFO kernels.py:224: FP8 quant kernel loaded for model: Llama3.2-1B
+[2026-01-26 07:29:02] INFO kernels.py:348: INT8 quant kernel loaded for model: Llama3.2-1B
+[2026-01-26 07:29:02] INFO kernels.py:284: FP8 quant+slide kernel loaded for model: Qwen2.5-14B
+[2026-01-26 07:29:02] INFO kernels.py:408: INT8 quant+slide kernel loaded for model: Qwen2.5-14B
+[2026-01-26 07:29:02] INFO kernels.py:284: FP8 quant+slide kernel loaded for model: Qwen2.5-7B
+[2026-01-26 07:29:02] INFO kernels.py:408: INT8 quant+slide kernel loaded for model: Qwen2.5-7B
+[2026-01-26 07:29:02] INFO kernels.py:284: FP8 quant+slide kernel loaded for model: Llama3.2-3B
+[2026-01-26 07:29:02] INFO kernels.py:408: INT8 quant+slide kernel loaded for model: Llama3.2-3B
+[2026-01-26 07:29:02] INFO kernels.py:284: FP8 quant+slide kernel loaded for model: Llama3.2-1B
+[2026-01-26 07:29:02] INFO kernels.py:408: INT8 quant+slide kernel loaded for model: Llama3.2-1B
+[2026-01-26 07:29:02] INFO kernels.py:719: Preloaded 20 Triton kernels from H100_cc90_py312_cu129_x86_64
+[2026-01-26 07:29:02] INFO gemm_wrapper.py:172: Loaded algorithm configs: cuBLASLt=8, cuSPARSELt=8 models
+[2026-01-26 07:29:02] INFO gemm_wrapper.py:944: cuBLASLt FP8 custom op registered: slidesparse::cublaslt_fp8_mm
+[2026-01-26 07:29:02] INFO gemm_wrapper.py:1009: cuSPARSELt FP8 custom op registered: slidesparse::cusparselt_fp8_mm
+[2026-01-26 07:29:02] INFO gemm_wrapper.py:1075: cuBLASLt INT8 custom op registered: slidesparse::cublaslt_int8_mm
+[2026-01-26 07:29:02] INFO gemm_wrapper.py:1141: cuSPARSELt INT8 custom op registered: slidesparse::cusparselt_int8_mm
+[2026-01-26 07:29:08] INFO kernels.py:578: Triton kernel custom ops registered
+[2026-01-26 07:29:09] INFO kernels.py:109: Loaded tuned kernel for model: Qwen2.5-7B
+[2026-01-26 07:29:09] INFO kernels.py:155: Dequant+bias kernel loaded for model: Qwen2.5-7B
+[2026-01-26 07:29:09] INFO kernels.py:109: Loaded tuned kernel for model: Llama3.2-3B
+[2026-01-26 07:29:09] INFO kernels.py:155: Dequant+bias kernel loaded for model: Llama3.2-3B
+[2026-01-26 07:29:09] INFO kernels.py:109: Loaded tuned kernel for model: Llama3.2-1B
+[2026-01-26 07:29:09] INFO kernels.py:155: Dequant+bias kernel loaded for model: Llama3.2-1B
+[2026-01-26 07:29:09] INFO kernels.py:109: Loaded tuned kernel for model: Qwen2.5-14B
+[2026-01-26 07:29:09] INFO kernels.py:155: Dequant+bias kernel loaded for model: Qwen2.5-14B
+[2026-01-26 07:29:09] INFO kernels.py:224: FP8 quant kernel loaded for model: Qwen2.5-7B
+[2026-01-26 07:29:09] INFO kernels.py:348: INT8 quant kernel loaded for model: Qwen2.5-7B
+[2026-01-26 07:29:09] INFO kernels.py:224: FP8 quant kernel loaded for model: Qwen2.5-14B
+[2026-01-26 07:29:09] INFO kernels.py:348: INT8 quant kernel loaded for model: Qwen2.5-14B
+[2026-01-26 07:29:09] INFO kernels.py:224: FP8 quant kernel loaded for model: Llama3.2-3B
+[2026-01-26 07:29:09] INFO kernels.py:348: INT8 quant kernel loaded for model: Llama3.2-3B
+[2026-01-26 07:29:09] INFO kernels.py:224: FP8 quant kernel loaded for model: Llama3.2-1B
+[2026-01-26 07:29:09] INFO kernels.py:348: INT8 quant kernel loaded for model: Llama3.2-1B
+[2026-01-26 07:29:09] INFO kernels.py:284: FP8 quant+slide kernel loaded for model: Qwen2.5-14B
+[2026-01-26 07:29:09] INFO kernels.py:408: INT8 quant+slide kernel loaded for model: Qwen2.5-14B
+[2026-01-26 07:29:09] INFO kernels.py:284: FP8 quant+slide kernel loaded for model: Qwen2.5-7B
+[2026-01-26 07:29:09] INFO kernels.py:408: INT8 quant+slide kernel loaded for model: Qwen2.5-7B
+[2026-01-26 07:29:09] INFO kernels.py:284: FP8 quant+slide kernel loaded for model: Llama3.2-3B
+[2026-01-26 07:29:09] INFO kernels.py:408: INT8 quant+slide kernel loaded for model: Llama3.2-3B
+[2026-01-26 07:29:09] INFO kernels.py:284: FP8 quant+slide kernel loaded for model: Llama3.2-1B
+[2026-01-26 07:29:09] INFO kernels.py:408: INT8 quant+slide kernel loaded for model: Llama3.2-1B
+[2026-01-26 07:29:09] INFO kernels.py:719: Preloaded 20 Triton kernels from H100_cc90_py312_cu129_x86_64
+[2026-01-26 07:29:09] INFO gemm_wrapper.py:172: Loaded algorithm configs: cuBLASLt=8, cuSPARSELt=8 models
+[2026-01-26 07:29:09] INFO gemm_wrapper.py:944: cuBLASLt FP8 custom op registered: slidesparse::cublaslt_fp8_mm
+[2026-01-26 07:29:09] INFO gemm_wrapper.py:1009: cuSPARSELt FP8 custom op registered: slidesparse::cusparselt_fp8_mm
+[2026-01-26 07:29:09] INFO gemm_wrapper.py:1075: cuBLASLt INT8 custom op registered: slidesparse::cublaslt_int8_mm
+[2026-01-26 07:29:09] INFO gemm_wrapper.py:1141: cuSPARSELt INT8 custom op registered: slidesparse::cusparselt_int8_mm
+(EngineCore_DP0 pid=962021) [2026-01-26 07:29:10] INFO SlideSparseLinearMethod_INT8.py:805: Wrapping CompressedTensorsW8A8Int8 with SlideSparse (CUTLASS)
+(EngineCore_DP0 pid=962021) [2026-01-26 07:29:10] INFO SlideSparseLinearMethod_INT8.py:452: SlideSparseInt8LinearOp initialized (kernel=CUTLASS)
+(EngineCore_DP0 pid=962021) [2026-01-26 07:29:10] INFO SlideSparseLinearMethod_INT8.py:625: SlideSparseInt8LinearMethod initialized, kernel=CUTLASS, symmetric=True
+(EngineCore_DP0 pid=962021) 
+Loading safetensors checkpoint shards:   0% Completed | 0/1 [00:00<?, ?it/s]
+(EngineCore_DP0 pid=962021) 
+Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  5.55it/s]
+(EngineCore_DP0 pid=962021) 
+Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  5.55it/s]
+(EngineCore_DP0 pid=962021) 
+(EngineCore_DP0 pid=962021) 2026-01-26 07:29:20,094 - INFO - autotuner.py:256 - flashinfer.jit: [Autotuner]: Autotuning process starts ...
+(EngineCore_DP0 pid=962021) 2026-01-26 07:29:20,164 - INFO - autotuner.py:262 - flashinfer.jit: [Autotuner]: Autotuning process ends
+(EngineCore_DP0 pid=962021) 
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):   0%|          | 0/2 [00:00<?, ?it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE): 100%|██████████| 2/2 [00:00<00:00,  9.82it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE): 100%|██████████| 2/2 [00:00<00:00,  9.81it/s]
+(EngineCore_DP0 pid=962021) 
+Capturing CUDA graphs (decode, FULL):   0%|          | 0/1 [00:00<?, ?it/s]
+Capturing CUDA graphs (decode, FULL): 100%|██████████| 1/1 [00:00<00:00,  5.44it/s]
+Capturing CUDA graphs (decode, FULL): 100%|██████████| 1/1 [00:00<00:00,  5.43it/s]
+
+Adding requests:   0%|          | 0/128 [00:00<?, ?it/s]
+Adding requests: 100%|██████████| 128/128 [00:00<00:00, 2793.34it/s]
+
+Processed prompts:   0%|          | 0/128 [00:00<?, ?it/s, est. speed input: 0.00 toks/s, output: 0.00 toks/s]
+Processed prompts:  19%|█▉        | 24/128 [00:00<00:00, 230.57it/s, est. speed input: 3690.34 toks/s, output: 230.59 toks/s]
+Processed prompts:  38%|███▊      | 48/128 [00:00<00:00, 217.91it/s, est. speed input: 3516.08 toks/s, output: 219.73 toks/s]
+Processed prompts:  55%|█████▍    | 70/128 [00:00<00:00, 214.55it/s, est. speed input: 3467.25 toks/s, output: 216.68 toks/s]
+Processed prompts:  72%|███████▏  | 92/128 [00:00<00:00, 212.39it/s, est. speed input: 3437.00 toks/s, output: 214.80 toks/s]
+Processed prompts:  89%|████████▉ | 114/128 [00:00<00:00, 211.46it/s, est. speed input: 3421.12 toks/s, output: 213.81 toks/s]
+Processed prompts: 100%|██████████| 128/128 [00:00<00:00, 211.46it/s, est. speed input: 3414.16 toks/s, output: 213.37 toks/s]
+Processed prompts: 100%|██████████| 128/128 [00:00<00:00, 213.28it/s, est. speed input: 3414.16 toks/s, output: 213.37 toks/s]
+[rank0]:[W126 07:29:22.732255090 ProcessGroupNCCL.cpp:1524] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+
+
+========== M=128 ==========
+Time: 2026-01-26 07:29:24
+Backend: CUTLASS (SlideSparse fallback)
+Checkpoint: /root/vllmbench/checkpoints/Llama3.2-1B-INT8
+Params: prompt_len=128, output_len=1, num_prompts=128, max_num_seqs=1
+Command: vllm bench throughput --model /root/vllmbench/checkpoints/Llama3.2-1B-INT8 --dataset-name random --input-len 128 --output-len 1 --num-prompts 128 --max-num-seqs 1 --max-model-len 129 --max-num-batched-tokens 129 --no-enable-chunked-prefill --gpu-memory-utilization 0.8 --disable-log-stats --output-json /root/vllmbench/slidesparse/tools/throughput_benchmark_results/prefill/H100_cc90_INT8_py312_cu129_x86_64/cutlass/json/Llama3.2-1B-INT8_M128.json
+
+STDOUT:
+When dataset path is not set, it will default to random dataset
+WARNING 01-26 07:29:31 [arg_utils.py:1869] This model does not officially support disabling chunked prefill. Disabling this manually may cause the engine to crash or produce incorrect outputs.
+Throughput: 189.98 requests/s, 24506.92 total tokens/s, 189.98 output tokens/s
+Total num prompt tokens:  16384
+Total num output tokens:  128
+
+STDERR:
+[2026-01-26 07:29:30] INFO kernels.py:578: Triton kernel custom ops registered
+[2026-01-26 07:29:31] INFO kernels.py:109: Loaded tuned kernel for model: Qwen2.5-7B
+[2026-01-26 07:29:31] INFO kernels.py:155: Dequant+bias kernel loaded for model: Qwen2.5-7B
+[2026-01-26 07:29:31] INFO kernels.py:109: Loaded tuned kernel for model: Llama3.2-3B
+[2026-01-26 07:29:31] INFO kernels.py:155: Dequant+bias kernel loaded for model: Llama3.2-3B
+[2026-01-26 07:29:31] INFO kernels.py:109: Loaded tuned kernel for model: Llama3.2-1B
+[2026-01-26 07:29:31] INFO kernels.py:155: Dequant+bias kernel loaded for model: Llama3.2-1B
+[2026-01-26 07:29:31] INFO kernels.py:109: Loaded tuned kernel for model: Qwen2.5-14B
+[2026-01-26 07:29:31] INFO kernels.py:155: Dequant+bias kernel loaded for model: Qwen2.5-14B
+[2026-01-26 07:29:31] INFO kernels.py:224: FP8 quant kernel loaded for model: Qwen2.5-7B
+[2026-01-26 07:29:31] INFO kernels.py:348: INT8 quant kernel loaded for model: Qwen2.5-7B
+[2026-01-26 07:29:31] INFO kernels.py:224: FP8 quant kernel loaded for model: Qwen2.5-14B
+[2026-01-26 07:29:31] INFO kernels.py:348: INT8 quant kernel loaded for model: Qwen2.5-14B
+[2026-01-26 07:29:31] INFO kernels.py:224: FP8 quant kernel loaded for model: Llama3.2-3B
+[2026-01-26 07:29:31] INFO kernels.py:348: INT8 quant kernel loaded for model: Llama3.2-3B
+[2026-01-26 07:29:31] INFO kernels.py:224: FP8 quant kernel loaded for model: Llama3.2-1B
+[2026-01-26 07:29:31] INFO kernels.py:348: INT8 quant kernel loaded for model: Llama3.2-1B
+[2026-01-26 07:29:31] INFO kernels.py:284: FP8 quant+slide kernel loaded for model: Qwen2.5-14B
+[2026-01-26 07:29:31] INFO kernels.py:408: INT8 quant+slide kernel loaded for model: Qwen2.5-14B
+[2026-01-26 07:29:31] INFO kernels.py:284: FP8 quant+slide kernel loaded for model: Qwen2.5-7B
+[2026-01-26 07:29:31] INFO kernels.py:408: INT8 quant+slide kernel loaded for model: Qwen2.5-7B
+[2026-01-26 07:29:31] INFO kernels.py:284: FP8 quant+slide kernel loaded for model: Llama3.2-3B
+[2026-01-26 07:29:31] INFO kernels.py:408: INT8 quant+slide kernel loaded for model: Llama3.2-3B
+[2026-01-26 07:29:31] INFO kernels.py:284: FP8 quant+slide kernel loaded for model: Llama3.2-1B
+[2026-01-26 07:29:31] INFO kernels.py:408: INT8 quant+slide kernel loaded for model: Llama3.2-1B
+[2026-01-26 07:29:31] INFO kernels.py:719: Preloaded 20 Triton kernels from H100_cc90_py312_cu129_x86_64
+[2026-01-26 07:29:31] INFO gemm_wrapper.py:172: Loaded algorithm configs: cuBLASLt=8, cuSPARSELt=8 models
+[2026-01-26 07:29:31] INFO gemm_wrapper.py:944: cuBLASLt FP8 custom op registered: slidesparse::cublaslt_fp8_mm
+[2026-01-26 07:29:31] INFO gemm_wrapper.py:1009: cuSPARSELt FP8 custom op registered: slidesparse::cusparselt_fp8_mm
+[2026-01-26 07:29:31] INFO gemm_wrapper.py:1075: cuBLASLt INT8 custom op registered: slidesparse::cublaslt_int8_mm
+[2026-01-26 07:29:31] INFO gemm_wrapper.py:1141: cuSPARSELt INT8 custom op registered: slidesparse::cusparselt_int8_mm
+[2026-01-26 07:29:37] INFO kernels.py:578: Triton kernel custom ops registered
+[2026-01-26 07:29:38] INFO kernels.py:109: Loaded tuned kernel for model: Qwen2.5-7B
+[2026-01-26 07:29:38] INFO kernels.py:155: Dequant+bias kernel loaded for model: Qwen2.5-7B
+[2026-01-26 07:29:38] INFO kernels.py:109: Loaded tuned kernel for model: Llama3.2-3B
+[2026-01-26 07:29:38] INFO kernels.py:155: Dequant+bias kernel loaded for model: Llama3.2-3B
+[2026-01-26 07:29:38] INFO kernels.py:109: Loaded tuned kernel for model: Llama3.2-1B
+[2026-01-26 07:29:38] INFO kernels.py:155: Dequant+bias kernel loaded for model: Llama3.2-1B
+[2026-01-26 07:29:38] INFO kernels.py:109: Loaded tuned kernel for model: Qwen2.5-14B
+[2026-01-26 07:29:38] INFO kernels.py:155: Dequant+bias kernel loaded for model: Qwen2.5-14B
+[2026-01-26 07:29:38] INFO kernels.py:224: FP8 quant kernel loaded for model: Qwen2.5-7B
+[2026-01-26 07:29:38] INFO kernels.py:348: INT8 quant kernel loaded for model: Qwen2.5-7B
+[2026-01-26 07:29:38] INFO kernels.py:224: FP8 quant kernel loaded for model: Qwen2.5-14B
+[2026-01-26 07:29:38] INFO kernels.py:348: INT8 quant kernel loaded for model: Qwen2.5-14B
+[2026-01-26 07:29:38] INFO kernels.py:224: FP8 quant kernel loaded for model: Llama3.2-3B
+[2026-01-26 07:29:38] INFO kernels.py:348: INT8 quant kernel loaded for model: Llama3.2-3B
+[2026-01-26 07:29:38] INFO kernels.py:224: FP8 quant kernel loaded for model: Llama3.2-1B
+[2026-01-26 07:29:38] INFO kernels.py:348: INT8 quant kernel loaded for model: Llama3.2-1B
+[2026-01-26 07:29:38] INFO kernels.py:284: FP8 quant+slide kernel loaded for model: Qwen2.5-14B
+[2026-01-26 07:29:38] INFO kernels.py:408: INT8 quant+slide kernel loaded for model: Qwen2.5-14B
+[2026-01-26 07:29:38] INFO kernels.py:284: FP8 quant+slide kernel loaded for model: Qwen2.5-7B
+[2026-01-26 07:29:38] INFO kernels.py:408: INT8 quant+slide kernel loaded for model: Qwen2.5-7B
+[2026-01-26 07:29:38] INFO kernels.py:284: FP8 quant+slide kernel loaded for model: Llama3.2-3B
+[2026-01-26 07:29:38] INFO kernels.py:408: INT8 quant+slide kernel loaded for model: Llama3.2-3B
+[2026-01-26 07:29:38] INFO kernels.py:284: FP8 quant+slide kernel loaded for model: Llama3.2-1B
+[2026-01-26 07:29:38] INFO kernels.py:408: INT8 quant+slide kernel loaded for model: Llama3.2-1B
+[2026-01-26 07:29:38] INFO kernels.py:719: Preloaded 20 Triton kernels from H100_cc90_py312_cu129_x86_64
+[2026-01-26 07:29:38] INFO gemm_wrapper.py:172: Loaded algorithm configs: cuBLASLt=8, cuSPARSELt=8 models
+[2026-01-26 07:29:38] INFO gemm_wrapper.py:944: cuBLASLt FP8 custom op registered: slidesparse::cublaslt_fp8_mm
+[2026-01-26 07:29:38] INFO gemm_wrapper.py:1009: cuSPARSELt FP8 custom op registered: slidesparse::cusparselt_fp8_mm
+[2026-01-26 07:29:38] INFO gemm_wrapper.py:1075: cuBLASLt INT8 custom op registered: slidesparse::cublaslt_int8_mm
+[2026-01-26 07:29:38] INFO gemm_wrapper.py:1141: cuSPARSELt INT8 custom op registered: slidesparse::cusparselt_int8_mm
+(EngineCore_DP0 pid=963047) [2026-01-26 07:29:39] INFO SlideSparseLinearMethod_INT8.py:805: Wrapping CompressedTensorsW8A8Int8 with SlideSparse (CUTLASS)
+(EngineCore_DP0 pid=963047) [2026-01-26 07:29:39] INFO SlideSparseLinearMethod_INT8.py:452: SlideSparseInt8LinearOp initialized (kernel=CUTLASS)
+(EngineCore_DP0 pid=963047) [2026-01-26 07:29:39] INFO SlideSparseLinearMethod_INT8.py:625: SlideSparseInt8LinearMethod initialized, kernel=CUTLASS, symmetric=True
+(EngineCore_DP0 pid=963047) 
+Loading safetensors checkpoint shards:   0% Completed | 0/1 [00:00<?, ?it/s]
+(EngineCore_DP0 pid=963047) 
+Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  5.57it/s]
+(EngineCore_DP0 pid=963047) 
+Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  5.57it/s]
+(EngineCore_DP0 pid=963047) 
+(EngineCore_DP0 pid=963047) 2026-01-26 07:29:48,879 - INFO - autotuner.py:256 - flashinfer.jit: [Autotuner]: Autotuning process starts ...
+(EngineCore_DP0 pid=963047) 2026-01-26 07:29:48,889 - INFO - autotuner.py:262 - flashinfer.jit: [Autotuner]: Autotuning process ends
+(EngineCore_DP0 pid=963047) 
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):   0%|          | 0/2 [00:00<?, ?it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE): 100%|██████████| 2/2 [00:00<00:00, 32.24it/s]
+(EngineCore_DP0 pid=963047) 
+Capturing CUDA graphs (decode, FULL):   0%|          | 0/1 [00:00<?, ?it/s]
+Capturing CUDA graphs (decode, FULL): 100%|██████████| 1/1 [00:00<00:00, 66.12it/s]
+
+Adding requests:   0%|          | 0/128 [00:00<?, ?it/s]
+Adding requests: 100%|██████████| 128/128 [00:00<00:00, 1301.56it/s]
+
+Processed prompts:   0%|          | 0/128 [00:00<?, ?it/s, est. speed input: 0.00 toks/s, output: 0.00 toks/s]
+Processed prompts:  23%|██▎       | 29/128 [00:00<00:00, 286.04it/s, est. speed input: 36627.86 toks/s, output: 286.07 toks/s]
+Processed prompts:  45%|████▌     | 58/128 [00:00<00:00, 235.66it/s, est. speed input: 30987.57 toks/s, output: 242.06 toks/s]
+Processed prompts:  65%|██████▍   | 83/128 [00:00<00:00, 224.27it/s, est. speed input: 29635.34 toks/s, output: 231.51 toks/s]
+Processed prompts:  83%|████████▎ | 106/128 [00:00<00:00, 219.02it/s, est. speed input: 28994.17 toks/s, output: 226.50 toks/s]
+Processed prompts: 100%|██████████| 128/128 [00:00<00:00, 219.02it/s, est. speed input: 28562.80 toks/s, output: 223.14 toks/s]
+Processed prompts: 100%|██████████| 128/128 [00:00<00:00, 223.03it/s, est. speed input: 28562.80 toks/s, output: 223.14 toks/s]
+[rank0]:[W126 07:29:51.196762852 ProcessGroupNCCL.cpp:1524] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+
+
+========== M=256 ==========
+Time: 2026-01-26 07:29:53
+Backend: CUTLASS (SlideSparse fallback)
+Checkpoint: /root/vllmbench/checkpoints/Llama3.2-1B-INT8
+Params: prompt_len=256, output_len=1, num_prompts=128, max_num_seqs=1
+Command: vllm bench throughput --model /root/vllmbench/checkpoints/Llama3.2-1B-INT8 --dataset-name random --input-len 256 --output-len 1 --num-prompts 128 --max-num-seqs 1 --max-model-len 257 --max-num-batched-tokens 257 --no-enable-chunked-prefill --gpu-memory-utilization 0.8 --disable-log-stats --output-json /root/vllmbench/slidesparse/tools/throughput_benchmark_results/prefill/H100_cc90_INT8_py312_cu129_x86_64/cutlass/json/Llama3.2-1B-INT8_M256.json
+
+STDOUT:
+When dataset path is not set, it will default to random dataset
+WARNING 01-26 07:30:00 [arg_utils.py:1869] This model does not officially support disabling chunked prefill. Disabling this manually may cause the engine to crash or produce incorrect outputs.
+Throughput: 158.34 requests/s, 40693.73 total tokens/s, 158.34 output tokens/s
+Total num prompt tokens:  32768
+Total num output tokens:  128
+
+STDERR:
+[2026-01-26 07:30:00] INFO kernels.py:578: Triton kernel custom ops registered
+[2026-01-26 07:30:00] INFO kernels.py:109: Loaded tuned kernel for model: Qwen2.5-7B
+[2026-01-26 07:30:00] INFO kernels.py:155: Dequant+bias kernel loaded for model: Qwen2.5-7B
+[2026-01-26 07:30:00] INFO kernels.py:109: Loaded tuned kernel for model: Llama3.2-3B
+[2026-01-26 07:30:00] INFO kernels.py:155: Dequant+bias kernel loaded for model: Llama3.2-3B
+[2026-01-26 07:30:00] INFO kernels.py:109: Loaded tuned kernel for model: Llama3.2-1B
+[2026-01-26 07:30:00] INFO kernels.py:155: Dequant+bias kernel loaded for model: Llama3.2-1B
+[2026-01-26 07:30:00] INFO kernels.py:109: Loaded tuned kernel for model: Qwen2.5-14B
+[2026-01-26 07:30:00] INFO kernels.py:155: Dequant+bias kernel loaded for model: Qwen2.5-14B
+[2026-01-26 07:30:00] INFO kernels.py:224: FP8 quant kernel loaded for model: Qwen2.5-7B
+[2026-01-26 07:30:00] INFO kernels.py:348: INT8 quant kernel loaded for model: Qwen2.5-7B
+[2026-01-26 07:30:00] INFO kernels.py:224: FP8 quant kernel loaded for model: Qwen2.5-14B
+[2026-01-26 07:30:00] INFO kernels.py:348: INT8 quant kernel loaded for model: Qwen2.5-14B
+[2026-01-26 07:30:00] INFO kernels.py:224: FP8 quant kernel loaded for model: Llama3.2-3B
+[2026-01-26 07:30:00] INFO kernels.py:348: INT8 quant kernel loaded for model: Llama3.2-3B
+[2026-01-26 07:30:00] INFO kernels.py:224: FP8 quant kernel loaded for model: Llama3.2-1B
+[2026-01-26 07:30:00] INFO kernels.py:348: INT8 quant kernel loaded for model: Llama3.2-1B
+[2026-01-26 07:30:00] INFO kernels.py:284: FP8 quant+slide kernel loaded for model: Qwen2.5-14B
+[2026-01-26 07:30:00] INFO kernels.py:408: INT8 quant+slide kernel loaded for model: Qwen2.5-14B
+[2026-01-26 07:30:00] INFO kernels.py:284: FP8 quant+slide kernel loaded for model: Qwen2.5-7B
+[2026-01-26 07:30:00] INFO kernels.py:408: INT8 quant+slide kernel loaded for model: Qwen2.5-7B
+[2026-01-26 07:30:00] INFO kernels.py:284: FP8 quant+slide kernel loaded for model: Llama3.2-3B
+[2026-01-26 07:30:00] INFO kernels.py:408: INT8 quant+slide kernel loaded for model: Llama3.2-3B
+[2026-01-26 07:30:00] INFO kernels.py:284: FP8 quant+slide kernel loaded for model: Llama3.2-1B
+[2026-01-26 07:30:00] INFO kernels.py:408: INT8 quant+slide kernel loaded for model: Llama3.2-1B
+[2026-01-26 07:30:00] INFO kernels.py:719: Preloaded 20 Triton kernels from H100_cc90_py312_cu129_x86_64
+[2026-01-26 07:30:00] INFO gemm_wrapper.py:172: Loaded algorithm configs: cuBLASLt=8, cuSPARSELt=8 models
+[2026-01-26 07:30:00] INFO gemm_wrapper.py:944: cuBLASLt FP8 custom op registered: slidesparse::cublaslt_fp8_mm
+[2026-01-26 07:30:00] INFO gemm_wrapper.py:1009: cuSPARSELt FP8 custom op registered: slidesparse::cusparselt_fp8_mm
+[2026-01-26 07:30:00] INFO gemm_wrapper.py:1075: cuBLASLt INT8 custom op registered: slidesparse::cublaslt_int8_mm
+[2026-01-26 07:30:00] INFO gemm_wrapper.py:1141: cuSPARSELt INT8 custom op registered: slidesparse::cusparselt_int8_mm
+[2026-01-26 07:30:07] INFO kernels.py:578: Triton kernel custom ops registered
+[2026-01-26 07:30:07] INFO kernels.py:109: Loaded tuned kernel for model: Qwen2.5-7B
+[2026-01-26 07:30:07] INFO kernels.py:155: Dequant+bias kernel loaded for model: Qwen2.5-7B
+[2026-01-26 07:30:07] INFO kernels.py:109: Loaded tuned kernel for model: Llama3.2-3B
+[2026-01-26 07:30:07] INFO kernels.py:155: Dequant+bias kernel loaded for model: Llama3.2-3B
+[2026-01-26 07:30:07] INFO kernels.py:109: Loaded tuned kernel for model: Llama3.2-1B
+[2026-01-26 07:30:07] INFO kernels.py:155: Dequant+bias kernel loaded for model: Llama3.2-1B
+[2026-01-26 07:30:07] INFO kernels.py:109: Loaded tuned kernel for model: Qwen2.5-14B
+[2026-01-26 07:30:07] INFO kernels.py:155: Dequant+bias kernel loaded for model: Qwen2.5-14B
+[2026-01-26 07:30:07] INFO kernels.py:224: FP8 quant kernel loaded for model: Qwen2.5-7B
+[2026-01-26 07:30:07] INFO kernels.py:348: INT8 quant kernel loaded for model: Qwen2.5-7B
+[2026-01-26 07:30:07] INFO kernels.py:224: FP8 quant kernel loaded for model: Qwen2.5-14B
+[2026-01-26 07:30:07] INFO kernels.py:348: INT8 quant kernel loaded for model: Qwen2.5-14B
+[2026-01-26 07:30:07] INFO kernels.py:224: FP8 quant kernel loaded for model: Llama3.2-3B
+[2026-01-26 07:30:07] INFO kernels.py:348: INT8 quant kernel loaded for model: Llama3.2-3B
+[2026-01-26 07:30:07] INFO kernels.py:224: FP8 quant kernel loaded for model: Llama3.2-1B
+[2026-01-26 07:30:07] INFO kernels.py:348: INT8 quant kernel loaded for model: Llama3.2-1B
+[2026-01-26 07:30:07] INFO kernels.py:284: FP8 quant+slide kernel loaded for model: Qwen2.5-14B
+[2026-01-26 07:30:07] INFO kernels.py:408: INT8 quant+slide kernel loaded for model: Qwen2.5-14B
+[2026-01-26 07:30:07] INFO kernels.py:284: FP8 quant+slide kernel loaded for model: Qwen2.5-7B
+[2026-01-26 07:30:07] INFO kernels.py:408: INT8 quant+slide kernel loaded for model: Qwen2.5-7B
+[2026-01-26 07:30:07] INFO kernels.py:284: FP8 quant+slide kernel loaded for model: Llama3.2-3B
+[2026-01-26 07:30:07] INFO kernels.py:408: INT8 quant+slide kernel loaded for model: Llama3.2-3B
+[2026-01-26 07:30:07] INFO kernels.py:284: FP8 quant+slide kernel loaded for model: Llama3.2-1B
+[2026-01-26 07:30:07] INFO kernels.py:408: INT8 quant+slide kernel loaded for model: Llama3.2-1B
+[2026-01-26 07:30:07] INFO kernels.py:719: Preloaded 20 Triton kernels from H100_cc90_py312_cu129_x86_64
+[2026-01-26 07:30:07] INFO gemm_wrapper.py:172: Loaded algorithm configs: cuBLASLt=8, cuSPARSELt=8 models
+[2026-01-26 07:30:07] INFO gemm_wrapper.py:944: cuBLASLt FP8 custom op registered: slidesparse::cublaslt_fp8_mm
+[2026-01-26 07:30:07] INFO gemm_wrapper.py:1009: cuSPARSELt FP8 custom op registered: slidesparse::cusparselt_fp8_mm
+[2026-01-26 07:30:07] INFO gemm_wrapper.py:1075: cuBLASLt INT8 custom op registered: slidesparse::cublaslt_int8_mm
+[2026-01-26 07:30:07] INFO gemm_wrapper.py:1141: cuSPARSELt INT8 custom op registered: slidesparse::cusparselt_int8_mm
+(EngineCore_DP0 pid=963994) [2026-01-26 07:30:09] INFO SlideSparseLinearMethod_INT8.py:805: Wrapping CompressedTensorsW8A8Int8 with SlideSparse (CUTLASS)
+(EngineCore_DP0 pid=963994) [2026-01-26 07:30:09] INFO SlideSparseLinearMethod_INT8.py:452: SlideSparseInt8LinearOp initialized (kernel=CUTLASS)
+(EngineCore_DP0 pid=963994) [2026-01-26 07:30:09] INFO SlideSparseLinearMethod_INT8.py:625: SlideSparseInt8LinearMethod initialized, kernel=CUTLASS, symmetric=True
+(EngineCore_DP0 pid=963994) 
+Loading safetensors checkpoint shards:   0% Completed | 0/1 [00:00<?, ?it/s]
+(EngineCore_DP0 pid=963994) 
+Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  5.53it/s]
+(EngineCore_DP0 pid=963994) 
+Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  5.52it/s]
+(EngineCore_DP0 pid=963994) 
+(EngineCore_DP0 pid=963994) 2026-01-26 07:30:19,436 - INFO - autotuner.py:256 - flashinfer.jit: [Autotuner]: Autotuning process starts ...
+(EngineCore_DP0 pid=963994) 2026-01-26 07:30:19,441 - INFO - autotuner.py:262 - flashinfer.jit: [Autotuner]: Autotuning process ends
+(EngineCore_DP0 pid=963994) 
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):   0%|          | 0/2 [00:00<?, ?it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE): 100%|██████████| 2/2 [00:00<00:00, 87.33it/s]
+(EngineCore_DP0 pid=963994) 
+Capturing CUDA graphs (decode, FULL):   0%|          | 0/1 [00:00<?, ?it/s]
+Capturing CUDA graphs (decode, FULL): 100%|██████████| 1/1 [00:00<00:00, 67.50it/s]
+
+Adding requests:   0%|          | 0/128 [00:00<?, ?it/s]
+Adding requests:  63%|██████▎   | 81/128 [00:00<00:00, 808.49it/s]
+Adding requests: 100%|██████████| 128/128 [00:00<00:00, 918.17it/s]
+
+Processed prompts:   0%|          | 0/128 [00:00<?, ?it/s, est. speed input: 0.00 toks/s, output: 0.00 toks/s]
+Processed prompts:  12%|█▎        | 16/128 [00:00<00:00, 159.90it/s, est. speed input: 40949.40 toks/s, output: 159.92 toks/s]
+Processed prompts:  27%|██▋       | 35/128 [00:00<00:00, 176.36it/s, est. speed input: 44529.05 toks/s, output: 173.92 toks/s]
+Processed prompts:  43%|████▎     | 55/128 [00:00<00:00, 186.64it/s, est. speed input: 46656.77 toks/s, output: 182.23 toks/s]
+Processed prompts:  59%|█████▊    | 75/128 [00:00<00:00, 191.49it/s, est. speed input: 47723.56 toks/s, output: 186.41 toks/s]
+Processed prompts:  75%|███████▌  | 96/128 [00:00<00:00, 194.84it/s, est. speed input: 48470.66 toks/s, output: 189.33 toks/s]
+Processed prompts:  91%|█████████ | 116/128 [00:00<00:00, 196.48it/s, est. speed input: 48909.92 toks/s, output: 191.04 toks/s]
+Processed prompts: 100%|██████████| 128/128 [00:00<00:00, 196.48it/s, est. speed input: 49142.91 toks/s, output: 191.96 toks/s]
+Processed prompts: 100%|██████████| 128/128 [00:00<00:00, 191.88it/s, est. speed input: 49142.91 toks/s, output: 191.96 toks/s]
+[rank0]:[W126 07:30:22.061914882 ProcessGroupNCCL.cpp:1524] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+
