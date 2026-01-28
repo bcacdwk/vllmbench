@@ -91,6 +91,11 @@ ENV NVCC_THREADS=8
 # 优先加载 /usr/local/nvidia 以兼容云环境可能挂载的宿主机驱动
 ENV LD_LIBRARY_PATH=/usr/local/nvidia/lib64:/usr/local/cuda/lib64:$LD_LIBRARY_PATH
 
+# 使用系统 ptxas 替代 Triton 内置版本
+# 解决新架构（如 GB10/sm_121a）在旧版 Triton 中不支持的问题
+# 安全性：如果路径不存在，Triton 会自动回退到内置 ptxas
+ENV TRITON_PTXAS_PATH=/usr/local/cuda/bin/ptxas
+
 # -----------------------------------------------------------------------------
 # 6. vLLM 预编译模式配置
 # -----------------------------------------------------------------------------

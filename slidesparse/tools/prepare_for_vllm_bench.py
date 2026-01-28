@@ -214,6 +214,13 @@ def setup_gpu_environment(gpu_id: str = "0"):
     """设置 GPU 环境变量"""
     os.environ["CUDA_VISIBLE_DEVICES"] = gpu_id
     print_info(f"已设置 CUDA_VISIBLE_DEVICES={gpu_id}")
+    
+    # 使用系统 ptxas 替代 Triton 内置版本
+    # 解决新架构（如 GB10/sm_121a）在旧版 Triton 中不支持的问题
+    system_ptxas = "/usr/local/cuda/bin/ptxas"
+    if os.path.exists(system_ptxas):
+        os.environ["TRITON_PTXAS_PATH"] = system_ptxas
+        print_info(f"已设置 TRITON_PTXAS_PATH={system_ptxas}")
 
 
 # =============================================================================
