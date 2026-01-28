@@ -1770,3 +1770,408 @@ Processed prompts: 100%|██████████| 512/512 [01:28<00:00,  2
 Processed prompts: 100%|██████████| 512/512 [01:28<00:00,  5.81it/s, est. speed input: 92.97 toks/s, output: 1487.45 toks/s]
 [rank0]:[W127 20:49:11.711035338 ProcessGroupNCCL.cpp:1524] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
 
+
+========== M=64 ==========
+Time: 2026-01-28 10:09:20
+Backend: cuSPARSELt (2:8)
+Checkpoint: /root/vllmbench/checkpoints_slidesparse/BitNet-2B-FP8-SlideSparse-2_8
+Params: prompt_len=16, output_len=256, num_prompts=64, max_num_seqs=64
+Command: vllm bench throughput --model /root/vllmbench/checkpoints_slidesparse/BitNet-2B-FP8-SlideSparse-2_8 --dataset-name random --input-len 16 --output-len 256 --num-prompts 64 --max-num-seqs 64 --max-model-len 272 --max-num-batched-tokens 272 --no-enable-chunked-prefill --gpu-memory-utilization 0.8 --disable-log-stats --output-json /root/vllmbench/slidesparse/tools/throughput_benchmark_results/decode/GB10_cc121_FP8E4M3_py312_cu129_aarch64/cusparselt/2_8/json/BitNet-2B-FP8_M64.json --enforce-eager
+
+STDOUT:
+When dataset path is not set, it will default to random dataset
+WARNING 01-28 10:09:24 [arg_utils.py:1869] This model does not officially support disabling chunked prefill. Disabling this manually may cause the engine to crash or produce incorrect outputs.
+WARNING 01-28 10:09:24 [vllm.py:622] Enforce eager set, overriding optimization level to -O0
+(EngineCore_DP0 pid=3789549) [INFO] Loading compress extension: cusparselt_compress_GB10_cc121_py312_cu129_aarch64.so
+(EngineCore_DP0 pid=3789549) WARNING 01-28 10:09:52 [vllm.py:629] Inductor compilation was disabled by user settings,Optimizations settings that are only active duringInductor compilation will be ignored.
+Throughput: 9.25 requests/s, 2516.51 total tokens/s, 2368.48 output tokens/s
+Total num prompt tokens:  1024
+Total num output tokens:  16384
+
+STDERR:
+[2026-01-28 10:09:24] INFO kernels.py:578: Triton kernel custom ops registered
+/usr/local/lib/python3.12/dist-packages/torch/cuda/__init__.py:283: UserWarning: 
+    Found GPU0 NVIDIA GB10 which is of cuda capability 12.1.
+    Minimum and Maximum cuda capability supported by this version of PyTorch is
+    (8.0) - (12.0)
+    
+  warnings.warn(
+[2026-01-28 10:09:24] INFO kernels.py:627: Optimization enabled: Only preloading kernels for model 'BitNet-2B-FP8'
+[2026-01-28 10:09:24] INFO kernels.py:109: Loaded tuned kernel for model: BitNet-2B-FP8
+[2026-01-28 10:09:24] INFO kernels.py:155: Dequant+bias kernel loaded for model: BitNet-2B-FP8
+[2026-01-28 10:09:24] INFO kernels.py:224: FP8 quant kernel loaded for model: BitNet-2B-FP8
+[2026-01-28 10:09:24] INFO kernels.py:348: INT8 quant kernel loaded for model: BitNet-2B-FP8
+[2026-01-28 10:09:24] INFO kernels.py:284: FP8 quant+slide kernel loaded for model: BitNet-2B-FP8
+[2026-01-28 10:09:24] INFO kernels.py:408: INT8 quant+slide kernel loaded for model: BitNet-2B-FP8
+[2026-01-28 10:09:24] INFO gemm_wrapper.py:157: Optimization enabled: Only loading GEMM configs for model 'BitNet-2B-FP8'
+[2026-01-28 10:09:24] INFO gemm_wrapper.py:172: Loaded algorithm configs: cuBLASLt=1, cuSPARSELt=1 models
+[2026-01-28 10:09:24] INFO gemm_wrapper.py:944: cuBLASLt FP8 custom op registered: slidesparse::cublaslt_fp8_mm
+[2026-01-28 10:09:24] INFO gemm_wrapper.py:1009: cuSPARSELt FP8 custom op registered: slidesparse::cusparselt_fp8_mm
+[2026-01-28 10:09:24] INFO gemm_wrapper.py:1075: cuBLASLt INT8 custom op registered: slidesparse::cublaslt_int8_mm
+[2026-01-28 10:09:24] INFO gemm_wrapper.py:1141: cuSPARSELt INT8 custom op registered: slidesparse::cusparselt_int8_mm
+[2026-01-28 10:09:27] INFO kernels.py:578: Triton kernel custom ops registered
+/usr/local/lib/python3.12/dist-packages/torch/cuda/__init__.py:283: UserWarning: 
+    Found GPU0 NVIDIA GB10 which is of cuda capability 12.1.
+    Minimum and Maximum cuda capability supported by this version of PyTorch is
+    (8.0) - (12.0)
+    
+  warnings.warn(
+[2026-01-28 10:09:27] INFO kernels.py:627: Optimization enabled: Only preloading kernels for model 'BitNet-2B-FP8'
+[2026-01-28 10:09:27] INFO kernels.py:109: Loaded tuned kernel for model: BitNet-2B-FP8
+[2026-01-28 10:09:27] INFO kernels.py:155: Dequant+bias kernel loaded for model: BitNet-2B-FP8
+[2026-01-28 10:09:27] INFO kernels.py:224: FP8 quant kernel loaded for model: BitNet-2B-FP8
+[2026-01-28 10:09:27] INFO kernels.py:348: INT8 quant kernel loaded for model: BitNet-2B-FP8
+[2026-01-28 10:09:27] INFO kernels.py:284: FP8 quant+slide kernel loaded for model: BitNet-2B-FP8
+[2026-01-28 10:09:27] INFO kernels.py:408: INT8 quant+slide kernel loaded for model: BitNet-2B-FP8
+[2026-01-28 10:09:27] INFO gemm_wrapper.py:157: Optimization enabled: Only loading GEMM configs for model 'BitNet-2B-FP8'
+[2026-01-28 10:09:27] INFO gemm_wrapper.py:172: Loaded algorithm configs: cuBLASLt=1, cuSPARSELt=1 models
+[2026-01-28 10:09:27] INFO gemm_wrapper.py:944: cuBLASLt FP8 custom op registered: slidesparse::cublaslt_fp8_mm
+[2026-01-28 10:09:27] INFO gemm_wrapper.py:1009: cuSPARSELt FP8 custom op registered: slidesparse::cusparselt_fp8_mm
+[2026-01-28 10:09:27] INFO gemm_wrapper.py:1075: cuBLASLt INT8 custom op registered: slidesparse::cublaslt_int8_mm
+[2026-01-28 10:09:27] INFO gemm_wrapper.py:1141: cuSPARSELt INT8 custom op registered: slidesparse::cusparselt_int8_mm
+(EngineCore_DP0 pid=3789549) [2026-01-28 10:09:28] INFO SlideSparseLinearMethod_FP8.py:734: Wrapping CompressedTensorsW8A8Fp8 with SlideSparse (cuSPARSELt)
+(EngineCore_DP0 pid=3789549) [2026-01-28 10:09:28] INFO gemm_wrapper.py:870: cusparselt GEMM extension loaded: cusparselt_gemm_GB10_cc121_py312_cu129_aarch64.so
+(EngineCore_DP0 pid=3789549) [2026-01-28 10:09:28] INFO SlideSparseLinearMethod_FP8.py:392: SlideSparseFp8LinearOp initialized (kernel=cuSPARSELt)
+(EngineCore_DP0 pid=3789549) [2026-01-28 10:09:28] INFO SlideSparseLinearMethod_FP8.py:539: SlideSparseFp8LinearMethod: cuSPARSELt sparsity=2:8, expand_ratio=1.333
+(EngineCore_DP0 pid=3789549) [2026-01-28 10:09:28] INFO SlideSparseLinearMethod_FP8.py:556: Preloaded FP8 Triton kernels for model: BitNet-2B-FP8
+(EngineCore_DP0 pid=3789549) [2026-01-28 10:09:28] INFO SlideSparseLinearMethod_FP8.py:560: SlideSparseFp8LinearMethod initialized, kernel=cuSPARSELt
+(EngineCore_DP0 pid=3789549) 
+Loading safetensors checkpoint shards:   0% Completed | 0/1 [00:00<?, ?it/s]
+(EngineCore_DP0 pid=3789549) 
+Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:16<00:00, 16.70s/it]
+(EngineCore_DP0 pid=3789549) 
+Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:16<00:00, 16.70s/it]
+(EngineCore_DP0 pid=3789549) 
+(EngineCore_DP0 pid=3789549) [2026-01-28 10:09:46] INFO SlideSparseLinearMethod_FP8.py:660: cuSPARSELt compression: [3840, 3840] -> 1D uint8
+(EngineCore_DP0 pid=3789549) [2026-01-28 10:09:46] INFO SlideSparseLinearMethod_FP8.py:670: cuSPARSELt compression done: 9216000 bytes
+(EngineCore_DP0 pid=3789549) [2026-01-28 10:09:46] INFO SlideSparseLinearMethod_FP8.py:660: cuSPARSELt compression: [2560, 3840] -> 1D uint8
+(EngineCore_DP0 pid=3789549) [2026-01-28 10:09:46] INFO SlideSparseLinearMethod_FP8.py:670: cuSPARSELt compression done: 6144000 bytes
+(EngineCore_DP0 pid=3789549) [2026-01-28 10:09:46] INFO SlideSparseLinearMethod_FP8.py:660: cuSPARSELt compression: [13824, 3840] -> 1D uint8
+(EngineCore_DP0 pid=3789549) [2026-01-28 10:09:46] INFO SlideSparseLinearMethod_FP8.py:670: cuSPARSELt compression done: 33177600 bytes
+(EngineCore_DP0 pid=3789549) [2026-01-28 10:09:46] INFO SlideSparseLinearMethod_FP8.py:660: cuSPARSELt compression: [2560, 10368] -> 1D uint8
+(EngineCore_DP0 pid=3789549) [2026-01-28 10:09:46] INFO SlideSparseLinearMethod_FP8.py:670: cuSPARSELt compression done: 16588800 bytes
+(EngineCore_DP0 pid=3789549) 2026-01-28 10:09:51,699 - INFO - autotuner.py:256 - flashinfer.jit: [Autotuner]: Autotuning process starts ...
+(EngineCore_DP0 pid=3789549) 2026-01-28 10:09:51,717 - INFO - autotuner.py:262 - flashinfer.jit: [Autotuner]: Autotuning process ends
+
+Adding requests:   0%|          | 0/64 [00:00<?, ?it/s]
+Adding requests: 100%|██████████| 64/64 [00:00<00:00, 12072.65it/s]
+
+Processed prompts:   0%|          | 0/64 [00:00<?, ?it/s, est. speed input: 0.00 toks/s, output: 0.00 toks/s]
+Processed prompts:   2%|▏         | 1/64 [00:06<07:04,  6.74s/it, est. speed input: 2.37 toks/s, output: 37.99 toks/s]
+Processed prompts:  52%|█████▏    | 33/64 [00:06<00:04,  6.74it/s, est. speed input: 76.82 toks/s, output: 1229.11 toks/s]
+Processed prompts: 100%|██████████| 64/64 [00:06<00:00,  6.74it/s, est. speed input: 148.16 toks/s, output: 2370.55 toks/s]
+Processed prompts: 100%|██████████| 64/64 [00:06<00:00,  9.26it/s, est. speed input: 148.16 toks/s, output: 2370.55 toks/s]
+[rank0]:[W128 10:09:59.361733638 ProcessGroupNCCL.cpp:1524] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+
+
+========== M=128 ==========
+Time: 2026-01-28 10:10:01
+Backend: cuSPARSELt (2:8)
+Checkpoint: /root/vllmbench/checkpoints_slidesparse/BitNet-2B-FP8-SlideSparse-2_8
+Params: prompt_len=16, output_len=256, num_prompts=128, max_num_seqs=128
+Command: vllm bench throughput --model /root/vllmbench/checkpoints_slidesparse/BitNet-2B-FP8-SlideSparse-2_8 --dataset-name random --input-len 16 --output-len 256 --num-prompts 128 --max-num-seqs 128 --max-model-len 272 --max-num-batched-tokens 272 --no-enable-chunked-prefill --gpu-memory-utilization 0.8 --disable-log-stats --output-json /root/vllmbench/slidesparse/tools/throughput_benchmark_results/decode/GB10_cc121_FP8E4M3_py312_cu129_aarch64/cusparselt/2_8/json/BitNet-2B-FP8_M128.json --enforce-eager
+
+STDOUT:
+When dataset path is not set, it will default to random dataset
+WARNING 01-28 10:10:05 [arg_utils.py:1869] This model does not officially support disabling chunked prefill. Disabling this manually may cause the engine to crash or produce incorrect outputs.
+WARNING 01-28 10:10:05 [vllm.py:622] Enforce eager set, overriding optimization level to -O0
+(EngineCore_DP0 pid=3790299) [INFO] Loading compress extension: cusparselt_compress_GB10_cc121_py312_cu129_aarch64.so
+(EngineCore_DP0 pid=3790299) WARNING 01-28 10:10:32 [vllm.py:629] Inductor compilation was disabled by user settings,Optimizations settings that are only active duringInductor compilation will be ignored.
+Throughput: 14.25 requests/s, 3876.97 total tokens/s, 3648.91 output tokens/s
+Total num prompt tokens:  2048
+Total num output tokens:  32768
+
+STDERR:
+[2026-01-28 10:10:05] INFO kernels.py:578: Triton kernel custom ops registered
+/usr/local/lib/python3.12/dist-packages/torch/cuda/__init__.py:283: UserWarning: 
+    Found GPU0 NVIDIA GB10 which is of cuda capability 12.1.
+    Minimum and Maximum cuda capability supported by this version of PyTorch is
+    (8.0) - (12.0)
+    
+  warnings.warn(
+[2026-01-28 10:10:05] INFO kernels.py:627: Optimization enabled: Only preloading kernels for model 'BitNet-2B-FP8'
+[2026-01-28 10:10:05] INFO kernels.py:109: Loaded tuned kernel for model: BitNet-2B-FP8
+[2026-01-28 10:10:05] INFO kernels.py:155: Dequant+bias kernel loaded for model: BitNet-2B-FP8
+[2026-01-28 10:10:05] INFO kernels.py:224: FP8 quant kernel loaded for model: BitNet-2B-FP8
+[2026-01-28 10:10:05] INFO kernels.py:348: INT8 quant kernel loaded for model: BitNet-2B-FP8
+[2026-01-28 10:10:05] INFO kernels.py:284: FP8 quant+slide kernel loaded for model: BitNet-2B-FP8
+[2026-01-28 10:10:05] INFO kernels.py:408: INT8 quant+slide kernel loaded for model: BitNet-2B-FP8
+[2026-01-28 10:10:05] INFO gemm_wrapper.py:157: Optimization enabled: Only loading GEMM configs for model 'BitNet-2B-FP8'
+[2026-01-28 10:10:05] INFO gemm_wrapper.py:172: Loaded algorithm configs: cuBLASLt=1, cuSPARSELt=1 models
+[2026-01-28 10:10:05] INFO gemm_wrapper.py:944: cuBLASLt FP8 custom op registered: slidesparse::cublaslt_fp8_mm
+[2026-01-28 10:10:05] INFO gemm_wrapper.py:1009: cuSPARSELt FP8 custom op registered: slidesparse::cusparselt_fp8_mm
+[2026-01-28 10:10:05] INFO gemm_wrapper.py:1075: cuBLASLt INT8 custom op registered: slidesparse::cublaslt_int8_mm
+[2026-01-28 10:10:05] INFO gemm_wrapper.py:1141: cuSPARSELt INT8 custom op registered: slidesparse::cusparselt_int8_mm
+[2026-01-28 10:10:08] INFO kernels.py:578: Triton kernel custom ops registered
+/usr/local/lib/python3.12/dist-packages/torch/cuda/__init__.py:283: UserWarning: 
+    Found GPU0 NVIDIA GB10 which is of cuda capability 12.1.
+    Minimum and Maximum cuda capability supported by this version of PyTorch is
+    (8.0) - (12.0)
+    
+  warnings.warn(
+[2026-01-28 10:10:08] INFO kernels.py:627: Optimization enabled: Only preloading kernels for model 'BitNet-2B-FP8'
+[2026-01-28 10:10:08] INFO kernels.py:109: Loaded tuned kernel for model: BitNet-2B-FP8
+[2026-01-28 10:10:08] INFO kernels.py:155: Dequant+bias kernel loaded for model: BitNet-2B-FP8
+[2026-01-28 10:10:08] INFO kernels.py:224: FP8 quant kernel loaded for model: BitNet-2B-FP8
+[2026-01-28 10:10:08] INFO kernels.py:348: INT8 quant kernel loaded for model: BitNet-2B-FP8
+[2026-01-28 10:10:08] INFO kernels.py:284: FP8 quant+slide kernel loaded for model: BitNet-2B-FP8
+[2026-01-28 10:10:08] INFO kernels.py:408: INT8 quant+slide kernel loaded for model: BitNet-2B-FP8
+[2026-01-28 10:10:08] INFO gemm_wrapper.py:157: Optimization enabled: Only loading GEMM configs for model 'BitNet-2B-FP8'
+[2026-01-28 10:10:08] INFO gemm_wrapper.py:172: Loaded algorithm configs: cuBLASLt=1, cuSPARSELt=1 models
+[2026-01-28 10:10:08] INFO gemm_wrapper.py:944: cuBLASLt FP8 custom op registered: slidesparse::cublaslt_fp8_mm
+[2026-01-28 10:10:08] INFO gemm_wrapper.py:1009: cuSPARSELt FP8 custom op registered: slidesparse::cusparselt_fp8_mm
+[2026-01-28 10:10:08] INFO gemm_wrapper.py:1075: cuBLASLt INT8 custom op registered: slidesparse::cublaslt_int8_mm
+[2026-01-28 10:10:08] INFO gemm_wrapper.py:1141: cuSPARSELt INT8 custom op registered: slidesparse::cusparselt_int8_mm
+(EngineCore_DP0 pid=3790299) [2026-01-28 10:10:09] INFO SlideSparseLinearMethod_FP8.py:734: Wrapping CompressedTensorsW8A8Fp8 with SlideSparse (cuSPARSELt)
+(EngineCore_DP0 pid=3790299) [2026-01-28 10:10:09] INFO gemm_wrapper.py:870: cusparselt GEMM extension loaded: cusparselt_gemm_GB10_cc121_py312_cu129_aarch64.so
+(EngineCore_DP0 pid=3790299) [2026-01-28 10:10:09] INFO SlideSparseLinearMethod_FP8.py:392: SlideSparseFp8LinearOp initialized (kernel=cuSPARSELt)
+(EngineCore_DP0 pid=3790299) [2026-01-28 10:10:09] INFO SlideSparseLinearMethod_FP8.py:539: SlideSparseFp8LinearMethod: cuSPARSELt sparsity=2:8, expand_ratio=1.333
+(EngineCore_DP0 pid=3790299) [2026-01-28 10:10:09] INFO SlideSparseLinearMethod_FP8.py:556: Preloaded FP8 Triton kernels for model: BitNet-2B-FP8
+(EngineCore_DP0 pid=3790299) [2026-01-28 10:10:09] INFO SlideSparseLinearMethod_FP8.py:560: SlideSparseFp8LinearMethod initialized, kernel=cuSPARSELt
+(EngineCore_DP0 pid=3790299) 
+Loading safetensors checkpoint shards:   0% Completed | 0/1 [00:00<?, ?it/s]
+(EngineCore_DP0 pid=3790299) 
+Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:16<00:00, 16.48s/it]
+(EngineCore_DP0 pid=3790299) 
+Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:16<00:00, 16.48s/it]
+(EngineCore_DP0 pid=3790299) 
+(EngineCore_DP0 pid=3790299) [2026-01-28 10:10:26] INFO SlideSparseLinearMethod_FP8.py:660: cuSPARSELt compression: [3840, 3840] -> 1D uint8
+(EngineCore_DP0 pid=3790299) [2026-01-28 10:10:26] INFO SlideSparseLinearMethod_FP8.py:670: cuSPARSELt compression done: 9216000 bytes
+(EngineCore_DP0 pid=3790299) [2026-01-28 10:10:26] INFO SlideSparseLinearMethod_FP8.py:660: cuSPARSELt compression: [2560, 3840] -> 1D uint8
+(EngineCore_DP0 pid=3790299) [2026-01-28 10:10:26] INFO SlideSparseLinearMethod_FP8.py:670: cuSPARSELt compression done: 6144000 bytes
+(EngineCore_DP0 pid=3790299) [2026-01-28 10:10:26] INFO SlideSparseLinearMethod_FP8.py:660: cuSPARSELt compression: [13824, 3840] -> 1D uint8
+(EngineCore_DP0 pid=3790299) [2026-01-28 10:10:26] INFO SlideSparseLinearMethod_FP8.py:670: cuSPARSELt compression done: 33177600 bytes
+(EngineCore_DP0 pid=3790299) [2026-01-28 10:10:26] INFO SlideSparseLinearMethod_FP8.py:660: cuSPARSELt compression: [2560, 10368] -> 1D uint8
+(EngineCore_DP0 pid=3790299) [2026-01-28 10:10:26] INFO SlideSparseLinearMethod_FP8.py:670: cuSPARSELt compression done: 16588800 bytes
+(EngineCore_DP0 pid=3790299) 2026-01-28 10:10:32,113 - INFO - autotuner.py:256 - flashinfer.jit: [Autotuner]: Autotuning process starts ...
+(EngineCore_DP0 pid=3790299) 2026-01-28 10:10:32,129 - INFO - autotuner.py:262 - flashinfer.jit: [Autotuner]: Autotuning process ends
+
+Adding requests:   0%|          | 0/128 [00:00<?, ?it/s]
+Adding requests: 100%|██████████| 128/128 [00:00<00:00, 3306.41it/s]
+
+Processed prompts:   0%|          | 0/128 [00:00<?, ?it/s, est. speed input: 0.00 toks/s, output: 0.00 toks/s]
+Processed prompts:   1%|          | 1/128 [00:08<18:00,  8.51s/it, est. speed input: 1.88 toks/s, output: 30.10 toks/s]
+Processed prompts:  26%|██▌       | 33/128 [00:08<00:17,  5.36it/s, est. speed input: 60.99 toks/s, output: 975.77 toks/s]
+Processed prompts:  59%|█████▊    | 75/128 [00:08<00:03, 14.73it/s, est. speed input: 136.52 toks/s, output: 2184.28 toks/s]
+Processed prompts:  84%|████████▍ | 108/128 [00:08<00:00, 24.54it/s, est. speed input: 194.12 toks/s, output: 3105.91 toks/s]
+Processed prompts: 100%|██████████| 128/128 [00:08<00:00, 24.54it/s, est. speed input: 229.08 toks/s, output: 3665.30 toks/s]
+Processed prompts: 100%|██████████| 128/128 [00:08<00:00, 14.32it/s, est. speed input: 229.08 toks/s, output: 3665.30 toks/s]
+[rank0]:[W128 10:10:41.971377723 ProcessGroupNCCL.cpp:1524] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+
+
+========== M=256 ==========
+Time: 2026-01-28 10:10:44
+Backend: cuSPARSELt (2:8)
+Checkpoint: /root/vllmbench/checkpoints_slidesparse/BitNet-2B-FP8-SlideSparse-2_8
+Params: prompt_len=16, output_len=256, num_prompts=256, max_num_seqs=256
+Command: vllm bench throughput --model /root/vllmbench/checkpoints_slidesparse/BitNet-2B-FP8-SlideSparse-2_8 --dataset-name random --input-len 16 --output-len 256 --num-prompts 256 --max-num-seqs 256 --max-model-len 272 --max-num-batched-tokens 272 --no-enable-chunked-prefill --gpu-memory-utilization 0.8 --disable-log-stats --output-json /root/vllmbench/slidesparse/tools/throughput_benchmark_results/decode/GB10_cc121_FP8E4M3_py312_cu129_aarch64/cusparselt/2_8/json/BitNet-2B-FP8_M256.json --enforce-eager
+
+STDOUT:
+When dataset path is not set, it will default to random dataset
+WARNING 01-28 10:10:47 [arg_utils.py:1869] This model does not officially support disabling chunked prefill. Disabling this manually may cause the engine to crash or produce incorrect outputs.
+WARNING 01-28 10:10:47 [vllm.py:622] Enforce eager set, overriding optimization level to -O0
+(EngineCore_DP0 pid=3791075) [INFO] Loading compress extension: cusparselt_compress_GB10_cc121_py312_cu129_aarch64.so
+(EngineCore_DP0 pid=3791075) WARNING 01-28 10:11:15 [vllm.py:629] Inductor compilation was disabled by user settings,Optimizations settings that are only active duringInductor compilation will be ignored.
+Throughput: 18.44 requests/s, 5014.59 total tokens/s, 4719.62 output tokens/s
+Total num prompt tokens:  4096
+Total num output tokens:  65536
+
+STDERR:
+[2026-01-28 10:10:47] INFO kernels.py:578: Triton kernel custom ops registered
+/usr/local/lib/python3.12/dist-packages/torch/cuda/__init__.py:283: UserWarning: 
+    Found GPU0 NVIDIA GB10 which is of cuda capability 12.1.
+    Minimum and Maximum cuda capability supported by this version of PyTorch is
+    (8.0) - (12.0)
+    
+  warnings.warn(
+[2026-01-28 10:10:47] INFO kernels.py:627: Optimization enabled: Only preloading kernels for model 'BitNet-2B-FP8'
+[2026-01-28 10:10:47] INFO kernels.py:109: Loaded tuned kernel for model: BitNet-2B-FP8
+[2026-01-28 10:10:47] INFO kernels.py:155: Dequant+bias kernel loaded for model: BitNet-2B-FP8
+[2026-01-28 10:10:47] INFO kernels.py:224: FP8 quant kernel loaded for model: BitNet-2B-FP8
+[2026-01-28 10:10:47] INFO kernels.py:348: INT8 quant kernel loaded for model: BitNet-2B-FP8
+[2026-01-28 10:10:47] INFO kernels.py:284: FP8 quant+slide kernel loaded for model: BitNet-2B-FP8
+[2026-01-28 10:10:47] INFO kernels.py:408: INT8 quant+slide kernel loaded for model: BitNet-2B-FP8
+[2026-01-28 10:10:47] INFO gemm_wrapper.py:157: Optimization enabled: Only loading GEMM configs for model 'BitNet-2B-FP8'
+[2026-01-28 10:10:47] INFO gemm_wrapper.py:172: Loaded algorithm configs: cuBLASLt=1, cuSPARSELt=1 models
+[2026-01-28 10:10:47] INFO gemm_wrapper.py:944: cuBLASLt FP8 custom op registered: slidesparse::cublaslt_fp8_mm
+[2026-01-28 10:10:47] INFO gemm_wrapper.py:1009: cuSPARSELt FP8 custom op registered: slidesparse::cusparselt_fp8_mm
+[2026-01-28 10:10:47] INFO gemm_wrapper.py:1075: cuBLASLt INT8 custom op registered: slidesparse::cublaslt_int8_mm
+[2026-01-28 10:10:47] INFO gemm_wrapper.py:1141: cuSPARSELt INT8 custom op registered: slidesparse::cusparselt_int8_mm
+[2026-01-28 10:10:50] INFO kernels.py:578: Triton kernel custom ops registered
+/usr/local/lib/python3.12/dist-packages/torch/cuda/__init__.py:283: UserWarning: 
+    Found GPU0 NVIDIA GB10 which is of cuda capability 12.1.
+    Minimum and Maximum cuda capability supported by this version of PyTorch is
+    (8.0) - (12.0)
+    
+  warnings.warn(
+[2026-01-28 10:10:50] INFO kernels.py:627: Optimization enabled: Only preloading kernels for model 'BitNet-2B-FP8'
+[2026-01-28 10:10:50] INFO kernels.py:109: Loaded tuned kernel for model: BitNet-2B-FP8
+[2026-01-28 10:10:50] INFO kernels.py:155: Dequant+bias kernel loaded for model: BitNet-2B-FP8
+[2026-01-28 10:10:50] INFO kernels.py:224: FP8 quant kernel loaded for model: BitNet-2B-FP8
+[2026-01-28 10:10:50] INFO kernels.py:348: INT8 quant kernel loaded for model: BitNet-2B-FP8
+[2026-01-28 10:10:50] INFO kernels.py:284: FP8 quant+slide kernel loaded for model: BitNet-2B-FP8
+[2026-01-28 10:10:50] INFO kernels.py:408: INT8 quant+slide kernel loaded for model: BitNet-2B-FP8
+[2026-01-28 10:10:50] INFO gemm_wrapper.py:157: Optimization enabled: Only loading GEMM configs for model 'BitNet-2B-FP8'
+[2026-01-28 10:10:50] INFO gemm_wrapper.py:172: Loaded algorithm configs: cuBLASLt=1, cuSPARSELt=1 models
+[2026-01-28 10:10:50] INFO gemm_wrapper.py:944: cuBLASLt FP8 custom op registered: slidesparse::cublaslt_fp8_mm
+[2026-01-28 10:10:50] INFO gemm_wrapper.py:1009: cuSPARSELt FP8 custom op registered: slidesparse::cusparselt_fp8_mm
+[2026-01-28 10:10:50] INFO gemm_wrapper.py:1075: cuBLASLt INT8 custom op registered: slidesparse::cublaslt_int8_mm
+[2026-01-28 10:10:50] INFO gemm_wrapper.py:1141: cuSPARSELt INT8 custom op registered: slidesparse::cusparselt_int8_mm
+(EngineCore_DP0 pid=3791075) [2026-01-28 10:10:51] INFO SlideSparseLinearMethod_FP8.py:734: Wrapping CompressedTensorsW8A8Fp8 with SlideSparse (cuSPARSELt)
+(EngineCore_DP0 pid=3791075) [2026-01-28 10:10:51] INFO gemm_wrapper.py:870: cusparselt GEMM extension loaded: cusparselt_gemm_GB10_cc121_py312_cu129_aarch64.so
+(EngineCore_DP0 pid=3791075) [2026-01-28 10:10:51] INFO SlideSparseLinearMethod_FP8.py:392: SlideSparseFp8LinearOp initialized (kernel=cuSPARSELt)
+(EngineCore_DP0 pid=3791075) [2026-01-28 10:10:51] INFO SlideSparseLinearMethod_FP8.py:539: SlideSparseFp8LinearMethod: cuSPARSELt sparsity=2:8, expand_ratio=1.333
+(EngineCore_DP0 pid=3791075) [2026-01-28 10:10:51] INFO SlideSparseLinearMethod_FP8.py:556: Preloaded FP8 Triton kernels for model: BitNet-2B-FP8
+(EngineCore_DP0 pid=3791075) [2026-01-28 10:10:51] INFO SlideSparseLinearMethod_FP8.py:560: SlideSparseFp8LinearMethod initialized, kernel=cuSPARSELt
+(EngineCore_DP0 pid=3791075) 
+Loading safetensors checkpoint shards:   0% Completed | 0/1 [00:00<?, ?it/s]
+(EngineCore_DP0 pid=3791075) 
+Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:16<00:00, 16.37s/it]
+(EngineCore_DP0 pid=3791075) 
+Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:16<00:00, 16.37s/it]
+(EngineCore_DP0 pid=3791075) 
+(EngineCore_DP0 pid=3791075) [2026-01-28 10:11:08] INFO SlideSparseLinearMethod_FP8.py:660: cuSPARSELt compression: [3840, 3840] -> 1D uint8
+(EngineCore_DP0 pid=3791075) [2026-01-28 10:11:09] INFO SlideSparseLinearMethod_FP8.py:670: cuSPARSELt compression done: 9216000 bytes
+(EngineCore_DP0 pid=3791075) [2026-01-28 10:11:09] INFO SlideSparseLinearMethod_FP8.py:660: cuSPARSELt compression: [2560, 3840] -> 1D uint8
+(EngineCore_DP0 pid=3791075) [2026-01-28 10:11:09] INFO SlideSparseLinearMethod_FP8.py:670: cuSPARSELt compression done: 6144000 bytes
+(EngineCore_DP0 pid=3791075) [2026-01-28 10:11:09] INFO SlideSparseLinearMethod_FP8.py:660: cuSPARSELt compression: [13824, 3840] -> 1D uint8
+(EngineCore_DP0 pid=3791075) [2026-01-28 10:11:09] INFO SlideSparseLinearMethod_FP8.py:670: cuSPARSELt compression done: 33177600 bytes
+(EngineCore_DP0 pid=3791075) [2026-01-28 10:11:09] INFO SlideSparseLinearMethod_FP8.py:660: cuSPARSELt compression: [2560, 10368] -> 1D uint8
+(EngineCore_DP0 pid=3791075) [2026-01-28 10:11:09] INFO SlideSparseLinearMethod_FP8.py:670: cuSPARSELt compression done: 16588800 bytes
+(EngineCore_DP0 pid=3791075) 2026-01-28 10:11:14,430 - INFO - autotuner.py:256 - flashinfer.jit: [Autotuner]: Autotuning process starts ...
+(EngineCore_DP0 pid=3791075) 2026-01-28 10:11:14,445 - INFO - autotuner.py:262 - flashinfer.jit: [Autotuner]: Autotuning process ends
+
+Adding requests:   0%|          | 0/256 [00:00<?, ?it/s]
+Adding requests: 100%|██████████| 256/256 [00:00<00:00, 13724.92it/s]
+
+Processed prompts:   0%|          | 0/256 [00:00<?, ?it/s, est. speed input: 0.00 toks/s, output: 0.00 toks/s]
+Processed prompts:   0%|          | 1/256 [00:12<51:11, 12.05s/it, est. speed input: 1.33 toks/s, output: 21.25 toks/s]
+Processed prompts:   7%|▋         | 18/256 [00:12<01:55,  2.07it/s, est. speed input: 23.64 toks/s, output: 378.23 toks/s]
+Processed prompts:  19%|█▉        | 48/256 [00:12<00:30,  6.91it/s, est. speed input: 62.35 toks/s, output: 997.61 toks/s]
+Processed prompts:  29%|██▉       | 75/256 [00:12<00:14, 12.78it/s, est. speed input: 96.31 toks/s, output: 1541.02 toks/s]
+Processed prompts:  38%|███▊      | 98/256 [00:12<00:08, 19.36it/s, est. speed input: 124.52 toks/s, output: 1992.30 toks/s]
+Processed prompts:  46%|████▌     | 118/256 [00:12<00:05, 26.99it/s, est. speed input: 148.75 toks/s, output: 2379.98 toks/s]
+Processed prompts:  54%|█████▎    | 137/256 [00:12<00:03, 36.26it/s, est. speed input: 171.34 toks/s, output: 2741.48 toks/s]
+Processed prompts:  62%|██████▏   | 159/256 [00:12<00:01, 49.23it/s, est. speed input: 196.97 toks/s, output: 3151.46 toks/s]
+Processed prompts:  70%|██████▉   | 178/256 [00:13<00:01, 60.74it/s, est. speed input: 218.25 toks/s, output: 3491.99 toks/s]
+Processed prompts:  77%|███████▋  | 196/256 [00:13<00:00, 74.14it/s, est. speed input: 238.38 toks/s, output: 3814.08 toks/s]
+Processed prompts:  84%|████████▎ | 214/256 [00:13<00:00, 82.36it/s, est. speed input: 257.18 toks/s, output: 4114.86 toks/s]
+Processed prompts:  90%|████████▉ | 230/256 [00:13<00:00, 86.43it/s, est. speed input: 273.12 toks/s, output: 4369.97 toks/s]
+Processed prompts:  95%|█████████▌| 244/256 [00:13<00:00, 86.29it/s, est. speed input: 286.29 toks/s, output: 4580.56 toks/s]
+Processed prompts: 100%|██████████| 256/256 [00:13<00:00, 86.29it/s, est. speed input: 295.39 toks/s, output: 4726.27 toks/s]
+Processed prompts: 100%|██████████| 256/256 [00:13<00:00, 18.46it/s, est. speed input: 295.39 toks/s, output: 4726.27 toks/s]
+[rank0]:[W128 10:11:29.149188521 ProcessGroupNCCL.cpp:1524] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+
+
+========== M=512 ==========
+Time: 2026-01-28 10:11:31
+Backend: cuSPARSELt (2:8)
+Checkpoint: /root/vllmbench/checkpoints_slidesparse/BitNet-2B-FP8-SlideSparse-2_8
+Params: prompt_len=16, output_len=256, num_prompts=512, max_num_seqs=512
+Command: vllm bench throughput --model /root/vllmbench/checkpoints_slidesparse/BitNet-2B-FP8-SlideSparse-2_8 --dataset-name random --input-len 16 --output-len 256 --num-prompts 512 --max-num-seqs 512 --max-model-len 272 --max-num-batched-tokens 512 --no-enable-chunked-prefill --gpu-memory-utilization 0.8 --disable-log-stats --output-json /root/vllmbench/slidesparse/tools/throughput_benchmark_results/decode/GB10_cc121_FP8E4M3_py312_cu129_aarch64/cusparselt/2_8/json/BitNet-2B-FP8_M512.json --enforce-eager
+
+STDOUT:
+When dataset path is not set, it will default to random dataset
+WARNING 01-28 10:11:34 [arg_utils.py:1869] This model does not officially support disabling chunked prefill. Disabling this manually may cause the engine to crash or produce incorrect outputs.
+WARNING 01-28 10:11:34 [vllm.py:622] Enforce eager set, overriding optimization level to -O0
+(EngineCore_DP0 pid=3791939) [INFO] Loading compress extension: cusparselt_compress_GB10_cc121_py312_cu129_aarch64.so
+(EngineCore_DP0 pid=3791939) WARNING 01-28 10:12:02 [vllm.py:629] Inductor compilation was disabled by user settings,Optimizations settings that are only active duringInductor compilation will be ignored.
+Throughput: 18.67 requests/s, 5078.57 total tokens/s, 4779.83 output tokens/s
+Total num prompt tokens:  8192
+Total num output tokens:  131072
+
+STDERR:
+[2026-01-28 10:11:34] INFO kernels.py:578: Triton kernel custom ops registered
+/usr/local/lib/python3.12/dist-packages/torch/cuda/__init__.py:283: UserWarning: 
+    Found GPU0 NVIDIA GB10 which is of cuda capability 12.1.
+    Minimum and Maximum cuda capability supported by this version of PyTorch is
+    (8.0) - (12.0)
+    
+  warnings.warn(
+[2026-01-28 10:11:34] INFO kernels.py:627: Optimization enabled: Only preloading kernels for model 'BitNet-2B-FP8'
+[2026-01-28 10:11:34] INFO kernels.py:109: Loaded tuned kernel for model: BitNet-2B-FP8
+[2026-01-28 10:11:34] INFO kernels.py:155: Dequant+bias kernel loaded for model: BitNet-2B-FP8
+[2026-01-28 10:11:34] INFO kernels.py:224: FP8 quant kernel loaded for model: BitNet-2B-FP8
+[2026-01-28 10:11:34] INFO kernels.py:348: INT8 quant kernel loaded for model: BitNet-2B-FP8
+[2026-01-28 10:11:34] INFO kernels.py:284: FP8 quant+slide kernel loaded for model: BitNet-2B-FP8
+[2026-01-28 10:11:34] INFO kernels.py:408: INT8 quant+slide kernel loaded for model: BitNet-2B-FP8
+[2026-01-28 10:11:34] INFO gemm_wrapper.py:157: Optimization enabled: Only loading GEMM configs for model 'BitNet-2B-FP8'
+[2026-01-28 10:11:34] INFO gemm_wrapper.py:172: Loaded algorithm configs: cuBLASLt=1, cuSPARSELt=1 models
+[2026-01-28 10:11:34] INFO gemm_wrapper.py:944: cuBLASLt FP8 custom op registered: slidesparse::cublaslt_fp8_mm
+[2026-01-28 10:11:34] INFO gemm_wrapper.py:1009: cuSPARSELt FP8 custom op registered: slidesparse::cusparselt_fp8_mm
+[2026-01-28 10:11:34] INFO gemm_wrapper.py:1075: cuBLASLt INT8 custom op registered: slidesparse::cublaslt_int8_mm
+[2026-01-28 10:11:34] INFO gemm_wrapper.py:1141: cuSPARSELt INT8 custom op registered: slidesparse::cusparselt_int8_mm
+[2026-01-28 10:11:38] INFO kernels.py:578: Triton kernel custom ops registered
+/usr/local/lib/python3.12/dist-packages/torch/cuda/__init__.py:283: UserWarning: 
+    Found GPU0 NVIDIA GB10 which is of cuda capability 12.1.
+    Minimum and Maximum cuda capability supported by this version of PyTorch is
+    (8.0) - (12.0)
+    
+  warnings.warn(
+[2026-01-28 10:11:38] INFO kernels.py:627: Optimization enabled: Only preloading kernels for model 'BitNet-2B-FP8'
+[2026-01-28 10:11:38] INFO kernels.py:109: Loaded tuned kernel for model: BitNet-2B-FP8
+[2026-01-28 10:11:38] INFO kernels.py:155: Dequant+bias kernel loaded for model: BitNet-2B-FP8
+[2026-01-28 10:11:38] INFO kernels.py:224: FP8 quant kernel loaded for model: BitNet-2B-FP8
+[2026-01-28 10:11:38] INFO kernels.py:348: INT8 quant kernel loaded for model: BitNet-2B-FP8
+[2026-01-28 10:11:38] INFO kernels.py:284: FP8 quant+slide kernel loaded for model: BitNet-2B-FP8
+[2026-01-28 10:11:38] INFO kernels.py:408: INT8 quant+slide kernel loaded for model: BitNet-2B-FP8
+[2026-01-28 10:11:38] INFO gemm_wrapper.py:157: Optimization enabled: Only loading GEMM configs for model 'BitNet-2B-FP8'
+[2026-01-28 10:11:38] INFO gemm_wrapper.py:172: Loaded algorithm configs: cuBLASLt=1, cuSPARSELt=1 models
+[2026-01-28 10:11:38] INFO gemm_wrapper.py:944: cuBLASLt FP8 custom op registered: slidesparse::cublaslt_fp8_mm
+[2026-01-28 10:11:38] INFO gemm_wrapper.py:1009: cuSPARSELt FP8 custom op registered: slidesparse::cusparselt_fp8_mm
+[2026-01-28 10:11:38] INFO gemm_wrapper.py:1075: cuBLASLt INT8 custom op registered: slidesparse::cublaslt_int8_mm
+[2026-01-28 10:11:38] INFO gemm_wrapper.py:1141: cuSPARSELt INT8 custom op registered: slidesparse::cusparselt_int8_mm
+(EngineCore_DP0 pid=3791939) [2026-01-28 10:11:39] INFO SlideSparseLinearMethod_FP8.py:734: Wrapping CompressedTensorsW8A8Fp8 with SlideSparse (cuSPARSELt)
+(EngineCore_DP0 pid=3791939) [2026-01-28 10:11:39] INFO gemm_wrapper.py:870: cusparselt GEMM extension loaded: cusparselt_gemm_GB10_cc121_py312_cu129_aarch64.so
+(EngineCore_DP0 pid=3791939) [2026-01-28 10:11:39] INFO SlideSparseLinearMethod_FP8.py:392: SlideSparseFp8LinearOp initialized (kernel=cuSPARSELt)
+(EngineCore_DP0 pid=3791939) [2026-01-28 10:11:39] INFO SlideSparseLinearMethod_FP8.py:539: SlideSparseFp8LinearMethod: cuSPARSELt sparsity=2:8, expand_ratio=1.333
+(EngineCore_DP0 pid=3791939) [2026-01-28 10:11:39] INFO SlideSparseLinearMethod_FP8.py:556: Preloaded FP8 Triton kernels for model: BitNet-2B-FP8
+(EngineCore_DP0 pid=3791939) [2026-01-28 10:11:39] INFO SlideSparseLinearMethod_FP8.py:560: SlideSparseFp8LinearMethod initialized, kernel=cuSPARSELt
+(EngineCore_DP0 pid=3791939) 
+Loading safetensors checkpoint shards:   0% Completed | 0/1 [00:00<?, ?it/s]
+(EngineCore_DP0 pid=3791939) 
+Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:16<00:00, 16.55s/it]
+(EngineCore_DP0 pid=3791939) 
+Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:16<00:00, 16.55s/it]
+(EngineCore_DP0 pid=3791939) 
+(EngineCore_DP0 pid=3791939) [2026-01-28 10:11:56] INFO SlideSparseLinearMethod_FP8.py:660: cuSPARSELt compression: [3840, 3840] -> 1D uint8
+(EngineCore_DP0 pid=3791939) [2026-01-28 10:11:56] INFO SlideSparseLinearMethod_FP8.py:670: cuSPARSELt compression done: 9216000 bytes
+(EngineCore_DP0 pid=3791939) [2026-01-28 10:11:56] INFO SlideSparseLinearMethod_FP8.py:660: cuSPARSELt compression: [2560, 3840] -> 1D uint8
+(EngineCore_DP0 pid=3791939) [2026-01-28 10:11:56] INFO SlideSparseLinearMethod_FP8.py:670: cuSPARSELt compression done: 6144000 bytes
+(EngineCore_DP0 pid=3791939) [2026-01-28 10:11:56] INFO SlideSparseLinearMethod_FP8.py:660: cuSPARSELt compression: [13824, 3840] -> 1D uint8
+(EngineCore_DP0 pid=3791939) [2026-01-28 10:11:56] INFO SlideSparseLinearMethod_FP8.py:670: cuSPARSELt compression done: 33177600 bytes
+(EngineCore_DP0 pid=3791939) [2026-01-28 10:11:56] INFO SlideSparseLinearMethod_FP8.py:660: cuSPARSELt compression: [2560, 10368] -> 1D uint8
+(EngineCore_DP0 pid=3791939) [2026-01-28 10:11:56] INFO SlideSparseLinearMethod_FP8.py:670: cuSPARSELt compression done: 16588800 bytes
+(EngineCore_DP0 pid=3791939) 2026-01-28 10:12:01,797 - INFO - autotuner.py:256 - flashinfer.jit: [Autotuner]: Autotuning process starts ...
+(EngineCore_DP0 pid=3791939) 2026-01-28 10:12:01,813 - INFO - autotuner.py:262 - flashinfer.jit: [Autotuner]: Autotuning process ends
+
+Adding requests:   0%|          | 0/512 [00:00<?, ?it/s]
+Adding requests: 100%|██████████| 512/512 [00:00<00:00, 14502.77it/s]
+
+Processed prompts:   0%|          | 0/512 [00:00<?, ?it/s, est. speed input: 0.00 toks/s, output: 0.00 toks/s]
+Processed prompts:   0%|          | 1/512 [00:20<2:52:45, 20.29s/it, est. speed input: 0.79 toks/s, output: 12.62 toks/s]
+Processed prompts:   1%|          | 3/512 [00:20<45:19,  5.34s/it, est. speed input: 2.34 toks/s, output: 37.44 toks/s]  
+Processed prompts:   7%|▋         | 34/512 [00:20<02:29,  3.19it/s, est. speed input: 26.25 toks/s, output: 420.04 toks/s]
+Processed prompts:  12%|█▏        | 63/512 [00:20<01:03,  7.02it/s, est. speed input: 48.18 toks/s, output: 770.96 toks/s]
+Processed prompts:  18%|█▊        | 91/512 [00:21<00:35, 11.98it/s, est. speed input: 68.98 toks/s, output: 1103.68 toks/s]
+Processed prompts:  23%|██▎       | 117/512 [00:21<00:22, 17.92it/s, est. speed input: 87.85 toks/s, output: 1405.55 toks/s]
+Processed prompts:  32%|███▏      | 164/512 [00:21<00:10, 32.57it/s, est. speed input: 122.02 toks/s, output: 1952.37 toks/s]
+Processed prompts:  40%|████      | 205/512 [00:21<00:06, 48.05it/s, est. speed input: 151.24 toks/s, output: 2419.85 toks/s]
+Processed prompts:  47%|████▋     | 242/512 [00:21<00:04, 64.67it/s, est. speed input: 177.19 toks/s, output: 2835.01 toks/s]
+Processed prompts:  53%|█████▎    | 273/512 [00:22<00:03, 79.57it/s, est. speed input: 198.43 toks/s, output: 3174.88 toks/s]
+Processed prompts:  59%|█████▉    | 302/512 [00:22<00:02, 97.46it/s, est. speed input: 218.32 toks/s, output: 3493.16 toks/s]
+Processed prompts:  64%|██████▍   | 327/512 [00:22<00:01, 110.31it/s, est. speed input: 234.93 toks/s, output: 3758.91 toks/s]
+Processed prompts:  68%|██████▊   | 348/512 [00:22<00:01, 122.36it/s, est. speed input: 248.80 toks/s, output: 3980.73 toks/s]
+Processed prompts:  72%|███████▏  | 368/512 [00:22<00:01, 134.67it/s, est. speed input: 261.91 toks/s, output: 4190.56 toks/s]
+Processed prompts:  76%|███████▌  | 388/512 [00:22<00:00, 145.72it/s, est. speed input: 274.87 toks/s, output: 4397.89 toks/s]
+Processed prompts:  80%|███████▉  | 408/512 [00:22<00:00, 141.69it/s, est. speed input: 287.11 toks/s, output: 4593.69 toks/s]
+Processed prompts:  83%|████████▎ | 426/512 [00:22<00:00, 145.19it/s, est. speed input: 298.26 toks/s, output: 4772.21 toks/s]
+Processed prompts:  87%|████████▋ | 444/512 [00:22<00:00, 141.30it/s, est. speed input: 309.02 toks/s, output: 4944.26 toks/s]
+Processed prompts:  90%|████████▉ | 460/512 [00:23<00:00, 129.88it/s, est. speed input: 318.04 toks/s, output: 5088.68 toks/s]
+Processed prompts:  93%|█████████▎| 475/512 [00:23<00:00, 117.69it/s, est. speed input: 326.12 toks/s, output: 5217.93 toks/s]
+Processed prompts:  95%|█████████▌| 488/512 [00:23<00:00, 96.44it/s, est. speed input: 332.02 toks/s, output: 5312.34 toks/s] 
+Processed prompts:  97%|█████████▋| 499/512 [00:27<00:01, 11.66it/s, est. speed input: 292.11 toks/s, output: 4673.73 toks/s]
+Processed prompts: 100%|██████████| 512/512 [00:27<00:00, 11.66it/s, est. speed input: 299.14 toks/s, output: 4786.18 toks/s]
+Processed prompts: 100%|██████████| 512/512 [00:27<00:00, 18.70it/s, est. speed input: 299.14 toks/s, output: 4786.18 toks/s]
+[rank0]:[W128 10:12:30.069320132 ProcessGroupNCCL.cpp:1524] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+
