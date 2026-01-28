@@ -1,0 +1,2254 @@
+======================================================================
+SlideSparse Kernel Benchmark Log
+Started: 2026-01-28 08:33:20
+======================================================================
+
+Hardware:
+  GPU: NVIDIA B200 (cc100)
+  Python: py312
+  CUDA: cu129
+  Arch: x86_64
+
+[INFO] 日志文件: /root/vllmbench/slidesparse/benchmark_kernel/kernel_bench_logs/kernel_bench_20260128_083320.log
+[INFO] 跳过 Task 1: cuBLASLt Model 测试
+[INFO] 跳过 Task 2: cuBLASLt Square 测试
+[INFO] 跳过 Task 3: cuSPARSELt Model 高稀疏 (2_4~2_10)
+[INFO] 跳过 Task 4: cuSPARSELt Square 高稀疏 (2_4~2_10)
+
+======================================================================
+TASK 5: cuSPARSELt Model 低稀疏 (2_12~2_inf)
+Started: 2026-01-28 08:33:20
+======================================================================
+
+
+------------------------------------------------------------
+  cuSPARSELt Model 低稀疏: Llama3.2-1B-INT8
+------------------------------------------------------------
+[INFO] 执行: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/benchmark_entry.py --dtype fp8e4m3 --warmup 25 --repeat 50 --m_list 64,128,256,512,1024,2048,4096,8192,16384 --backend cusparselt --model Llama3.2-1B-INT8 --sparsity 2_12,2_14,2_16,2_inf
+
+[INFO] Sparsity=2_12, K_factor=1.667
+[INFO] NK list adjusted: [(3072, 3424), (2048, 3424), (16384, 3424), (2048, 13664)]
+============================================================
+cuSPARSELt Sparse GEMM 算法搜索 (2:4 稀疏)
+============================================================
+GPU: NVIDIA B200 (cc100)
+Mode: MODEL
+Model: Llama3.2-1B-INT8
+dtype: fp8e4m3 -> fp8e4m3 (same input/output)
+Sparsity: 2_12
+Segment-K 测试: 开启
+API 搜索对比: 开启
+warmup=25, repeat=50
+
+[1/4] 编译 CUDA 扩展...
+✓ Using existing: cusparselt_gemm_B200_cc100_py312_cu129_x86_64.so
+[2/4] 加载 CUDA 扩展...
+✓ cuSPARSELt 可用
+✓ Segment-K 支持: 是
+
+[3/4] 开始算法搜索...
+      NK 组合: 4 个, M 列表: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384]
+
+    NK 1/4: (3072, 3424)
+      → 算法数: 108, 有效: 410
+    NK 2/4: (2048, 3424)
+      → 算法数: 108, 有效: 418
+    NK 3/4: (16384, 3424)
+      → 算法数: 108, 有效: 429
+    NK 4/4: (2048, 13664)
+      → 算法数: 108, 有效: 433
+
+    搜索统计: 总计=36, 成功=36, 失败=0, 错误=0
+    成功率: 100.0%
+
+[4/4] 保存结果...
+    CSV: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/FP8/alg_search_Llama3.2-1B-INT8_2_12.csv
+    JSON: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/FP8/alg_search_Llama3.2-1B-INT8_2_12.json
+
+✓ 完成! 结果已保存到: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/FP8
+============================================================
+[W128 08:35:48.099920582 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+[INFO] Sparsity=2_14, K_factor=1.714
+[INFO] NK list adjusted: [(3072, 3520), (2048, 3520), (16384, 3520), (2048, 14048)]
+============================================================
+cuSPARSELt Sparse GEMM 算法搜索 (2:4 稀疏)
+============================================================
+GPU: NVIDIA B200 (cc100)
+Mode: MODEL
+Model: Llama3.2-1B-INT8
+dtype: fp8e4m3 -> fp8e4m3 (same input/output)
+Sparsity: 2_14
+Segment-K 测试: 开启
+API 搜索对比: 开启
+warmup=25, repeat=50
+
+[1/4] 编译 CUDA 扩展...
+✓ Using existing: cusparselt_gemm_B200_cc100_py312_cu129_x86_64.so
+[2/4] 加载 CUDA 扩展...
+✓ cuSPARSELt 可用
+✓ Segment-K 支持: 是
+
+[3/4] 开始算法搜索...
+      NK 组合: 4 个, M 列表: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384]
+
+    NK 1/4: (3072, 3520)
+      → 算法数: 108, 有效: 422
+    NK 2/4: (2048, 3520)
+      → 算法数: 108, 有效: 401
+    NK 3/4: (16384, 3520)
+      → 算法数: 108, 有效: 421
+    NK 4/4: (2048, 14048)
+      → 算法数: 108, 有效: 424
+
+    搜索统计: 总计=36, 成功=36, 失败=0, 错误=0
+    成功率: 100.0%
+
+[4/4] 保存结果...
+    CSV: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/FP8/alg_search_Llama3.2-1B-INT8_2_14.csv
+    JSON: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/FP8/alg_search_Llama3.2-1B-INT8_2_14.json
+
+✓ 完成! 结果已保存到: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/FP8
+============================================================
+[W128 08:38:03.105423434 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+[INFO] Sparsity=2_16, K_factor=1.750
+[INFO] NK list adjusted: [(3072, 3584), (2048, 3584), (16384, 3584), (2048, 14336)]
+============================================================
+cuSPARSELt Sparse GEMM 算法搜索 (2:4 稀疏)
+============================================================
+GPU: NVIDIA B200 (cc100)
+Mode: MODEL
+Model: Llama3.2-1B-INT8
+dtype: fp8e4m3 -> fp8e4m3 (same input/output)
+Sparsity: 2_16
+Segment-K 测试: 开启
+API 搜索对比: 开启
+warmup=25, repeat=50
+
+[1/4] 编译 CUDA 扩展...
+✓ Using existing: cusparselt_gemm_B200_cc100_py312_cu129_x86_64.so
+[2/4] 加载 CUDA 扩展...
+✓ cuSPARSELt 可用
+✓ Segment-K 支持: 是
+
+[3/4] 开始算法搜索...
+      NK 组合: 4 个, M 列表: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384]
+
+    NK 1/4: (3072, 3584)
+      → 算法数: 108, 有效: 411
+    NK 2/4: (2048, 3584)
+      → 算法数: 108, 有效: 401
+    NK 3/4: (16384, 3584)
+      → 算法数: 108, 有效: 438
+    NK 4/4: (2048, 14336)
+      → 算法数: 108, 有效: 412
+
+    搜索统计: 总计=36, 成功=36, 失败=0, 错误=0
+    成功率: 100.0%
+
+[4/4] 保存结果...
+    CSV: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/FP8/alg_search_Llama3.2-1B-INT8_2_16.csv
+    JSON: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/FP8/alg_search_Llama3.2-1B-INT8_2_16.json
+
+✓ 完成! 结果已保存到: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/FP8
+============================================================
+[W128 08:40:08.953726706 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+[INFO] Sparsity=2_inf, K_factor=2.000
+[INFO] NK list adjusted: [(3072, 4096), (2048, 4096), (16384, 4096), (2048, 16384)]
+============================================================
+cuSPARSELt Sparse GEMM 算法搜索 (2:4 稀疏)
+============================================================
+GPU: NVIDIA B200 (cc100)
+Mode: MODEL
+Model: Llama3.2-1B-INT8
+dtype: fp8e4m3 -> fp8e4m3 (same input/output)
+Sparsity: 2_inf
+Segment-K 测试: 开启
+API 搜索对比: 开启
+warmup=25, repeat=50
+
+[1/4] 编译 CUDA 扩展...
+✓ Using existing: cusparselt_gemm_B200_cc100_py312_cu129_x86_64.so
+[2/4] 加载 CUDA 扩展...
+✓ cuSPARSELt 可用
+✓ Segment-K 支持: 是
+
+[3/4] 开始算法搜索...
+      NK 组合: 4 个, M 列表: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384]
+
+    NK 1/4: (3072, 4096)
+      → 算法数: 108, 有效: 402
+    NK 2/4: (2048, 4096)
+      → 算法数: 108, 有效: 420
+    NK 3/4: (16384, 4096)
+      → 算法数: 108, 有效: 447
+    NK 4/4: (2048, 16384)
+      → 算法数: 108, 有效: 411
+
+    搜索统计: 总计=36, 成功=36, 失败=0, 错误=0
+    成功率: 100.0%
+
+[4/4] 保存结果...
+    CSV: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/FP8/alg_search_Llama3.2-1B-INT8_2_inf.csv
+    JSON: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/FP8/alg_search_Llama3.2-1B-INT8_2_inf.json
+
+✓ 完成! 结果已保存到: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/FP8
+============================================================
+[W128 08:42:23.416110248 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+============================================================
+SlideSparse Kernel Benchmark
+============================================================
+GPU: NVIDIA B200 (cc100)
+Mode: MODEL
+Model: Llama3.2-1B-INT8
+M_list: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384]
+dtype: ['fp8e4m3']
+Backend: cusparselt
+Sparsity: ['2_12', '2_14', '2_16', '2_inf']
+warmup=25, repeat=50
+============================================================
+
+============================================================
+Benchmark dtype=FP8E4M3
+============================================================
+
+[fp8e4m3] Running cuSPARSELt Sparse GEMM Search (sparsity=2_12)
+[INFO] K_factor = 1.667
+[cuSPARSELt] Running: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search.py --dtype fp8e4m3 --model Llama3.2-1B-INT8 --warmup 25 --repeat 50 --out_dir /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results --m_list 64,128,256,512,1024,2048,4096,8192,16384 --sparsity 2_12
+
+[fp8e4m3] Running cuSPARSELt Sparse GEMM Search (sparsity=2_14)
+[INFO] K_factor = 1.714
+[cuSPARSELt] Running: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search.py --dtype fp8e4m3 --model Llama3.2-1B-INT8 --warmup 25 --repeat 50 --out_dir /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results --m_list 64,128,256,512,1024,2048,4096,8192,16384 --sparsity 2_14
+
+[fp8e4m3] Running cuSPARSELt Sparse GEMM Search (sparsity=2_16)
+[INFO] K_factor = 1.750
+[cuSPARSELt] Running: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search.py --dtype fp8e4m3 --model Llama3.2-1B-INT8 --warmup 25 --repeat 50 --out_dir /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results --m_list 64,128,256,512,1024,2048,4096,8192,16384 --sparsity 2_16
+
+[fp8e4m3] Running cuSPARSELt Sparse GEMM Search (sparsity=2_inf)
+[INFO] K_factor = 2.000
+[cuSPARSELt] Running: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search.py --dtype fp8e4m3 --model Llama3.2-1B-INT8 --warmup 25 --repeat 50 --out_dir /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results --m_list 64,128,256,512,1024,2048,4096,8192,16384 --sparsity 2_inf
+
+============================================================
+Benchmark Complete!
+============================================================
+
+Results saved to:
+  - cuSPARSELt: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results
+[W128 08:42:24.231597800 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+[SUCCESS] Llama3.2-1B-INT8 [fp8e4m3] 低稀疏完成 (543.4s)
+[INFO] 执行: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/benchmark_entry.py --dtype int8 --warmup 25 --repeat 50 --m_list 64,128,256,512,1024,2048,4096,8192,16384 --backend cusparselt --model Llama3.2-1B-INT8 --sparsity 2_12,2_14,2_16,2_inf
+
+[INFO] Sparsity=2_12, K_factor=1.667
+[INFO] NK list adjusted: [(3072, 3424), (2048, 3424), (16384, 3424), (2048, 13664)]
+============================================================
+cuSPARSELt Sparse GEMM 算法搜索 (2:4 稀疏)
+============================================================
+GPU: NVIDIA B200 (cc100)
+Mode: MODEL
+Model: Llama3.2-1B-INT8
+dtype: int8 -> int8 (same input/output)
+Sparsity: 2_12
+Segment-K 测试: 开启
+API 搜索对比: 开启
+warmup=25, repeat=50
+
+[1/4] 编译 CUDA 扩展...
+✓ Using existing: cusparselt_gemm_B200_cc100_py312_cu129_x86_64.so
+[2/4] 加载 CUDA 扩展...
+✓ cuSPARSELt 可用
+✓ Segment-K 支持: 是
+
+[3/4] 开始算法搜索...
+      NK 组合: 4 个, M 列表: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384]
+
+    NK 1/4: (3072, 3424)
+      → 算法数: 108, 有效: 403
+    NK 2/4: (2048, 3424)
+      → 算法数: 108, 有效: 411
+    NK 3/4: (16384, 3424)
+      → 算法数: 108, 有效: 433
+    NK 4/4: (2048, 13664)
+      → 算法数: 108, 有效: 413
+
+    搜索统计: 总计=36, 成功=36, 失败=0, 错误=0
+    成功率: 100.0%
+
+[4/4] 保存结果...
+    CSV: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/INT8/alg_search_Llama3.2-1B-INT8_2_12.csv
+    JSON: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/INT8/alg_search_Llama3.2-1B-INT8_2_12.json
+
+✓ 完成! 结果已保存到: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/INT8
+============================================================
+[W128 08:44:43.306261883 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+[INFO] Sparsity=2_14, K_factor=1.714
+[INFO] NK list adjusted: [(3072, 3520), (2048, 3520), (16384, 3520), (2048, 14048)]
+============================================================
+cuSPARSELt Sparse GEMM 算法搜索 (2:4 稀疏)
+============================================================
+GPU: NVIDIA B200 (cc100)
+Mode: MODEL
+Model: Llama3.2-1B-INT8
+dtype: int8 -> int8 (same input/output)
+Sparsity: 2_14
+Segment-K 测试: 开启
+API 搜索对比: 开启
+warmup=25, repeat=50
+
+[1/4] 编译 CUDA 扩展...
+✓ Using existing: cusparselt_gemm_B200_cc100_py312_cu129_x86_64.so
+[2/4] 加载 CUDA 扩展...
+✓ cuSPARSELt 可用
+✓ Segment-K 支持: 是
+
+[3/4] 开始算法搜索...
+      NK 组合: 4 个, M 列表: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384]
+
+    NK 1/4: (3072, 3520)
+      → 算法数: 108, 有效: 416
+    NK 2/4: (2048, 3520)
+      → 算法数: 108, 有效: 417
+    NK 3/4: (16384, 3520)
+      → 算法数: 108, 有效: 438
+    NK 4/4: (2048, 14048)
+      → 算法数: 108, 有效: 426
+
+    搜索统计: 总计=36, 成功=36, 失败=0, 错误=0
+    成功率: 100.0%
+
+[4/4] 保存结果...
+    CSV: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/INT8/alg_search_Llama3.2-1B-INT8_2_14.csv
+    JSON: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/INT8/alg_search_Llama3.2-1B-INT8_2_14.json
+
+✓ 完成! 结果已保存到: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/INT8
+============================================================
+[W128 08:46:50.009069365 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+[INFO] Sparsity=2_16, K_factor=1.750
+[INFO] NK list adjusted: [(3072, 3584), (2048, 3584), (16384, 3584), (2048, 14336)]
+============================================================
+cuSPARSELt Sparse GEMM 算法搜索 (2:4 稀疏)
+============================================================
+GPU: NVIDIA B200 (cc100)
+Mode: MODEL
+Model: Llama3.2-1B-INT8
+dtype: int8 -> int8 (same input/output)
+Sparsity: 2_16
+Segment-K 测试: 开启
+API 搜索对比: 开启
+warmup=25, repeat=50
+
+[1/4] 编译 CUDA 扩展...
+✓ Using existing: cusparselt_gemm_B200_cc100_py312_cu129_x86_64.so
+[2/4] 加载 CUDA 扩展...
+✓ cuSPARSELt 可用
+✓ Segment-K 支持: 是
+
+[3/4] 开始算法搜索...
+      NK 组合: 4 个, M 列表: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384]
+
+    NK 1/4: (3072, 3584)
+      → 算法数: 108, 有效: 394
+    NK 2/4: (2048, 3584)
+      → 算法数: 108, 有效: 435
+    NK 3/4: (16384, 3584)
+      → 算法数: 108, 有效: 435
+    NK 4/4: (2048, 14336)
+      → 算法数: 108, 有效: 429
+
+    搜索统计: 总计=36, 成功=36, 失败=0, 错误=0
+    成功率: 100.0%
+
+[4/4] 保存结果...
+    CSV: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/INT8/alg_search_Llama3.2-1B-INT8_2_16.csv
+    JSON: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/INT8/alg_search_Llama3.2-1B-INT8_2_16.json
+
+✓ 完成! 结果已保存到: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/INT8
+============================================================
+[W128 08:48:50.067185373 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+[INFO] Sparsity=2_inf, K_factor=2.000
+[INFO] NK list adjusted: [(3072, 4096), (2048, 4096), (16384, 4096), (2048, 16384)]
+============================================================
+cuSPARSELt Sparse GEMM 算法搜索 (2:4 稀疏)
+============================================================
+GPU: NVIDIA B200 (cc100)
+Mode: MODEL
+Model: Llama3.2-1B-INT8
+dtype: int8 -> int8 (same input/output)
+Sparsity: 2_inf
+Segment-K 测试: 开启
+API 搜索对比: 开启
+warmup=25, repeat=50
+
+[1/4] 编译 CUDA 扩展...
+✓ Using existing: cusparselt_gemm_B200_cc100_py312_cu129_x86_64.so
+[2/4] 加载 CUDA 扩展...
+✓ cuSPARSELt 可用
+✓ Segment-K 支持: 是
+
+[3/4] 开始算法搜索...
+      NK 组合: 4 个, M 列表: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384]
+
+    NK 1/4: (3072, 4096)
+      → 算法数: 108, 有效: 417
+    NK 2/4: (2048, 4096)
+      → 算法数: 108, 有效: 392
+    NK 3/4: (16384, 4096)
+      → 算法数: 108, 有效: 458
+    NK 4/4: (2048, 16384)
+      → 算法数: 108, 有效: 413
+
+    搜索统计: 总计=36, 成功=36, 失败=0, 错误=0
+    成功率: 100.0%
+
+[4/4] 保存结果...
+    CSV: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/INT8/alg_search_Llama3.2-1B-INT8_2_inf.csv
+    JSON: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/INT8/alg_search_Llama3.2-1B-INT8_2_inf.json
+
+✓ 完成! 结果已保存到: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/INT8
+============================================================
+[W128 08:51:00.906742684 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+============================================================
+SlideSparse Kernel Benchmark
+============================================================
+GPU: NVIDIA B200 (cc100)
+Mode: MODEL
+Model: Llama3.2-1B-INT8
+M_list: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384]
+dtype: ['int8']
+Backend: cusparselt
+Sparsity: ['2_12', '2_14', '2_16', '2_inf']
+warmup=25, repeat=50
+============================================================
+
+============================================================
+Benchmark dtype=INT8
+============================================================
+
+[int8] Running cuSPARSELt Sparse GEMM Search (sparsity=2_12)
+[INFO] K_factor = 1.667
+[cuSPARSELt] Running: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search.py --dtype int8 --model Llama3.2-1B-INT8 --warmup 25 --repeat 50 --out_dir /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results --m_list 64,128,256,512,1024,2048,4096,8192,16384 --sparsity 2_12
+
+[int8] Running cuSPARSELt Sparse GEMM Search (sparsity=2_14)
+[INFO] K_factor = 1.714
+[cuSPARSELt] Running: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search.py --dtype int8 --model Llama3.2-1B-INT8 --warmup 25 --repeat 50 --out_dir /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results --m_list 64,128,256,512,1024,2048,4096,8192,16384 --sparsity 2_14
+
+[int8] Running cuSPARSELt Sparse GEMM Search (sparsity=2_16)
+[INFO] K_factor = 1.750
+[cuSPARSELt] Running: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search.py --dtype int8 --model Llama3.2-1B-INT8 --warmup 25 --repeat 50 --out_dir /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results --m_list 64,128,256,512,1024,2048,4096,8192,16384 --sparsity 2_16
+
+[int8] Running cuSPARSELt Sparse GEMM Search (sparsity=2_inf)
+[INFO] K_factor = 2.000
+[cuSPARSELt] Running: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search.py --dtype int8 --model Llama3.2-1B-INT8 --warmup 25 --repeat 50 --out_dir /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results --m_list 64,128,256,512,1024,2048,4096,8192,16384 --sparsity 2_inf
+
+============================================================
+Benchmark Complete!
+============================================================
+
+Results saved to:
+  - cuSPARSELt: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results
+[W128 08:51:01.810688631 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+[SUCCESS] Llama3.2-1B-INT8 [int8] 低稀疏完成 (517.6s)
+
+------------------------------------------------------------
+  cuSPARSELt Model 低稀疏: Llama3.2-3B-INT8
+------------------------------------------------------------
+[INFO] 执行: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/benchmark_entry.py --dtype fp8e4m3 --warmup 25 --repeat 50 --m_list 64,128,256,512,1024,2048,4096,8192,16384 --backend cusparselt --model Llama3.2-3B-INT8 --sparsity 2_12,2_14,2_16,2_inf
+
+[INFO] Sparsity=2_12, K_factor=1.667
+[INFO] NK list adjusted: [(5120, 5120), (3072, 5120), (16384, 5120), (3072, 13664)]
+============================================================
+cuSPARSELt Sparse GEMM 算法搜索 (2:4 稀疏)
+============================================================
+GPU: NVIDIA B200 (cc100)
+Mode: MODEL
+Model: Llama3.2-3B-INT8
+dtype: fp8e4m3 -> fp8e4m3 (same input/output)
+Sparsity: 2_12
+Segment-K 测试: 开启
+API 搜索对比: 开启
+warmup=25, repeat=50
+
+[1/4] 编译 CUDA 扩展...
+✓ Using existing: cusparselt_gemm_B200_cc100_py312_cu129_x86_64.so
+[2/4] 加载 CUDA 扩展...
+✓ cuSPARSELt 可用
+✓ Segment-K 支持: 是
+
+[3/4] 开始算法搜索...
+      NK 组合: 4 个, M 列表: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384]
+
+    NK 1/4: (5120, 5120)
+      → 算法数: 108, 有效: 437
+    NK 2/4: (3072, 5120)
+      → 算法数: 108, 有效: 422
+    NK 3/4: (16384, 5120)
+      → 算法数: 108, 有效: 431
+    NK 4/4: (3072, 13664)
+      → 算法数: 108, 有效: 424
+
+    搜索统计: 总计=36, 成功=36, 失败=0, 错误=0
+    成功率: 100.0%
+
+[4/4] 保存结果...
+    CSV: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/FP8/alg_search_Llama3.2-3B-INT8_2_12.csv
+    JSON: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/FP8/alg_search_Llama3.2-3B-INT8_2_12.json
+
+✓ 完成! 结果已保存到: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/FP8
+============================================================
+[W128 08:53:57.364588616 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+[INFO] Sparsity=2_14, K_factor=1.714
+[INFO] NK list adjusted: [(5120, 5280), (3072, 5280), (16384, 5280), (3072, 14048)]
+============================================================
+cuSPARSELt Sparse GEMM 算法搜索 (2:4 稀疏)
+============================================================
+GPU: NVIDIA B200 (cc100)
+Mode: MODEL
+Model: Llama3.2-3B-INT8
+dtype: fp8e4m3 -> fp8e4m3 (same input/output)
+Sparsity: 2_14
+Segment-K 测试: 开启
+API 搜索对比: 开启
+warmup=25, repeat=50
+
+[1/4] 编译 CUDA 扩展...
+✓ Using existing: cusparselt_gemm_B200_cc100_py312_cu129_x86_64.so
+[2/4] 加载 CUDA 扩展...
+✓ cuSPARSELt 可用
+✓ Segment-K 支持: 是
+
+[3/4] 开始算法搜索...
+      NK 组合: 4 个, M 列表: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384]
+
+    NK 1/4: (5120, 5280)
+      → 算法数: 108, 有效: 432
+    NK 2/4: (3072, 5280)
+      → 算法数: 108, 有效: 416
+    NK 3/4: (16384, 5280)
+      → 算法数: 108, 有效: 428
+    NK 4/4: (3072, 14048)
+      → 算法数: 108, 有效: 441
+
+    搜索统计: 总计=36, 成功=36, 失败=0, 错误=0
+    成功率: 100.0%
+
+[4/4] 保存结果...
+    CSV: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/FP8/alg_search_Llama3.2-3B-INT8_2_14.csv
+    JSON: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/FP8/alg_search_Llama3.2-3B-INT8_2_14.json
+
+✓ 完成! 结果已保存到: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/FP8
+============================================================
+[W128 08:57:14.770390647 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+[INFO] Sparsity=2_16, K_factor=1.750
+[INFO] NK list adjusted: [(5120, 5376), (3072, 5376), (16384, 5376), (3072, 14336)]
+============================================================
+cuSPARSELt Sparse GEMM 算法搜索 (2:4 稀疏)
+============================================================
+GPU: NVIDIA B200 (cc100)
+Mode: MODEL
+Model: Llama3.2-3B-INT8
+dtype: fp8e4m3 -> fp8e4m3 (same input/output)
+Sparsity: 2_16
+Segment-K 测试: 开启
+API 搜索对比: 开启
+warmup=25, repeat=50
+
+[1/4] 编译 CUDA 扩展...
+✓ Using existing: cusparselt_gemm_B200_cc100_py312_cu129_x86_64.so
+[2/4] 加载 CUDA 扩展...
+✓ cuSPARSELt 可用
+✓ Segment-K 支持: 是
+
+[3/4] 开始算法搜索...
+      NK 组合: 4 个, M 列表: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384]
+
+    NK 1/4: (5120, 5376)
+      → 算法数: 108, 有效: 451
+    NK 2/4: (3072, 5376)
+      → 算法数: 108, 有效: 390
+    NK 3/4: (16384, 5376)
+      → 算法数: 108, 有效: 451
+    NK 4/4: (3072, 14336)
+      → 算法数: 108, 有效: 421
+
+    搜索统计: 总计=36, 成功=36, 失败=0, 错误=0
+    成功率: 100.0%
+
+[4/4] 保存结果...
+    CSV: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/FP8/alg_search_Llama3.2-3B-INT8_2_16.csv
+    JSON: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/FP8/alg_search_Llama3.2-3B-INT8_2_16.json
+
+✓ 完成! 结果已保存到: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/FP8
+============================================================
+[W128 09:00:04.623676073 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+[INFO] Sparsity=2_inf, K_factor=2.000
+[INFO] NK list adjusted: [(5120, 6144), (3072, 6144), (16384, 6144), (3072, 16384)]
+============================================================
+cuSPARSELt Sparse GEMM 算法搜索 (2:4 稀疏)
+============================================================
+GPU: NVIDIA B200 (cc100)
+Mode: MODEL
+Model: Llama3.2-3B-INT8
+dtype: fp8e4m3 -> fp8e4m3 (same input/output)
+Sparsity: 2_inf
+Segment-K 测试: 开启
+API 搜索对比: 开启
+warmup=25, repeat=50
+
+[1/4] 编译 CUDA 扩展...
+✓ Using existing: cusparselt_gemm_B200_cc100_py312_cu129_x86_64.so
+[2/4] 加载 CUDA 扩展...
+✓ cuSPARSELt 可用
+✓ Segment-K 支持: 是
+
+[3/4] 开始算法搜索...
+      NK 组合: 4 个, M 列表: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384]
+
+    NK 1/4: (5120, 6144)
+      → 算法数: 108, 有效: 434
+    NK 2/4: (3072, 6144)
+      → 算法数: 108, 有效: 412
+    NK 3/4: (16384, 6144)
+      → 算法数: 108, 有效: 424
+    NK 4/4: (3072, 16384)
+      → 算法数: 108, 有效: 433
+
+    搜索统计: 总计=36, 成功=36, 失败=0, 错误=0
+    成功率: 100.0%
+
+[4/4] 保存结果...
+    CSV: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/FP8/alg_search_Llama3.2-3B-INT8_2_inf.csv
+    JSON: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/FP8/alg_search_Llama3.2-3B-INT8_2_inf.json
+
+✓ 完成! 结果已保存到: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/FP8
+============================================================
+[W128 09:03:09.681969990 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+============================================================
+SlideSparse Kernel Benchmark
+============================================================
+GPU: NVIDIA B200 (cc100)
+Mode: MODEL
+Model: Llama3.2-3B-INT8
+M_list: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384]
+dtype: ['fp8e4m3']
+Backend: cusparselt
+Sparsity: ['2_12', '2_14', '2_16', '2_inf']
+warmup=25, repeat=50
+============================================================
+
+============================================================
+Benchmark dtype=FP8E4M3
+============================================================
+
+[fp8e4m3] Running cuSPARSELt Sparse GEMM Search (sparsity=2_12)
+[INFO] K_factor = 1.667
+[cuSPARSELt] Running: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search.py --dtype fp8e4m3 --model Llama3.2-3B-INT8 --warmup 25 --repeat 50 --out_dir /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results --m_list 64,128,256,512,1024,2048,4096,8192,16384 --sparsity 2_12
+
+[fp8e4m3] Running cuSPARSELt Sparse GEMM Search (sparsity=2_14)
+[INFO] K_factor = 1.714
+[cuSPARSELt] Running: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search.py --dtype fp8e4m3 --model Llama3.2-3B-INT8 --warmup 25 --repeat 50 --out_dir /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results --m_list 64,128,256,512,1024,2048,4096,8192,16384 --sparsity 2_14
+
+[fp8e4m3] Running cuSPARSELt Sparse GEMM Search (sparsity=2_16)
+[INFO] K_factor = 1.750
+[cuSPARSELt] Running: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search.py --dtype fp8e4m3 --model Llama3.2-3B-INT8 --warmup 25 --repeat 50 --out_dir /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results --m_list 64,128,256,512,1024,2048,4096,8192,16384 --sparsity 2_16
+
+[fp8e4m3] Running cuSPARSELt Sparse GEMM Search (sparsity=2_inf)
+[INFO] K_factor = 2.000
+[cuSPARSELt] Running: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search.py --dtype fp8e4m3 --model Llama3.2-3B-INT8 --warmup 25 --repeat 50 --out_dir /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results --m_list 64,128,256,512,1024,2048,4096,8192,16384 --sparsity 2_inf
+
+============================================================
+Benchmark Complete!
+============================================================
+
+Results saved to:
+  - cuSPARSELt: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results
+[W128 09:03:10.566276185 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+[SUCCESS] Llama3.2-3B-INT8 [fp8e4m3] 低稀疏完成 (728.7s)
+[INFO] 执行: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/benchmark_entry.py --dtype int8 --warmup 25 --repeat 50 --m_list 64,128,256,512,1024,2048,4096,8192,16384 --backend cusparselt --model Llama3.2-3B-INT8 --sparsity 2_12,2_14,2_16,2_inf
+
+[INFO] Sparsity=2_12, K_factor=1.667
+[INFO] NK list adjusted: [(5120, 5120), (3072, 5120), (16384, 5120), (3072, 13664)]
+============================================================
+cuSPARSELt Sparse GEMM 算法搜索 (2:4 稀疏)
+============================================================
+GPU: NVIDIA B200 (cc100)
+Mode: MODEL
+Model: Llama3.2-3B-INT8
+dtype: int8 -> int8 (same input/output)
+Sparsity: 2_12
+Segment-K 测试: 开启
+API 搜索对比: 开启
+warmup=25, repeat=50
+
+[1/4] 编译 CUDA 扩展...
+✓ Using existing: cusparselt_gemm_B200_cc100_py312_cu129_x86_64.so
+[2/4] 加载 CUDA 扩展...
+✓ cuSPARSELt 可用
+✓ Segment-K 支持: 是
+
+[3/4] 开始算法搜索...
+      NK 组合: 4 个, M 列表: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384]
+
+    NK 1/4: (5120, 5120)
+      → 算法数: 108, 有效: 436
+    NK 2/4: (3072, 5120)
+      → 算法数: 108, 有效: 419
+    NK 3/4: (16384, 5120)
+      → 算法数: 108, 有效: 443
+    NK 4/4: (3072, 13664)
+      → 算法数: 108, 有效: 423
+
+    搜索统计: 总计=36, 成功=36, 失败=0, 错误=0
+    成功率: 100.0%
+
+[4/4] 保存结果...
+    CSV: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/INT8/alg_search_Llama3.2-3B-INT8_2_12.csv
+    JSON: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/INT8/alg_search_Llama3.2-3B-INT8_2_12.json
+
+✓ 完成! 结果已保存到: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/INT8
+============================================================
+[W128 09:05:56.371866773 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+[INFO] Sparsity=2_14, K_factor=1.714
+[INFO] NK list adjusted: [(5120, 5280), (3072, 5280), (16384, 5280), (3072, 14048)]
+============================================================
+cuSPARSELt Sparse GEMM 算法搜索 (2:4 稀疏)
+============================================================
+GPU: NVIDIA B200 (cc100)
+Mode: MODEL
+Model: Llama3.2-3B-INT8
+dtype: int8 -> int8 (same input/output)
+Sparsity: 2_14
+Segment-K 测试: 开启
+API 搜索对比: 开启
+warmup=25, repeat=50
+
+[1/4] 编译 CUDA 扩展...
+✓ Using existing: cusparselt_gemm_B200_cc100_py312_cu129_x86_64.so
+[2/4] 加载 CUDA 扩展...
+✓ cuSPARSELt 可用
+✓ Segment-K 支持: 是
+
+[3/4] 开始算法搜索...
+      NK 组合: 4 个, M 列表: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384]
+
+    NK 1/4: (5120, 5280)
+      → 算法数: 108, 有效: 425
+    NK 2/4: (3072, 5280)
+      → 算法数: 108, 有效: 414
+    NK 3/4: (16384, 5280)
+      → 算法数: 108, 有效: 450
+    NK 4/4: (3072, 14048)
+      → 算法数: 108, 有效: 434
+
+    搜索统计: 总计=36, 成功=36, 失败=0, 错误=0
+    成功率: 100.0%
+
+[4/4] 保存结果...
+    CSV: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/INT8/alg_search_Llama3.2-3B-INT8_2_14.csv
+    JSON: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/INT8/alg_search_Llama3.2-3B-INT8_2_14.json
+
+✓ 完成! 结果已保存到: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/INT8
+============================================================
+[W128 09:09:03.102113387 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+[INFO] Sparsity=2_16, K_factor=1.750
+[INFO] NK list adjusted: [(5120, 5376), (3072, 5376), (16384, 5376), (3072, 14336)]
+============================================================
+cuSPARSELt Sparse GEMM 算法搜索 (2:4 稀疏)
+============================================================
+GPU: NVIDIA B200 (cc100)
+Mode: MODEL
+Model: Llama3.2-3B-INT8
+dtype: int8 -> int8 (same input/output)
+Sparsity: 2_16
+Segment-K 测试: 开启
+API 搜索对比: 开启
+warmup=25, repeat=50
+
+[1/4] 编译 CUDA 扩展...
+✓ Using existing: cusparselt_gemm_B200_cc100_py312_cu129_x86_64.so
+[2/4] 加载 CUDA 扩展...
+✓ cuSPARSELt 可用
+✓ Segment-K 支持: 是
+
+[3/4] 开始算法搜索...
+      NK 组合: 4 个, M 列表: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384]
+
+    NK 1/4: (5120, 5376)
+      → 算法数: 108, 有效: 424
+    NK 2/4: (3072, 5376)
+      → 算法数: 108, 有效: 425
+    NK 3/4: (16384, 5376)
+      → 算法数: 108, 有效: 426
+    NK 4/4: (3072, 14336)
+      → 算法数: 108, 有效: 425
+
+    搜索统计: 总计=36, 成功=36, 失败=0, 错误=0
+    成功率: 100.0%
+
+[4/4] 保存结果...
+    CSV: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/INT8/alg_search_Llama3.2-3B-INT8_2_16.csv
+    JSON: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/INT8/alg_search_Llama3.2-3B-INT8_2_16.json
+
+✓ 完成! 结果已保存到: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/INT8
+============================================================
+[W128 09:11:45.024410515 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+[INFO] Sparsity=2_inf, K_factor=2.000
+[INFO] NK list adjusted: [(5120, 6144), (3072, 6144), (16384, 6144), (3072, 16384)]
+============================================================
+cuSPARSELt Sparse GEMM 算法搜索 (2:4 稀疏)
+============================================================
+GPU: NVIDIA B200 (cc100)
+Mode: MODEL
+Model: Llama3.2-3B-INT8
+dtype: int8 -> int8 (same input/output)
+Sparsity: 2_inf
+Segment-K 测试: 开启
+API 搜索对比: 开启
+warmup=25, repeat=50
+
+[1/4] 编译 CUDA 扩展...
+✓ Using existing: cusparselt_gemm_B200_cc100_py312_cu129_x86_64.so
+[2/4] 加载 CUDA 扩展...
+✓ cuSPARSELt 可用
+✓ Segment-K 支持: 是
+
+[3/4] 开始算法搜索...
+      NK 组合: 4 个, M 列表: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384]
+
+    NK 1/4: (5120, 6144)
+      → 算法数: 108, 有效: 426
+    NK 2/4: (3072, 6144)
+      → 算法数: 108, 有效: 420
+    NK 3/4: (16384, 6144)
+      → 算法数: 108, 有效: 436
+    NK 4/4: (3072, 16384)
+      → 算法数: 108, 有效: 434
+
+    搜索统计: 总计=36, 成功=36, 失败=0, 错误=0
+    成功率: 100.0%
+
+[4/4] 保存结果...
+    CSV: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/INT8/alg_search_Llama3.2-3B-INT8_2_inf.csv
+    JSON: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/INT8/alg_search_Llama3.2-3B-INT8_2_inf.json
+
+✓ 完成! 结果已保存到: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/INT8
+============================================================
+[W128 09:14:43.627547034 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+============================================================
+SlideSparse Kernel Benchmark
+============================================================
+GPU: NVIDIA B200 (cc100)
+Mode: MODEL
+Model: Llama3.2-3B-INT8
+M_list: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384]
+dtype: ['int8']
+Backend: cusparselt
+Sparsity: ['2_12', '2_14', '2_16', '2_inf']
+warmup=25, repeat=50
+============================================================
+
+============================================================
+Benchmark dtype=INT8
+============================================================
+
+[int8] Running cuSPARSELt Sparse GEMM Search (sparsity=2_12)
+[INFO] K_factor = 1.667
+[cuSPARSELt] Running: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search.py --dtype int8 --model Llama3.2-3B-INT8 --warmup 25 --repeat 50 --out_dir /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results --m_list 64,128,256,512,1024,2048,4096,8192,16384 --sparsity 2_12
+
+[int8] Running cuSPARSELt Sparse GEMM Search (sparsity=2_14)
+[INFO] K_factor = 1.714
+[cuSPARSELt] Running: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search.py --dtype int8 --model Llama3.2-3B-INT8 --warmup 25 --repeat 50 --out_dir /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results --m_list 64,128,256,512,1024,2048,4096,8192,16384 --sparsity 2_14
+
+[int8] Running cuSPARSELt Sparse GEMM Search (sparsity=2_16)
+[INFO] K_factor = 1.750
+[cuSPARSELt] Running: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search.py --dtype int8 --model Llama3.2-3B-INT8 --warmup 25 --repeat 50 --out_dir /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results --m_list 64,128,256,512,1024,2048,4096,8192,16384 --sparsity 2_16
+
+[int8] Running cuSPARSELt Sparse GEMM Search (sparsity=2_inf)
+[INFO] K_factor = 2.000
+[cuSPARSELt] Running: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search.py --dtype int8 --model Llama3.2-3B-INT8 --warmup 25 --repeat 50 --out_dir /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results --m_list 64,128,256,512,1024,2048,4096,8192,16384 --sparsity 2_inf
+
+============================================================
+Benchmark Complete!
+============================================================
+
+Results saved to:
+  - cuSPARSELt: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results
+[W128 09:14:44.485968653 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+[SUCCESS] Llama3.2-3B-INT8 [int8] 低稀疏完成 (693.9s)
+
+------------------------------------------------------------
+  cuSPARSELt Model 低稀疏: Qwen2.5-7B-INT8
+------------------------------------------------------------
+[INFO] 执行: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/benchmark_entry.py --dtype fp8e4m3 --warmup 25 --repeat 50 --m_list 64,128,256,512,1024,2048,4096,8192,16384 --backend cusparselt --model Qwen2.5-7B-INT8 --sparsity 2_12,2_14,2_16,2_inf
+
+[INFO] Sparsity=2_12, K_factor=1.667
+[INFO] NK list adjusted: [(4608, 5984), (3584, 5984), (37888, 5984), (3584, 31584)]
+============================================================
+cuSPARSELt Sparse GEMM 算法搜索 (2:4 稀疏)
+============================================================
+GPU: NVIDIA B200 (cc100)
+Mode: MODEL
+Model: Qwen2.5-7B-INT8
+dtype: fp8e4m3 -> fp8e4m3 (same input/output)
+Sparsity: 2_12
+Segment-K 测试: 开启
+API 搜索对比: 开启
+warmup=25, repeat=50
+
+[1/4] 编译 CUDA 扩展...
+✓ Using existing: cusparselt_gemm_B200_cc100_py312_cu129_x86_64.so
+[2/4] 加载 CUDA 扩展...
+✓ cuSPARSELt 可用
+✓ Segment-K 支持: 是
+
+[3/4] 开始算法搜索...
+      NK 组合: 4 个, M 列表: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384]
+
+    NK 1/4: (4608, 5984)
+      → 算法数: 108, 有效: 412
+    NK 2/4: (3584, 5984)
+      → 算法数: 108, 有效: 425
+    NK 3/4: (37888, 5984)
+      → 算法数: 108, 有效: 382
+    NK 4/4: (3584, 31584)
+      → 算法数: 108, 有效: 427
+
+    搜索统计: 总计=36, 成功=36, 失败=0, 错误=0
+    成功率: 100.0%
+
+[4/4] 保存结果...
+    CSV: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/FP8/alg_search_Qwen2.5-7B-INT8_2_12.csv
+    JSON: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/FP8/alg_search_Qwen2.5-7B-INT8_2_12.json
+
+✓ 完成! 结果已保存到: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/FP8
+============================================================
+[W128 09:21:00.361585897 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+[INFO] Sparsity=2_14, K_factor=1.714
+[INFO] NK list adjusted: [(4608, 6144), (3584, 6144), (37888, 6144), (3584, 32480)]
+============================================================
+cuSPARSELt Sparse GEMM 算法搜索 (2:4 稀疏)
+============================================================
+GPU: NVIDIA B200 (cc100)
+Mode: MODEL
+Model: Qwen2.5-7B-INT8
+dtype: fp8e4m3 -> fp8e4m3 (same input/output)
+Sparsity: 2_14
+Segment-K 测试: 开启
+API 搜索对比: 开启
+warmup=25, repeat=50
+
+[1/4] 编译 CUDA 扩展...
+✓ Using existing: cusparselt_gemm_B200_cc100_py312_cu129_x86_64.so
+[2/4] 加载 CUDA 扩展...
+✓ cuSPARSELt 可用
+✓ Segment-K 支持: 是
+
+[3/4] 开始算法搜索...
+      NK 组合: 4 个, M 列表: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384]
+
+    NK 1/4: (4608, 6144)
+      → 算法数: 108, 有效: 434
+    NK 2/4: (3584, 6144)
+      → 算法数: 108, 有效: 428
+    NK 3/4: (37888, 6144)
+      → 算法数: 108, 有效: 387
+    NK 4/4: (3584, 32480)
+      → 算法数: 108, 有效: 408
+
+    搜索统计: 总计=36, 成功=36, 失败=0, 错误=0
+    成功率: 100.0%
+
+[4/4] 保存结果...
+    CSV: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/FP8/alg_search_Qwen2.5-7B-INT8_2_14.csv
+    JSON: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/FP8/alg_search_Qwen2.5-7B-INT8_2_14.json
+
+✓ 完成! 结果已保存到: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/FP8
+============================================================
+[W128 09:26:35.536475811 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+[INFO] Sparsity=2_16, K_factor=1.750
+[INFO] NK list adjusted: [(4608, 6272), (3584, 6272), (37888, 6272), (3584, 33152)]
+============================================================
+cuSPARSELt Sparse GEMM 算法搜索 (2:4 稀疏)
+============================================================
+GPU: NVIDIA B200 (cc100)
+Mode: MODEL
+Model: Qwen2.5-7B-INT8
+dtype: fp8e4m3 -> fp8e4m3 (same input/output)
+Sparsity: 2_16
+Segment-K 测试: 开启
+API 搜索对比: 开启
+warmup=25, repeat=50
+
+[1/4] 编译 CUDA 扩展...
+✓ Using existing: cusparselt_gemm_B200_cc100_py312_cu129_x86_64.so
+[2/4] 加载 CUDA 扩展...
+✓ cuSPARSELt 可用
+✓ Segment-K 支持: 是
+
+[3/4] 开始算法搜索...
+      NK 组合: 4 个, M 列表: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384]
+
+    NK 1/4: (4608, 6272)
+      → 算法数: 108, 有效: 433
+    NK 2/4: (3584, 6272)
+      → 算法数: 108, 有效: 432
+    NK 3/4: (37888, 6272)
+      → 算法数: 108, 有效: 424
+    NK 4/4: (3584, 33152)
+      → 算法数: 108, 有效: 446
+
+    搜索统计: 总计=36, 成功=36, 失败=0, 错误=0
+    成功率: 100.0%
+
+[4/4] 保存结果...
+    CSV: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/FP8/alg_search_Qwen2.5-7B-INT8_2_16.csv
+    JSON: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/FP8/alg_search_Qwen2.5-7B-INT8_2_16.json
+
+✓ 完成! 结果已保存到: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/FP8
+============================================================
+[W128 09:31:59.344237767 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+[INFO] Sparsity=2_inf, K_factor=2.000
+[INFO] NK list adjusted: [(4608, 7168), (3584, 7168), (37888, 7168), (3584, 37888)]
+============================================================
+cuSPARSELt Sparse GEMM 算法搜索 (2:4 稀疏)
+============================================================
+GPU: NVIDIA B200 (cc100)
+Mode: MODEL
+Model: Qwen2.5-7B-INT8
+dtype: fp8e4m3 -> fp8e4m3 (same input/output)
+Sparsity: 2_inf
+Segment-K 测试: 开启
+API 搜索对比: 开启
+warmup=25, repeat=50
+
+[1/4] 编译 CUDA 扩展...
+✓ Using existing: cusparselt_gemm_B200_cc100_py312_cu129_x86_64.so
+[2/4] 加载 CUDA 扩展...
+✓ cuSPARSELt 可用
+✓ Segment-K 支持: 是
+
+[3/4] 开始算法搜索...
+      NK 组合: 4 个, M 列表: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384]
+
+    NK 1/4: (4608, 7168)
+      → 算法数: 108, 有效: 411
+    NK 2/4: (3584, 7168)
+      → 算法数: 108, 有效: 413
+    NK 3/4: (37888, 7168)
+      → 算法数: 108, 有效: 384
+    NK 4/4: (3584, 37888)
+      → 算法数: 108, 有效: 456
+
+    搜索统计: 总计=36, 成功=36, 失败=0, 错误=0
+    成功率: 100.0%
+
+[4/4] 保存结果...
+    CSV: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/FP8/alg_search_Qwen2.5-7B-INT8_2_inf.csv
+    JSON: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/FP8/alg_search_Qwen2.5-7B-INT8_2_inf.json
+
+✓ 完成! 结果已保存到: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/FP8
+============================================================
+[W128 09:37:53.618106990 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+============================================================
+SlideSparse Kernel Benchmark
+============================================================
+GPU: NVIDIA B200 (cc100)
+Mode: MODEL
+Model: Qwen2.5-7B-INT8
+M_list: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384]
+dtype: ['fp8e4m3']
+Backend: cusparselt
+Sparsity: ['2_12', '2_14', '2_16', '2_inf']
+warmup=25, repeat=50
+============================================================
+
+============================================================
+Benchmark dtype=FP8E4M3
+============================================================
+
+[fp8e4m3] Running cuSPARSELt Sparse GEMM Search (sparsity=2_12)
+[INFO] K_factor = 1.667
+[cuSPARSELt] Running: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search.py --dtype fp8e4m3 --model Qwen2.5-7B-INT8 --warmup 25 --repeat 50 --out_dir /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results --m_list 64,128,256,512,1024,2048,4096,8192,16384 --sparsity 2_12
+
+[fp8e4m3] Running cuSPARSELt Sparse GEMM Search (sparsity=2_14)
+[INFO] K_factor = 1.714
+[cuSPARSELt] Running: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search.py --dtype fp8e4m3 --model Qwen2.5-7B-INT8 --warmup 25 --repeat 50 --out_dir /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results --m_list 64,128,256,512,1024,2048,4096,8192,16384 --sparsity 2_14
+
+[fp8e4m3] Running cuSPARSELt Sparse GEMM Search (sparsity=2_16)
+[INFO] K_factor = 1.750
+[cuSPARSELt] Running: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search.py --dtype fp8e4m3 --model Qwen2.5-7B-INT8 --warmup 25 --repeat 50 --out_dir /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results --m_list 64,128,256,512,1024,2048,4096,8192,16384 --sparsity 2_16
+
+[fp8e4m3] Running cuSPARSELt Sparse GEMM Search (sparsity=2_inf)
+[INFO] K_factor = 2.000
+[cuSPARSELt] Running: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search.py --dtype fp8e4m3 --model Qwen2.5-7B-INT8 --warmup 25 --repeat 50 --out_dir /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results --m_list 64,128,256,512,1024,2048,4096,8192,16384 --sparsity 2_inf
+
+============================================================
+Benchmark Complete!
+============================================================
+
+Results saved to:
+  - cuSPARSELt: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results
+[W128 09:37:54.441546719 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+[SUCCESS] Qwen2.5-7B-INT8 [fp8e4m3] 低稀疏完成 (1389.9s)
+[INFO] 执行: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/benchmark_entry.py --dtype int8 --warmup 25 --repeat 50 --m_list 64,128,256,512,1024,2048,4096,8192,16384 --backend cusparselt --model Qwen2.5-7B-INT8 --sparsity 2_12,2_14,2_16,2_inf
+
+[INFO] Sparsity=2_12, K_factor=1.667
+[INFO] NK list adjusted: [(4608, 5984), (3584, 5984), (37888, 5984), (3584, 31584)]
+============================================================
+cuSPARSELt Sparse GEMM 算法搜索 (2:4 稀疏)
+============================================================
+GPU: NVIDIA B200 (cc100)
+Mode: MODEL
+Model: Qwen2.5-7B-INT8
+dtype: int8 -> int8 (same input/output)
+Sparsity: 2_12
+Segment-K 测试: 开启
+API 搜索对比: 开启
+warmup=25, repeat=50
+
+[1/4] 编译 CUDA 扩展...
+✓ Using existing: cusparselt_gemm_B200_cc100_py312_cu129_x86_64.so
+[2/4] 加载 CUDA 扩展...
+✓ cuSPARSELt 可用
+✓ Segment-K 支持: 是
+
+[3/4] 开始算法搜索...
+      NK 组合: 4 个, M 列表: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384]
+
+    NK 1/4: (4608, 5984)
+      → 算法数: 108, 有效: 444
+    NK 2/4: (3584, 5984)
+      → 算法数: 108, 有效: 422
+    NK 3/4: (37888, 5984)
+      → 算法数: 108, 有效: 402
+    NK 4/4: (3584, 31584)
+      → 算法数: 108, 有效: 465
+
+    搜索统计: 总计=36, 成功=36, 失败=0, 错误=0
+    成功率: 100.0%
+
+[4/4] 保存结果...
+    CSV: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/INT8/alg_search_Qwen2.5-7B-INT8_2_12.csv
+    JSON: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/INT8/alg_search_Qwen2.5-7B-INT8_2_12.json
+
+✓ 完成! 结果已保存到: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/INT8
+============================================================
+[W128 09:43:45.210642756 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+[INFO] Sparsity=2_14, K_factor=1.714
+[INFO] NK list adjusted: [(4608, 6144), (3584, 6144), (37888, 6144), (3584, 32480)]
+============================================================
+cuSPARSELt Sparse GEMM 算法搜索 (2:4 稀疏)
+============================================================
+GPU: NVIDIA B200 (cc100)
+Mode: MODEL
+Model: Qwen2.5-7B-INT8
+dtype: int8 -> int8 (same input/output)
+Sparsity: 2_14
+Segment-K 测试: 开启
+API 搜索对比: 开启
+warmup=25, repeat=50
+
+[1/4] 编译 CUDA 扩展...
+✓ Using existing: cusparselt_gemm_B200_cc100_py312_cu129_x86_64.so
+[2/4] 加载 CUDA 扩展...
+✓ cuSPARSELt 可用
+✓ Segment-K 支持: 是
+
+[3/4] 开始算法搜索...
+      NK 组合: 4 个, M 列表: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384]
+
+    NK 1/4: (4608, 6144)
+      → 算法数: 108, 有效: 427
+    NK 2/4: (3584, 6144)
+      → 算法数: 108, 有效: 409
+    NK 3/4: (37888, 6144)
+      → 算法数: 108, 有效: 393
+    NK 4/4: (3584, 32480)
+      → 算法数: 108, 有效: 431
+
+    搜索统计: 总计=36, 成功=36, 失败=0, 错误=0
+    成功率: 100.0%
+
+[4/4] 保存结果...
+    CSV: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/INT8/alg_search_Qwen2.5-7B-INT8_2_14.csv
+    JSON: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/INT8/alg_search_Qwen2.5-7B-INT8_2_14.json
+
+✓ 完成! 结果已保存到: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/INT8
+============================================================
+[W128 09:49:01.189124862 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+[INFO] Sparsity=2_16, K_factor=1.750
+[INFO] NK list adjusted: [(4608, 6272), (3584, 6272), (37888, 6272), (3584, 33152)]
+============================================================
+cuSPARSELt Sparse GEMM 算法搜索 (2:4 稀疏)
+============================================================
+GPU: NVIDIA B200 (cc100)
+Mode: MODEL
+Model: Qwen2.5-7B-INT8
+dtype: int8 -> int8 (same input/output)
+Sparsity: 2_16
+Segment-K 测试: 开启
+API 搜索对比: 开启
+warmup=25, repeat=50
+
+[1/4] 编译 CUDA 扩展...
+✓ Using existing: cusparselt_gemm_B200_cc100_py312_cu129_x86_64.so
+[2/4] 加载 CUDA 扩展...
+✓ cuSPARSELt 可用
+✓ Segment-K 支持: 是
+
+[3/4] 开始算法搜索...
+      NK 组合: 4 个, M 列表: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384]
+
+    NK 1/4: (4608, 6272)
+      → 算法数: 108, 有效: 429
+    NK 2/4: (3584, 6272)
+      → 算法数: 108, 有效: 406
+    NK 3/4: (37888, 6272)
+      → 算法数: 108, 有效: 397
+    NK 4/4: (3584, 33152)
+      → 算法数: 108, 有效: 435
+
+    搜索统计: 总计=36, 成功=36, 失败=0, 错误=0
+    成功率: 100.0%
+
+[4/4] 保存结果...
+    CSV: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/INT8/alg_search_Qwen2.5-7B-INT8_2_16.csv
+    JSON: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/INT8/alg_search_Qwen2.5-7B-INT8_2_16.json
+
+✓ 完成! 结果已保存到: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/INT8
+============================================================
+[W128 09:54:11.130584801 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+[INFO] Sparsity=2_inf, K_factor=2.000
+[INFO] NK list adjusted: [(4608, 7168), (3584, 7168), (37888, 7168), (3584, 37888)]
+============================================================
+cuSPARSELt Sparse GEMM 算法搜索 (2:4 稀疏)
+============================================================
+GPU: NVIDIA B200 (cc100)
+Mode: MODEL
+Model: Qwen2.5-7B-INT8
+dtype: int8 -> int8 (same input/output)
+Sparsity: 2_inf
+Segment-K 测试: 开启
+API 搜索对比: 开启
+warmup=25, repeat=50
+
+[1/4] 编译 CUDA 扩展...
+✓ Using existing: cusparselt_gemm_B200_cc100_py312_cu129_x86_64.so
+[2/4] 加载 CUDA 扩展...
+✓ cuSPARSELt 可用
+✓ Segment-K 支持: 是
+
+[3/4] 开始算法搜索...
+      NK 组合: 4 个, M 列表: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384]
+
+    NK 1/4: (4608, 7168)
+      → 算法数: 108, 有效: 435
+    NK 2/4: (3584, 7168)
+      → 算法数: 108, 有效: 429
+    NK 3/4: (37888, 7168)
+      → 算法数: 108, 有效: 385
+    NK 4/4: (3584, 37888)
+      → 算法数: 108, 有效: 459
+
+    搜索统计: 总计=36, 成功=36, 失败=0, 错误=0
+    成功率: 100.0%
+
+[4/4] 保存结果...
+    CSV: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/INT8/alg_search_Qwen2.5-7B-INT8_2_inf.csv
+    JSON: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/INT8/alg_search_Qwen2.5-7B-INT8_2_inf.json
+
+✓ 完成! 结果已保存到: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/INT8
+============================================================
+[W128 09:59:52.094745219 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+============================================================
+SlideSparse Kernel Benchmark
+============================================================
+GPU: NVIDIA B200 (cc100)
+Mode: MODEL
+Model: Qwen2.5-7B-INT8
+M_list: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384]
+dtype: ['int8']
+Backend: cusparselt
+Sparsity: ['2_12', '2_14', '2_16', '2_inf']
+warmup=25, repeat=50
+============================================================
+
+============================================================
+Benchmark dtype=INT8
+============================================================
+
+[int8] Running cuSPARSELt Sparse GEMM Search (sparsity=2_12)
+[INFO] K_factor = 1.667
+[cuSPARSELt] Running: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search.py --dtype int8 --model Qwen2.5-7B-INT8 --warmup 25 --repeat 50 --out_dir /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results --m_list 64,128,256,512,1024,2048,4096,8192,16384 --sparsity 2_12
+
+[int8] Running cuSPARSELt Sparse GEMM Search (sparsity=2_14)
+[INFO] K_factor = 1.714
+[cuSPARSELt] Running: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search.py --dtype int8 --model Qwen2.5-7B-INT8 --warmup 25 --repeat 50 --out_dir /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results --m_list 64,128,256,512,1024,2048,4096,8192,16384 --sparsity 2_14
+
+[int8] Running cuSPARSELt Sparse GEMM Search (sparsity=2_16)
+[INFO] K_factor = 1.750
+[cuSPARSELt] Running: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search.py --dtype int8 --model Qwen2.5-7B-INT8 --warmup 25 --repeat 50 --out_dir /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results --m_list 64,128,256,512,1024,2048,4096,8192,16384 --sparsity 2_16
+
+[int8] Running cuSPARSELt Sparse GEMM Search (sparsity=2_inf)
+[INFO] K_factor = 2.000
+[cuSPARSELt] Running: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search.py --dtype int8 --model Qwen2.5-7B-INT8 --warmup 25 --repeat 50 --out_dir /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results --m_list 64,128,256,512,1024,2048,4096,8192,16384 --sparsity 2_inf
+
+============================================================
+Benchmark Complete!
+============================================================
+
+Results saved to:
+  - cuSPARSELt: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results
+[W128 09:59:53.933269216 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+[SUCCESS] Qwen2.5-7B-INT8 [int8] 低稀疏完成 (1319.5s)
+
+------------------------------------------------------------
+  cuSPARSELt Model 低稀疏: Qwen2.5-14B-INT8
+------------------------------------------------------------
+[INFO] 执行: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/benchmark_entry.py --dtype fp8e4m3 --warmup 25 --repeat 50 --m_list 64,128,256,512,1024,2048,4096,8192,16384 --backend cusparselt --model Qwen2.5-14B-INT8 --sparsity 2_12,2_14,2_16,2_inf
+
+[INFO] Sparsity=2_12, K_factor=1.667
+[INFO] NK list adjusted: [(7168, 8544), (5120, 8544), (27648, 8544), (5120, 23040)]
+============================================================
+cuSPARSELt Sparse GEMM 算法搜索 (2:4 稀疏)
+============================================================
+GPU: NVIDIA B200 (cc100)
+Mode: MODEL
+Model: Qwen2.5-14B-INT8
+dtype: fp8e4m3 -> fp8e4m3 (same input/output)
+Sparsity: 2_12
+Segment-K 测试: 开启
+API 搜索对比: 开启
+warmup=25, repeat=50
+
+[1/4] 编译 CUDA 扩展...
+✓ Using existing: cusparselt_gemm_B200_cc100_py312_cu129_x86_64.so
+[2/4] 加载 CUDA 扩展...
+✓ cuSPARSELt 可用
+✓ Segment-K 支持: 是
+
+[3/4] 开始算法搜索...
+      NK 组合: 4 个, M 列表: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384]
+
+    NK 1/4: (7168, 8544)
+      → 算法数: 108, 有效: 443
+    NK 2/4: (5120, 8544)
+      → 算法数: 108, 有效: 445
+    NK 3/4: (27648, 8544)
+      → 算法数: 108, 有效: 398
+    NK 4/4: (5120, 23040)
+      → 算法数: 108, 有效: 460
+
+    搜索统计: 总计=36, 成功=36, 失败=0, 错误=0
+    成功率: 100.0%
+
+[4/4] 保存结果...
+    CSV: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/FP8/alg_search_Qwen2.5-14B-INT8_2_12.csv
+    JSON: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/FP8/alg_search_Qwen2.5-14B-INT8_2_12.json
+
+✓ 完成! 结果已保存到: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/FP8
+============================================================
+[W128 10:06:40.014337681 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+[INFO] Sparsity=2_14, K_factor=1.714
+[INFO] NK list adjusted: [(7168, 8800), (5120, 8800), (27648, 8800), (5120, 23712)]
+============================================================
+cuSPARSELt Sparse GEMM 算法搜索 (2:4 稀疏)
+============================================================
+GPU: NVIDIA B200 (cc100)
+Mode: MODEL
+Model: Qwen2.5-14B-INT8
+dtype: fp8e4m3 -> fp8e4m3 (same input/output)
+Sparsity: 2_14
+Segment-K 测试: 开启
+API 搜索对比: 开启
+warmup=25, repeat=50
+
+[1/4] 编译 CUDA 扩展...
+✓ Using existing: cusparselt_gemm_B200_cc100_py312_cu129_x86_64.so
+[2/4] 加载 CUDA 扩展...
+✓ cuSPARSELt 可用
+✓ Segment-K 支持: 是
+
+[3/4] 开始算法搜索...
+      NK 组合: 4 个, M 列表: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384]
+
+    NK 1/4: (7168, 8800)
+      → 算法数: 108, 有效: 446
+    NK 2/4: (5120, 8800)
+      → 算法数: 108, 有效: 439
+    NK 3/4: (27648, 8800)
+      → 算法数: 108, 有效: 407
+    NK 4/4: (5120, 23712)
+      → 算法数: 108, 有效: 428
+
+    搜索统计: 总计=36, 成功=36, 失败=0, 错误=0
+    成功率: 100.0%
+
+[4/4] 保存结果...
+    CSV: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/FP8/alg_search_Qwen2.5-14B-INT8_2_14.csv
+    JSON: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/FP8/alg_search_Qwen2.5-14B-INT8_2_14.json
+
+✓ 完成! 结果已保存到: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/FP8
+============================================================
+[W128 10:13:47.458107763 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+[INFO] Sparsity=2_16, K_factor=1.750
+[INFO] NK list adjusted: [(7168, 8960), (5120, 8960), (27648, 8960), (5120, 24192)]
+============================================================
+cuSPARSELt Sparse GEMM 算法搜索 (2:4 稀疏)
+============================================================
+GPU: NVIDIA B200 (cc100)
+Mode: MODEL
+Model: Qwen2.5-14B-INT8
+dtype: fp8e4m3 -> fp8e4m3 (same input/output)
+Sparsity: 2_16
+Segment-K 测试: 开启
+API 搜索对比: 开启
+warmup=25, repeat=50
+
+[1/4] 编译 CUDA 扩展...
+✓ Using existing: cusparselt_gemm_B200_cc100_py312_cu129_x86_64.so
+[2/4] 加载 CUDA 扩展...
+✓ cuSPARSELt 可用
+✓ Segment-K 支持: 是
+
+[3/4] 开始算法搜索...
+      NK 组合: 4 个, M 列表: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384]
+
+    NK 1/4: (7168, 8960)
+      → 算法数: 108, 有效: 438
+    NK 2/4: (5120, 8960)
+      → 算法数: 108, 有效: 438
+    NK 3/4: (27648, 8960)
+      → 算法数: 108, 有效: 387
+    NK 4/4: (5120, 24192)
+      → 算法数: 108, 有效: 447
+
+    搜索统计: 总计=36, 成功=36, 失败=0, 错误=0
+    成功率: 100.0%
+
+[4/4] 保存结果...
+    CSV: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/FP8/alg_search_Qwen2.5-14B-INT8_2_16.csv
+    JSON: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/FP8/alg_search_Qwen2.5-14B-INT8_2_16.json
+
+✓ 完成! 结果已保存到: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/FP8
+============================================================
+[W128 10:19:49.014637936 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+[INFO] Sparsity=2_inf, K_factor=2.000
+[INFO] NK list adjusted: [(7168, 10240), (5120, 10240), (27648, 10240), (5120, 27648)]
+============================================================
+cuSPARSELt Sparse GEMM 算法搜索 (2:4 稀疏)
+============================================================
+GPU: NVIDIA B200 (cc100)
+Mode: MODEL
+Model: Qwen2.5-14B-INT8
+dtype: fp8e4m3 -> fp8e4m3 (same input/output)
+Sparsity: 2_inf
+Segment-K 测试: 开启
+API 搜索对比: 开启
+warmup=25, repeat=50
+
+[1/4] 编译 CUDA 扩展...
+✓ Using existing: cusparselt_gemm_B200_cc100_py312_cu129_x86_64.so
+[2/4] 加载 CUDA 扩展...
+✓ cuSPARSELt 可用
+✓ Segment-K 支持: 是
+
+[3/4] 开始算法搜索...
+      NK 组合: 4 个, M 列表: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384]
+
+    NK 1/4: (7168, 10240)
+      → 算法数: 108, 有效: 429
+    NK 2/4: (5120, 10240)
+      → 算法数: 108, 有效: 444
+    NK 3/4: (27648, 10240)
+      → 算法数: 108, 有效: 389
+    NK 4/4: (5120, 27648)
+      → 算法数: 108, 有效: 450
+
+    搜索统计: 总计=36, 成功=36, 失败=0, 错误=0
+    成功率: 100.0%
+
+[4/4] 保存结果...
+    CSV: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/FP8/alg_search_Qwen2.5-14B-INT8_2_inf.csv
+    JSON: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/FP8/alg_search_Qwen2.5-14B-INT8_2_inf.json
+
+✓ 完成! 结果已保存到: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/FP8
+============================================================
+[W128 10:26:33.113744746 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+============================================================
+SlideSparse Kernel Benchmark
+============================================================
+GPU: NVIDIA B200 (cc100)
+Mode: MODEL
+Model: Qwen2.5-14B-INT8
+M_list: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384]
+dtype: ['fp8e4m3']
+Backend: cusparselt
+Sparsity: ['2_12', '2_14', '2_16', '2_inf']
+warmup=25, repeat=50
+============================================================
+
+============================================================
+Benchmark dtype=FP8E4M3
+============================================================
+
+[fp8e4m3] Running cuSPARSELt Sparse GEMM Search (sparsity=2_12)
+[INFO] K_factor = 1.667
+[cuSPARSELt] Running: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search.py --dtype fp8e4m3 --model Qwen2.5-14B-INT8 --warmup 25 --repeat 50 --out_dir /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results --m_list 64,128,256,512,1024,2048,4096,8192,16384 --sparsity 2_12
+
+[fp8e4m3] Running cuSPARSELt Sparse GEMM Search (sparsity=2_14)
+[INFO] K_factor = 1.714
+[cuSPARSELt] Running: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search.py --dtype fp8e4m3 --model Qwen2.5-14B-INT8 --warmup 25 --repeat 50 --out_dir /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results --m_list 64,128,256,512,1024,2048,4096,8192,16384 --sparsity 2_14
+
+[fp8e4m3] Running cuSPARSELt Sparse GEMM Search (sparsity=2_16)
+[INFO] K_factor = 1.750
+[cuSPARSELt] Running: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search.py --dtype fp8e4m3 --model Qwen2.5-14B-INT8 --warmup 25 --repeat 50 --out_dir /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results --m_list 64,128,256,512,1024,2048,4096,8192,16384 --sparsity 2_16
+
+[fp8e4m3] Running cuSPARSELt Sparse GEMM Search (sparsity=2_inf)
+[INFO] K_factor = 2.000
+[cuSPARSELt] Running: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search.py --dtype fp8e4m3 --model Qwen2.5-14B-INT8 --warmup 25 --repeat 50 --out_dir /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results --m_list 64,128,256,512,1024,2048,4096,8192,16384 --sparsity 2_inf
+
+============================================================
+Benchmark Complete!
+============================================================
+
+Results saved to:
+  - cuSPARSELt: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results
+[W128 10:26:34.997709016 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+[SUCCESS] Qwen2.5-14B-INT8 [fp8e4m3] 低稀疏完成 (1601.1s)
+[INFO] 执行: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/benchmark_entry.py --dtype int8 --warmup 25 --repeat 50 --m_list 64,128,256,512,1024,2048,4096,8192,16384 --backend cusparselt --model Qwen2.5-14B-INT8 --sparsity 2_12,2_14,2_16,2_inf
+
+[INFO] Sparsity=2_12, K_factor=1.667
+[INFO] NK list adjusted: [(7168, 8544), (5120, 8544), (27648, 8544), (5120, 23040)]
+============================================================
+cuSPARSELt Sparse GEMM 算法搜索 (2:4 稀疏)
+============================================================
+GPU: NVIDIA B200 (cc100)
+Mode: MODEL
+Model: Qwen2.5-14B-INT8
+dtype: int8 -> int8 (same input/output)
+Sparsity: 2_12
+Segment-K 测试: 开启
+API 搜索对比: 开启
+warmup=25, repeat=50
+
+[1/4] 编译 CUDA 扩展...
+✓ Using existing: cusparselt_gemm_B200_cc100_py312_cu129_x86_64.so
+[2/4] 加载 CUDA 扩展...
+✓ cuSPARSELt 可用
+✓ Segment-K 支持: 是
+
+[3/4] 开始算法搜索...
+      NK 组合: 4 个, M 列表: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384]
+
+    NK 1/4: (7168, 8544)
+      → 算法数: 108, 有效: 433
+    NK 2/4: (5120, 8544)
+      → 算法数: 108, 有效: 416
+    NK 3/4: (27648, 8544)
+      → 算法数: 108, 有效: 398
+    NK 4/4: (5120, 23040)
+      → 算法数: 108, 有效: 434
+
+    搜索统计: 总计=36, 成功=36, 失败=0, 错误=0
+    成功率: 100.0%
+
+[4/4] 保存结果...
+    CSV: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/INT8/alg_search_Qwen2.5-14B-INT8_2_12.csv
+    JSON: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/INT8/alg_search_Qwen2.5-14B-INT8_2_12.json
+
+✓ 完成! 结果已保存到: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/INT8
+============================================================
+[W128 10:32:59.474540257 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+[INFO] Sparsity=2_14, K_factor=1.714
+[INFO] NK list adjusted: [(7168, 8800), (5120, 8800), (27648, 8800), (5120, 23712)]
+============================================================
+cuSPARSELt Sparse GEMM 算法搜索 (2:4 稀疏)
+============================================================
+GPU: NVIDIA B200 (cc100)
+Mode: MODEL
+Model: Qwen2.5-14B-INT8
+dtype: int8 -> int8 (same input/output)
+Sparsity: 2_14
+Segment-K 测试: 开启
+API 搜索对比: 开启
+warmup=25, repeat=50
+
+[1/4] 编译 CUDA 扩展...
+✓ Using existing: cusparselt_gemm_B200_cc100_py312_cu129_x86_64.so
+[2/4] 加载 CUDA 扩展...
+✓ cuSPARSELt 可用
+✓ Segment-K 支持: 是
+
+[3/4] 开始算法搜索...
+      NK 组合: 4 个, M 列表: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384]
+
+    NK 1/4: (7168, 8800)
+      → 算法数: 108, 有效: 438
+    NK 2/4: (5120, 8800)
+      → 算法数: 108, 有效: 424
+    NK 3/4: (27648, 8800)
+      → 算法数: 108, 有效: 387
+    NK 4/4: (5120, 23712)
+      → 算法数: 108, 有效: 458
+
+    搜索统计: 总计=36, 成功=36, 失败=0, 错误=0
+    成功率: 100.0%
+
+[4/4] 保存结果...
+    CSV: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/INT8/alg_search_Qwen2.5-14B-INT8_2_14.csv
+    JSON: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/INT8/alg_search_Qwen2.5-14B-INT8_2_14.json
+
+✓ 完成! 结果已保存到: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/INT8
+============================================================
+[W128 10:39:46.283696015 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+[INFO] Sparsity=2_16, K_factor=1.750
+[INFO] NK list adjusted: [(7168, 8960), (5120, 8960), (27648, 8960), (5120, 24192)]
+============================================================
+cuSPARSELt Sparse GEMM 算法搜索 (2:4 稀疏)
+============================================================
+GPU: NVIDIA B200 (cc100)
+Mode: MODEL
+Model: Qwen2.5-14B-INT8
+dtype: int8 -> int8 (same input/output)
+Sparsity: 2_16
+Segment-K 测试: 开启
+API 搜索对比: 开启
+warmup=25, repeat=50
+
+[1/4] 编译 CUDA 扩展...
+✓ Using existing: cusparselt_gemm_B200_cc100_py312_cu129_x86_64.so
+[2/4] 加载 CUDA 扩展...
+✓ cuSPARSELt 可用
+✓ Segment-K 支持: 是
+
+[3/4] 开始算法搜索...
+      NK 组合: 4 个, M 列表: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384]
+
+    NK 1/4: (7168, 8960)
+      → 算法数: 108, 有效: 434
+    NK 2/4: (5120, 8960)
+      → 算法数: 108, 有效: 438
+    NK 3/4: (27648, 8960)
+      → 算法数: 108, 有效: 394
+    NK 4/4: (5120, 24192)
+      → 算法数: 108, 有效: 483
+
+    搜索统计: 总计=36, 成功=36, 失败=0, 错误=0
+    成功率: 100.0%
+
+[4/4] 保存结果...
+    CSV: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/INT8/alg_search_Qwen2.5-14B-INT8_2_16.csv
+    JSON: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/INT8/alg_search_Qwen2.5-14B-INT8_2_16.json
+
+✓ 完成! 结果已保存到: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/INT8
+============================================================
+[W128 10:45:31.099787837 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+[INFO] Sparsity=2_inf, K_factor=2.000
+[INFO] NK list adjusted: [(7168, 10240), (5120, 10240), (27648, 10240), (5120, 27648)]
+============================================================
+cuSPARSELt Sparse GEMM 算法搜索 (2:4 稀疏)
+============================================================
+GPU: NVIDIA B200 (cc100)
+Mode: MODEL
+Model: Qwen2.5-14B-INT8
+dtype: int8 -> int8 (same input/output)
+Sparsity: 2_inf
+Segment-K 测试: 开启
+API 搜索对比: 开启
+warmup=25, repeat=50
+
+[1/4] 编译 CUDA 扩展...
+✓ Using existing: cusparselt_gemm_B200_cc100_py312_cu129_x86_64.so
+[2/4] 加载 CUDA 扩展...
+✓ cuSPARSELt 可用
+✓ Segment-K 支持: 是
+
+[3/4] 开始算法搜索...
+      NK 组合: 4 个, M 列表: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384]
+
+    NK 1/4: (7168, 10240)
+      → 算法数: 108, 有效: 429
+    NK 2/4: (5120, 10240)
+      → 算法数: 108, 有效: 431
+    NK 3/4: (27648, 10240)
+      → 算法数: 108, 有效: 411
+    NK 4/4: (5120, 27648)
+      → 算法数: 108, 有效: 446
+
+    搜索统计: 总计=36, 成功=36, 失败=0, 错误=0
+    成功率: 100.0%
+
+[4/4] 保存结果...
+    CSV: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/INT8/alg_search_Qwen2.5-14B-INT8_2_inf.csv
+    JSON: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/INT8/alg_search_Qwen2.5-14B-INT8_2_inf.json
+
+✓ 完成! 结果已保存到: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/INT8
+============================================================
+[W128 10:52:01.790617926 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+============================================================
+SlideSparse Kernel Benchmark
+============================================================
+GPU: NVIDIA B200 (cc100)
+Mode: MODEL
+Model: Qwen2.5-14B-INT8
+M_list: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384]
+dtype: ['int8']
+Backend: cusparselt
+Sparsity: ['2_12', '2_14', '2_16', '2_inf']
+warmup=25, repeat=50
+============================================================
+
+============================================================
+Benchmark dtype=INT8
+============================================================
+
+[int8] Running cuSPARSELt Sparse GEMM Search (sparsity=2_12)
+[INFO] K_factor = 1.667
+[cuSPARSELt] Running: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search.py --dtype int8 --model Qwen2.5-14B-INT8 --warmup 25 --repeat 50 --out_dir /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results --m_list 64,128,256,512,1024,2048,4096,8192,16384 --sparsity 2_12
+
+[int8] Running cuSPARSELt Sparse GEMM Search (sparsity=2_14)
+[INFO] K_factor = 1.714
+[cuSPARSELt] Running: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search.py --dtype int8 --model Qwen2.5-14B-INT8 --warmup 25 --repeat 50 --out_dir /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results --m_list 64,128,256,512,1024,2048,4096,8192,16384 --sparsity 2_14
+
+[int8] Running cuSPARSELt Sparse GEMM Search (sparsity=2_16)
+[INFO] K_factor = 1.750
+[cuSPARSELt] Running: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search.py --dtype int8 --model Qwen2.5-14B-INT8 --warmup 25 --repeat 50 --out_dir /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results --m_list 64,128,256,512,1024,2048,4096,8192,16384 --sparsity 2_16
+
+[int8] Running cuSPARSELt Sparse GEMM Search (sparsity=2_inf)
+[INFO] K_factor = 2.000
+[cuSPARSELt] Running: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search.py --dtype int8 --model Qwen2.5-14B-INT8 --warmup 25 --repeat 50 --out_dir /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results --m_list 64,128,256,512,1024,2048,4096,8192,16384 --sparsity 2_inf
+
+============================================================
+Benchmark Complete!
+============================================================
+
+Results saved to:
+  - cuSPARSELt: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results
+[W128 10:52:02.706494896 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+[SUCCESS] Qwen2.5-14B-INT8 [int8] 低稀疏完成 (1527.7s)
+
+[INFO] cuSPARSELt Model 低稀疏统计: 成功 8, 失败 0
+
+----------------------------------------------------------------------
+TASK 5: cuSPARSELt Model 低稀疏 (2_12~2_inf) - SUCCESS
+Duration: 8321.9 seconds (138.7 minutes)
+----------------------------------------------------------------------
+
+
+======================================================================
+TASK 6: cuSPARSELt Square 低稀疏 (2_12~2_inf)
+Started: 2026-01-28 10:52:02
+======================================================================
+
+
+------------------------------------------------------------
+  cuSPARSELt Square 低稀疏测试
+------------------------------------------------------------
+[INFO] 执行: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/benchmark_entry.py --dtype all --warmup 25 --repeat 50 --m_list 64,128,256,512,1024,2048,4096,8192,16384 --backend cusparselt --model square --sparsity 2_12,2_14,2_16,2_inf
+
+[INFO] Sparsity=2_12, K_factor=1.667
+[INFO] NK list adjusted: [(64, 128), (128, 224), (256, 448), (512, 864), (1024, 1728)]...
+============================================================
+cuSPARSELt Sparse GEMM 算法搜索 (2:4 稀疏)
+============================================================
+GPU: NVIDIA B200 (cc100)
+Mode: SQUARE
+Model: SQUARE
+dtype: fp16 -> fp16 (same input/output)
+Sparsity: 2_12
+Segment-K 测试: 开启
+API 搜索对比: 开启
+warmup=25, repeat=50
+
+[1/4] 编译 CUDA 扩展...
+✓ Using existing: cusparselt_gemm_B200_cc100_py312_cu129_x86_64.so
+[2/4] 加载 CUDA 扩展...
+✓ cuSPARSELt 可用
+✓ Segment-K 支持: 是
+
+[3/4] 开始算法搜索...
+      M=N=K 列表: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384]
+
+    NK 1/9: (64, 128)
+      → 算法数: 108, 有效: 276
+    NK 2/9: (128, 224)
+      → 算法数: 108, 有效: 272
+    NK 3/9: (256, 448)
+      → 算法数: 108, 有效: 270
+    NK 4/9: (512, 864)
+      → 算法数: 108, 有效: 417
+    NK 5/9: (1024, 1728)
+      → 算法数: 108, 有效: 420
+    NK 6/9: (2048, 3424)
+      → 算法数: 108, 有效: 468
+    NK 7/9: (4096, 6848)
+      → 算法数: 108, 有效: 437
+    NK 8/9: (8192, 13664)
+      → 算法数: 108, 有效: 373
+    NK 9/9: (16384, 27328)
+      → 算法数: 108, 有效: 425
+
+    搜索统计: 总计=9, 成功=9, 失败=0, 错误=0
+    成功率: 100.0%
+
+[4/4] 保存结果...
+    CSV: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/FP16/alg_search_SQUARE_2_12.csv
+    JSON: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/FP16/alg_search_SQUARE_2_12.json
+
+✓ 完成! 结果已保存到: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/FP16
+============================================================
+[W128 10:58:26.761850674 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+[INFO] Sparsity=2_14, K_factor=1.714
+[INFO] NK list adjusted: [(64, 128), (128, 224), (256, 448), (512, 896), (1024, 1760)]...
+============================================================
+cuSPARSELt Sparse GEMM 算法搜索 (2:4 稀疏)
+============================================================
+GPU: NVIDIA B200 (cc100)
+Mode: SQUARE
+Model: SQUARE
+dtype: fp16 -> fp16 (same input/output)
+Sparsity: 2_14
+Segment-K 测试: 开启
+API 搜索对比: 开启
+warmup=25, repeat=50
+
+[1/4] 编译 CUDA 扩展...
+✓ Using existing: cusparselt_gemm_B200_cc100_py312_cu129_x86_64.so
+[2/4] 加载 CUDA 扩展...
+✓ cuSPARSELt 可用
+✓ Segment-K 支持: 是
+
+[3/4] 开始算法搜索...
+      M=N=K 列表: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384]
+
+    NK 1/9: (64, 128)
+      → 算法数: 108, 有效: 294
+    NK 2/9: (128, 224)
+      → 算法数: 108, 有效: 295
+    NK 3/9: (256, 448)
+      → 算法数: 108, 有效: 287
+    NK 4/9: (512, 896)
+      → 算法数: 108, 有效: 417
+    NK 5/9: (1024, 1760)
+      → 算法数: 108, 有效: 440
+    NK 6/9: (2048, 3520)
+      → 算法数: 108, 有效: 467
+    NK 7/9: (4096, 7040)
+      → 算法数: 108, 有效: 433
+    NK 8/9: (8192, 14048)
+      → 算法数: 108, 有效: 377
+    NK 9/9: (16384, 28096)
+      → 算法数: 108, 有效: 418
+
+    搜索统计: 总计=9, 成功=9, 失败=0, 错误=0
+    成功率: 100.0%
+
+[4/4] 保存结果...
+    CSV: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/FP16/alg_search_SQUARE_2_14.csv
+    JSON: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/FP16/alg_search_SQUARE_2_14.json
+
+✓ 完成! 结果已保存到: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/FP16
+============================================================
+[W128 11:04:52.489732523 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+[INFO] Sparsity=2_16, K_factor=1.750
+[INFO] NK list adjusted: [(64, 128), (128, 224), (256, 448), (512, 896), (1024, 1792)]...
+============================================================
+cuSPARSELt Sparse GEMM 算法搜索 (2:4 稀疏)
+============================================================
+GPU: NVIDIA B200 (cc100)
+Mode: SQUARE
+Model: SQUARE
+dtype: fp16 -> fp16 (same input/output)
+Sparsity: 2_16
+Segment-K 测试: 开启
+API 搜索对比: 开启
+warmup=25, repeat=50
+
+[1/4] 编译 CUDA 扩展...
+✓ Using existing: cusparselt_gemm_B200_cc100_py312_cu129_x86_64.so
+[2/4] 加载 CUDA 扩展...
+✓ cuSPARSELt 可用
+✓ Segment-K 支持: 是
+
+[3/4] 开始算法搜索...
+      M=N=K 列表: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384]
+
+    NK 1/9: (64, 128)
+      → 算法数: 108, 有效: 300
+    NK 2/9: (128, 224)
+      → 算法数: 108, 有效: 288
+    NK 3/9: (256, 448)
+      → 算法数: 108, 有效: 304
+    NK 4/9: (512, 896)
+      → 算法数: 108, 有效: 403
+    NK 5/9: (1024, 1792)
+      → 算法数: 108, 有效: 417
+    NK 6/9: (2048, 3584)
+      → 算法数: 108, 有效: 451
+    NK 7/9: (4096, 7168)
+      → 算法数: 108, 有效: 429
+    NK 8/9: (8192, 14336)
+      → 算法数: 108, 有效: 376
+    NK 9/9: (16384, 28672)
+      → 算法数: 108, 有效: 415
+
+    搜索统计: 总计=9, 成功=9, 失败=0, 错误=0
+    成功率: 100.0%
+
+[4/4] 保存结果...
+    CSV: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/FP16/alg_search_SQUARE_2_16.csv
+    JSON: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/FP16/alg_search_SQUARE_2_16.json
+
+✓ 完成! 结果已保存到: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/FP16
+============================================================
+[W128 11:11:17.028598486 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+[INFO] Sparsity=2_inf, K_factor=2.000
+[INFO] NK list adjusted: [(64, 128), (128, 256), (256, 512), (512, 1024), (1024, 2048)]...
+============================================================
+cuSPARSELt Sparse GEMM 算法搜索 (2:4 稀疏)
+============================================================
+GPU: NVIDIA B200 (cc100)
+Mode: SQUARE
+Model: SQUARE
+dtype: fp16 -> fp16 (same input/output)
+Sparsity: 2_inf
+Segment-K 测试: 开启
+API 搜索对比: 开启
+warmup=25, repeat=50
+
+[1/4] 编译 CUDA 扩展...
+✓ Using existing: cusparselt_gemm_B200_cc100_py312_cu129_x86_64.so
+[2/4] 加载 CUDA 扩展...
+✓ cuSPARSELt 可用
+✓ Segment-K 支持: 是
+
+[3/4] 开始算法搜索...
+      M=N=K 列表: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384]
+
+    NK 1/9: (64, 128)
+      → 算法数: 108, 有效: 293
+    NK 2/9: (128, 256)
+      → 算法数: 108, 有效: 299
+    NK 3/9: (256, 512)
+      → 算法数: 108, 有效: 297
+    NK 4/9: (512, 1024)
+      → 算法数: 108, 有效: 405
+    NK 5/9: (1024, 2048)
+      → 算法数: 108, 有效: 425
+    NK 6/9: (2048, 4096)
+      → 算法数: 108, 有效: 484
+    NK 7/9: (4096, 8192)
+      → 算法数: 108, 有效: 419
+    NK 8/9: (8192, 16384)
+      → 算法数: 108, 有效: 385
+    NK 9/9: (16384, 32768)
+      → 算法数: 108, 有效: 426
+
+    搜索统计: 总计=9, 成功=9, 失败=0, 错误=0
+    成功率: 100.0%
+
+[4/4] 保存结果...
+    CSV: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/FP16/alg_search_SQUARE_2_inf.csv
+    JSON: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/FP16/alg_search_SQUARE_2_inf.json
+
+✓ 完成! 结果已保存到: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/FP16
+============================================================
+[W128 11:18:52.620638816 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+[INFO] Sparsity=2_12, K_factor=1.667
+[INFO] NK list adjusted: [(64, 128), (128, 224), (256, 448), (512, 864), (1024, 1728)]...
+============================================================
+cuSPARSELt Sparse GEMM 算法搜索 (2:4 稀疏)
+============================================================
+GPU: NVIDIA B200 (cc100)
+Mode: SQUARE
+Model: SQUARE
+dtype: bf16 -> bf16 (same input/output)
+Sparsity: 2_12
+Segment-K 测试: 开启
+API 搜索对比: 开启
+warmup=25, repeat=50
+
+[1/4] 编译 CUDA 扩展...
+✓ Using existing: cusparselt_gemm_B200_cc100_py312_cu129_x86_64.so
+[2/4] 加载 CUDA 扩展...
+✓ cuSPARSELt 可用
+✓ Segment-K 支持: 是
+
+[3/4] 开始算法搜索...
+      M=N=K 列表: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384]
+
+    NK 1/9: (64, 128)
+      → 算法数: 108, 有效: 298
+    NK 2/9: (128, 224)
+      → 算法数: 108, 有效: 296
+    NK 3/9: (256, 448)
+      → 算法数: 108, 有效: 296
+    NK 4/9: (512, 864)
+      → 算法数: 108, 有效: 413
+    NK 5/9: (1024, 1728)
+      → 算法数: 108, 有效: 434
+    NK 6/9: (2048, 3424)
+      → 算法数: 108, 有效: 486
+    NK 7/9: (4096, 6848)
+      → 算法数: 108, 有效: 448
+    NK 8/9: (8192, 13664)
+      → 算法数: 108, 有效: 369
+    NK 9/9: (16384, 27328)
+      → 算法数: 108, 有效: 415
+
+    搜索统计: 总计=9, 成功=9, 失败=0, 错误=0
+    成功率: 100.0%
+
+[4/4] 保存结果...
+    CSV: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/BF16/alg_search_SQUARE_2_12.csv
+    JSON: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/BF16/alg_search_SQUARE_2_12.json
+
+✓ 完成! 结果已保存到: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/BF16
+============================================================
+[W128 11:25:07.102287825 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+[INFO] Sparsity=2_14, K_factor=1.714
+[INFO] NK list adjusted: [(64, 128), (128, 224), (256, 448), (512, 896), (1024, 1760)]...
+============================================================
+cuSPARSELt Sparse GEMM 算法搜索 (2:4 稀疏)
+============================================================
+GPU: NVIDIA B200 (cc100)
+Mode: SQUARE
+Model: SQUARE
+dtype: bf16 -> bf16 (same input/output)
+Sparsity: 2_14
+Segment-K 测试: 开启
+API 搜索对比: 开启
+warmup=25, repeat=50
+
+[1/4] 编译 CUDA 扩展...
+✓ Using existing: cusparselt_gemm_B200_cc100_py312_cu129_x86_64.so
+[2/4] 加载 CUDA 扩展...
+✓ cuSPARSELt 可用
+✓ Segment-K 支持: 是
+
+[3/4] 开始算法搜索...
+      M=N=K 列表: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384]
+
+    NK 1/9: (64, 128)
+      → 算法数: 108, 有效: 290
+    NK 2/9: (128, 224)
+      → 算法数: 108, 有效: 308
+    NK 3/9: (256, 448)
+      → 算法数: 108, 有效: 296
+    NK 4/9: (512, 896)
+      → 算法数: 108, 有效: 398
+    NK 5/9: (1024, 1760)
+      → 算法数: 108, 有效: 448
+    NK 6/9: (2048, 3520)
+      → 算法数: 108, 有效: 482
+    NK 7/9: (4096, 7040)
+      → 算法数: 108, 有效: 416
+    NK 8/9: (8192, 14048)
+      → 算法数: 108, 有效: 376
+    NK 9/9: (16384, 28096)
+      → 算法数: 108, 有效: 410
+
+    搜索统计: 总计=9, 成功=9, 失败=0, 错误=0
+    成功率: 100.0%
+
+[4/4] 保存结果...
+    CSV: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/BF16/alg_search_SQUARE_2_14.csv
+    JSON: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/BF16/alg_search_SQUARE_2_14.json
+
+✓ 完成! 结果已保存到: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/BF16
+============================================================
+[W128 11:31:28.950131051 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+[INFO] Sparsity=2_16, K_factor=1.750
+[INFO] NK list adjusted: [(64, 128), (128, 224), (256, 448), (512, 896), (1024, 1792)]...
+============================================================
+cuSPARSELt Sparse GEMM 算法搜索 (2:4 稀疏)
+============================================================
+GPU: NVIDIA B200 (cc100)
+Mode: SQUARE
+Model: SQUARE
+dtype: bf16 -> bf16 (same input/output)
+Sparsity: 2_16
+Segment-K 测试: 开启
+API 搜索对比: 开启
+warmup=25, repeat=50
+
+[1/4] 编译 CUDA 扩展...
+✓ Using existing: cusparselt_gemm_B200_cc100_py312_cu129_x86_64.so
+[2/4] 加载 CUDA 扩展...
+✓ cuSPARSELt 可用
+✓ Segment-K 支持: 是
+
+[3/4] 开始算法搜索...
+      M=N=K 列表: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384]
+
+    NK 1/9: (64, 128)
+      → 算法数: 108, 有效: 275
+    NK 2/9: (128, 224)
+      → 算法数: 108, 有效: 302
+    NK 3/9: (256, 448)
+      → 算法数: 108, 有效: 296
+    NK 4/9: (512, 896)
+      → 算法数: 108, 有效: 409
+    NK 5/9: (1024, 1792)
+      → 算法数: 108, 有效: 408
+    NK 6/9: (2048, 3584)
+      → 算法数: 108, 有效: 472
+    NK 7/9: (4096, 7168)
+      → 算法数: 108, 有效: 437
+    NK 8/9: (8192, 14336)
+      → 算法数: 108, 有效: 389
+    NK 9/9: (16384, 28672)
+      → 算法数: 108, 有效: 414
+
+    搜索统计: 总计=9, 成功=9, 失败=0, 错误=0
+    成功率: 100.0%
+
+[4/4] 保存结果...
+    CSV: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/BF16/alg_search_SQUARE_2_16.csv
+    JSON: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/BF16/alg_search_SQUARE_2_16.json
+
+✓ 完成! 结果已保存到: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/BF16
+============================================================
+[W128 11:37:59.511602946 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+[INFO] Sparsity=2_inf, K_factor=2.000
+[INFO] NK list adjusted: [(64, 128), (128, 256), (256, 512), (512, 1024), (1024, 2048)]...
+============================================================
+cuSPARSELt Sparse GEMM 算法搜索 (2:4 稀疏)
+============================================================
+GPU: NVIDIA B200 (cc100)
+Mode: SQUARE
+Model: SQUARE
+dtype: bf16 -> bf16 (same input/output)
+Sparsity: 2_inf
+Segment-K 测试: 开启
+API 搜索对比: 开启
+warmup=25, repeat=50
+
+[1/4] 编译 CUDA 扩展...
+✓ Using existing: cusparselt_gemm_B200_cc100_py312_cu129_x86_64.so
+[2/4] 加载 CUDA 扩展...
+✓ cuSPARSELt 可用
+✓ Segment-K 支持: 是
+
+[3/4] 开始算法搜索...
+      M=N=K 列表: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384]
+
+    NK 1/9: (64, 128)
+      → 算法数: 108, 有效: 284
+    NK 2/9: (128, 256)
+      → 算法数: 108, 有效: 305
+    NK 3/9: (256, 512)
+      → 算法数: 108, 有效: 303
+    NK 4/9: (512, 1024)
+      → 算法数: 108, 有效: 414
+    NK 5/9: (1024, 2048)
+      → 算法数: 108, 有效: 418
+    NK 6/9: (2048, 4096)
+      → 算法数: 108, 有效: 468
+    NK 7/9: (4096, 8192)
+      → 算法数: 108, 有效: 415
+    NK 8/9: (8192, 16384)
+      → 算法数: 108, 有效: 365
+    NK 9/9: (16384, 32768)
+      → 算法数: 108, 有效: 431
+
+    搜索统计: 总计=9, 成功=9, 失败=0, 错误=0
+    成功率: 100.0%
+
+[4/4] 保存结果...
+    CSV: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/BF16/alg_search_SQUARE_2_inf.csv
+    JSON: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/BF16/alg_search_SQUARE_2_inf.json
+
+✓ 完成! 结果已保存到: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/BF16
+============================================================
+[W128 11:45:39.840447594 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+[INFO] Sparsity=2_12, K_factor=1.667
+[INFO] NK list adjusted: [(64, 128), (128, 224), (256, 448), (512, 864), (1024, 1728)]...
+============================================================
+cuSPARSELt Sparse GEMM 算法搜索 (2:4 稀疏)
+============================================================
+GPU: NVIDIA B200 (cc100)
+Mode: SQUARE
+Model: SQUARE
+dtype: int8 -> int8 (same input/output)
+Sparsity: 2_12
+Segment-K 测试: 开启
+API 搜索对比: 开启
+warmup=25, repeat=50
+
+[1/4] 编译 CUDA 扩展...
+✓ Using existing: cusparselt_gemm_B200_cc100_py312_cu129_x86_64.so
+[2/4] 加载 CUDA 扩展...
+✓ cuSPARSELt 可用
+✓ Segment-K 支持: 是
+
+[3/4] 开始算法搜索...
+      M=N=K 列表: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384]
+
+    NK 1/9: (64, 128)
+      → 算法数: 108, 有效: 280
+    NK 2/9: (128, 224)
+      → 算法数: 108, 有效: 304
+    NK 3/9: (256, 448)
+      → 算法数: 108, 有效: 291
+    NK 4/9: (512, 864)
+      → 算法数: 108, 有效: 394
+    NK 5/9: (1024, 1728)
+      → 算法数: 108, 有效: 428
+    NK 6/9: (2048, 3424)
+      → 算法数: 108, 有效: 446
+    NK 7/9: (4096, 6848)
+      → 算法数: 108, 有效: 457
+    NK 8/9: (8192, 13664)
+      → 算法数: 108, 有效: 414
+    NK 9/9: (16384, 27328)
+      → 算法数: 108, 有效: 377
+
+    搜索统计: 总计=9, 成功=9, 失败=0, 错误=0
+    成功率: 100.0%
+
+[4/4] 保存结果...
+    CSV: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/INT8/alg_search_SQUARE_2_12.csv
+    JSON: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/INT8/alg_search_SQUARE_2_12.json
+
+✓ 完成! 结果已保存到: /root/vllmbench/slidesparse/benchmark_kernel/cuSPARSELt/alg_search_results/B200_cc100_py312_cu129_x86_64/INT8
+============================================================
+[W128 11:48:45.871485711 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+[INFO] Sparsity=2_14, K_factor=1.714
+[INFO] NK list adjusted: [(64, 128), (128, 224), (256, 448), (512, 896), (1024, 1760)]...
+============================================================
+cuSPARSELt Sparse GEMM 算法搜索 (2:4 稀疏)
+============================================================
+GPU: NVIDIA B200 (cc100)
+Mode: SQUARE
+Model: SQUARE
+dtype: int8 -> int8 (same input/output)
+Sparsity: 2_14
+Segment-K 测试: 开启
+API 搜索对比: 开启
+warmup=25, repeat=50
+
+[1/4] 编译 CUDA 扩展...
+✓ Using existing: cusparselt_gemm_B200_cc100_py312_cu129_x86_64.so
+[2/4] 加载 CUDA 扩展...
+✓ cuSPARSELt 可用
+✓ Segment-K 支持: 是
+
+[3/4] 开始算法搜索...
+      M=N=K 列表: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384]
+
+    NK 1/9: (64, 128)
+      → 算法数: 108, 有效: 307
+    NK 2/9: (128, 224)
+      → 算法数: 108, 有效: 270
+    NK 3/9: (256, 448)
+      → 算法数: 108, 有效: 279
+    NK 4/9: (512, 896)
+      → 算法数: 108, 有效: 411
+    NK 5/9: (1024, 1760)
+      → 算法数: 108, 有效: 403
+    NK 6/9: (2048, 3520)
+      → 算法数: 108, 有效: 464
+    NK 7/9: (4096, 7040)
+      → 算法数: 108, 有效: 442
+    NK 8/9: (8192, 14048)
+      → 算法数: 108, 有效: 407
+    NK 9/9: (16384, 28096)

@@ -1,0 +1,63 @@
+======================================================================
+SlideSparse Kernel Benchmark Log
+Started: 2026-01-28 08:28:32
+======================================================================
+
+Hardware:
+  GPU: NVIDIA B200 (cc100)
+  Python: py312
+  CUDA: cu129
+  Arch: x86_64
+
+[INFO] 日志文件: /root/vllmbench/slidesparse/benchmark_kernel/kernel_bench_logs/kernel_bench_20260128_082832.log
+[INFO] 跳过 Task 1: cuBLASLt Model 测试
+[INFO] 跳过 Task 2: cuBLASLt Square 测试
+[INFO] 跳过 Task 3: cuSPARSELt Model 高稀疏 (2_4~2_10)
+[INFO] 跳过 Task 4: cuSPARSELt Square 高稀疏 (2_4~2_10)
+
+======================================================================
+TASK 5: cuSPARSELt Model 低稀疏 (2_12~2_inf)
+Started: 2026-01-28 08:28:32
+======================================================================
+
+
+------------------------------------------------------------
+  cuSPARSELt Model 低稀疏: Llama3.2-1B-INT8
+------------------------------------------------------------
+[INFO] 执行: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/benchmark_entry.py --dtype fp8e4m3 --warmup 25 --repeat 50 --m_list 64,128,256,512,1024,2048,4096,8192,16384 --backend cusparselt --model Llama3.2-1B-INT8 --sparsity 2_12,2_14,2_16,2_inf
+
+[INFO] Sparsity=2_12, K_factor=1.667
+[INFO] NK list adjusted: [(3072, 3424), (2048, 3424), (16384, 3424), (2048, 13664)]
+============================================================
+cuSPARSELt Sparse GEMM 算法搜索 (2:4 稀疏)
+============================================================
+GPU: NVIDIA B200 (cc100)
+Mode: MODEL
+Model: Llama3.2-1B-INT8
+dtype: fp8e4m3 -> fp8e4m3 (same input/output)
+Sparsity: 2_12
+Segment-K 测试: 开启
+API 搜索对比: 开启
+warmup=25, repeat=50
+
+[1/4] 编译 CUDA 扩展...
+✓ Using existing: cusparselt_gemm_B200_cc100_py312_cu129_x86_64.so
+[2/4] 加载 CUDA 扩展...
+✓ cuSPARSELt 可用
+✓ Segment-K 支持: 是
+
+[3/4] 开始算法搜索...
+      NK 组合: 4 个, M 列表: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384]
+
+    NK 1/4: (3072, 3424)
+      → 算法数: 108, 有效: 418
+    NK 2/4: (2048, 3424)
+      → 算法数: 108, 有效: 406
+    NK 3/4: (16384, 3424)
+      → 算法数: 108, 有效: 434
+    NK 4/4: (2048, 13664)
+
+======================================================================
+收到中断信号 (signal 2)
+======================================================================
+[INFO] 状态已保存: /root/vllmbench/slidesparse/benchmark_kernel/kernel_bench_logs/kernel_bench_20260128_082832_status.json
