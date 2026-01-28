@@ -7,15 +7,17 @@ SlideSparse Kernel Benchmark 准备脚本
 
 流水线任务：
 ============
-Task 1: cuBLASLt Model 测试（8个模型，5种精度）
+Task 1: cuBLASLt Model 测试（8个模型，2种精度: FP8/INT8）
 Task 2: cuBLASLt Square 测试（方阵，5种精度）
-Task 3: cuSPARSELt Model 高稀疏测试（2_4, 2_6, 2_8, 2_10）
-Task 4: cuSPARSELt Square 高稀疏测试（2_4, 2_6, 2_8, 2_10）
-Task 5: cuSPARSELt Model 低稀疏测试（2_12, 2_14, 2_16, 2_inf）
-Task 6: cuSPARSELt Square 低稀疏测试（2_12, 2_14, 2_16, 2_inf）
+Task 3: cuSPARSELt Model 高稀疏测试（2_4, 2_6, 2_8, 2_10，2种精度）
+Task 4: cuSPARSELt Square 高稀疏测试（2_4, 2_6, 2_8, 2_10，5种精度）
+Task 5: cuSPARSELt Model 低稀疏测试（2_12, 2_14, 2_16, 2_inf，2种精度）
+Task 6: cuSPARSELt Square 低稀疏测试（2_12, 2_14, 2_16, 2_inf，5种精度）
 
-M 列表：[64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536]
-精度：fp16, bf16, int8, fp8e4m3, fp4e2m1 (all)
+M 列表：[64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384]
+精度配置：
+    - Model 模式: fp8e4m3, int8 (只测这2种)
+    - Square 模式: fp16, bf16, int8, fp8e4m3, fp4e2m1 (全部5种)
 8个模型：
     - Llama3.2-1B-INT8, Llama3.2-1B-FP8
     - Llama3.2-3B-INT8, Llama3.2-3B-FP8
@@ -94,7 +96,7 @@ class TaskConfig:
     
     # 通用 M 列表
     M_LIST: List[int] = field(default_factory=lambda: [
-        64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768
+        64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384,
     ])
     
     # 8个模型（4个 base × 2种量化）
@@ -115,8 +117,11 @@ class TaskConfig:
         "2_12", "2_14", "2_16", "2_inf"
     ])
     
-    # 精度
-    DTYPE: str = "all"  # fp16, bf16, int8, fp8e4m3, fp4e2m1
+    # 精度配置
+    # Square 模式: 测试全部精度 (fp16, bf16, int8, fp8e4m3, fp4e2m1)
+    SQUARE_DTYPE: List[str] = field(default_factory=lambda: ["all"])
+    # Model 模式: 只测试 FP8 和 INT8 (减少测试量)
+    MODEL_DTYPE: List[str] = field(default_factory=lambda: ["fp8e4m3", "int8"])
     
     # 测试参数
     WARMUP: int = 25
@@ -354,12 +359,17 @@ class TaskRunner:
         self.log_manager = log_manager
         self.results = global_results_ref
         
-    def _build_base_cmd(self, backend: str) -> List[str]:
-        """构建基础命令"""
+    def _build_base_cmd(self, backend: str, dtype: str) -> List[str]:
+        """构建基础命令
+        
+        Args:
+            backend: 后端类型 (cublaslt/cusparselt)
+            dtype: 数据类型 (fp16, bf16, int8, fp8e4m3, fp4e2m1, all)
+        """
         m_list_str = ",".join(map(str, CONFIG.M_LIST))
         return [
             sys.executable, str(BENCHMARK_ENTRY),
-            "--dtype", CONFIG.DTYPE,
+            "--dtype", dtype,
             "--warmup", str(CONFIG.WARMUP),
             "--repeat", str(CONFIG.REPEAT),
             "--m_list", m_list_str,
@@ -367,47 +377,55 @@ class TaskRunner:
         ]
     
     def run_task_1_cublaslt_model(self) -> bool:
-        """Task 1: cuBLASLt Model 测试"""
+        """Task 1: cuBLASLt Model 测试 (只测 FP8/INT8)"""
         total_success = 0
         total_fail = 0
         
         for model in CONFIG.MODELS:
             print_subheader(f"cuBLASLt Model: {model}")
             
-            cmd = self._build_base_cmd("cublaslt")
-            cmd.extend(["--model", model])
-            
-            success, output, duration = run_command(cmd, f"cublaslt {model}")
-            
-            if success:
-                print_success(f"{model} 完成 ({duration:.1f}s)")
-                total_success += 1
-            else:
-                print_error(f"{model} 失败")
-                total_fail += 1
+            for dtype in CONFIG.MODEL_DTYPE:
+                cmd = self._build_base_cmd("cublaslt", dtype=dtype)
+                cmd.extend(["--model", model])
+                
+                success, output, duration = run_command(cmd, f"cublaslt {model} {dtype}")
+                
+                if success:
+                    print_success(f"{model} [{dtype}] 完成 ({duration:.1f}s)")
+                    total_success += 1
+                else:
+                    print_error(f"{model} [{dtype}] 失败")
+                    total_fail += 1
                 
         print()
         print_info(f"cuBLASLt Model 统计: 成功 {total_success}, 失败 {total_fail}")
         return total_fail == 0
     
     def run_task_2_cublaslt_square(self) -> bool:
-        """Task 2: cuBLASLt Square 测试"""
+        """Task 2: cuBLASLt Square 测试 (测全精度)"""
         print_subheader("cuBLASLt Square 测试")
         
-        cmd = self._build_base_cmd("cublaslt")
-        cmd.extend(["--model", "square"])
+        total_success = 0
+        total_fail = 0
         
-        success, output, duration = run_command(cmd, "cublaslt square")
-        
-        if success:
-            print_success(f"Square 测试完成 ({duration:.1f}s)")
-        else:
-            print_error("Square 测试失败")
+        for dtype in CONFIG.SQUARE_DTYPE:
+            cmd = self._build_base_cmd("cublaslt", dtype=dtype)
+            cmd.extend(["--model", "square"])
             
-        return success
+            success, output, duration = run_command(cmd, f"cublaslt square {dtype}")
+            
+            if success:
+                print_success(f"Square [{dtype}] 测试完成 ({duration:.1f}s)")
+                total_success += 1
+            else:
+                print_error(f"Square [{dtype}] 测试失败")
+                total_fail += 1
+        
+        print_info(f"cuBLASLt Square 统计: 成功 {total_success}, 失败 {total_fail}")
+        return total_fail == 0
     
     def run_task_3_cusparselt_model_high(self) -> bool:
-        """Task 3: cuSPARSELt Model 高稀疏测试"""
+        """Task 3: cuSPARSELt Model 高稀疏测试 (只测 FP8/INT8)"""
         total_success = 0
         total_fail = 0
         
@@ -416,48 +434,56 @@ class TaskRunner:
         for model in CONFIG.MODELS:
             print_subheader(f"cuSPARSELt Model 高稀疏: {model}")
             
-            cmd = self._build_base_cmd("cusparselt")
-            cmd.extend([
-                "--model", model,
-                "--sparsity", sparsity_str,
-            ])
-            
-            success, output, duration = run_command(cmd, f"cusparselt high {model}")
-            
-            if success:
-                print_success(f"{model} 高稀疏完成 ({duration:.1f}s)")
-                total_success += 1
-            else:
-                print_error(f"{model} 高稀疏失败")
-                total_fail += 1
+            for dtype in CONFIG.MODEL_DTYPE:
+                cmd = self._build_base_cmd("cusparselt", dtype=dtype)
+                cmd.extend([
+                    "--model", model,
+                    "--sparsity", sparsity_str,
+                ])
+                
+                success, output, duration = run_command(cmd, f"cusparselt high {model} {dtype}")
+                
+                if success:
+                    print_success(f"{model} [{dtype}] 高稀疏完成 ({duration:.1f}s)")
+                    total_success += 1
+                else:
+                    print_error(f"{model} [{dtype}] 高稀疏失败")
+                    total_fail += 1
                 
         print()
         print_info(f"cuSPARSELt Model 高稀疏统计: 成功 {total_success}, 失败 {total_fail}")
         return total_fail == 0
     
     def run_task_4_cusparselt_square_high(self) -> bool:
-        """Task 4: cuSPARSELt Square 高稀疏测试"""
+        """Task 4: cuSPARSELt Square 高稀疏测试 (测全精度)"""
         print_subheader("cuSPARSELt Square 高稀疏测试")
+        
+        total_success = 0
+        total_fail = 0
         
         sparsity_str = ",".join(CONFIG.HIGH_SPARSITY)
         
-        cmd = self._build_base_cmd("cusparselt")
-        cmd.extend([
-            "--model", "square",
-            "--sparsity", sparsity_str,
-        ])
-        
-        success, output, duration = run_command(cmd, "cusparselt square high")
-        
-        if success:
-            print_success(f"Square 高稀疏测试完成 ({duration:.1f}s)")
-        else:
-            print_error("Square 高稀疏测试失败")
+        for dtype in CONFIG.SQUARE_DTYPE:
+            cmd = self._build_base_cmd("cusparselt", dtype=dtype)
+            cmd.extend([
+                "--model", "square",
+                "--sparsity", sparsity_str,
+            ])
             
-        return success
+            success, output, duration = run_command(cmd, f"cusparselt square high {dtype}")
+            
+            if success:
+                print_success(f"Square [{dtype}] 高稀疏测试完成 ({duration:.1f}s)")
+                total_success += 1
+            else:
+                print_error(f"Square [{dtype}] 高稀疏测试失败")
+                total_fail += 1
+        
+        print_info(f"cuSPARSELt Square 高稀疏统计: 成功 {total_success}, 失败 {total_fail}")
+        return total_fail == 0
     
     def run_task_5_cusparselt_model_low(self) -> bool:
-        """Task 5: cuSPARSELt Model 低稀疏测试"""
+        """Task 5: cuSPARSELt Model 低稀疏测试 (只测 FP8/INT8)"""
         total_success = 0
         total_fail = 0
         
@@ -466,45 +492,53 @@ class TaskRunner:
         for model in CONFIG.MODELS:
             print_subheader(f"cuSPARSELt Model 低稀疏: {model}")
             
-            cmd = self._build_base_cmd("cusparselt")
-            cmd.extend([
-                "--model", model,
-                "--sparsity", sparsity_str,
-            ])
-            
-            success, output, duration = run_command(cmd, f"cusparselt low {model}")
-            
-            if success:
-                print_success(f"{model} 低稀疏完成 ({duration:.1f}s)")
-                total_success += 1
-            else:
-                print_error(f"{model} 低稀疏失败")
-                total_fail += 1
+            for dtype in CONFIG.MODEL_DTYPE:
+                cmd = self._build_base_cmd("cusparselt", dtype=dtype)
+                cmd.extend([
+                    "--model", model,
+                    "--sparsity", sparsity_str,
+                ])
+                
+                success, output, duration = run_command(cmd, f"cusparselt low {model} {dtype}")
+                
+                if success:
+                    print_success(f"{model} [{dtype}] 低稀疏完成 ({duration:.1f}s)")
+                    total_success += 1
+                else:
+                    print_error(f"{model} [{dtype}] 低稀疏失败")
+                    total_fail += 1
                 
         print()
         print_info(f"cuSPARSELt Model 低稀疏统计: 成功 {total_success}, 失败 {total_fail}")
         return total_fail == 0
     
     def run_task_6_cusparselt_square_low(self) -> bool:
-        """Task 6: cuSPARSELt Square 低稀疏测试"""
+        """Task 6: cuSPARSELt Square 低稀疏测试 (测全精度)"""
         print_subheader("cuSPARSELt Square 低稀疏测试")
+        
+        total_success = 0
+        total_fail = 0
         
         sparsity_str = ",".join(CONFIG.LOW_SPARSITY)
         
-        cmd = self._build_base_cmd("cusparselt")
-        cmd.extend([
-            "--model", "square",
-            "--sparsity", sparsity_str,
-        ])
-        
-        success, output, duration = run_command(cmd, "cusparselt square low")
-        
-        if success:
-            print_success(f"Square 低稀疏测试完成 ({duration:.1f}s)")
-        else:
-            print_error("Square 低稀疏测试失败")
+        for dtype in CONFIG.SQUARE_DTYPE:
+            cmd = self._build_base_cmd("cusparselt", dtype=dtype)
+            cmd.extend([
+                "--model", "square",
+                "--sparsity", sparsity_str,
+            ])
             
-        return success
+            success, output, duration = run_command(cmd, f"cusparselt square low {dtype}")
+            
+            if success:
+                print_success(f"Square [{dtype}] 低稀疏测试完成 ({duration:.1f}s)")
+                total_success += 1
+            else:
+                print_error(f"Square [{dtype}] 低稀疏测试失败")
+                total_fail += 1
+        
+        print_info(f"cuSPARSELt Square 低稀疏统计: 成功 {total_success}, 失败 {total_fail}")
+        return total_fail == 0
     
     def run_all(self, task_mask: List[bool]) -> None:
         """执行所有任务"""
@@ -597,7 +631,8 @@ def print_config_info():
     
     print(f"{Colors.CYAN}通用配置:{Colors.NC}")
     print(f"  M 列表: {CONFIG.M_LIST}")
-    print(f"  精度: {CONFIG.DTYPE}")
+    print(f"  Model 精度: {CONFIG.MODEL_DTYPE} (仅 FP8/INT8)")
+    print(f"  Square 精度: {CONFIG.SQUARE_DTYPE} (全部)")
     print(f"  Warmup/Repeat: {CONFIG.WARMUP}/{CONFIG.REPEAT}")
     print()
     
@@ -607,27 +642,27 @@ def print_config_info():
     print()
     
     print(f"{Colors.CYAN}Task 1: cuBLASLt Model 测试{Colors.NC}")
-    print(f"  8个模型 × 5种精度")
+    print(f"  8个模型 × {len(CONFIG.MODEL_DTYPE)}种精度 ({CONFIG.MODEL_DTYPE})")
     print()
     
     print(f"{Colors.CYAN}Task 2: cuBLASLt Square 测试{Colors.NC}")
-    print(f"  方阵测试 (M=N=K)")
+    print(f"  方阵测试 (M=N=K), {CONFIG.SQUARE_DTYPE}")
     print()
     
     print(f"{Colors.CYAN}Task 3: cuSPARSELt Model 高稀疏{Colors.NC}")
-    print(f"  稀疏度: {CONFIG.HIGH_SPARSITY}")
+    print(f"  稀疏度: {CONFIG.HIGH_SPARSITY}, 精度: {CONFIG.MODEL_DTYPE}")
     print()
     
     print(f"{Colors.CYAN}Task 4: cuSPARSELt Square 高稀疏{Colors.NC}")
-    print(f"  稀疏度: {CONFIG.HIGH_SPARSITY}")
+    print(f"  稀疏度: {CONFIG.HIGH_SPARSITY}, 精度: {CONFIG.SQUARE_DTYPE}")
     print()
     
     print(f"{Colors.CYAN}Task 5: cuSPARSELt Model 低稀疏{Colors.NC}")
-    print(f"  稀疏度: {CONFIG.LOW_SPARSITY}")
+    print(f"  稀疏度: {CONFIG.LOW_SPARSITY}, 精度: {CONFIG.MODEL_DTYPE}")
     print()
     
     print(f"{Colors.CYAN}Task 6: cuSPARSELt Square 低稀疏{Colors.NC}")
-    print(f"  稀疏度: {CONFIG.LOW_SPARSITY}")
+    print(f"  稀疏度: {CONFIG.LOW_SPARSITY}, 精度: {CONFIG.SQUARE_DTYPE}")
     print()
     
     # 估算存储需求
