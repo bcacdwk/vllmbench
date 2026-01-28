@@ -1432,9 +1432,12 @@ class IncrementalResultSaver:
         
         return csv_lines
     
-    def finalize(self) -> Tuple[Path, Path]:
+    def finalize(self, delete_progress: bool = True) -> Tuple[Path, Path]:
         """
         最终保存并返回文件路径
+        
+        Args:
+            delete_progress: 是否删除 progress 文件（默认 True）
         
         Returns:
             (csv_path, json_path)
@@ -1449,8 +1452,8 @@ class IncrementalResultSaver:
         atomic_write_json(self.json_path, json_payload)
         atomic_write_csv(self.csv_path, self._build_csv_lines())
         
-        # 删除进度文件
-        if self.progress_path.exists():
+        # 根据参数决定是否删除进度文件
+        if delete_progress and self.progress_path.exists():
             self.progress_path.unlink()
         
         print(f"    CSV: {self.csv_path}")

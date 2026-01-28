@@ -184,15 +184,29 @@ def _convert_base64_to_bytes(obj: Any) -> Any:
         return obj
 
 
-def convert_progress_to_final(progress_file: Path, logger: Optional[Logger] = None) -> bool:
+def convert_progress_to_final(
+    progress_file: Path, 
+    logger: Optional[Logger] = None,
+    delete_after_convert: bool = True,
+) -> bool:
     """
     将 progress.json 转换为最终的 .csv 和 .json 格式
     
     直接复用 IncrementalResultSaver 的 finalize() 逻辑，确保格式完全一致
     
+    Args:
+        progress_file: progress.json 文件路径
+        logger: 日志记录器
+        delete_after_convert: 转换成功后是否删除原始 progress 文件
+                              True = 转换后删除（默认，用于重跑模式）
+                              False = 只转换不删除（安全模式，用于抢救数据）
+    
     注意事项:
     1. progress.json 中的 algo_data 已经是 base64 字符串，需要解码回 bytes
     2. progress.json 中的 m_results 键是字符串，需要转换为整数
+    
+    Returns:
+        True 转换成功，False 转换失败或无有效数据
     """
     if not progress_file.exists():
         return False
@@ -281,19 +295,16 @@ def convert_progress_to_final(progress_file: Path, logger: Optional[Logger] = No
         # 更新统计信息（添加注释说明这是部分结果）
         saver.search_stats['note'] = 'Partial results converted from progress file due to CUDA errors'
         
-        # 最终保存
-        # 注意: finalize() 会删除 progress_path，但这是 saver 自己的路径
-        # 我们传入的 progress_file 可能与 saver.progress_path 不同（因为我们用了不同的 m_list）
-        saver.finalize()
+        # 最终保存，根据参数决定是否删除 progress 文件
+        saver.finalize(delete_progress=delete_after_convert)
         
         if logger:
             logger.success(f"  转换成功! M_list={successful_m_list}")
             logger.info(f"    输出目录: {saver.subdir}")
-        
-        # 删除原始的 progress 文件（如果还存在的话）
-        # finalize() 会删除 saver.progress_path，但如果文件名相同，这里就不需要再删了
-        if progress_file.exists():
-            progress_file.unlink()
+            if delete_after_convert:
+                logger.info(f"    已删除 progress 文件: {progress_file.name}")
+            else:
+                logger.info(f"    保留 progress 文件: {progress_file.name}")
         
         return True
         
@@ -533,11 +544,33 @@ def list_tasks():
     print(f"   - M 列表: {M_LIST}")
     print("   - 注: Qwen2.5-7B 的 INT8 测试已在第二次运行时完成")
     print()
+    print("3. cuSPARSELt FP4 失败测试 (--cusparselt-fp4)")
+    print("   - Qwen2.5 + FP4 + 2_6 失败的测试")
+    print("   - 用于 GB10 上的转换")
+    print()
+    print("转换模式 (--convert-only):")
+    print("  只转换已有的 progress.json 文件，不重新运行测试")
+    print("  默认保留原始 progress 文件，使用 --delete 删除")
+    print()
+    print("过滤选项:")
+    print("  --hw GB10       只处理 GB10 硬件目录")
+    print("  --hw A100       只处理 A100 硬件目录")
+    print("  --sparsity 2_6  只处理包含 2_6 稀疏度的文件")
+    print()
     print("运行示例:")
+    print("  # 重跑模式（会重新运行测试）")
     print("  python3 rerun_failed_tests.py --all")
     print("  python3 rerun_failed_tests.py --cublaslt-fp4")
     print("  python3 rerun_failed_tests.py --cusparselt-int8")
     print("  python3 rerun_failed_tests.py --cublaslt-fp4 --models Llama3.2-1B-INT8")
+    print()
+    print("  # 转换模式（只转换，不重新运行）")
+    print("  python3 rerun_failed_tests.py --convert-only --cublaslt-fp4 --hw GB10")
+    print("  python3 rerun_failed_tests.py --convert-only --cusparselt-fp4 --hw GB10 --sparsity 2_6")
+    print("  python3 rerun_failed_tests.py --convert-only --all --hw GB10")
+    print("  python3 rerun_failed_tests.py --convert-only --all --hw GB10 --delete  # 转换后删除")
+    print()
+    print("  # Dry run（只打印命令，不执行）")
     print("  python3 rerun_failed_tests.py --all --dry-run")
 
 
@@ -549,14 +582,20 @@ def convert_all_progress_files(
     backend: str,
     dtype: str,
     logger: Optional[Logger] = None,
+    delete_after_convert: bool = False,
+    hw_filter: Optional[str] = None,
+    sparsity_filter: Optional[str] = None,
 ) -> int:
     """
     转换指定目录下的所有 progress.json 文件为最终格式
     
     Args:
         backend: "cublaslt" 或 "cusparselt"
-        dtype: 数据类型（如 "fp4e2m1", "int8"）
+        dtype: 数据类型（如 "fp4e2m1", "int8", "fp16" 等）
         logger: 日志记录器
+        delete_after_convert: 转换成功后是否删除原始文件（默认 False，安全模式）
+        hw_filter: 硬件过滤器（如 "GB10", "A100"），只转换匹配的硬件目录
+        sparsity_filter: 稀疏度过滤器（如 "2_6"），只转换匹配的稀疏度文件
     
     Returns:
         成功转换的文件数
@@ -578,8 +617,19 @@ def convert_all_progress_files(
     pattern = f"*/{dtype_dir}/*.progress.json"
     progress_files = list(base_dir.glob(pattern))
     
+    # 应用过滤器
+    if hw_filter:
+        progress_files = [f for f in progress_files if hw_filter in str(f)]
+    if sparsity_filter:
+        progress_files = [f for f in progress_files if f"_{sparsity_filter}" in f.name or f.name.endswith(f"{sparsity_filter}.progress.json")]
+    
     if logger:
         logger.info(f"找到 {len(progress_files)} 个 progress 文件需要转换")
+        logger.info(f"  delete_after_convert={delete_after_convert}")
+        if hw_filter:
+            logger.info(f"  硬件过滤: {hw_filter}")
+        if sparsity_filter:
+            logger.info(f"  稀疏度过滤: {sparsity_filter}")
         for f in progress_files:
             logger.info(f"  - {f.relative_to(base_dir)}")
     
@@ -588,7 +638,7 @@ def convert_all_progress_files(
         if logger:
             logger.info(f"转换: {progress_file.name}")
         
-        if convert_progress_to_final(progress_file, logger):
+        if convert_progress_to_final(progress_file, logger, delete_after_convert=delete_after_convert):
             success_count += 1
     
     return success_count
@@ -602,6 +652,14 @@ def main():
     parser.add_argument("--cusparselt-int8", action="store_true", help="重跑 cuSPARSELt INT8 失败的测试")
     parser.add_argument("--convert-only", action="store_true", 
                         help="只转换已有的 progress.json 文件，不重新运行测试")
+    parser.add_argument("--cusparselt-fp4", action="store_true", 
+                        help="转换 cuSPARSELt FP4 失败的测试 (Qwen2.5 + 2_6)")
+    parser.add_argument("--delete", action="store_true",
+                        help="转换后删除原始 progress 文件（默认保留）")
+    parser.add_argument("--hw", type=str, default=None,
+                        help="硬件过滤器（如 GB10, A100），只处理匹配的目录")
+    parser.add_argument("--sparsity", type=str, default=None,
+                        help="稀疏度过滤器（如 2_6），只处理匹配的文件")
     parser.add_argument("--models", type=str, help="指定模型列表（逗号分隔）")
     parser.add_argument("--dry-run", action="store_true", help="只打印命令，不执行")
     
@@ -611,7 +669,7 @@ def main():
         list_tasks()
         return
     
-    if not (args.all or args.cublaslt_fp4 or args.cusparselt_int8):
+    if not (args.all or args.cublaslt_fp4 or args.cusparselt_int8 or args.cusparselt_fp4):
         parser.print_help()
         print("\n请指定要执行的任务！")
         return
@@ -627,6 +685,11 @@ def main():
     logger.info(f"Log file: {log_file}")
     logger.info(f"Dry run: {args.dry_run}")
     logger.info(f"Convert only: {args.convert_only}")
+    logger.info(f"Delete after convert: {args.delete}")
+    if args.hw:
+        logger.info(f"Hardware filter: {args.hw}")
+    if args.sparsity:
+        logger.info(f"Sparsity filter: {args.sparsity}")
     
     total_success = 0
     total_tasks = 0
@@ -638,7 +701,12 @@ def main():
                 logger.info("=" * 60)
                 logger.info("Converting cuBLASLt FP4 progress files...")
                 logger.info("=" * 60)
-                success = convert_all_progress_files("cublaslt", "fp4e2m1", logger)
+                success = convert_all_progress_files(
+                    "cublaslt", "fp4e2m1", logger,
+                    delete_after_convert=args.delete,
+                    hw_filter=args.hw,
+                    sparsity_filter=args.sparsity,
+                )
                 total_success += success
                 logger.info(f"转换完成: {success} 个文件")
             
@@ -646,7 +714,25 @@ def main():
                 logger.info("=" * 60)
                 logger.info("Converting cuSPARSELt INT8 progress files...")
                 logger.info("=" * 60)
-                success = convert_all_progress_files("cusparselt", "int8", logger)
+                success = convert_all_progress_files(
+                    "cusparselt", "int8", logger,
+                    delete_after_convert=args.delete,
+                    hw_filter=args.hw,
+                    sparsity_filter=args.sparsity,
+                )
+                total_success += success
+                logger.info(f"转换完成: {success} 个文件")
+            
+            if args.all or args.cusparselt_fp4:
+                logger.info("=" * 60)
+                logger.info("Converting cuSPARSELt FP4 progress files...")
+                logger.info("=" * 60)
+                success = convert_all_progress_files(
+                    "cusparselt", "fp4e2m1", logger,
+                    delete_after_convert=args.delete,
+                    hw_filter=args.hw,
+                    sparsity_filter=args.sparsity,
+                )
                 total_success += success
                 logger.info(f"转换完成: {success} 个文件")
         else:
