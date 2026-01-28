@@ -22,6 +22,8 @@ Usage:
     python3 run_benchmark_paper.py --model Qwen2.5-7B # 指定模型
     python3 run_benchmark_paper.py --Lmax 12         # 最大 L 值为 12
     python3 run_benchmark_paper.py --K 2560           # 指定 K 值
+    python3 run_benchmark_paper.py --dtype int8       # 只测试 INT8（A100 等不支持 FP8 E4M3 的 GPU）
+    python3 run_benchmark_paper.py --dtype fp8        # 只测试 FP8
 """
 
 import sys
@@ -77,6 +79,25 @@ K_DEFAULT = 2560
 # Benchmark 参数
 WARMUP = 25
 REP = 100
+
+# FP8 E4M3 (float8_e4m3fn) 需要 SM89+ (Ada Lovelace / Hopper)
+# A100 是 SM80，不支持 float8_e4m3fn
+FP8_E4M3_MIN_CC = 89
+
+
+def check_fp8_support() -> bool:
+    """
+    检查当前 GPU 是否支持 FP8 E4M3 (float8_e4m3fn)
+    
+    Returns:
+        True 如果支持，False 如果不支持
+    """
+    if not torch.cuda.is_available():
+        return False
+    
+    cc = torch.cuda.get_device_capability()
+    cc_int = cc[0] * 10 + cc[1]
+    return cc_int >= FP8_E4M3_MIN_CC
 
 
 # =============================================================================
@@ -403,6 +424,12 @@ def main():
         '--m-list', type=str, default=None,
         help='Custom M values (comma-separated, e.g., "16,128,1024,4096")'
     )
+    parser.add_argument(
+        '--dtype', type=str, default='auto',
+        choices=['auto', 'all', 'fp8', 'int8'],
+        help='Data type to benchmark: auto (detect GPU capability), all, fp8, or int8. '
+             'A100 and older GPUs only support int8. (default: auto)'
+    )
     args = parser.parse_args()
     
     if not torch.cuda.is_available():
@@ -434,6 +461,22 @@ def main():
             K = K_DEFAULT
             model_name = args.model
     
+    # 确定要测试的数据类型
+    fp8_supported = check_fp8_support()
+    
+    if args.dtype == 'auto':
+        run_fp8 = fp8_supported
+        run_int8 = True
+    elif args.dtype == 'all':
+        run_fp8 = True
+        run_int8 = True
+    elif args.dtype == 'fp8':
+        run_fp8 = True
+        run_int8 = False
+    else:  # int8
+        run_fp8 = False
+        run_int8 = True
+    
     # 打印配置信息
     hw_dir = build_hw_dir_name()
     output_dir = _SCRIPT_DIR / "benchmark_result" / hw_dir
@@ -449,6 +492,19 @@ def main():
     print(f"L range:     {L_values}")
     print(f"M values:    {len(M_values)} points ({M_values[0]} ~ {M_values[-1]})")
     print(f"Output dir:  {output_dir}")
+    
+    # 打印 FP8 支持状态
+    if fp8_supported:
+        print(f"FP8 E4M3:    Supported (SM{torch.cuda.get_device_capability()[0]}{torch.cuda.get_device_capability()[1]})")
+    else:
+        print(f"FP8 E4M3:    NOT supported (SM{torch.cuda.get_device_capability()[0]}{torch.cuda.get_device_capability()[1]} < SM89)")
+    
+    dtypes_to_run = []
+    if run_fp8:
+        dtypes_to_run.append('FP8')
+    if run_int8:
+        dtypes_to_run.append('INT8')
+    print(f"Benchmarks:  {', '.join(dtypes_to_run)}")
     print()
     
     # 加载 kernel 模块
@@ -469,45 +525,76 @@ def main():
     
     compute_output_k_func = basic_module._compute_output_k
     
-    # 运行 FP8 benchmark
-    print("\n" + "=" * 70)
-    print("FP8 Benchmark")
-    print("=" * 70)
+    # 初始化结果变量
+    fp8_latency: list[list[float]] = []
+    fp8_latency_ratio: list[list[float]] = []
+    int8_latency: list[list[float]] = []
+    int8_latency_ratio: list[list[float]] = []
     
-    fp8_latency, fp8_latency_ratio = run_benchmark_for_dtype(
-        dtype="fp8",
-        tuned_func=tuned_fp8_func,
-        get_config_func=get_config_func,
-        compute_output_k_func=compute_output_k_func,
-        M_values=M_values,
-        L_values=L_values,
-        K=K,
-    )
+    # 运行 FP8 benchmark
+    if run_fp8:
+        print("\n" + "=" * 70)
+        print("FP8 Benchmark")
+        print("=" * 70)
+        
+        try:
+            fp8_latency, fp8_latency_ratio = run_benchmark_for_dtype(
+                dtype="fp8",
+                tuned_func=tuned_fp8_func,
+                get_config_func=get_config_func,
+                compute_output_k_func=compute_output_k_func,
+                M_values=M_values,
+                L_values=L_values,
+                K=K,
+            )
+        except Exception as e:
+            print(f"\n[Error] FP8 benchmark failed: {e}")
+            print("[Info] Skipping FP8 benchmark. Your GPU may not support FP8 E4M3.")
+            print("[Info] Use --dtype int8 to run only INT8 benchmarks.")
+            fp8_latency = []
+            fp8_latency_ratio = []
+    else:
+        print("\n[Info] Skipping FP8 benchmark (not supported or not requested)")
     
     # 运行 INT8 benchmark
-    print("\n" + "=" * 70)
-    print("INT8 Benchmark")
-    print("=" * 70)
-    
-    int8_latency, int8_latency_ratio = run_benchmark_for_dtype(
-        dtype="int8",
-        tuned_func=tuned_int8_func,
-        get_config_func=get_config_func,
-        compute_output_k_func=compute_output_k_func,
-        M_values=M_values,
-        L_values=L_values,
-        K=K,
-    )
+    if run_int8:
+        print("\n" + "=" * 70)
+        print("INT8 Benchmark")
+        print("=" * 70)
+        
+        try:
+            int8_latency, int8_latency_ratio = run_benchmark_for_dtype(
+                dtype="int8",
+                tuned_func=tuned_int8_func,
+                get_config_func=get_config_func,
+                compute_output_k_func=compute_output_k_func,
+                M_values=M_values,
+                L_values=L_values,
+                K=K,
+            )
+        except Exception as e:
+            print(f"\n[Error] INT8 benchmark failed: {e}")
+            int8_latency = []
+            int8_latency_ratio = []
+    else:
+        print("\n[Info] Skipping INT8 benchmark (not requested)")
     
     # 保存 CSV 文件
     print("\n" + "=" * 70)
     print("Saving Results")
     print("=" * 70)
     
-    save_csv(output_dir / "latency_fp8.csv", fp8_latency, L_values)
-    save_csv(output_dir / "latency_int8.csv", int8_latency, L_values)
-    save_csv(output_dir / "latency_ratio_fp8.csv", fp8_latency_ratio, L_values)
-    save_csv(output_dir / "latency_ratio_int8.csv", int8_latency_ratio, L_values)
+    if fp8_latency:
+        save_csv(output_dir / "latency_fp8.csv", fp8_latency, L_values)
+        save_csv(output_dir / "latency_ratio_fp8.csv", fp8_latency_ratio, L_values)
+    else:
+        print("  [Skipped] FP8 results (no data)")
+    
+    if int8_latency:
+        save_csv(output_dir / "latency_int8.csv", int8_latency, L_values)
+        save_csv(output_dir / "latency_ratio_int8.csv", int8_latency_ratio, L_values)
+    else:
+        print("  [Skipped] INT8 results (no data)")
     
     print("\n" + "=" * 70)
     print("Done!")
