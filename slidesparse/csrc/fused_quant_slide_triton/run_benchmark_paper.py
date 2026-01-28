@@ -3,7 +3,7 @@
 """
 Quant + Slide Kernel Benchmark (Paper Version)
 
-为论文生成 Kernel 性能数据的基准测试脚本。
+生成 Kernel 性能数据的基准测试脚本。
 
 输出文件（放在 benchmark_result/{hw_dir}/ 目录）:
 1. latency_fp8.csv       - FP8 延时绝对值 (us)
