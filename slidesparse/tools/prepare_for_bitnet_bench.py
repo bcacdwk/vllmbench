@@ -151,7 +151,8 @@ class BitNetTaskConfig:
     KERNEL_M_LIST: List[int] = field(default_factory=lambda: [
         64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384
     ])
-    KERNEL_DTYPE: str = "all"
+    # 只测试 INT8 和 FP8，不测试 FP16/BF16/FP4
+    KERNEL_DTYPES: List[str] = field(default_factory=lambda: ["fp8e4m3", "int8"])
     KERNEL_WARMUP: int = 25
     KERNEL_REPEAT: int = 50
     KERNEL_HIGH_SPARSITY: List[str] = field(default_factory=lambda: ["2_4", "2_6", "2_8", "2_10"])
@@ -848,12 +849,17 @@ class TaskRunner:
         print_info(f"Decode 统计: 成功 {total_success}, 失败 {total_fail}")
         return total_fail == 0
     
-    def _build_kernel_base_cmd(self, backend: str) -> List[str]:
-        """构建 Kernel benchmark 基础命令"""
+    def _build_kernel_base_cmd(self, backend: str, dtype: str) -> List[str]:
+        """构建 Kernel benchmark 基础命令
+        
+        Args:
+            backend: cublaslt 或 cusparselt
+            dtype: 数据类型 (fp8e4m3, int8)
+        """
         m_list_str = ",".join(map(str, CONFIG.KERNEL_M_LIST))
         return [
             sys.executable, str(SCRIPTS["kernel_bench"]),
-            "--dtype", CONFIG.KERNEL_DTYPE,
+            "--dtype", dtype,
             "--warmup", str(CONFIG.KERNEL_WARMUP),
             "--repeat", str(CONFIG.KERNEL_REPEAT),
             "--m_list", m_list_str,
@@ -864,56 +870,78 @@ class TaskRunner:
     def run_task_6_kernel_cublaslt(self) -> bool:
         """Task 6: Kernel - cuBLASLt"""
         
-        print_subheader(f"cuBLASLt Kernel: {CONFIG.KERNEL_MODEL}")
+        total_success = 0
+        total_fail = 0
         
-        cmd = self._build_kernel_base_cmd("cublaslt")
+        for dtype in CONFIG.KERNEL_DTYPES:
+            print_subheader(f"cuBLASLt Kernel: {CONFIG.KERNEL_MODEL} [{dtype}]")
+            
+            cmd = self._build_kernel_base_cmd("cublaslt", dtype=dtype)
+            
+            success, output, duration = run_command(cmd, f"cublaslt kernel {dtype}")
+            
+            if success:
+                print_success(f"cuBLASLt Kernel [{dtype}] 测试完成 ({duration:.1f}s)")
+                total_success += 1
+            else:
+                print_error(f"cuBLASLt Kernel [{dtype}] 测试失败")
+                total_fail += 1
         
-        success, output, duration = run_command(cmd, "cublaslt kernel")
-        
-        if success:
-            print_success(f"cuBLASLt Kernel 测试完成 ({duration:.1f}s)")
-        else:
-            print_error("cuBLASLt Kernel 测试失败")
-        
-        return success
+        print()
+        print_info(f"cuBLASLt Kernel 统计: 成功 {total_success}, 失败 {total_fail}")
+        return total_fail == 0
     
     def run_task_7_kernel_cusparselt_high(self) -> bool:
         """Task 7: Kernel - cuSPARSELt 高稀疏"""
         
-        print_subheader(f"cuSPARSELt 高稀疏 Kernel: {CONFIG.KERNEL_MODEL}")
-        
+        total_success = 0
+        total_fail = 0
         sparsity_str = ",".join(CONFIG.KERNEL_HIGH_SPARSITY)
         
-        cmd = self._build_kernel_base_cmd("cusparselt")
-        cmd.extend(["--sparsity", sparsity_str])
+        for dtype in CONFIG.KERNEL_DTYPES:
+            print_subheader(f"cuSPARSELt 高稀疏 Kernel: {CONFIG.KERNEL_MODEL} [{dtype}]")
+            
+            cmd = self._build_kernel_base_cmd("cusparselt", dtype=dtype)
+            cmd.extend(["--sparsity", sparsity_str])
+            
+            success, output, duration = run_command(cmd, f"cusparselt high kernel {dtype}")
+            
+            if success:
+                print_success(f"cuSPARSELt 高稀疏 [{dtype}] 测试完成 ({duration:.1f}s)")
+                total_success += 1
+            else:
+                print_error(f"cuSPARSELt 高稀疏 [{dtype}] 测试失败")
+                total_fail += 1
         
-        success, output, duration = run_command(cmd, "cusparselt high kernel")
-        
-        if success:
-            print_success(f"cuSPARSELt 高稀疏 Kernel 测试完成 ({duration:.1f}s)")
-        else:
-            print_error("cuSPARSELt 高稀疏 Kernel 测试失败")
-        
-        return success
+        print()
+        print_info(f"cuSPARSELt 高稀疏 统计: 成功 {total_success}, 失败 {total_fail}")
+        return total_fail == 0
     
     def run_task_8_kernel_cusparselt_low(self) -> bool:
         """Task 8: Kernel - cuSPARSELt 低稀疏"""
         
-        print_subheader(f"cuSPARSELt 低稀疏 Kernel: {CONFIG.KERNEL_MODEL}")
-        
+        total_success = 0
+        total_fail = 0
         sparsity_str = ",".join(CONFIG.KERNEL_LOW_SPARSITY)
         
-        cmd = self._build_kernel_base_cmd("cusparselt")
-        cmd.extend(["--sparsity", sparsity_str])
+        for dtype in CONFIG.KERNEL_DTYPES:
+            print_subheader(f"cuSPARSELt 低稀疏 Kernel: {CONFIG.KERNEL_MODEL} [{dtype}]")
+            
+            cmd = self._build_kernel_base_cmd("cusparselt", dtype=dtype)
+            cmd.extend(["--sparsity", sparsity_str])
+            
+            success, output, duration = run_command(cmd, f"cusparselt low kernel {dtype}")
+            
+            if success:
+                print_success(f"cuSPARSELt 低稀疏 [{dtype}] 测试完成 ({duration:.1f}s)")
+                total_success += 1
+            else:
+                print_error(f"cuSPARSELt 低稀疏 [{dtype}] 测试失败")
+                total_fail += 1
         
-        success, output, duration = run_command(cmd, "cusparselt low kernel")
-        
-        if success:
-            print_success(f"cuSPARSELt 低稀疏 Kernel 测试完成 ({duration:.1f}s)")
-        else:
-            print_error("cuSPARSELt 低稀疏 Kernel 测试失败")
-        
-        return success
+        print()
+        print_info(f"cuSPARSELt 低稀疏 统计: 成功 {total_success}, 失败 {total_fail}")
+        return total_fail == 0
     
     def run_all(self, task_mask: List[bool]) -> None:
         """执行所有任务"""
@@ -1043,6 +1071,7 @@ def print_config_info():
     print(f"{Colors.CYAN}Task 6/7/8: Kernel Benchmark{Colors.NC}")
     print(f"  模型: {CONFIG.KERNEL_MODEL}")
     print(f"  M 列表: {CONFIG.KERNEL_M_LIST}")
+    print(f"  数据类型: {CONFIG.KERNEL_DTYPES}")
     print(f"  高稀疏: {CONFIG.KERNEL_HIGH_SPARSITY}")
     print(f"  低稀疏: {CONFIG.KERNEL_LOW_SPARSITY}")
     print()
