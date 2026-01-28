@@ -7,22 +7,22 @@ SlideSparse Kernel Benchmark 准备脚本
 
 流水线任务：
 ============
-Task 1: cuBLASLt Model 测试（8个模型，2种精度: FP8/INT8）
+Task 1: cuBLASLt Model 测试（8个模型，5种精度）
 Task 2: cuBLASLt Square 测试（方阵，5种精度）
-Task 3: cuSPARSELt Model 高稀疏测试（2_4, 2_6, 2_8, 2_10，2种精度）
-Task 4: cuSPARSELt Square 高稀疏测试（2_4, 2_6, 2_8, 2_10，5种精度）
-Task 5: cuSPARSELt Model 低稀疏测试（2_12, 2_14, 2_16, 2_inf，2种精度）
-Task 6: cuSPARSELt Square 低稀疏测试（2_12, 2_14, 2_16, 2_inf，5种精度）
+Task 3: cuSPARSELt Model 高稀疏测试（2_4, 2_6, 2_8, 2_10）
+Task 4: cuSPARSELt Square 高稀疏测试（2_4, 2_6, 2_8, 2_10）
+Task 5: cuSPARSELt Model 低稀疏测试（2_12, 2_14, 2_16, 2_inf）
+Task 6: cuSPARSELt Square 低稀疏测试（2_12, 2_14, 2_16, 2_inf）
 
 M 列表：[64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384]
 精度配置：
     - Model 模式: fp8e4m3, int8 (只测这2种)
     - Square 模式: fp16, bf16, int8, fp8e4m3, fp4e2m1 (全部5种)
-8个模型：
-    - Llama3.2-1B-INT8, Llama3.2-1B-FP8
-    - Llama3.2-3B-INT8, Llama3.2-3B-FP8
-    - Qwen2.5-7B-INT8, Qwen2.5-7B-FP8
-    - Qwen2.5-14B-INT8, Qwen2.5-14B-FP8
+4个模型（Kernel测试只需不同模型结构，INT8/FP8的NK维度相同）：
+    - Llama3.2-1B-INT8/FP8 选其一
+    - Llama3.2-3B-INT8/FP8 选其一
+    - Qwen2.5-7B-INT8/FP8 选其一
+    - Qwen2.5-14B-INT8/FP8 选其一
 
 Usage:
     # 执行所有任务
@@ -39,7 +39,7 @@ Usage:
     
     # 在 tmux 中运行
     tmux new -s kernel_bench
-    cd /root/vllmbench/slidesparse/benchmark_kernel && python3 prepare_for_kernel_bench.py --task 1,1,1,1,1,1 --gpu 0
+    cd /root/vllmbench/slidesparse/benchmark_kernel && python3 prepare_for_kernel_bench.py --task 0,0,0,0,1,1 --gpu 0
 
     tmux detach
 
@@ -99,12 +99,12 @@ class TaskConfig:
         64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384,
     ])
     
-    # 8个模型（4个 base × 2种量化）
+    # 4个模型（Kernel测试只需要不同的模型结构，INT8/FP8的NK维度相同，这里固定INT8的）
     MODELS: List[str] = field(default_factory=lambda: [
-        "Llama3.2-1B-INT8", "Llama3.2-1B-FP8",
-        "Llama3.2-3B-INT8", "Llama3.2-3B-FP8",
-        "Qwen2.5-7B-INT8", "Qwen2.5-7B-FP8",
-        "Qwen2.5-14B-INT8", "Qwen2.5-14B-FP8",
+        "Llama3.2-1B-INT8",
+        "Llama3.2-3B-INT8",
+        "Qwen2.5-7B-INT8",
+        "Qwen2.5-14B-INT8",
     ])
     
     # 高稀疏度配置（标准 + 中等）
@@ -636,13 +636,13 @@ def print_config_info():
     print(f"  Warmup/Repeat: {CONFIG.WARMUP}/{CONFIG.REPEAT}")
     print()
     
-    print(f"{Colors.CYAN}模型列表 (8个):{Colors.NC}")
+    print(f"{Colors.CYAN}模型列表 ({len(CONFIG.MODELS)}个):{Colors.NC}")
     for model in CONFIG.MODELS:
         print(f"  - {model}")
     print()
     
     print(f"{Colors.CYAN}Task 1: cuBLASLt Model 测试{Colors.NC}")
-    print(f"  8个模型 × {len(CONFIG.MODEL_DTYPE)}种精度 ({CONFIG.MODEL_DTYPE})")
+    print(f"  {len(CONFIG.MODELS)}个模型 × {len(CONFIG.MODEL_DTYPE)}种精度 ({CONFIG.MODEL_DTYPE})")
     print()
     
     print(f"{Colors.CYAN}Task 2: cuBLASLt Square 测试{Colors.NC}")
