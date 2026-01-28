@@ -441,6 +441,11 @@ class TaskRunner:
                         shutil.rmtree(target_dir)
                     shutil.move(str(temp_output_dir), str(target_dir))
                     print_success(f"{target_name} 量化完成并移动到 {target_dir} ({duration:.1f}s)")
+                    
+                    # 修正 config.json 使其兼容 vLLM
+                    # 根据 output_dtype 确定量化类型
+                    fix_dtype = "fp8" if "fp8" in output_dtype.lower() else "int8"
+                    self._fix_config_for_vllm(target_dir, target_name, dtype=fix_dtype)
                     total_success += 1
                 else:
                     print_error(f"{target_name} 量化输出目录不存在: {temp_output_dir}")
@@ -448,6 +453,8 @@ class TaskRunner:
             else:
                 print_error(f"{target_name} 量化失败")
                 total_fail += 1
+        
+        # 注意: BF16 原始模型保持不变，不做 vLLM 兼容性修改
         
         print()
         print_info(f"基础模型准备统计: 成功 {total_success}, 失败 {total_fail}")
@@ -508,6 +515,189 @@ class TaskRunner:
             return False
         
         return total_fail == 0
+    
+    def _fix_config_for_vllm(self, model_dir: Path, model_name: str, dtype: str = "int8") -> bool:
+        """
+        修正 config.json 使 BitNet 模型兼容 vLLM
+        
+        修改内容:
+        1. model_type: "bitnet" -> "llama"
+        2. architectures: ["BitNetForCausalLM"] -> ["LlamaForCausalLM"]
+        3. hidden_act: "relu2" -> "silu" (vLLM LLaMA 只支持 silu)
+        4. 删除 auto_map (防止加载 BitNet 自定义代码)
+        5. max_position_embeddings: 4096 -> 131072 (避免长序列报错)
+        6. 添加 head_dim (= hidden_size / num_attention_heads)
+        7. 添加 transformers_version
+        8. 设置完整的 quantization_config (compressed-tensors 格式)
+        9. 从 safetensors 删除不兼容权重 (ffn_sub_norm, attn_sub_norm)
+        
+        Args:
+            model_dir: 模型目录
+            model_name: 模型名称
+            dtype: 量化类型 "int8" 或 "fp8"
+        """
+        import json
+        
+        config_path = model_dir / "config.json"
+        if not config_path.exists():
+            print_warning(f"  config.json 不存在: {config_path}")
+            return False
+        
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                config = json.load(f)
+            
+            modified = False
+            
+            # 1. model_type: bitnet -> llama
+            if config.get("model_type") == "bitnet":
+                config["model_type"] = "llama"
+                modified = True
+            
+            # 2. architectures: BitNetForCausalLM -> LlamaForCausalLM
+            archs = config.get("architectures", [])
+            if archs and "BitNet" in str(archs):
+                config["architectures"] = ["LlamaForCausalLM"]
+                modified = True
+            
+            # 3. hidden_act: relu2 -> silu (vLLM LLaMA 只支持 silu)
+            if config.get("hidden_act") == "relu2":
+                config["hidden_act"] = "silu"
+                modified = True
+            
+            # 4. 删除 auto_map (防止加载 BitNet 自定义代码)
+            if "auto_map" in config:
+                del config["auto_map"]
+                modified = True
+            
+            # 5. max_position_embeddings: 扩展到 131072 (与 Llama 3.2 一致)
+            if config.get("max_position_embeddings", 0) < 131072:
+                config["max_position_embeddings"] = 131072
+                modified = True
+            
+            # 6. 添加 head_dim (如果没有)
+            if "head_dim" not in config:
+                hidden_size = config.get("hidden_size", 2560)
+                num_heads = config.get("num_attention_heads", 20)
+                config["head_dim"] = hidden_size // num_heads  # 2560/20 = 128
+                modified = True
+            
+            # 7. 添加 transformers_version (如果没有)
+            if "transformers_version" not in config:
+                config["transformers_version"] = "4.44.1"
+                modified = True
+            
+            # 8. 设置完整的 quantization_config (compressed-tensors 格式)
+            # 参考 Llama3.2-1B-INT8 的配置
+            if dtype == "fp8":
+                quant_type = "float"
+                quant_format = "float-quantized"
+                num_bits = 8  # FP8
+            else:
+                quant_type = "int"
+                quant_format = "int-quantized"
+                num_bits = 8  # INT8
+            
+            expected_quant_config = {
+                "config_groups": {
+                    "group_0": {
+                        "input_activations": {
+                            "block_structure": None,
+                            "dynamic": True,
+                            "group_size": None,
+                            "num_bits": num_bits,
+                            "observer": "memoryless",
+                            "observer_kwargs": {},
+                            "strategy": "token",
+                            "symmetric": True,
+                            "type": quant_type
+                        },
+                        "output_activations": None,
+                        "targets": ["Linear"],
+                        "weights": {
+                            "block_structure": None,
+                            "dynamic": False,
+                            "group_size": None,
+                            "num_bits": num_bits,
+                            "observer": "minmax",
+                            "observer_kwargs": {},
+                            "strategy": "tensor",
+                            "symmetric": True,
+                            "type": quant_type
+                        }
+                    }
+                },
+                "format": quant_format,
+                "ignore": ["lm_head"],
+                "kv_cache_scheme": None,
+                "quant_method": "compressed-tensors",
+                "quantization_status": "frozen"
+            }
+            
+            current_quant = config.get("quantization_config", {})
+            # 检查是否需要更新（简单比较 quant_method 和 config_groups 是否存在）
+            if current_quant.get("quant_method") != "compressed-tensors" or \
+               "config_groups" not in current_quant:
+                config["quantization_config"] = expected_quant_config
+                modified = True
+            
+            if modified:
+                with open(config_path, 'w', encoding='utf-8') as f:
+                    json.dump(config, f, indent=2, ensure_ascii=False)
+                print_success(f"  ✓ 已修正 {model_name}/config.json (vLLM 兼容)")
+            else:
+                print_info(f"  {model_name}/config.json 无需修改")
+            
+            # 9. 从 safetensors 删除不兼容权重 (ffn_sub_norm, attn_sub_norm)
+            # 这些是 BitNet 特有的 sub-layernorm，vLLM LlamaForCausalLM 不支持
+            self._remove_incompatible_weights(model_dir, model_name)
+            
+            return True
+            
+        except Exception as e:
+            print_error(f"  修正 config.json 失败: {e}")
+            return False
+    
+    def _remove_incompatible_weights(self, model_dir: Path, model_name: str) -> bool:
+        """
+        从 safetensors 中删除 vLLM 不兼容的权重
+        
+        BitNet 特有的权重:
+        - ffn_sub_norm: FFN 子层 normalization
+        - attn_sub_norm: Attention 子层 normalization
+        
+        这些权重 vLLM 的 LlamaForCausalLM 不认识，需要删除
+        """
+        from safetensors import safe_open
+        from safetensors.torch import save_file
+        
+        keys_to_remove = ["ffn_sub_norm", "attn_sub_norm"]
+        
+        def should_remove(key):
+            return any(pattern in key for pattern in keys_to_remove)
+        
+        try:
+            for sf_file in model_dir.glob("*.safetensors"):
+                # 读取所有权重
+                tensors = {}
+                removed = []
+                with safe_open(sf_file, framework="pt") as f:
+                    for key in f.keys():
+                        if should_remove(key):
+                            removed.append(key)
+                        else:
+                            tensors[key] = f.get_tensor(key)
+                
+                if removed:
+                    # 保存修改后的权重
+                    save_file(tensors, sf_file)
+                    print_success(f"  ✓ 已删除 {len(removed)} 个不兼容权重 (ffn_sub_norm, attn_sub_norm)")
+            
+            return True
+            
+        except Exception as e:
+            print_error(f"  删除不兼容权重失败: {e}")
+            return False
     
     def _verify_base_models(self) -> bool:
         """验证基础模型是否都已生成"""

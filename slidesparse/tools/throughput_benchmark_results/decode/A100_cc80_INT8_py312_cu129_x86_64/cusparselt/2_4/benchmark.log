@@ -2374,3 +2374,560 @@ Processed prompts: 100%|██████████| 512/512 [00:18<00:00, 39
 Processed prompts: 100%|██████████| 512/512 [00:18<00:00, 27.97it/s, est. speed input: 447.50 toks/s, output: 7160.06 toks/s]
 [rank0]:[W126 00:40:18.833273561 ProcessGroupNCCL.cpp:1524] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
 
+
+========== M=64 ==========
+Time: 2026-01-27 23:00:25
+Backend: cuSPARSELt (2:4)
+Checkpoint: /root/vllmbench/checkpoints_slidesparse/BitNet-2B-INT8-SlideSparse-2_4
+Params: prompt_len=16, output_len=256, num_prompts=64, max_num_seqs=64
+Command: vllm bench throughput --model /root/vllmbench/checkpoints_slidesparse/BitNet-2B-INT8-SlideSparse-2_4 --dataset-name random --input-len 16 --output-len 256 --num-prompts 64 --max-num-seqs 64 --max-model-len 272 --max-num-batched-tokens 272 --no-enable-chunked-prefill --gpu-memory-utilization 0.8 --disable-log-stats --output-json /root/vllmbench/slidesparse/tools/throughput_benchmark_results/decode/A100_cc80_INT8_py312_cu129_x86_64/cusparselt/2_4/json/BitNet-2B-INT8_M64.json
+
+STDOUT:
+When dataset path is not set, it will default to random dataset
+WARNING 01-27 23:00:33 [arg_utils.py:1869] This model does not officially support disabling chunked prefill. Disabling this manually may cause the engine to crash or produce incorrect outputs.
+(EngineCore_DP0 pid=2145915) ERROR 01-27 23:00:42 [core.py:866] EngineCore failed to start.
+(EngineCore_DP0 pid=2145915) ERROR 01-27 23:00:42 [core.py:866] Traceback (most recent call last):
+(EngineCore_DP0 pid=2145915) ERROR 01-27 23:00:42 [core.py:866]   File "/root/vllmbench/vllm/v1/engine/core.py", line 857, in run_engine_core
+(EngineCore_DP0 pid=2145915) ERROR 01-27 23:00:42 [core.py:866]     engine_core = EngineCoreProc(*args, **kwargs)
+(EngineCore_DP0 pid=2145915) ERROR 01-27 23:00:42 [core.py:866]                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=2145915) ERROR 01-27 23:00:42 [core.py:866]   File "/root/vllmbench/vllm/v1/engine/core.py", line 637, in __init__
+(EngineCore_DP0 pid=2145915) ERROR 01-27 23:00:42 [core.py:866]     super().__init__(
+(EngineCore_DP0 pid=2145915) ERROR 01-27 23:00:42 [core.py:866]   File "/root/vllmbench/vllm/v1/engine/core.py", line 102, in __init__
+(EngineCore_DP0 pid=2145915) ERROR 01-27 23:00:42 [core.py:866]     self.model_executor = executor_class(vllm_config)
+(EngineCore_DP0 pid=2145915) ERROR 01-27 23:00:42 [core.py:866]                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=2145915) ERROR 01-27 23:00:42 [core.py:866]   File "/root/vllmbench/vllm/v1/executor/abstract.py", line 101, in __init__
+(EngineCore_DP0 pid=2145915) ERROR 01-27 23:00:42 [core.py:866]     self._init_executor()
+(EngineCore_DP0 pid=2145915) ERROR 01-27 23:00:42 [core.py:866]   File "/root/vllmbench/vllm/v1/executor/uniproc_executor.py", line 48, in _init_executor
+(EngineCore_DP0 pid=2145915) ERROR 01-27 23:00:42 [core.py:866]     self.driver_worker.load_model()
+(EngineCore_DP0 pid=2145915) ERROR 01-27 23:00:42 [core.py:866]   File "/root/vllmbench/vllm/v1/worker/gpu_worker.py", line 289, in load_model
+(EngineCore_DP0 pid=2145915) ERROR 01-27 23:00:42 [core.py:866]     self.model_runner.load_model(eep_scale_up=eep_scale_up)
+(EngineCore_DP0 pid=2145915) ERROR 01-27 23:00:42 [core.py:866]   File "/root/vllmbench/vllm/v1/worker/gpu_model_runner.py", line 3581, in load_model
+(EngineCore_DP0 pid=2145915) ERROR 01-27 23:00:42 [core.py:866]     self.model = model_loader.load_model(
+(EngineCore_DP0 pid=2145915) ERROR 01-27 23:00:42 [core.py:866]                  ^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=2145915) ERROR 01-27 23:00:42 [core.py:866]   File "/root/vllmbench/vllm/model_executor/model_loader/base_loader.py", line 55, in load_model
+(EngineCore_DP0 pid=2145915) ERROR 01-27 23:00:42 [core.py:866]     self.load_weights(model, model_config)
+(EngineCore_DP0 pid=2145915) ERROR 01-27 23:00:42 [core.py:866]   File "/root/vllmbench/vllm/model_executor/model_loader/default_loader.py", line 305, in load_weights
+(EngineCore_DP0 pid=2145915) ERROR 01-27 23:00:42 [core.py:866]     loaded_weights = model.load_weights(self.get_all_weights(model_config, model))
+(EngineCore_DP0 pid=2145915) ERROR 01-27 23:00:42 [core.py:866]                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=2145915) ERROR 01-27 23:00:42 [core.py:866]   File "/root/vllmbench/vllm/model_executor/models/llama.py", line 640, in load_weights
+(EngineCore_DP0 pid=2145915) ERROR 01-27 23:00:42 [core.py:866]     return loader.load_weights(
+(EngineCore_DP0 pid=2145915) ERROR 01-27 23:00:42 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=2145915) ERROR 01-27 23:00:42 [core.py:866]   File "/root/vllmbench/vllm/model_executor/model_loader/online_quantization.py", line 173, in patched_model_load_weights
+(EngineCore_DP0 pid=2145915) ERROR 01-27 23:00:42 [core.py:866]     return original_load_weights(auto_weight_loader, weights, mapper=mapper)
+(EngineCore_DP0 pid=2145915) ERROR 01-27 23:00:42 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=2145915) ERROR 01-27 23:00:42 [core.py:866]   File "/root/vllmbench/vllm/model_executor/models/utils.py", line 335, in load_weights
+(EngineCore_DP0 pid=2145915) ERROR 01-27 23:00:42 [core.py:866]     autoloaded_weights = set(self._load_module("", self.module, weights))
+(EngineCore_DP0 pid=2145915) ERROR 01-27 23:00:42 [core.py:866]                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=2145915) ERROR 01-27 23:00:42 [core.py:866]   File "/root/vllmbench/vllm/model_executor/models/utils.py", line 288, in _load_module
+(EngineCore_DP0 pid=2145915) ERROR 01-27 23:00:42 [core.py:866]     yield from self._load_module(
+(EngineCore_DP0 pid=2145915) ERROR 01-27 23:00:42 [core.py:866]   File "/root/vllmbench/vllm/model_executor/models/utils.py", line 261, in _load_module
+(EngineCore_DP0 pid=2145915) ERROR 01-27 23:00:42 [core.py:866]     loaded_params = module_load_weights(weights)
+(EngineCore_DP0 pid=2145915) ERROR 01-27 23:00:42 [core.py:866]                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=2145915) ERROR 01-27 23:00:42 [core.py:866]   File "/root/vllmbench/vllm/model_executor/models/llama.py", line 507, in load_weights
+(EngineCore_DP0 pid=2145915) ERROR 01-27 23:00:42 [core.py:866]     param = params_dict[name]
+(EngineCore_DP0 pid=2145915) ERROR 01-27 23:00:42 [core.py:866]             ~~~~~~~~~~~^^^^^^
+(EngineCore_DP0 pid=2145915) ERROR 01-27 23:00:42 [core.py:866] KeyError: 'layers.0.mlp.ffn_sub_norm.weight'
+
+STDERR:
+[2026-01-27 23:00:33] INFO kernels.py:578: Triton kernel custom ops registered
+[2026-01-27 23:00:33] INFO kernels.py:627: Optimization enabled: Only preloading kernels for model 'BitNet-2B-INT8'
+[2026-01-27 23:00:33] INFO kernels.py:109: Loaded tuned kernel for model: BitNet-2B-INT8
+[2026-01-27 23:00:33] INFO kernels.py:155: Dequant+bias kernel loaded for model: BitNet-2B-INT8
+[2026-01-27 23:00:33] INFO kernels.py:224: FP8 quant kernel loaded for model: BitNet-2B-INT8
+[2026-01-27 23:00:33] INFO kernels.py:348: INT8 quant kernel loaded for model: BitNet-2B-INT8
+[2026-01-27 23:00:33] INFO kernels.py:284: FP8 quant+slide kernel loaded for model: BitNet-2B-INT8
+[2026-01-27 23:00:33] INFO kernels.py:408: INT8 quant+slide kernel loaded for model: BitNet-2B-INT8
+[2026-01-27 23:00:33] INFO gemm_wrapper.py:157: Optimization enabled: Only loading GEMM configs for model 'BitNet-2B-INT8'
+[2026-01-27 23:00:33] INFO gemm_wrapper.py:172: Loaded algorithm configs: cuBLASLt=1, cuSPARSELt=1 models
+[2026-01-27 23:00:33] INFO gemm_wrapper.py:944: cuBLASLt FP8 custom op registered: slidesparse::cublaslt_fp8_mm
+[2026-01-27 23:00:33] INFO gemm_wrapper.py:1009: cuSPARSELt FP8 custom op registered: slidesparse::cusparselt_fp8_mm
+[2026-01-27 23:00:33] INFO gemm_wrapper.py:1075: cuBLASLt INT8 custom op registered: slidesparse::cublaslt_int8_mm
+[2026-01-27 23:00:33] INFO gemm_wrapper.py:1141: cuSPARSELt INT8 custom op registered: slidesparse::cusparselt_int8_mm
+[2026-01-27 23:00:40] INFO kernels.py:578: Triton kernel custom ops registered
+[2026-01-27 23:00:40] INFO kernels.py:627: Optimization enabled: Only preloading kernels for model 'BitNet-2B-INT8'
+[2026-01-27 23:00:40] INFO kernels.py:109: Loaded tuned kernel for model: BitNet-2B-INT8
+[2026-01-27 23:00:40] INFO kernels.py:155: Dequant+bias kernel loaded for model: BitNet-2B-INT8
+[2026-01-27 23:00:40] INFO kernels.py:224: FP8 quant kernel loaded for model: BitNet-2B-INT8
+[2026-01-27 23:00:40] INFO kernels.py:348: INT8 quant kernel loaded for model: BitNet-2B-INT8
+[2026-01-27 23:00:40] INFO kernels.py:284: FP8 quant+slide kernel loaded for model: BitNet-2B-INT8
+[2026-01-27 23:00:40] INFO kernels.py:408: INT8 quant+slide kernel loaded for model: BitNet-2B-INT8
+[2026-01-27 23:00:40] INFO gemm_wrapper.py:157: Optimization enabled: Only loading GEMM configs for model 'BitNet-2B-INT8'
+[2026-01-27 23:00:40] INFO gemm_wrapper.py:172: Loaded algorithm configs: cuBLASLt=1, cuSPARSELt=1 models
+[2026-01-27 23:00:40] INFO gemm_wrapper.py:944: cuBLASLt FP8 custom op registered: slidesparse::cublaslt_fp8_mm
+[2026-01-27 23:00:40] INFO gemm_wrapper.py:1009: cuSPARSELt FP8 custom op registered: slidesparse::cusparselt_fp8_mm
+[2026-01-27 23:00:40] INFO gemm_wrapper.py:1075: cuBLASLt INT8 custom op registered: slidesparse::cublaslt_int8_mm
+[2026-01-27 23:00:40] INFO gemm_wrapper.py:1141: cuSPARSELt INT8 custom op registered: slidesparse::cusparselt_int8_mm
+(EngineCore_DP0 pid=2145915) [2026-01-27 23:00:41] INFO SlideSparseLinearMethod_INT8.py:805: Wrapping CompressedTensorsW8A8Int8 with SlideSparse (cuSPARSELt)
+(EngineCore_DP0 pid=2145915) [2026-01-27 23:00:41] INFO gemm_wrapper.py:870: cusparselt GEMM extension loaded: cusparselt_gemm_A100_cc80_py312_cu129_x86_64.so
+(EngineCore_DP0 pid=2145915) [2026-01-27 23:00:41] INFO SlideSparseLinearMethod_INT8.py:452: SlideSparseInt8LinearOp initialized (kernel=cuSPARSELt)
+(EngineCore_DP0 pid=2145915) [2026-01-27 23:00:41] INFO SlideSparseLinearMethod_INT8.py:604: SlideSparseInt8LinearMethod: cuSPARSELt sparsity=2:4, expand_ratio=2.000
+(EngineCore_DP0 pid=2145915) [2026-01-27 23:00:41] INFO SlideSparseLinearMethod_INT8.py:621: Preloaded INT8 Triton kernels for model: BitNet-2B-INT8
+(EngineCore_DP0 pid=2145915) [2026-01-27 23:00:41] INFO SlideSparseLinearMethod_INT8.py:625: SlideSparseInt8LinearMethod initialized, kernel=cuSPARSELt, symmetric=True
+(EngineCore_DP0 pid=2145915) 
+Loading safetensors checkpoint shards:   0% Completed | 0/1 [00:00<?, ?it/s]
+(EngineCore_DP0 pid=2145915) Process EngineCore_DP0:
+(EngineCore_DP0 pid=2145915) Traceback (most recent call last):
+(EngineCore_DP0 pid=2145915)   File "/usr/lib/python3.12/multiprocessing/process.py", line 314, in _bootstrap
+(EngineCore_DP0 pid=2145915)     self.run()
+(EngineCore_DP0 pid=2145915)   File "/usr/lib/python3.12/multiprocessing/process.py", line 108, in run
+(EngineCore_DP0 pid=2145915)     self._target(*self._args, **self._kwargs)
+(EngineCore_DP0 pid=2145915)   File "/root/vllmbench/vllm/v1/engine/core.py", line 870, in run_engine_core
+(EngineCore_DP0 pid=2145915)     raise e
+(EngineCore_DP0 pid=2145915)   File "/root/vllmbench/vllm/v1/engine/core.py", line 857, in run_engine_core
+(EngineCore_DP0 pid=2145915)     engine_core = EngineCoreProc(*args, **kwargs)
+(EngineCore_DP0 pid=2145915)                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=2145915)   File "/root/vllmbench/vllm/v1/engine/core.py", line 637, in __init__
+(EngineCore_DP0 pid=2145915)     super().__init__(
+(EngineCore_DP0 pid=2145915)   File "/root/vllmbench/vllm/v1/engine/core.py", line 102, in __init__
+(EngineCore_DP0 pid=2145915)     self.model_executor = executor_class(vllm_config)
+(EngineCore_DP0 pid=2145915)                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=2145915)   File "/root/vllmbench/vllm/v1/executor/abstract.py", line 101, in __init__
+(EngineCore_DP0 pid=2145915)     self._init_executor()
+(EngineCore_DP0 pid=2145915)   File "/root/vllmbench/vllm/v1/executor/uniproc_executor.py", line 48, in _init_executor
+(EngineCore_DP0 pid=2145915)     self.driver_worker.load_model()
+(EngineCore_DP0 pid=2145915)   File "/root/vllmbench/vllm/v1/worker/gpu_worker.py", line 289, in load_model
+(EngineCore_DP0 pid=2145915)     self.model_runner.load_model(eep_scale_up=eep_scale_up)
+(EngineCore_DP0 pid=2145915)   File "/root/vllmbench/vllm/v1/worker/gpu_model_runner.py", line 3581, in load_model
+(EngineCore_DP0 pid=2145915)     self.model = model_loader.load_model(
+(EngineCore_DP0 pid=2145915)                  ^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=2145915)   File "/root/vllmbench/vllm/model_executor/model_loader/base_loader.py", line 55, in load_model
+(EngineCore_DP0 pid=2145915)     self.load_weights(model, model_config)
+(EngineCore_DP0 pid=2145915)   File "/root/vllmbench/vllm/model_executor/model_loader/default_loader.py", line 305, in load_weights
+(EngineCore_DP0 pid=2145915)     loaded_weights = model.load_weights(self.get_all_weights(model_config, model))
+(EngineCore_DP0 pid=2145915)                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=2145915)   File "/root/vllmbench/vllm/model_executor/models/llama.py", line 640, in load_weights
+(EngineCore_DP0 pid=2145915)     return loader.load_weights(
+(EngineCore_DP0 pid=2145915)            ^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=2145915)   File "/root/vllmbench/vllm/model_executor/model_loader/online_quantization.py", line 173, in patched_model_load_weights
+(EngineCore_DP0 pid=2145915)     return original_load_weights(auto_weight_loader, weights, mapper=mapper)
+(EngineCore_DP0 pid=2145915)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=2145915)   File "/root/vllmbench/vllm/model_executor/models/utils.py", line 335, in load_weights
+(EngineCore_DP0 pid=2145915)     autoloaded_weights = set(self._load_module("", self.module, weights))
+(EngineCore_DP0 pid=2145915)                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=2145915)   File "/root/vllmbench/vllm/model_executor/models/utils.py", line 288, in _load_module
+(EngineCore_DP0 pid=2145915)     yield from self._load_module(
+(EngineCore_DP0 pid=2145915)   File "/root/vllmbench/vllm/model_executor/models/utils.py", line 261, in _load_module
+(EngineCore_DP0 pid=2145915)     loaded_params = module_load_weights(weights)
+(EngineCore_DP0 pid=2145915)                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=2145915)   File "/root/vllmbench/vllm/model_executor/models/llama.py", line 507, in load_weights
+(EngineCore_DP0 pid=2145915)     param = params_dict[name]
+(EngineCore_DP0 pid=2145915)             ~~~~~~~~~~~^^^^^^
+(EngineCore_DP0 pid=2145915) KeyError: 'layers.0.mlp.ffn_sub_norm.weight'
+(EngineCore_DP0 pid=2145915) 
+Loading safetensors checkpoint shards:   0% Completed | 0/1 [00:00<?, ?it/s]
+(EngineCore_DP0 pid=2145915) 
+[rank0]:[W127 23:00:43.786023626 ProcessGroupNCCL.cpp:1524] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+Traceback (most recent call last):
+  File "/usr/local/bin/vllm", line 7, in <module>
+    sys.exit(main())
+             ^^^^^^
+  File "/root/vllmbench/vllm/entrypoints/cli/main.py", line 73, in main
+    args.dispatch_function(args)
+  File "/root/vllmbench/vllm/entrypoints/cli/benchmark/throughput.py", line 21, in cmd
+    main(args)
+  File "/root/vllmbench/vllm/benchmarks/throughput.py", line 730, in main
+    elapsed_time, request_outputs = run_vllm(
+                                    ^^^^^^^^^
+  File "/root/vllmbench/vllm/benchmarks/throughput.py", line 51, in run_vllm
+    llm = LLM(**dataclasses.asdict(engine_args))
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/entrypoints/llm.py", line 351, in __init__
+    self.llm_engine = LLMEngine.from_engine_args(
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/v1/engine/llm_engine.py", line 183, in from_engine_args
+    return cls(
+           ^^^^
+  File "/root/vllmbench/vllm/v1/engine/llm_engine.py", line 109, in __init__
+    self.engine_core = EngineCoreClient.make_client(
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/v1/engine/core_client.py", line 93, in make_client
+    return SyncMPClient(vllm_config, executor_class, log_stats)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/v1/engine/core_client.py", line 648, in __init__
+    super().__init__(
+  File "/root/vllmbench/vllm/v1/engine/core_client.py", line 477, in __init__
+    with launch_core_engines(vllm_config, executor_class, log_stats) as (
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/contextlib.py", line 144, in __exit__
+    next(self.gen)
+  File "/root/vllmbench/vllm/v1/engine/utils.py", line 903, in launch_core_engines
+    wait_for_engine_startup(
+  File "/root/vllmbench/vllm/v1/engine/utils.py", line 960, in wait_for_engine_startup
+    raise RuntimeError(
+RuntimeError: Engine core initialization failed. See root cause above. Failed core proc(s): {}
+
+ERROR: Test failed for M=64
+
+========== M=128 ==========
+Time: 2026-01-27 23:00:45
+Backend: cuSPARSELt (2:4)
+Checkpoint: /root/vllmbench/checkpoints_slidesparse/BitNet-2B-INT8-SlideSparse-2_4
+Params: prompt_len=16, output_len=256, num_prompts=128, max_num_seqs=128
+Command: vllm bench throughput --model /root/vllmbench/checkpoints_slidesparse/BitNet-2B-INT8-SlideSparse-2_4 --dataset-name random --input-len 16 --output-len 256 --num-prompts 128 --max-num-seqs 128 --max-model-len 272 --max-num-batched-tokens 272 --no-enable-chunked-prefill --gpu-memory-utilization 0.8 --disable-log-stats --output-json /root/vllmbench/slidesparse/tools/throughput_benchmark_results/decode/A100_cc80_INT8_py312_cu129_x86_64/cusparselt/2_4/json/BitNet-2B-INT8_M128.json
+
+STDOUT:
+When dataset path is not set, it will default to random dataset
+WARNING 01-27 23:00:52 [arg_utils.py:1869] This model does not officially support disabling chunked prefill. Disabling this manually may cause the engine to crash or produce incorrect outputs.
+(EngineCore_DP0 pid=2146410) ERROR 01-27 23:01:02 [core.py:866] EngineCore failed to start.
+(EngineCore_DP0 pid=2146410) ERROR 01-27 23:01:02 [core.py:866] Traceback (most recent call last):
+(EngineCore_DP0 pid=2146410) ERROR 01-27 23:01:02 [core.py:866]   File "/root/vllmbench/vllm/v1/engine/core.py", line 857, in run_engine_core
+(EngineCore_DP0 pid=2146410) ERROR 01-27 23:01:02 [core.py:866]     engine_core = EngineCoreProc(*args, **kwargs)
+(EngineCore_DP0 pid=2146410) ERROR 01-27 23:01:02 [core.py:866]                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=2146410) ERROR 01-27 23:01:02 [core.py:866]   File "/root/vllmbench/vllm/v1/engine/core.py", line 637, in __init__
+(EngineCore_DP0 pid=2146410) ERROR 01-27 23:01:02 [core.py:866]     super().__init__(
+(EngineCore_DP0 pid=2146410) ERROR 01-27 23:01:02 [core.py:866]   File "/root/vllmbench/vllm/v1/engine/core.py", line 102, in __init__
+(EngineCore_DP0 pid=2146410) ERROR 01-27 23:01:02 [core.py:866]     self.model_executor = executor_class(vllm_config)
+(EngineCore_DP0 pid=2146410) ERROR 01-27 23:01:02 [core.py:866]                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=2146410) ERROR 01-27 23:01:02 [core.py:866]   File "/root/vllmbench/vllm/v1/executor/abstract.py", line 101, in __init__
+(EngineCore_DP0 pid=2146410) ERROR 01-27 23:01:02 [core.py:866]     self._init_executor()
+(EngineCore_DP0 pid=2146410) ERROR 01-27 23:01:02 [core.py:866]   File "/root/vllmbench/vllm/v1/executor/uniproc_executor.py", line 48, in _init_executor
+(EngineCore_DP0 pid=2146410) ERROR 01-27 23:01:02 [core.py:866]     self.driver_worker.load_model()
+(EngineCore_DP0 pid=2146410) ERROR 01-27 23:01:02 [core.py:866]   File "/root/vllmbench/vllm/v1/worker/gpu_worker.py", line 289, in load_model
+(EngineCore_DP0 pid=2146410) ERROR 01-27 23:01:02 [core.py:866]     self.model_runner.load_model(eep_scale_up=eep_scale_up)
+(EngineCore_DP0 pid=2146410) ERROR 01-27 23:01:02 [core.py:866]   File "/root/vllmbench/vllm/v1/worker/gpu_model_runner.py", line 3581, in load_model
+(EngineCore_DP0 pid=2146410) ERROR 01-27 23:01:02 [core.py:866]     self.model = model_loader.load_model(
+(EngineCore_DP0 pid=2146410) ERROR 01-27 23:01:02 [core.py:866]                  ^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=2146410) ERROR 01-27 23:01:02 [core.py:866]   File "/root/vllmbench/vllm/model_executor/model_loader/base_loader.py", line 55, in load_model
+(EngineCore_DP0 pid=2146410) ERROR 01-27 23:01:02 [core.py:866]     self.load_weights(model, model_config)
+(EngineCore_DP0 pid=2146410) ERROR 01-27 23:01:02 [core.py:866]   File "/root/vllmbench/vllm/model_executor/model_loader/default_loader.py", line 305, in load_weights
+(EngineCore_DP0 pid=2146410) ERROR 01-27 23:01:02 [core.py:866]     loaded_weights = model.load_weights(self.get_all_weights(model_config, model))
+(EngineCore_DP0 pid=2146410) ERROR 01-27 23:01:02 [core.py:866]                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=2146410) ERROR 01-27 23:01:02 [core.py:866]   File "/root/vllmbench/vllm/model_executor/models/llama.py", line 640, in load_weights
+(EngineCore_DP0 pid=2146410) ERROR 01-27 23:01:02 [core.py:866]     return loader.load_weights(
+(EngineCore_DP0 pid=2146410) ERROR 01-27 23:01:02 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=2146410) ERROR 01-27 23:01:02 [core.py:866]   File "/root/vllmbench/vllm/model_executor/model_loader/online_quantization.py", line 173, in patched_model_load_weights
+(EngineCore_DP0 pid=2146410) ERROR 01-27 23:01:02 [core.py:866]     return original_load_weights(auto_weight_loader, weights, mapper=mapper)
+(EngineCore_DP0 pid=2146410) ERROR 01-27 23:01:02 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=2146410) ERROR 01-27 23:01:02 [core.py:866]   File "/root/vllmbench/vllm/model_executor/models/utils.py", line 335, in load_weights
+(EngineCore_DP0 pid=2146410) ERROR 01-27 23:01:02 [core.py:866]     autoloaded_weights = set(self._load_module("", self.module, weights))
+(EngineCore_DP0 pid=2146410) ERROR 01-27 23:01:02 [core.py:866]                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=2146410) ERROR 01-27 23:01:02 [core.py:866]   File "/root/vllmbench/vllm/model_executor/models/utils.py", line 288, in _load_module
+(EngineCore_DP0 pid=2146410) ERROR 01-27 23:01:02 [core.py:866]     yield from self._load_module(
+(EngineCore_DP0 pid=2146410) ERROR 01-27 23:01:02 [core.py:866]   File "/root/vllmbench/vllm/model_executor/models/utils.py", line 261, in _load_module
+(EngineCore_DP0 pid=2146410) ERROR 01-27 23:01:02 [core.py:866]     loaded_params = module_load_weights(weights)
+(EngineCore_DP0 pid=2146410) ERROR 01-27 23:01:02 [core.py:866]                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=2146410) ERROR 01-27 23:01:02 [core.py:866]   File "/root/vllmbench/vllm/model_executor/models/llama.py", line 507, in load_weights
+(EngineCore_DP0 pid=2146410) ERROR 01-27 23:01:02 [core.py:866]     param = params_dict[name]
+(EngineCore_DP0 pid=2146410) ERROR 01-27 23:01:02 [core.py:866]             ~~~~~~~~~~~^^^^^^
+(EngineCore_DP0 pid=2146410) ERROR 01-27 23:01:02 [core.py:866] KeyError: 'layers.0.mlp.ffn_sub_norm.weight'
+
+STDERR:
+[2026-01-27 23:00:52] INFO kernels.py:578: Triton kernel custom ops registered
+[2026-01-27 23:00:52] INFO kernels.py:627: Optimization enabled: Only preloading kernels for model 'BitNet-2B-INT8'
+[2026-01-27 23:00:52] INFO kernels.py:109: Loaded tuned kernel for model: BitNet-2B-INT8
+[2026-01-27 23:00:52] INFO kernels.py:155: Dequant+bias kernel loaded for model: BitNet-2B-INT8
+[2026-01-27 23:00:52] INFO kernels.py:224: FP8 quant kernel loaded for model: BitNet-2B-INT8
+[2026-01-27 23:00:52] INFO kernels.py:348: INT8 quant kernel loaded for model: BitNet-2B-INT8
+[2026-01-27 23:00:52] INFO kernels.py:284: FP8 quant+slide kernel loaded for model: BitNet-2B-INT8
+[2026-01-27 23:00:52] INFO kernels.py:408: INT8 quant+slide kernel loaded for model: BitNet-2B-INT8
+[2026-01-27 23:00:52] INFO gemm_wrapper.py:157: Optimization enabled: Only loading GEMM configs for model 'BitNet-2B-INT8'
+[2026-01-27 23:00:52] INFO gemm_wrapper.py:172: Loaded algorithm configs: cuBLASLt=1, cuSPARSELt=1 models
+[2026-01-27 23:00:52] INFO gemm_wrapper.py:944: cuBLASLt FP8 custom op registered: slidesparse::cublaslt_fp8_mm
+[2026-01-27 23:00:52] INFO gemm_wrapper.py:1009: cuSPARSELt FP8 custom op registered: slidesparse::cusparselt_fp8_mm
+[2026-01-27 23:00:52] INFO gemm_wrapper.py:1075: cuBLASLt INT8 custom op registered: slidesparse::cublaslt_int8_mm
+[2026-01-27 23:00:52] INFO gemm_wrapper.py:1141: cuSPARSELt INT8 custom op registered: slidesparse::cusparselt_int8_mm
+[2026-01-27 23:01:00] INFO kernels.py:578: Triton kernel custom ops registered
+[2026-01-27 23:01:00] INFO kernels.py:627: Optimization enabled: Only preloading kernels for model 'BitNet-2B-INT8'
+[2026-01-27 23:01:00] INFO kernels.py:109: Loaded tuned kernel for model: BitNet-2B-INT8
+[2026-01-27 23:01:00] INFO kernels.py:155: Dequant+bias kernel loaded for model: BitNet-2B-INT8
+[2026-01-27 23:01:00] INFO kernels.py:224: FP8 quant kernel loaded for model: BitNet-2B-INT8
+[2026-01-27 23:01:00] INFO kernels.py:348: INT8 quant kernel loaded for model: BitNet-2B-INT8
+[2026-01-27 23:01:00] INFO kernels.py:284: FP8 quant+slide kernel loaded for model: BitNet-2B-INT8
+[2026-01-27 23:01:00] INFO kernels.py:408: INT8 quant+slide kernel loaded for model: BitNet-2B-INT8
+[2026-01-27 23:01:00] INFO gemm_wrapper.py:157: Optimization enabled: Only loading GEMM configs for model 'BitNet-2B-INT8'
+[2026-01-27 23:01:00] INFO gemm_wrapper.py:172: Loaded algorithm configs: cuBLASLt=1, cuSPARSELt=1 models
+[2026-01-27 23:01:00] INFO gemm_wrapper.py:944: cuBLASLt FP8 custom op registered: slidesparse::cublaslt_fp8_mm
+[2026-01-27 23:01:00] INFO gemm_wrapper.py:1009: cuSPARSELt FP8 custom op registered: slidesparse::cusparselt_fp8_mm
+[2026-01-27 23:01:00] INFO gemm_wrapper.py:1075: cuBLASLt INT8 custom op registered: slidesparse::cublaslt_int8_mm
+[2026-01-27 23:01:00] INFO gemm_wrapper.py:1141: cuSPARSELt INT8 custom op registered: slidesparse::cusparselt_int8_mm
+(EngineCore_DP0 pid=2146410) [2026-01-27 23:01:01] INFO SlideSparseLinearMethod_INT8.py:805: Wrapping CompressedTensorsW8A8Int8 with SlideSparse (cuSPARSELt)
+(EngineCore_DP0 pid=2146410) [2026-01-27 23:01:01] INFO gemm_wrapper.py:870: cusparselt GEMM extension loaded: cusparselt_gemm_A100_cc80_py312_cu129_x86_64.so
+(EngineCore_DP0 pid=2146410) [2026-01-27 23:01:01] INFO SlideSparseLinearMethod_INT8.py:452: SlideSparseInt8LinearOp initialized (kernel=cuSPARSELt)
+(EngineCore_DP0 pid=2146410) [2026-01-27 23:01:01] INFO SlideSparseLinearMethod_INT8.py:604: SlideSparseInt8LinearMethod: cuSPARSELt sparsity=2:4, expand_ratio=2.000
+(EngineCore_DP0 pid=2146410) [2026-01-27 23:01:01] INFO SlideSparseLinearMethod_INT8.py:621: Preloaded INT8 Triton kernels for model: BitNet-2B-INT8
+(EngineCore_DP0 pid=2146410) [2026-01-27 23:01:01] INFO SlideSparseLinearMethod_INT8.py:625: SlideSparseInt8LinearMethod initialized, kernel=cuSPARSELt, symmetric=True
+(EngineCore_DP0 pid=2146410) 
+Loading safetensors checkpoint shards:   0% Completed | 0/1 [00:00<?, ?it/s]
+(EngineCore_DP0 pid=2146410) Process EngineCore_DP0:
+(EngineCore_DP0 pid=2146410) Traceback (most recent call last):
+(EngineCore_DP0 pid=2146410)   File "/usr/lib/python3.12/multiprocessing/process.py", line 314, in _bootstrap
+(EngineCore_DP0 pid=2146410)     self.run()
+(EngineCore_DP0 pid=2146410)   File "/usr/lib/python3.12/multiprocessing/process.py", line 108, in run
+(EngineCore_DP0 pid=2146410)     self._target(*self._args, **self._kwargs)
+(EngineCore_DP0 pid=2146410)   File "/root/vllmbench/vllm/v1/engine/core.py", line 870, in run_engine_core
+(EngineCore_DP0 pid=2146410)     raise e
+(EngineCore_DP0 pid=2146410)   File "/root/vllmbench/vllm/v1/engine/core.py", line 857, in run_engine_core
+(EngineCore_DP0 pid=2146410)     engine_core = EngineCoreProc(*args, **kwargs)
+(EngineCore_DP0 pid=2146410)                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=2146410)   File "/root/vllmbench/vllm/v1/engine/core.py", line 637, in __init__
+(EngineCore_DP0 pid=2146410)     super().__init__(
+(EngineCore_DP0 pid=2146410)   File "/root/vllmbench/vllm/v1/engine/core.py", line 102, in __init__
+(EngineCore_DP0 pid=2146410)     self.model_executor = executor_class(vllm_config)
+(EngineCore_DP0 pid=2146410)                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=2146410)   File "/root/vllmbench/vllm/v1/executor/abstract.py", line 101, in __init__
+(EngineCore_DP0 pid=2146410)     self._init_executor()
+(EngineCore_DP0 pid=2146410)   File "/root/vllmbench/vllm/v1/executor/uniproc_executor.py", line 48, in _init_executor
+(EngineCore_DP0 pid=2146410)     self.driver_worker.load_model()
+(EngineCore_DP0 pid=2146410)   File "/root/vllmbench/vllm/v1/worker/gpu_worker.py", line 289, in load_model
+(EngineCore_DP0 pid=2146410)     self.model_runner.load_model(eep_scale_up=eep_scale_up)
+(EngineCore_DP0 pid=2146410)   File "/root/vllmbench/vllm/v1/worker/gpu_model_runner.py", line 3581, in load_model
+(EngineCore_DP0 pid=2146410)     self.model = model_loader.load_model(
+(EngineCore_DP0 pid=2146410)                  ^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=2146410)   File "/root/vllmbench/vllm/model_executor/model_loader/base_loader.py", line 55, in load_model
+(EngineCore_DP0 pid=2146410)     self.load_weights(model, model_config)
+(EngineCore_DP0 pid=2146410)   File "/root/vllmbench/vllm/model_executor/model_loader/default_loader.py", line 305, in load_weights
+(EngineCore_DP0 pid=2146410)     loaded_weights = model.load_weights(self.get_all_weights(model_config, model))
+(EngineCore_DP0 pid=2146410)                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=2146410)   File "/root/vllmbench/vllm/model_executor/models/llama.py", line 640, in load_weights
+(EngineCore_DP0 pid=2146410)     return loader.load_weights(
+(EngineCore_DP0 pid=2146410)            ^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=2146410)   File "/root/vllmbench/vllm/model_executor/model_loader/online_quantization.py", line 173, in patched_model_load_weights
+(EngineCore_DP0 pid=2146410)     return original_load_weights(auto_weight_loader, weights, mapper=mapper)
+(EngineCore_DP0 pid=2146410)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=2146410)   File "/root/vllmbench/vllm/model_executor/models/utils.py", line 335, in load_weights
+(EngineCore_DP0 pid=2146410)     autoloaded_weights = set(self._load_module("", self.module, weights))
+(EngineCore_DP0 pid=2146410)                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=2146410)   File "/root/vllmbench/vllm/model_executor/models/utils.py", line 288, in _load_module
+(EngineCore_DP0 pid=2146410)     yield from self._load_module(
+(EngineCore_DP0 pid=2146410)   File "/root/vllmbench/vllm/model_executor/models/utils.py", line 261, in _load_module
+(EngineCore_DP0 pid=2146410)     loaded_params = module_load_weights(weights)
+(EngineCore_DP0 pid=2146410)                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=2146410)   File "/root/vllmbench/vllm/model_executor/models/llama.py", line 507, in load_weights
+(EngineCore_DP0 pid=2146410)     param = params_dict[name]
+(EngineCore_DP0 pid=2146410)             ~~~~~~~~~~~^^^^^^
+(EngineCore_DP0 pid=2146410) KeyError: 'layers.0.mlp.ffn_sub_norm.weight'
+(EngineCore_DP0 pid=2146410) 
+Loading safetensors checkpoint shards:   0% Completed | 0/1 [00:00<?, ?it/s]
+(EngineCore_DP0 pid=2146410) 
+[rank0]:[W127 23:01:03.704572236 ProcessGroupNCCL.cpp:1524] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+Traceback (most recent call last):
+  File "/usr/local/bin/vllm", line 7, in <module>
+    sys.exit(main())
+             ^^^^^^
+  File "/root/vllmbench/vllm/entrypoints/cli/main.py", line 73, in main
+    args.dispatch_function(args)
+  File "/root/vllmbench/vllm/entrypoints/cli/benchmark/throughput.py", line 21, in cmd
+    main(args)
+  File "/root/vllmbench/vllm/benchmarks/throughput.py", line 730, in main
+    elapsed_time, request_outputs = run_vllm(
+                                    ^^^^^^^^^
+  File "/root/vllmbench/vllm/benchmarks/throughput.py", line 51, in run_vllm
+    llm = LLM(**dataclasses.asdict(engine_args))
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/entrypoints/llm.py", line 351, in __init__
+    self.llm_engine = LLMEngine.from_engine_args(
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/v1/engine/llm_engine.py", line 183, in from_engine_args
+    return cls(
+           ^^^^
+  File "/root/vllmbench/vllm/v1/engine/llm_engine.py", line 109, in __init__
+    self.engine_core = EngineCoreClient.make_client(
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/v1/engine/core_client.py", line 93, in make_client
+    return SyncMPClient(vllm_config, executor_class, log_stats)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/v1/engine/core_client.py", line 648, in __init__
+    super().__init__(
+  File "/root/vllmbench/vllm/v1/engine/core_client.py", line 477, in __init__
+    with launch_core_engines(vllm_config, executor_class, log_stats) as (
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/contextlib.py", line 144, in __exit__
+    next(self.gen)
+  File "/root/vllmbench/vllm/v1/engine/utils.py", line 903, in launch_core_engines
+    wait_for_engine_startup(
+  File "/root/vllmbench/vllm/v1/engine/utils.py", line 960, in wait_for_engine_startup
+    raise RuntimeError(
+RuntimeError: Engine core initialization failed. See root cause above. Failed core proc(s): {}
+
+ERROR: Test failed for M=128
+
+========== M=256 ==========
+Time: 2026-01-27 23:01:05
+Backend: cuSPARSELt (2:4)
+Checkpoint: /root/vllmbench/checkpoints_slidesparse/BitNet-2B-INT8-SlideSparse-2_4
+Params: prompt_len=16, output_len=256, num_prompts=256, max_num_seqs=256
+Command: vllm bench throughput --model /root/vllmbench/checkpoints_slidesparse/BitNet-2B-INT8-SlideSparse-2_4 --dataset-name random --input-len 16 --output-len 256 --num-prompts 256 --max-num-seqs 256 --max-model-len 272 --max-num-batched-tokens 272 --no-enable-chunked-prefill --gpu-memory-utilization 0.8 --disable-log-stats --output-json /root/vllmbench/slidesparse/tools/throughput_benchmark_results/decode/A100_cc80_INT8_py312_cu129_x86_64/cusparselt/2_4/json/BitNet-2B-INT8_M256.json
+
+STDOUT:
+When dataset path is not set, it will default to random dataset
+WARNING 01-27 23:01:13 [arg_utils.py:1869] This model does not officially support disabling chunked prefill. Disabling this manually may cause the engine to crash or produce incorrect outputs.
+(EngineCore_DP0 pid=2146905) ERROR 01-27 23:01:22 [core.py:866] EngineCore failed to start.
+(EngineCore_DP0 pid=2146905) ERROR 01-27 23:01:22 [core.py:866] Traceback (most recent call last):
+(EngineCore_DP0 pid=2146905) ERROR 01-27 23:01:22 [core.py:866]   File "/root/vllmbench/vllm/v1/engine/core.py", line 857, in run_engine_core
+(EngineCore_DP0 pid=2146905) ERROR 01-27 23:01:22 [core.py:866]     engine_core = EngineCoreProc(*args, **kwargs)
+(EngineCore_DP0 pid=2146905) ERROR 01-27 23:01:22 [core.py:866]                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=2146905) ERROR 01-27 23:01:22 [core.py:866]   File "/root/vllmbench/vllm/v1/engine/core.py", line 637, in __init__
+(EngineCore_DP0 pid=2146905) ERROR 01-27 23:01:22 [core.py:866]     super().__init__(
+(EngineCore_DP0 pid=2146905) ERROR 01-27 23:01:22 [core.py:866]   File "/root/vllmbench/vllm/v1/engine/core.py", line 102, in __init__
+(EngineCore_DP0 pid=2146905) ERROR 01-27 23:01:22 [core.py:866]     self.model_executor = executor_class(vllm_config)
+(EngineCore_DP0 pid=2146905) ERROR 01-27 23:01:22 [core.py:866]                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=2146905) ERROR 01-27 23:01:22 [core.py:866]   File "/root/vllmbench/vllm/v1/executor/abstract.py", line 101, in __init__
+(EngineCore_DP0 pid=2146905) ERROR 01-27 23:01:22 [core.py:866]     self._init_executor()
+(EngineCore_DP0 pid=2146905) ERROR 01-27 23:01:22 [core.py:866]   File "/root/vllmbench/vllm/v1/executor/uniproc_executor.py", line 48, in _init_executor
+(EngineCore_DP0 pid=2146905) ERROR 01-27 23:01:22 [core.py:866]     self.driver_worker.load_model()
+(EngineCore_DP0 pid=2146905) ERROR 01-27 23:01:22 [core.py:866]   File "/root/vllmbench/vllm/v1/worker/gpu_worker.py", line 289, in load_model
+(EngineCore_DP0 pid=2146905) ERROR 01-27 23:01:22 [core.py:866]     self.model_runner.load_model(eep_scale_up=eep_scale_up)
+(EngineCore_DP0 pid=2146905) ERROR 01-27 23:01:22 [core.py:866]   File "/root/vllmbench/vllm/v1/worker/gpu_model_runner.py", line 3581, in load_model
+(EngineCore_DP0 pid=2146905) ERROR 01-27 23:01:22 [core.py:866]     self.model = model_loader.load_model(
+(EngineCore_DP0 pid=2146905) ERROR 01-27 23:01:22 [core.py:866]                  ^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=2146905) ERROR 01-27 23:01:22 [core.py:866]   File "/root/vllmbench/vllm/model_executor/model_loader/base_loader.py", line 55, in load_model
+(EngineCore_DP0 pid=2146905) ERROR 01-27 23:01:22 [core.py:866]     self.load_weights(model, model_config)
+(EngineCore_DP0 pid=2146905) ERROR 01-27 23:01:22 [core.py:866]   File "/root/vllmbench/vllm/model_executor/model_loader/default_loader.py", line 305, in load_weights
+(EngineCore_DP0 pid=2146905) ERROR 01-27 23:01:22 [core.py:866]     loaded_weights = model.load_weights(self.get_all_weights(model_config, model))
+(EngineCore_DP0 pid=2146905) ERROR 01-27 23:01:22 [core.py:866]                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=2146905) ERROR 01-27 23:01:22 [core.py:866]   File "/root/vllmbench/vllm/model_executor/models/llama.py", line 640, in load_weights
+(EngineCore_DP0 pid=2146905) ERROR 01-27 23:01:22 [core.py:866]     return loader.load_weights(
+(EngineCore_DP0 pid=2146905) ERROR 01-27 23:01:22 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=2146905) ERROR 01-27 23:01:22 [core.py:866]   File "/root/vllmbench/vllm/model_executor/model_loader/online_quantization.py", line 173, in patched_model_load_weights
+(EngineCore_DP0 pid=2146905) ERROR 01-27 23:01:22 [core.py:866]     return original_load_weights(auto_weight_loader, weights, mapper=mapper)
+(EngineCore_DP0 pid=2146905) ERROR 01-27 23:01:22 [core.py:866]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=2146905) ERROR 01-27 23:01:22 [core.py:866]   File "/root/vllmbench/vllm/model_executor/models/utils.py", line 335, in load_weights
+(EngineCore_DP0 pid=2146905) ERROR 01-27 23:01:22 [core.py:866]     autoloaded_weights = set(self._load_module("", self.module, weights))
+(EngineCore_DP0 pid=2146905) ERROR 01-27 23:01:22 [core.py:866]                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=2146905) ERROR 01-27 23:01:22 [core.py:866]   File "/root/vllmbench/vllm/model_executor/models/utils.py", line 288, in _load_module
+(EngineCore_DP0 pid=2146905) ERROR 01-27 23:01:22 [core.py:866]     yield from self._load_module(
+(EngineCore_DP0 pid=2146905) ERROR 01-27 23:01:22 [core.py:866]   File "/root/vllmbench/vllm/model_executor/models/utils.py", line 261, in _load_module
+(EngineCore_DP0 pid=2146905) ERROR 01-27 23:01:22 [core.py:866]     loaded_params = module_load_weights(weights)
+(EngineCore_DP0 pid=2146905) ERROR 01-27 23:01:22 [core.py:866]                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=2146905) ERROR 01-27 23:01:22 [core.py:866]   File "/root/vllmbench/vllm/model_executor/models/llama.py", line 507, in load_weights
+(EngineCore_DP0 pid=2146905) ERROR 01-27 23:01:22 [core.py:866]     param = params_dict[name]
+(EngineCore_DP0 pid=2146905) ERROR 01-27 23:01:22 [core.py:866]             ~~~~~~~~~~~^^^^^^
+(EngineCore_DP0 pid=2146905) ERROR 01-27 23:01:22 [core.py:866] KeyError: 'layers.0.mlp.ffn_sub_norm.weight'
+
+STDERR:
+[2026-01-27 23:01:13] INFO kernels.py:578: Triton kernel custom ops registered
+[2026-01-27 23:01:13] INFO kernels.py:627: Optimization enabled: Only preloading kernels for model 'BitNet-2B-INT8'
+[2026-01-27 23:01:13] INFO kernels.py:109: Loaded tuned kernel for model: BitNet-2B-INT8
+[2026-01-27 23:01:13] INFO kernels.py:155: Dequant+bias kernel loaded for model: BitNet-2B-INT8
+[2026-01-27 23:01:13] INFO kernels.py:224: FP8 quant kernel loaded for model: BitNet-2B-INT8
+[2026-01-27 23:01:13] INFO kernels.py:348: INT8 quant kernel loaded for model: BitNet-2B-INT8
+[2026-01-27 23:01:13] INFO kernels.py:284: FP8 quant+slide kernel loaded for model: BitNet-2B-INT8
+[2026-01-27 23:01:13] INFO kernels.py:408: INT8 quant+slide kernel loaded for model: BitNet-2B-INT8
+[2026-01-27 23:01:13] INFO gemm_wrapper.py:157: Optimization enabled: Only loading GEMM configs for model 'BitNet-2B-INT8'
+[2026-01-27 23:01:13] INFO gemm_wrapper.py:172: Loaded algorithm configs: cuBLASLt=1, cuSPARSELt=1 models
+[2026-01-27 23:01:13] INFO gemm_wrapper.py:944: cuBLASLt FP8 custom op registered: slidesparse::cublaslt_fp8_mm
+[2026-01-27 23:01:13] INFO gemm_wrapper.py:1009: cuSPARSELt FP8 custom op registered: slidesparse::cusparselt_fp8_mm
+[2026-01-27 23:01:13] INFO gemm_wrapper.py:1075: cuBLASLt INT8 custom op registered: slidesparse::cublaslt_int8_mm
+[2026-01-27 23:01:13] INFO gemm_wrapper.py:1141: cuSPARSELt INT8 custom op registered: slidesparse::cusparselt_int8_mm
+[2026-01-27 23:01:20] INFO kernels.py:578: Triton kernel custom ops registered
+[2026-01-27 23:01:20] INFO kernels.py:627: Optimization enabled: Only preloading kernels for model 'BitNet-2B-INT8'
+[2026-01-27 23:01:20] INFO kernels.py:109: Loaded tuned kernel for model: BitNet-2B-INT8
+[2026-01-27 23:01:20] INFO kernels.py:155: Dequant+bias kernel loaded for model: BitNet-2B-INT8
+[2026-01-27 23:01:20] INFO kernels.py:224: FP8 quant kernel loaded for model: BitNet-2B-INT8
+[2026-01-27 23:01:20] INFO kernels.py:348: INT8 quant kernel loaded for model: BitNet-2B-INT8
+[2026-01-27 23:01:20] INFO kernels.py:284: FP8 quant+slide kernel loaded for model: BitNet-2B-INT8
+[2026-01-27 23:01:20] INFO kernels.py:408: INT8 quant+slide kernel loaded for model: BitNet-2B-INT8
+[2026-01-27 23:01:20] INFO gemm_wrapper.py:157: Optimization enabled: Only loading GEMM configs for model 'BitNet-2B-INT8'
+[2026-01-27 23:01:20] INFO gemm_wrapper.py:172: Loaded algorithm configs: cuBLASLt=1, cuSPARSELt=1 models
+[2026-01-27 23:01:20] INFO gemm_wrapper.py:944: cuBLASLt FP8 custom op registered: slidesparse::cublaslt_fp8_mm
+[2026-01-27 23:01:20] INFO gemm_wrapper.py:1009: cuSPARSELt FP8 custom op registered: slidesparse::cusparselt_fp8_mm
+[2026-01-27 23:01:20] INFO gemm_wrapper.py:1075: cuBLASLt INT8 custom op registered: slidesparse::cublaslt_int8_mm
+[2026-01-27 23:01:20] INFO gemm_wrapper.py:1141: cuSPARSELt INT8 custom op registered: slidesparse::cusparselt_int8_mm
+(EngineCore_DP0 pid=2146905) [2026-01-27 23:01:21] INFO SlideSparseLinearMethod_INT8.py:805: Wrapping CompressedTensorsW8A8Int8 with SlideSparse (cuSPARSELt)
+(EngineCore_DP0 pid=2146905) [2026-01-27 23:01:21] INFO gemm_wrapper.py:870: cusparselt GEMM extension loaded: cusparselt_gemm_A100_cc80_py312_cu129_x86_64.so
+(EngineCore_DP0 pid=2146905) [2026-01-27 23:01:21] INFO SlideSparseLinearMethod_INT8.py:452: SlideSparseInt8LinearOp initialized (kernel=cuSPARSELt)
+(EngineCore_DP0 pid=2146905) [2026-01-27 23:01:21] INFO SlideSparseLinearMethod_INT8.py:604: SlideSparseInt8LinearMethod: cuSPARSELt sparsity=2:4, expand_ratio=2.000
+(EngineCore_DP0 pid=2146905) [2026-01-27 23:01:21] INFO SlideSparseLinearMethod_INT8.py:621: Preloaded INT8 Triton kernels for model: BitNet-2B-INT8
+(EngineCore_DP0 pid=2146905) [2026-01-27 23:01:21] INFO SlideSparseLinearMethod_INT8.py:625: SlideSparseInt8LinearMethod initialized, kernel=cuSPARSELt, symmetric=True
+(EngineCore_DP0 pid=2146905) 
+Loading safetensors checkpoint shards:   0% Completed | 0/1 [00:00<?, ?it/s]
+(EngineCore_DP0 pid=2146905) Process EngineCore_DP0:
+(EngineCore_DP0 pid=2146905) Traceback (most recent call last):
+(EngineCore_DP0 pid=2146905)   File "/usr/lib/python3.12/multiprocessing/process.py", line 314, in _bootstrap
+(EngineCore_DP0 pid=2146905)     self.run()
+(EngineCore_DP0 pid=2146905)   File "/usr/lib/python3.12/multiprocessing/process.py", line 108, in run
+(EngineCore_DP0 pid=2146905)     self._target(*self._args, **self._kwargs)
+(EngineCore_DP0 pid=2146905)   File "/root/vllmbench/vllm/v1/engine/core.py", line 870, in run_engine_core
+(EngineCore_DP0 pid=2146905)     raise e
+(EngineCore_DP0 pid=2146905)   File "/root/vllmbench/vllm/v1/engine/core.py", line 857, in run_engine_core
+(EngineCore_DP0 pid=2146905)     engine_core = EngineCoreProc(*args, **kwargs)
+(EngineCore_DP0 pid=2146905)                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=2146905)   File "/root/vllmbench/vllm/v1/engine/core.py", line 637, in __init__
+(EngineCore_DP0 pid=2146905)     super().__init__(
+(EngineCore_DP0 pid=2146905)   File "/root/vllmbench/vllm/v1/engine/core.py", line 102, in __init__
+(EngineCore_DP0 pid=2146905)     self.model_executor = executor_class(vllm_config)
+(EngineCore_DP0 pid=2146905)                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=2146905)   File "/root/vllmbench/vllm/v1/executor/abstract.py", line 101, in __init__
+(EngineCore_DP0 pid=2146905)     self._init_executor()
+(EngineCore_DP0 pid=2146905)   File "/root/vllmbench/vllm/v1/executor/uniproc_executor.py", line 48, in _init_executor
+(EngineCore_DP0 pid=2146905)     self.driver_worker.load_model()
+(EngineCore_DP0 pid=2146905)   File "/root/vllmbench/vllm/v1/worker/gpu_worker.py", line 289, in load_model
+(EngineCore_DP0 pid=2146905)     self.model_runner.load_model(eep_scale_up=eep_scale_up)
+(EngineCore_DP0 pid=2146905)   File "/root/vllmbench/vllm/v1/worker/gpu_model_runner.py", line 3581, in load_model
+(EngineCore_DP0 pid=2146905)     self.model = model_loader.load_model(
+(EngineCore_DP0 pid=2146905)                  ^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=2146905)   File "/root/vllmbench/vllm/model_executor/model_loader/base_loader.py", line 55, in load_model
+(EngineCore_DP0 pid=2146905)     self.load_weights(model, model_config)
+(EngineCore_DP0 pid=2146905)   File "/root/vllmbench/vllm/model_executor/model_loader/default_loader.py", line 305, in load_weights
+(EngineCore_DP0 pid=2146905)     loaded_weights = model.load_weights(self.get_all_weights(model_config, model))
+(EngineCore_DP0 pid=2146905)                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=2146905)   File "/root/vllmbench/vllm/model_executor/models/llama.py", line 640, in load_weights
+(EngineCore_DP0 pid=2146905)     return loader.load_weights(
+(EngineCore_DP0 pid=2146905)            ^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=2146905)   File "/root/vllmbench/vllm/model_executor/model_loader/online_quantization.py", line 173, in patched_model_load_weights
+(EngineCore_DP0 pid=2146905)     return original_load_weights(auto_weight_loader, weights, mapper=mapper)
+(EngineCore_DP0 pid=2146905)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=2146905)   File "/root/vllmbench/vllm/model_executor/models/utils.py", line 335, in load_weights
+(EngineCore_DP0 pid=2146905)     autoloaded_weights = set(self._load_module("", self.module, weights))
+(EngineCore_DP0 pid=2146905)                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=2146905)   File "/root/vllmbench/vllm/model_executor/models/utils.py", line 288, in _load_module
+(EngineCore_DP0 pid=2146905)     yield from self._load_module(
+(EngineCore_DP0 pid=2146905)   File "/root/vllmbench/vllm/model_executor/models/utils.py", line 261, in _load_module
+(EngineCore_DP0 pid=2146905)     loaded_params = module_load_weights(weights)
+(EngineCore_DP0 pid=2146905)                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+(EngineCore_DP0 pid=2146905)   File "/root/vllmbench/vllm/model_executor/models/llama.py", line 507, in load_weights
+(EngineCore_DP0 pid=2146905)     param = params_dict[name]
+(EngineCore_DP0 pid=2146905)             ~~~~~~~~~~~^^^^^^
+(EngineCore_DP0 pid=2146905) KeyError: 'layers.0.mlp.ffn_sub_norm.weight'
+(EngineCore_DP0 pid=2146905) 
+Loading safetensors checkpoint shards:   0% Completed | 0/1 [00:00<?, ?it/s]
+(EngineCore_DP0 pid=2146905) 
+[rank0]:[W127 23:01:23.887304460 ProcessGroupNCCL.cpp:1524] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+Traceback (most recent call last):
+  File "/usr/local/bin/vllm", line 7, in <module>
+    sys.exit(main())
+             ^^^^^^
+  File "/root/vllmbench/vllm/entrypoints/cli/main.py", line 73, in main
+    args.dispatch_function(args)
+  File "/root/vllmbench/vllm/entrypoints/cli/benchmark/throughput.py", line 21, in cmd
+    main(args)
+  File "/root/vllmbench/vllm/benchmarks/throughput.py", line 730, in main
+    elapsed_time, request_outputs = run_vllm(
+                                    ^^^^^^^^^
+  File "/root/vllmbench/vllm/benchmarks/throughput.py", line 51, in run_vllm
+    llm = LLM(**dataclasses.asdict(engine_args))
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/entrypoints/llm.py", line 351, in __init__
+    self.llm_engine = LLMEngine.from_engine_args(
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/v1/engine/llm_engine.py", line 183, in from_engine_args
+    return cls(
+           ^^^^
+  File "/root/vllmbench/vllm/v1/engine/llm_engine.py", line 109, in __init__
+    self.engine_core = EngineCoreClient.make_client(
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/v1/engine/core_client.py", line 93, in make_client
+    return SyncMPClient(vllm_config, executor_class, log_stats)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/vllmbench/vllm/v1/engine/core_client.py", line 648, in __init__
+    super().__init__(
+  File "/root/vllmbench/vllm/v1/engine/core_client.py", line 477, in __init__
+    with launch_core_engines(vllm_config, executor_class, log_stats) as (
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/contextlib.py", line 144, in __exit__
+    next(self.gen)
+  File "/root/vllmbench/vllm/v1/engine/utils.py", line 903, in launch_core_engines
+    wait_for_engine_startup(
+  File "/root/vllmbench/vllm/v1/engine/utils.py", line 960, in wait_for_engine_startup
+    raise RuntimeError(
+RuntimeError: Engine core initialization failed. See root cause above. Failed core proc(s): {}
+
+ERROR: Test failed for M=256
+
+========== M=512 ==========
+Time: 2026-01-27 23:01:25
+Backend: cuSPARSELt (2:4)
+Checkpoint: /root/vllmbench/checkpoints_slidesparse/BitNet-2B-INT8-SlideSparse-2_4
+Params: prompt_len=16, output_len=256, num_prompts=512, max_num_seqs=512
+Command: vllm bench throughput --model /root/vllmbench/checkpoints_slidesparse/BitNet-2B-INT8-SlideSparse-2_4 --dataset-name random --input-len 16 --output-len 256 --num-prompts 512 --max-num-seqs 512 --max-model-len 272 --max-num-batched-tokens 512 --no-enable-chunked-prefill --gpu-memory-utilization 0.8 --disable-log-stats --output-json /root/vllmbench/slidesparse/tools/throughput_benchmark_results/decode/A100_cc80_INT8_py312_cu129_x86_64/cusparselt/2_4/json/BitNet-2B-INT8_M512.json
+

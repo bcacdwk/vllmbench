@@ -25,8 +25,10 @@ import sys
 from pathlib import Path
 from huggingface_hub import HfApi, create_repo, upload_folder, upload_file
 
-# 路径
-CHECKPOINTS_DIR = Path("/root/vllmbench/checkpoints_slidesparse")
+# 默认路径
+DEFAULT_CHECKPOINTS_DIR = Path("/root/vllmbench/checkpoints_slidesparse")
+CHECKPOINTS_DIR = Path("/root/vllmbench/checkpoints")
+CHECKPOINTS_SLIDESPARSE_DIR = Path("/root/vllmbench/checkpoints_slidesparse")
 
 # README 模板（开源时使用）
 README_TEMPLATE = """---
@@ -91,18 +93,18 @@ If you use these checkpoints, please cite the SlideSparse paper (coming soon).
 """
 
 
-def get_model_dirs(filter_str: str = None):
+def get_model_dirs(base_dir: Path, filter_str: str = None):
     """获取要上传的模型目录"""
-    dirs = sorted([d for d in CHECKPOINTS_DIR.iterdir() if d.is_dir()])
+    dirs = sorted([d for d in base_dir.iterdir() if d.is_dir()])
     if filter_str:
         dirs = [d for d in dirs if filter_str in d.name]
     return dirs
 
 
-def upload_readme(api: HfApi, repo_id: str):
+def upload_readme(api: HfApi, repo_id: str, base_dir: Path):
     """上传 README.md"""
     readme_content = README_TEMPLATE.format(repo_id=repo_id)
-    readme_path = CHECKPOINTS_DIR / "README.md"
+    readme_path = base_dir / "README.md"
     
     with open(readme_path, 'w') as f:
         f.write(readme_content)
@@ -128,6 +130,10 @@ def main():
                         help="HF 仓库名，格式: USERNAME/repo-name")
     parser.add_argument("--filter", type=str, default=None,
                         help="过滤模型名（可选）")
+    parser.add_argument("--dir", type=str, default=None,
+                        help="指定 checkpoints 目录（默认: checkpoints_slidesparse）")
+    parser.add_argument("--include-base", action="store_true",
+                        help="同时包含 checkpoints/ 下的基础模型")
     parser.add_argument("--public", action="store_true", default=False,
                         help="创建公开仓库（默认私有）")
     parser.add_argument("--dry-run", action="store_true",
@@ -139,6 +145,14 @@ def main():
     api = HfApi()
     is_private = not args.public
     
+    # 确定要扫描的目录
+    if args.dir:
+        base_dirs = [Path(args.dir)]
+    else:
+        base_dirs = [CHECKPOINTS_SLIDESPARSE_DIR]
+        if args.include_base:
+            base_dirs.insert(0, CHECKPOINTS_DIR)
+    
     # 检查登录状态
     try:
         user_info = api.whoami()
@@ -147,8 +161,14 @@ def main():
         print(f"✗ 未登录，请先运行: huggingface-cli login")
         return 1
     
-    # 获取要上传的目录
-    model_dirs = get_model_dirs(args.filter)
+    # 获取要上传的目录（从所有 base_dirs 收集）
+    model_dirs = []
+    for base_dir in base_dirs:
+        if base_dir.exists():
+            model_dirs.extend(get_model_dirs(base_dir, args.filter))
+    
+    # 去重并排序
+    model_dirs = sorted(set(model_dirs), key=lambda x: x.name)
     
     if not model_dirs:
         print("✗ 没有找到要上传的模型目录")
@@ -178,7 +198,7 @@ def main():
     
     # 上传 README
     if not args.skip_readme:
-        upload_readme(api, args.repo)
+        upload_readme(api, args.repo, base_dirs[0])
     
     # 上传每个模型目录
     print(f"\n开始上传模型...")
