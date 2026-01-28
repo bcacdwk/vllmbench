@@ -1,0 +1,1675 @@
+======================================================================
+SlideSparse Kernel Benchmark Log
+Started: 2026-01-27 10:56:08
+======================================================================
+
+Hardware:
+  GPU: NVIDIA GeForce RTX 4090 (cc89)
+  Python: py312
+  CUDA: cu129
+  Arch: x86_64
+
+[INFO] 日志文件: /root/vllmbench/slidesparse/benchmark_kernel/kernel_bench_logs/kernel_bench_20260127_105608.log
+
+======================================================================
+TASK 1: cuBLASLt Model 测试
+Started: 2026-01-27 10:56:08
+======================================================================
+
+
+------------------------------------------------------------
+  cuBLASLt Model: Llama3.2-1B-INT8
+------------------------------------------------------------
+[INFO] 执行: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/benchmark_entry.py --dtype all --warmup 25 --repeat 50 --m_list 64,128,256,512,1024,2048,4096,8192,16384,32768,65536 --backend cublaslt --model Llama3.2-1B-INT8
+
+============================================================
+cuBLASLt Dense GEMM 算法搜索
+============================================================
+GPU: NVIDIA GeForce RTX 4090 (cc89)
+Mode: MODEL
+Model: Llama3.2-1B-INT8
+dtype: fp16 -> fp16 (same input/output)
+warmup=25, repeat=50
+
+[1/4] 编译 CUDA 扩展...
+🔨 Building cublaslt_gemm_RTX4090_cc89_py312_cu129_x86_64...
+Command: /usr/local/cuda/bin/nvcc -std=c++17 -O3 -Xcompiler -fPIC --shared -gencode=arch=compute_80,code=sm_80 -gencode=arch=compute_86,code=sm_86 -gencode=arch=compute_89,code=sm_89 -gencode=arch=compute_90,code=sm_90 -gencode=arch=compute_100,code=sm_100 -gencode=arch=compute_120,code=sm_120 -gencode=arch=compute_121,code=sm_121 -I /usr/local/cuda/include /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/cublaslt_gemm.cu -L/usr/lib/x86_64-linux-gnu -lcublasLt -lcublas -lcuda -o /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/build/cublaslt_gemm_RTX4090_cc89_py312_cu129_x86_64.so
+✓ Built: cublaslt_gemm_RTX4090_cc89_py312_cu129_x86_64.so
+[2/4] 加载 CUDA 扩展...
+✓ cuBLASLt 可用
+
+[3/4] 开始算法搜索...
+      NK 组合: 4 个, M 列表: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536]
+
+    NK 1/4: (3072, 2048)
+      → 算法数: 8, 有效: 8
+    NK 2/4: (2048, 2048)
+      → 算法数: 8, 有效: 8
+    NK 3/4: (16384, 2048)
+      → 算法数: 8, 有效: 8
+    NK 4/4: (2048, 8192)
+      → 算法数: 8, 有效: 8
+
+    搜索统计: 总计=44, 成功=44, 失败=0, 错误=0
+    成功率: 100.0%
+
+[4/4] 保存结果...
+    CSV: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/FP16/alg_search_Llama3.2-1B-INT8.csv
+    JSON: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/FP16/alg_search_Llama3.2-1B-INT8.json
+
+✓ 完成! 结果已保存到: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/FP16
+============================================================
+[W127 10:57:34.100563776 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+============================================================
+cuBLASLt Dense GEMM 算法搜索
+============================================================
+GPU: NVIDIA GeForce RTX 4090 (cc89)
+Mode: MODEL
+Model: Llama3.2-1B-INT8
+dtype: bf16 -> bf16 (same input/output)
+warmup=25, repeat=50
+
+[1/4] 编译 CUDA 扩展...
+✓ Using existing: cublaslt_gemm_RTX4090_cc89_py312_cu129_x86_64.so
+[2/4] 加载 CUDA 扩展...
+✓ cuBLASLt 可用
+
+[3/4] 开始算法搜索...
+      NK 组合: 4 个, M 列表: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536]
+
+    NK 1/4: (3072, 2048)
+      → 算法数: 8, 有效: 8
+    NK 2/4: (2048, 2048)
+      → 算法数: 8, 有效: 8
+    NK 3/4: (16384, 2048)
+      → 算法数: 8, 有效: 8
+    NK 4/4: (2048, 8192)
+      → 算法数: 8, 有效: 8
+
+    搜索统计: 总计=44, 成功=44, 失败=0, 错误=0
+    成功率: 100.0%
+
+[4/4] 保存结果...
+    CSV: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/BF16/alg_search_Llama3.2-1B-INT8.csv
+    JSON: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/BF16/alg_search_Llama3.2-1B-INT8.json
+
+✓ 完成! 结果已保存到: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/BF16
+============================================================
+[W127 10:58:46.713752239 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+============================================================
+cuBLASLt Dense GEMM 算法搜索
+============================================================
+GPU: NVIDIA GeForce RTX 4090 (cc89)
+Mode: MODEL
+Model: Llama3.2-1B-INT8
+dtype: int8 -> int8 (same input/output)
+warmup=25, repeat=50
+
+[1/4] 编译 CUDA 扩展...
+✓ Using existing: cublaslt_gemm_RTX4090_cc89_py312_cu129_x86_64.so
+[2/4] 加载 CUDA 扩展...
+✓ cuBLASLt 可用
+
+[3/4] 开始算法搜索...
+      NK 组合: 4 个, M 列表: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536]
+
+    NK 1/4: (3072, 2048)
+      → 算法数: 2, 有效: 2
+    NK 2/4: (2048, 2048)
+      → 算法数: 2, 有效: 2
+    NK 3/4: (16384, 2048)
+      → 算法数: 2, 有效: 2
+    NK 4/4: (2048, 8192)
+      → 算法数: 2, 有效: 2
+
+    搜索统计: 总计=44, 成功=44, 失败=0, 错误=0
+    成功率: 100.0%
+
+[4/4] 保存结果...
+    CSV: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/INT8/alg_search_Llama3.2-1B-INT8.csv
+    JSON: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/INT8/alg_search_Llama3.2-1B-INT8.json
+
+✓ 完成! 结果已保存到: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/INT8
+============================================================
+[W127 10:58:58.110816924 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+============================================================
+cuBLASLt Dense GEMM 算法搜索
+============================================================
+GPU: NVIDIA GeForce RTX 4090 (cc89)
+Mode: MODEL
+Model: Llama3.2-1B-INT8
+dtype: fp8e4m3 -> fp8e4m3 (same input/output)
+warmup=25, repeat=50
+
+[1/4] 编译 CUDA 扩展...
+✓ Using existing: cublaslt_gemm_RTX4090_cc89_py312_cu129_x86_64.so
+[2/4] 加载 CUDA 扩展...
+✓ cuBLASLt 可用
+
+[3/4] 开始算法搜索...
+      NK 组合: 4 个, M 列表: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536]
+
+    NK 1/4: (3072, 2048)
+      → 算法数: 8, 有效: 8
+    NK 2/4: (2048, 2048)
+      → 算法数: 8, 有效: 8
+    NK 3/4: (16384, 2048)
+      → 算法数: 8, 有效: 8
+    NK 4/4: (2048, 8192)
+      → 算法数: 8, 有效: 8
+
+    搜索统计: 总计=44, 成功=44, 失败=0, 错误=0
+    成功率: 100.0%
+
+[4/4] 保存结果...
+    CSV: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/FP8/alg_search_Llama3.2-1B-INT8.csv
+    JSON: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/FP8/alg_search_Llama3.2-1B-INT8.json
+
+✓ 完成! 结果已保存到: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/FP8
+============================================================
+[W127 10:59:50.338096128 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+[INFO] dtype=all, 将测试: ['fp16', 'bf16', 'int8', 'fp8e4m3']
+============================================================
+SlideSparse Kernel Benchmark
+============================================================
+GPU: NVIDIA GeForce RTX 4090 (cc89)
+Mode: MODEL
+Model: Llama3.2-1B-INT8
+M_list: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536]
+dtype: ['fp16', 'bf16', 'int8', 'fp8e4m3']
+Backend: cublaslt
+warmup=25, repeat=50
+============================================================
+
+============================================================
+Benchmark dtype=FP16
+============================================================
+
+[fp16] Running cuBLASLt Dense GEMM Search
+[cuBLASLt] Running: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search.py --dtype fp16 --model Llama3.2-1B-INT8 --warmup 25 --repeat 50 --out_dir /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results --m_list 64,128,256,512,1024,2048,4096,8192,16384,32768,65536
+
+============================================================
+Benchmark dtype=BF16
+============================================================
+
+[bf16] Running cuBLASLt Dense GEMM Search
+[cuBLASLt] Running: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search.py --dtype bf16 --model Llama3.2-1B-INT8 --warmup 25 --repeat 50 --out_dir /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results --m_list 64,128,256,512,1024,2048,4096,8192,16384,32768,65536
+
+============================================================
+Benchmark dtype=INT8
+============================================================
+
+[int8] Running cuBLASLt Dense GEMM Search
+[cuBLASLt] Running: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search.py --dtype int8 --model Llama3.2-1B-INT8 --warmup 25 --repeat 50 --out_dir /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results --m_list 64,128,256,512,1024,2048,4096,8192,16384,32768,65536
+
+============================================================
+Benchmark dtype=FP8E4M3
+============================================================
+
+[fp8e4m3] Running cuBLASLt Dense GEMM Search
+[cuBLASLt] Running: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search.py --dtype fp8e4m3 --model Llama3.2-1B-INT8 --warmup 25 --repeat 50 --out_dir /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results --m_list 64,128,256,512,1024,2048,4096,8192,16384,32768,65536
+
+============================================================
+Benchmark Complete!
+============================================================
+
+Results saved to:
+  - cuBLASLt:   /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results
+[W127 10:59:51.372451874 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+[SUCCESS] Llama3.2-1B-INT8 完成 (223.6s)
+
+------------------------------------------------------------
+  cuBLASLt Model: Llama3.2-1B-FP8
+------------------------------------------------------------
+[INFO] 执行: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/benchmark_entry.py --dtype all --warmup 25 --repeat 50 --m_list 64,128,256,512,1024,2048,4096,8192,16384,32768,65536 --backend cublaslt --model Llama3.2-1B-FP8
+
+============================================================
+cuBLASLt Dense GEMM 算法搜索
+============================================================
+GPU: NVIDIA GeForce RTX 4090 (cc89)
+Mode: MODEL
+Model: Llama3.2-1B-FP8
+dtype: fp16 -> fp16 (same input/output)
+warmup=25, repeat=50
+
+[1/4] 编译 CUDA 扩展...
+✓ Using existing: cublaslt_gemm_RTX4090_cc89_py312_cu129_x86_64.so
+[2/4] 加载 CUDA 扩展...
+✓ cuBLASLt 可用
+
+[3/4] 开始算法搜索...
+      NK 组合: 4 个, M 列表: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536]
+
+    NK 1/4: (3072, 2048)
+      → 算法数: 8, 有效: 8
+    NK 2/4: (2048, 2048)
+      → 算法数: 8, 有效: 8
+    NK 3/4: (16384, 2048)
+      → 算法数: 8, 有效: 8
+    NK 4/4: (2048, 8192)
+      → 算法数: 8, 有效: 8
+
+    搜索统计: 总计=44, 成功=44, 失败=0, 错误=0
+    成功率: 100.0%
+
+[4/4] 保存结果...
+    CSV: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/FP16/alg_search_Llama3.2-1B-FP8.csv
+    JSON: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/FP16/alg_search_Llama3.2-1B-FP8.json
+
+✓ 完成! 结果已保存到: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/FP16
+============================================================
+[W127 11:01:07.559552600 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+============================================================
+cuBLASLt Dense GEMM 算法搜索
+============================================================
+GPU: NVIDIA GeForce RTX 4090 (cc89)
+Mode: MODEL
+Model: Llama3.2-1B-FP8
+dtype: bf16 -> bf16 (same input/output)
+warmup=25, repeat=50
+
+[1/4] 编译 CUDA 扩展...
+✓ Using existing: cublaslt_gemm_RTX4090_cc89_py312_cu129_x86_64.so
+[2/4] 加载 CUDA 扩展...
+✓ cuBLASLt 可用
+
+[3/4] 开始算法搜索...
+      NK 组合: 4 个, M 列表: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536]
+
+    NK 1/4: (3072, 2048)
+      → 算法数: 8, 有效: 8
+    NK 2/4: (2048, 2048)
+      → 算法数: 8, 有效: 8
+    NK 3/4: (16384, 2048)
+      → 算法数: 8, 有效: 8
+    NK 4/4: (2048, 8192)
+      → 算法数: 8, 有效: 8
+
+    搜索统计: 总计=44, 成功=44, 失败=0, 错误=0
+    成功率: 100.0%
+
+[4/4] 保存结果...
+    CSV: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/BF16/alg_search_Llama3.2-1B-FP8.csv
+    JSON: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/BF16/alg_search_Llama3.2-1B-FP8.json
+
+✓ 完成! 结果已保存到: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/BF16
+============================================================
+[W127 11:02:18.849316051 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+============================================================
+cuBLASLt Dense GEMM 算法搜索
+============================================================
+GPU: NVIDIA GeForce RTX 4090 (cc89)
+Mode: MODEL
+Model: Llama3.2-1B-FP8
+dtype: int8 -> int8 (same input/output)
+warmup=25, repeat=50
+
+[1/4] 编译 CUDA 扩展...
+✓ Using existing: cublaslt_gemm_RTX4090_cc89_py312_cu129_x86_64.so
+[2/4] 加载 CUDA 扩展...
+✓ cuBLASLt 可用
+
+[3/4] 开始算法搜索...
+      NK 组合: 4 个, M 列表: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536]
+
+    NK 1/4: (3072, 2048)
+      → 算法数: 2, 有效: 2
+    NK 2/4: (2048, 2048)
+      → 算法数: 2, 有效: 2
+    NK 3/4: (16384, 2048)
+      → 算法数: 2, 有效: 2
+    NK 4/4: (2048, 8192)
+      → 算法数: 2, 有效: 2
+
+    搜索统计: 总计=44, 成功=44, 失败=0, 错误=0
+    成功率: 100.0%
+
+[4/4] 保存结果...
+    CSV: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/INT8/alg_search_Llama3.2-1B-FP8.csv
+    JSON: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/INT8/alg_search_Llama3.2-1B-FP8.json
+
+✓ 完成! 结果已保存到: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/INT8
+============================================================
+[W127 11:02:31.892379377 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+============================================================
+cuBLASLt Dense GEMM 算法搜索
+============================================================
+GPU: NVIDIA GeForce RTX 4090 (cc89)
+Mode: MODEL
+Model: Llama3.2-1B-FP8
+dtype: fp8e4m3 -> fp8e4m3 (same input/output)
+warmup=25, repeat=50
+
+[1/4] 编译 CUDA 扩展...
+✓ Using existing: cublaslt_gemm_RTX4090_cc89_py312_cu129_x86_64.so
+[2/4] 加载 CUDA 扩展...
+✓ cuBLASLt 可用
+
+[3/4] 开始算法搜索...
+      NK 组合: 4 个, M 列表: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536]
+
+    NK 1/4: (3072, 2048)
+      → 算法数: 8, 有效: 8
+    NK 2/4: (2048, 2048)
+      → 算法数: 8, 有效: 8
+    NK 3/4: (16384, 2048)
+      → 算法数: 8, 有效: 8
+    NK 4/4: (2048, 8192)
+      → 算法数: 8, 有效: 8
+
+    搜索统计: 总计=44, 成功=44, 失败=0, 错误=0
+    成功率: 100.0%
+
+[4/4] 保存结果...
+    CSV: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/FP8/alg_search_Llama3.2-1B-FP8.csv
+    JSON: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/FP8/alg_search_Llama3.2-1B-FP8.json
+
+✓ 完成! 结果已保存到: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/FP8
+============================================================
+[W127 11:03:22.989762038 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+[INFO] dtype=all, 将测试: ['fp16', 'bf16', 'int8', 'fp8e4m3']
+============================================================
+SlideSparse Kernel Benchmark
+============================================================
+GPU: NVIDIA GeForce RTX 4090 (cc89)
+Mode: MODEL
+Model: Llama3.2-1B-FP8
+M_list: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536]
+dtype: ['fp16', 'bf16', 'int8', 'fp8e4m3']
+Backend: cublaslt
+warmup=25, repeat=50
+============================================================
+
+============================================================
+Benchmark dtype=FP16
+============================================================
+
+[fp16] Running cuBLASLt Dense GEMM Search
+[cuBLASLt] Running: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search.py --dtype fp16 --model Llama3.2-1B-FP8 --warmup 25 --repeat 50 --out_dir /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results --m_list 64,128,256,512,1024,2048,4096,8192,16384,32768,65536
+
+============================================================
+Benchmark dtype=BF16
+============================================================
+
+[bf16] Running cuBLASLt Dense GEMM Search
+[cuBLASLt] Running: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search.py --dtype bf16 --model Llama3.2-1B-FP8 --warmup 25 --repeat 50 --out_dir /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results --m_list 64,128,256,512,1024,2048,4096,8192,16384,32768,65536
+
+============================================================
+Benchmark dtype=INT8
+============================================================
+
+[int8] Running cuBLASLt Dense GEMM Search
+[cuBLASLt] Running: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search.py --dtype int8 --model Llama3.2-1B-FP8 --warmup 25 --repeat 50 --out_dir /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results --m_list 64,128,256,512,1024,2048,4096,8192,16384,32768,65536
+
+============================================================
+Benchmark dtype=FP8E4M3
+============================================================
+
+[fp8e4m3] Running cuBLASLt Dense GEMM Search
+[cuBLASLt] Running: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search.py --dtype fp8e4m3 --model Llama3.2-1B-FP8 --warmup 25 --repeat 50 --out_dir /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results --m_list 64,128,256,512,1024,2048,4096,8192,16384,32768,65536
+
+============================================================
+Benchmark Complete!
+============================================================
+
+Results saved to:
+  - cuBLASLt:   /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results
+[W127 11:03:24.104430494 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+[SUCCESS] Llama3.2-1B-FP8 完成 (212.1s)
+
+------------------------------------------------------------
+  cuBLASLt Model: Llama3.2-3B-INT8
+------------------------------------------------------------
+[INFO] 执行: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/benchmark_entry.py --dtype all --warmup 25 --repeat 50 --m_list 64,128,256,512,1024,2048,4096,8192,16384,32768,65536 --backend cublaslt --model Llama3.2-3B-INT8
+
+============================================================
+cuBLASLt Dense GEMM 算法搜索
+============================================================
+GPU: NVIDIA GeForce RTX 4090 (cc89)
+Mode: MODEL
+Model: Llama3.2-3B-INT8
+dtype: fp16 -> fp16 (same input/output)
+warmup=25, repeat=50
+
+[1/4] 编译 CUDA 扩展...
+✓ Using existing: cublaslt_gemm_RTX4090_cc89_py312_cu129_x86_64.so
+[2/4] 加载 CUDA 扩展...
+✓ cuBLASLt 可用
+
+[3/4] 开始算法搜索...
+      NK 组合: 4 个, M 列表: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536]
+
+    NK 1/4: (5120, 3072)
+      → 算法数: 8, 有效: 8
+    NK 2/4: (3072, 3072)
+      → 算法数: 8, 有效: 8
+    NK 3/4: (16384, 3072)
+      → 算法数: 8, 有效: 8
+    NK 4/4: (3072, 8192)
+      → 算法数: 8, 有效: 8
+
+    搜索统计: 总计=44, 成功=44, 失败=0, 错误=0
+    成功率: 100.0%
+
+[4/4] 保存结果...
+    CSV: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/FP16/alg_search_Llama3.2-3B-INT8.csv
+    JSON: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/FP16/alg_search_Llama3.2-3B-INT8.json
+
+✓ 完成! 结果已保存到: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/FP16
+============================================================
+[W127 11:05:24.652460488 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+============================================================
+cuBLASLt Dense GEMM 算法搜索
+============================================================
+GPU: NVIDIA GeForce RTX 4090 (cc89)
+Mode: MODEL
+Model: Llama3.2-3B-INT8
+dtype: bf16 -> bf16 (same input/output)
+warmup=25, repeat=50
+
+[1/4] 编译 CUDA 扩展...
+✓ Using existing: cublaslt_gemm_RTX4090_cc89_py312_cu129_x86_64.so
+[2/4] 加载 CUDA 扩展...
+✓ cuBLASLt 可用
+
+[3/4] 开始算法搜索...
+      NK 组合: 4 个, M 列表: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536]
+
+    NK 1/4: (5120, 3072)
+      → 算法数: 8, 有效: 8
+    NK 2/4: (3072, 3072)
+      → 算法数: 8, 有效: 8
+    NK 3/4: (16384, 3072)
+      → 算法数: 8, 有效: 8
+    NK 4/4: (3072, 8192)
+      → 算法数: 8, 有效: 8
+
+    搜索统计: 总计=44, 成功=44, 失败=0, 错误=0
+    成功率: 100.0%
+
+[4/4] 保存结果...
+    CSV: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/BF16/alg_search_Llama3.2-3B-INT8.csv
+    JSON: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/BF16/alg_search_Llama3.2-3B-INT8.json
+
+✓ 完成! 结果已保存到: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/BF16
+============================================================
+[W127 11:07:24.683301064 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+============================================================
+cuBLASLt Dense GEMM 算法搜索
+============================================================
+GPU: NVIDIA GeForce RTX 4090 (cc89)
+Mode: MODEL
+Model: Llama3.2-3B-INT8
+dtype: int8 -> int8 (same input/output)
+warmup=25, repeat=50
+
+[1/4] 编译 CUDA 扩展...
+✓ Using existing: cublaslt_gemm_RTX4090_cc89_py312_cu129_x86_64.so
+[2/4] 加载 CUDA 扩展...
+✓ cuBLASLt 可用
+
+[3/4] 开始算法搜索...
+      NK 组合: 4 个, M 列表: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536]
+
+    NK 1/4: (5120, 3072)
+      → 算法数: 2, 有效: 2
+    NK 2/4: (3072, 3072)
+      → 算法数: 2, 有效: 2
+    NK 3/4: (16384, 3072)
+      → 算法数: 2, 有效: 2
+    NK 4/4: (3072, 8192)
+      → 算法数: 2, 有效: 2
+
+    搜索统计: 总计=44, 成功=44, 失败=0, 错误=0
+    成功率: 100.0%
+
+[4/4] 保存结果...
+    CSV: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/INT8/alg_search_Llama3.2-3B-INT8.csv
+    JSON: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/INT8/alg_search_Llama3.2-3B-INT8.json
+
+✓ 完成! 结果已保存到: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/INT8
+============================================================
+[W127 11:07:39.019764581 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+============================================================
+cuBLASLt Dense GEMM 算法搜索
+============================================================
+GPU: NVIDIA GeForce RTX 4090 (cc89)
+Mode: MODEL
+Model: Llama3.2-3B-INT8
+dtype: fp8e4m3 -> fp8e4m3 (same input/output)
+warmup=25, repeat=50
+
+[1/4] 编译 CUDA 扩展...
+✓ Using existing: cublaslt_gemm_RTX4090_cc89_py312_cu129_x86_64.so
+[2/4] 加载 CUDA 扩展...
+✓ cuBLASLt 可用
+
+[3/4] 开始算法搜索...
+      NK 组合: 4 个, M 列表: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536]
+
+    NK 1/4: (5120, 3072)
+      → 算法数: 8, 有效: 8
+    NK 2/4: (3072, 3072)
+      → 算法数: 8, 有效: 8
+    NK 3/4: (16384, 3072)
+      → 算法数: 8, 有效: 8
+    NK 4/4: (3072, 8192)
+      → 算法数: 8, 有效: 8
+
+    搜索统计: 总计=44, 成功=44, 失败=0, 错误=0
+    成功率: 100.0%
+
+[4/4] 保存结果...
+    CSV: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/FP8/alg_search_Llama3.2-3B-INT8.csv
+    JSON: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/FP8/alg_search_Llama3.2-3B-INT8.json
+
+✓ 完成! 结果已保存到: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/FP8
+============================================================
+[W127 11:09:04.896527064 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+[INFO] dtype=all, 将测试: ['fp16', 'bf16', 'int8', 'fp8e4m3']
+============================================================
+SlideSparse Kernel Benchmark
+============================================================
+GPU: NVIDIA GeForce RTX 4090 (cc89)
+Mode: MODEL
+Model: Llama3.2-3B-INT8
+M_list: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536]
+dtype: ['fp16', 'bf16', 'int8', 'fp8e4m3']
+Backend: cublaslt
+warmup=25, repeat=50
+============================================================
+
+============================================================
+Benchmark dtype=FP16
+============================================================
+
+[fp16] Running cuBLASLt Dense GEMM Search
+[cuBLASLt] Running: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search.py --dtype fp16 --model Llama3.2-3B-INT8 --warmup 25 --repeat 50 --out_dir /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results --m_list 64,128,256,512,1024,2048,4096,8192,16384,32768,65536
+
+============================================================
+Benchmark dtype=BF16
+============================================================
+
+[bf16] Running cuBLASLt Dense GEMM Search
+[cuBLASLt] Running: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search.py --dtype bf16 --model Llama3.2-3B-INT8 --warmup 25 --repeat 50 --out_dir /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results --m_list 64,128,256,512,1024,2048,4096,8192,16384,32768,65536
+
+============================================================
+Benchmark dtype=INT8
+============================================================
+
+[int8] Running cuBLASLt Dense GEMM Search
+[cuBLASLt] Running: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search.py --dtype int8 --model Llama3.2-3B-INT8 --warmup 25 --repeat 50 --out_dir /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results --m_list 64,128,256,512,1024,2048,4096,8192,16384,32768,65536
+
+============================================================
+Benchmark dtype=FP8E4M3
+============================================================
+
+[fp8e4m3] Running cuBLASLt Dense GEMM Search
+[cuBLASLt] Running: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search.py --dtype fp8e4m3 --model Llama3.2-3B-INT8 --warmup 25 --repeat 50 --out_dir /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results --m_list 64,128,256,512,1024,2048,4096,8192,16384,32768,65536
+
+============================================================
+Benchmark Complete!
+============================================================
+
+Results saved to:
+  - cuBLASLt:   /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results
+[W127 11:09:05.918342977 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+[SUCCESS] Llama3.2-3B-INT8 完成 (341.8s)
+
+------------------------------------------------------------
+  cuBLASLt Model: Llama3.2-3B-FP8
+------------------------------------------------------------
+[INFO] 执行: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/benchmark_entry.py --dtype all --warmup 25 --repeat 50 --m_list 64,128,256,512,1024,2048,4096,8192,16384,32768,65536 --backend cublaslt --model Llama3.2-3B-FP8
+
+============================================================
+cuBLASLt Dense GEMM 算法搜索
+============================================================
+GPU: NVIDIA GeForce RTX 4090 (cc89)
+Mode: MODEL
+Model: Llama3.2-3B-FP8
+dtype: fp16 -> fp16 (same input/output)
+warmup=25, repeat=50
+
+[1/4] 编译 CUDA 扩展...
+✓ Using existing: cublaslt_gemm_RTX4090_cc89_py312_cu129_x86_64.so
+[2/4] 加载 CUDA 扩展...
+✓ cuBLASLt 可用
+
+[3/4] 开始算法搜索...
+      NK 组合: 4 个, M 列表: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536]
+
+    NK 1/4: (5120, 3072)
+      → 算法数: 8, 有效: 8
+    NK 2/4: (3072, 3072)
+      → 算法数: 8, 有效: 8
+    NK 3/4: (16384, 3072)
+      → 算法数: 8, 有效: 8
+    NK 4/4: (3072, 8192)
+      → 算法数: 8, 有效: 8
+
+    搜索统计: 总计=44, 成功=44, 失败=0, 错误=0
+    成功率: 100.0%
+
+[4/4] 保存结果...
+    CSV: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/FP16/alg_search_Llama3.2-3B-FP8.csv
+    JSON: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/FP16/alg_search_Llama3.2-3B-FP8.json
+
+✓ 完成! 结果已保存到: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/FP16
+============================================================
+[W127 11:11:05.449593270 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+============================================================
+cuBLASLt Dense GEMM 算法搜索
+============================================================
+GPU: NVIDIA GeForce RTX 4090 (cc89)
+Mode: MODEL
+Model: Llama3.2-3B-FP8
+dtype: bf16 -> bf16 (same input/output)
+warmup=25, repeat=50
+
+[1/4] 编译 CUDA 扩展...
+✓ Using existing: cublaslt_gemm_RTX4090_cc89_py312_cu129_x86_64.so
+[2/4] 加载 CUDA 扩展...
+✓ cuBLASLt 可用
+
+[3/4] 开始算法搜索...
+      NK 组合: 4 个, M 列表: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536]
+
+    NK 1/4: (5120, 3072)
+      → 算法数: 8, 有效: 8
+    NK 2/4: (3072, 3072)
+      → 算法数: 8, 有效: 8
+    NK 3/4: (16384, 3072)
+      → 算法数: 8, 有效: 8
+    NK 4/4: (3072, 8192)
+      → 算法数: 8, 有效: 8
+
+    搜索统计: 总计=44, 成功=44, 失败=0, 错误=0
+    成功率: 100.0%
+
+[4/4] 保存结果...
+    CSV: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/BF16/alg_search_Llama3.2-3B-FP8.csv
+    JSON: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/BF16/alg_search_Llama3.2-3B-FP8.json
+
+✓ 完成! 结果已保存到: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/BF16
+============================================================
+[W127 11:13:05.028100626 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+============================================================
+cuBLASLt Dense GEMM 算法搜索
+============================================================
+GPU: NVIDIA GeForce RTX 4090 (cc89)
+Mode: MODEL
+Model: Llama3.2-3B-FP8
+dtype: int8 -> int8 (same input/output)
+warmup=25, repeat=50
+
+[1/4] 编译 CUDA 扩展...
+✓ Using existing: cublaslt_gemm_RTX4090_cc89_py312_cu129_x86_64.so
+[2/4] 加载 CUDA 扩展...
+✓ cuBLASLt 可用
+
+[3/4] 开始算法搜索...
+      NK 组合: 4 个, M 列表: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536]
+
+    NK 1/4: (5120, 3072)
+      → 算法数: 2, 有效: 2
+    NK 2/4: (3072, 3072)
+      → 算法数: 2, 有效: 2
+    NK 3/4: (16384, 3072)
+      → 算法数: 2, 有效: 2
+    NK 4/4: (3072, 8192)
+      → 算法数: 2, 有效: 2
+
+    搜索统计: 总计=44, 成功=44, 失败=0, 错误=0
+    成功率: 100.0%
+
+[4/4] 保存结果...
+    CSV: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/INT8/alg_search_Llama3.2-3B-FP8.csv
+    JSON: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/INT8/alg_search_Llama3.2-3B-FP8.json
+
+✓ 完成! 结果已保存到: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/INT8
+============================================================
+[W127 11:13:20.723363321 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+============================================================
+cuBLASLt Dense GEMM 算法搜索
+============================================================
+GPU: NVIDIA GeForce RTX 4090 (cc89)
+Mode: MODEL
+Model: Llama3.2-3B-FP8
+dtype: fp8e4m3 -> fp8e4m3 (same input/output)
+warmup=25, repeat=50
+
+[1/4] 编译 CUDA 扩展...
+✓ Using existing: cublaslt_gemm_RTX4090_cc89_py312_cu129_x86_64.so
+[2/4] 加载 CUDA 扩展...
+✓ cuBLASLt 可用
+
+[3/4] 开始算法搜索...
+      NK 组合: 4 个, M 列表: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536]
+
+    NK 1/4: (5120, 3072)
+      → 算法数: 8, 有效: 8
+    NK 2/4: (3072, 3072)
+      → 算法数: 8, 有效: 8
+    NK 3/4: (16384, 3072)
+      → 算法数: 8, 有效: 8
+    NK 4/4: (3072, 8192)
+      → 算法数: 8, 有效: 8
+
+    搜索统计: 总计=44, 成功=44, 失败=0, 错误=0
+    成功率: 100.0%
+
+[4/4] 保存结果...
+    CSV: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/FP8/alg_search_Llama3.2-3B-FP8.csv
+    JSON: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/FP8/alg_search_Llama3.2-3B-FP8.json
+
+✓ 完成! 结果已保存到: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/FP8
+============================================================
+[W127 11:14:45.352159200 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+[INFO] dtype=all, 将测试: ['fp16', 'bf16', 'int8', 'fp8e4m3']
+============================================================
+SlideSparse Kernel Benchmark
+============================================================
+GPU: NVIDIA GeForce RTX 4090 (cc89)
+Mode: MODEL
+Model: Llama3.2-3B-FP8
+M_list: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536]
+dtype: ['fp16', 'bf16', 'int8', 'fp8e4m3']
+Backend: cublaslt
+warmup=25, repeat=50
+============================================================
+
+============================================================
+Benchmark dtype=FP16
+============================================================
+
+[fp16] Running cuBLASLt Dense GEMM Search
+[cuBLASLt] Running: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search.py --dtype fp16 --model Llama3.2-3B-FP8 --warmup 25 --repeat 50 --out_dir /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results --m_list 64,128,256,512,1024,2048,4096,8192,16384,32768,65536
+
+============================================================
+Benchmark dtype=BF16
+============================================================
+
+[bf16] Running cuBLASLt Dense GEMM Search
+[cuBLASLt] Running: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search.py --dtype bf16 --model Llama3.2-3B-FP8 --warmup 25 --repeat 50 --out_dir /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results --m_list 64,128,256,512,1024,2048,4096,8192,16384,32768,65536
+
+============================================================
+Benchmark dtype=INT8
+============================================================
+
+[int8] Running cuBLASLt Dense GEMM Search
+[cuBLASLt] Running: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search.py --dtype int8 --model Llama3.2-3B-FP8 --warmup 25 --repeat 50 --out_dir /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results --m_list 64,128,256,512,1024,2048,4096,8192,16384,32768,65536
+
+============================================================
+Benchmark dtype=FP8E4M3
+============================================================
+
+[fp8e4m3] Running cuBLASLt Dense GEMM Search
+[cuBLASLt] Running: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search.py --dtype fp8e4m3 --model Llama3.2-3B-FP8 --warmup 25 --repeat 50 --out_dir /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results --m_list 64,128,256,512,1024,2048,4096,8192,16384,32768,65536
+
+============================================================
+Benchmark Complete!
+============================================================
+
+Results saved to:
+  - cuBLASLt:   /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results
+[W127 11:14:46.329638480 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+[SUCCESS] Llama3.2-3B-FP8 完成 (340.6s)
+
+------------------------------------------------------------
+  cuBLASLt Model: Qwen2.5-7B-INT8
+------------------------------------------------------------
+[INFO] 执行: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/benchmark_entry.py --dtype all --warmup 25 --repeat 50 --m_list 64,128,256,512,1024,2048,4096,8192,16384,32768,65536 --backend cublaslt --model Qwen2.5-7B-INT8
+
+============================================================
+cuBLASLt Dense GEMM 算法搜索
+============================================================
+GPU: NVIDIA GeForce RTX 4090 (cc89)
+Mode: MODEL
+Model: Qwen2.5-7B-INT8
+dtype: fp16 -> fp16 (same input/output)
+warmup=25, repeat=50
+
+[1/4] 编译 CUDA 扩展...
+✓ Using existing: cublaslt_gemm_RTX4090_cc89_py312_cu129_x86_64.so
+[2/4] 加载 CUDA 扩展...
+✓ cuBLASLt 可用
+
+[3/4] 开始算法搜索...
+      NK 组合: 4 个, M 列表: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536]
+
+    NK 1/4: (4608, 3584)
+      → 算法数: 8, 有效: 8
+    NK 2/4: (3584, 3584)
+      → 算法数: 8, 有效: 8
+    NK 3/4: (37888, 3584)
+      → 算法数: 8, 有效: 8
+    NK 4/4: (3584, 18944)
+      → 算法数: 8, 有效: 8
+
+    搜索统计: 总计=44, 成功=44, 失败=0, 错误=0
+    成功率: 100.0%
+
+[4/4] 保存结果...
+    CSV: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/FP16/alg_search_Qwen2.5-7B-INT8.csv
+    JSON: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/FP16/alg_search_Qwen2.5-7B-INT8.json
+
+✓ 完成! 结果已保存到: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/FP16
+============================================================
+[W127 11:19:46.625378537 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+============================================================
+cuBLASLt Dense GEMM 算法搜索
+============================================================
+GPU: NVIDIA GeForce RTX 4090 (cc89)
+Mode: MODEL
+Model: Qwen2.5-7B-INT8
+dtype: bf16 -> bf16 (same input/output)
+warmup=25, repeat=50
+
+[1/4] 编译 CUDA 扩展...
+✓ Using existing: cublaslt_gemm_RTX4090_cc89_py312_cu129_x86_64.so
+[2/4] 加载 CUDA 扩展...
+✓ cuBLASLt 可用
+
+[3/4] 开始算法搜索...
+      NK 组合: 4 个, M 列表: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536]
+
+    NK 1/4: (4608, 3584)
+      → 算法数: 8, 有效: 8
+    NK 2/4: (3584, 3584)
+      → 算法数: 8, 有效: 8
+    NK 3/4: (37888, 3584)
+      → 算法数: 8, 有效: 8
+    NK 4/4: (3584, 18944)
+      → 算法数: 8, 有效: 8
+
+    搜索统计: 总计=44, 成功=44, 失败=0, 错误=0
+    成功率: 100.0%
+
+[4/4] 保存结果...
+    CSV: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/BF16/alg_search_Qwen2.5-7B-INT8.csv
+    JSON: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/BF16/alg_search_Qwen2.5-7B-INT8.json
+
+✓ 完成! 结果已保存到: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/BF16
+============================================================
+[W127 11:24:30.366022540 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+============================================================
+cuBLASLt Dense GEMM 算法搜索
+============================================================
+GPU: NVIDIA GeForce RTX 4090 (cc89)
+Mode: MODEL
+Model: Qwen2.5-7B-INT8
+dtype: int8 -> int8 (same input/output)
+warmup=25, repeat=50
+
+[1/4] 编译 CUDA 扩展...
+✓ Using existing: cublaslt_gemm_RTX4090_cc89_py312_cu129_x86_64.so
+[2/4] 加载 CUDA 扩展...
+✓ cuBLASLt 可用
+
+[3/4] 开始算法搜索...
+      NK 组合: 4 个, M 列表: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536]
+
+    NK 1/4: (4608, 3584)
+      → 算法数: 2, 有效: 2
+    NK 2/4: (3584, 3584)
+      → 算法数: 2, 有效: 2
+    NK 3/4: (37888, 3584)
+      → 算法数: 2, 有效: 2
+    NK 4/4: (3584, 18944)
+      → 算法数: 2, 有效: 2
+
+    搜索统计: 总计=44, 成功=44, 失败=0, 错误=0
+    成功率: 100.0%
+
+[4/4] 保存结果...
+    CSV: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/INT8/alg_search_Qwen2.5-7B-INT8.csv
+    JSON: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/INT8/alg_search_Qwen2.5-7B-INT8.json
+
+✓ 完成! 结果已保存到: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/INT8
+============================================================
+[W127 11:24:57.137962920 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+============================================================
+cuBLASLt Dense GEMM 算法搜索
+============================================================
+GPU: NVIDIA GeForce RTX 4090 (cc89)
+Mode: MODEL
+Model: Qwen2.5-7B-INT8
+dtype: fp8e4m3 -> fp8e4m3 (same input/output)
+warmup=25, repeat=50
+
+[1/4] 编译 CUDA 扩展...
+✓ Using existing: cublaslt_gemm_RTX4090_cc89_py312_cu129_x86_64.so
+[2/4] 加载 CUDA 扩展...
+✓ cuBLASLt 可用
+
+[3/4] 开始算法搜索...
+      NK 组合: 4 个, M 列表: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536]
+
+    NK 1/4: (4608, 3584)
+      → 算法数: 8, 有效: 8
+    NK 2/4: (3584, 3584)
+      → 算法数: 8, 有效: 8
+    NK 3/4: (37888, 3584)
+      → 算法数: 8, 有效: 8
+    NK 4/4: (3584, 18944)
+      → 算法数: 8, 有效: 8
+
+    搜索统计: 总计=44, 成功=44, 失败=0, 错误=0
+    成功率: 100.0%
+
+[4/4] 保存结果...
+    CSV: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/FP8/alg_search_Qwen2.5-7B-INT8.csv
+    JSON: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/FP8/alg_search_Qwen2.5-7B-INT8.json
+
+✓ 完成! 结果已保存到: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/FP8
+============================================================
+[W127 11:28:03.899566927 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+[INFO] dtype=all, 将测试: ['fp16', 'bf16', 'int8', 'fp8e4m3']
+============================================================
+SlideSparse Kernel Benchmark
+============================================================
+GPU: NVIDIA GeForce RTX 4090 (cc89)
+Mode: MODEL
+Model: Qwen2.5-7B-INT8
+M_list: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536]
+dtype: ['fp16', 'bf16', 'int8', 'fp8e4m3']
+Backend: cublaslt
+warmup=25, repeat=50
+============================================================
+
+============================================================
+Benchmark dtype=FP16
+============================================================
+
+[fp16] Running cuBLASLt Dense GEMM Search
+[cuBLASLt] Running: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search.py --dtype fp16 --model Qwen2.5-7B-INT8 --warmup 25 --repeat 50 --out_dir /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results --m_list 64,128,256,512,1024,2048,4096,8192,16384,32768,65536
+
+============================================================
+Benchmark dtype=BF16
+============================================================
+
+[bf16] Running cuBLASLt Dense GEMM Search
+[cuBLASLt] Running: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search.py --dtype bf16 --model Qwen2.5-7B-INT8 --warmup 25 --repeat 50 --out_dir /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results --m_list 64,128,256,512,1024,2048,4096,8192,16384,32768,65536
+
+============================================================
+Benchmark dtype=INT8
+============================================================
+
+[int8] Running cuBLASLt Dense GEMM Search
+[cuBLASLt] Running: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search.py --dtype int8 --model Qwen2.5-7B-INT8 --warmup 25 --repeat 50 --out_dir /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results --m_list 64,128,256,512,1024,2048,4096,8192,16384,32768,65536
+
+============================================================
+Benchmark dtype=FP8E4M3
+============================================================
+
+[fp8e4m3] Running cuBLASLt Dense GEMM Search
+[cuBLASLt] Running: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search.py --dtype fp8e4m3 --model Qwen2.5-7B-INT8 --warmup 25 --repeat 50 --out_dir /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results --m_list 64,128,256,512,1024,2048,4096,8192,16384,32768,65536
+
+============================================================
+Benchmark Complete!
+============================================================
+
+Results saved to:
+  - cuBLASLt:   /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results
+[W127 11:28:04.968443668 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+[SUCCESS] Qwen2.5-7B-INT8 完成 (798.1s)
+
+------------------------------------------------------------
+  cuBLASLt Model: Qwen2.5-7B-FP8
+------------------------------------------------------------
+[INFO] 执行: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/benchmark_entry.py --dtype all --warmup 25 --repeat 50 --m_list 64,128,256,512,1024,2048,4096,8192,16384,32768,65536 --backend cublaslt --model Qwen2.5-7B-FP8
+
+============================================================
+cuBLASLt Dense GEMM 算法搜索
+============================================================
+GPU: NVIDIA GeForce RTX 4090 (cc89)
+Mode: MODEL
+Model: Qwen2.5-7B-FP8
+dtype: fp16 -> fp16 (same input/output)
+warmup=25, repeat=50
+
+[1/4] 编译 CUDA 扩展...
+✓ Using existing: cublaslt_gemm_RTX4090_cc89_py312_cu129_x86_64.so
+[2/4] 加载 CUDA 扩展...
+✓ cuBLASLt 可用
+
+[3/4] 开始算法搜索...
+      NK 组合: 4 个, M 列表: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536]
+
+    NK 1/4: (4608, 3584)
+      → 算法数: 8, 有效: 8
+    NK 2/4: (3584, 3584)
+      → 算法数: 8, 有效: 8
+    NK 3/4: (37888, 3584)
+      → 算法数: 8, 有效: 8
+    NK 4/4: (3584, 18944)
+      → 算法数: 8, 有效: 8
+
+    搜索统计: 总计=44, 成功=44, 失败=0, 错误=0
+    成功率: 100.0%
+
+[4/4] 保存结果...
+    CSV: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/FP16/alg_search_Qwen2.5-7B-FP8.csv
+    JSON: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/FP16/alg_search_Qwen2.5-7B-FP8.json
+
+✓ 完成! 结果已保存到: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/FP16
+============================================================
+[W127 11:33:05.433747691 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+============================================================
+cuBLASLt Dense GEMM 算法搜索
+============================================================
+GPU: NVIDIA GeForce RTX 4090 (cc89)
+Mode: MODEL
+Model: Qwen2.5-7B-FP8
+dtype: bf16 -> bf16 (same input/output)
+warmup=25, repeat=50
+
+[1/4] 编译 CUDA 扩展...
+✓ Using existing: cublaslt_gemm_RTX4090_cc89_py312_cu129_x86_64.so
+[2/4] 加载 CUDA 扩展...
+✓ cuBLASLt 可用
+
+[3/4] 开始算法搜索...
+      NK 组合: 4 个, M 列表: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536]
+
+    NK 1/4: (4608, 3584)
+      → 算法数: 8, 有效: 8
+    NK 2/4: (3584, 3584)
+      → 算法数: 8, 有效: 8
+    NK 3/4: (37888, 3584)
+      → 算法数: 8, 有效: 8
+    NK 4/4: (3584, 18944)
+      → 算法数: 8, 有效: 8
+
+    搜索统计: 总计=44, 成功=44, 失败=0, 错误=0
+    成功率: 100.0%
+
+[4/4] 保存结果...
+    CSV: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/BF16/alg_search_Qwen2.5-7B-FP8.csv
+    JSON: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/BF16/alg_search_Qwen2.5-7B-FP8.json
+
+✓ 完成! 结果已保存到: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/BF16
+============================================================
+[W127 11:37:48.557288665 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+============================================================
+cuBLASLt Dense GEMM 算法搜索
+============================================================
+GPU: NVIDIA GeForce RTX 4090 (cc89)
+Mode: MODEL
+Model: Qwen2.5-7B-FP8
+dtype: int8 -> int8 (same input/output)
+warmup=25, repeat=50
+
+[1/4] 编译 CUDA 扩展...
+✓ Using existing: cublaslt_gemm_RTX4090_cc89_py312_cu129_x86_64.so
+[2/4] 加载 CUDA 扩展...
+✓ cuBLASLt 可用
+
+[3/4] 开始算法搜索...
+      NK 组合: 4 个, M 列表: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536]
+
+    NK 1/4: (4608, 3584)
+      → 算法数: 2, 有效: 2
+    NK 2/4: (3584, 3584)
+      → 算法数: 2, 有效: 2
+    NK 3/4: (37888, 3584)
+      → 算法数: 2, 有效: 2
+    NK 4/4: (3584, 18944)
+      → 算法数: 2, 有效: 2
+
+    搜索统计: 总计=44, 成功=44, 失败=0, 错误=0
+    成功率: 100.0%
+
+[4/4] 保存结果...
+    CSV: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/INT8/alg_search_Qwen2.5-7B-FP8.csv
+    JSON: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/INT8/alg_search_Qwen2.5-7B-FP8.json
+
+✓ 完成! 结果已保存到: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/INT8
+============================================================
+[W127 11:38:15.138630102 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+============================================================
+cuBLASLt Dense GEMM 算法搜索
+============================================================
+GPU: NVIDIA GeForce RTX 4090 (cc89)
+Mode: MODEL
+Model: Qwen2.5-7B-FP8
+dtype: fp8e4m3 -> fp8e4m3 (same input/output)
+warmup=25, repeat=50
+
+[1/4] 编译 CUDA 扩展...
+✓ Using existing: cublaslt_gemm_RTX4090_cc89_py312_cu129_x86_64.so
+[2/4] 加载 CUDA 扩展...
+✓ cuBLASLt 可用
+
+[3/4] 开始算法搜索...
+      NK 组合: 4 个, M 列表: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536]
+
+    NK 1/4: (4608, 3584)
+      → 算法数: 8, 有效: 8
+    NK 2/4: (3584, 3584)
+      → 算法数: 8, 有效: 8
+    NK 3/4: (37888, 3584)
+      → 算法数: 8, 有效: 8
+    NK 4/4: (3584, 18944)
+      → 算法数: 8, 有效: 8
+
+    搜索统计: 总计=44, 成功=44, 失败=0, 错误=0
+    成功率: 100.0%
+
+[4/4] 保存结果...
+    CSV: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/FP8/alg_search_Qwen2.5-7B-FP8.csv
+    JSON: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/FP8/alg_search_Qwen2.5-7B-FP8.json
+
+✓ 完成! 结果已保存到: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/FP8
+============================================================
+[W127 11:41:21.139332889 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+[INFO] dtype=all, 将测试: ['fp16', 'bf16', 'int8', 'fp8e4m3']
+============================================================
+SlideSparse Kernel Benchmark
+============================================================
+GPU: NVIDIA GeForce RTX 4090 (cc89)
+Mode: MODEL
+Model: Qwen2.5-7B-FP8
+M_list: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536]
+dtype: ['fp16', 'bf16', 'int8', 'fp8e4m3']
+Backend: cublaslt
+warmup=25, repeat=50
+============================================================
+
+============================================================
+Benchmark dtype=FP16
+============================================================
+
+[fp16] Running cuBLASLt Dense GEMM Search
+[cuBLASLt] Running: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search.py --dtype fp16 --model Qwen2.5-7B-FP8 --warmup 25 --repeat 50 --out_dir /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results --m_list 64,128,256,512,1024,2048,4096,8192,16384,32768,65536
+
+============================================================
+Benchmark dtype=BF16
+============================================================
+
+[bf16] Running cuBLASLt Dense GEMM Search
+[cuBLASLt] Running: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search.py --dtype bf16 --model Qwen2.5-7B-FP8 --warmup 25 --repeat 50 --out_dir /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results --m_list 64,128,256,512,1024,2048,4096,8192,16384,32768,65536
+
+============================================================
+Benchmark dtype=INT8
+============================================================
+
+[int8] Running cuBLASLt Dense GEMM Search
+[cuBLASLt] Running: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search.py --dtype int8 --model Qwen2.5-7B-FP8 --warmup 25 --repeat 50 --out_dir /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results --m_list 64,128,256,512,1024,2048,4096,8192,16384,32768,65536
+
+============================================================
+Benchmark dtype=FP8E4M3
+============================================================
+
+[fp8e4m3] Running cuBLASLt Dense GEMM Search
+[cuBLASLt] Running: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search.py --dtype fp8e4m3 --model Qwen2.5-7B-FP8 --warmup 25 --repeat 50 --out_dir /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results --m_list 64,128,256,512,1024,2048,4096,8192,16384,32768,65536
+
+============================================================
+Benchmark Complete!
+============================================================
+
+Results saved to:
+  - cuBLASLt:   /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results
+[W127 11:41:22.192976278 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+[SUCCESS] Qwen2.5-7B-FP8 完成 (798.2s)
+
+------------------------------------------------------------
+  cuBLASLt Model: Qwen2.5-14B-INT8
+------------------------------------------------------------
+[INFO] 执行: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/benchmark_entry.py --dtype all --warmup 25 --repeat 50 --m_list 64,128,256,512,1024,2048,4096,8192,16384,32768,65536 --backend cublaslt --model Qwen2.5-14B-INT8
+
+============================================================
+cuBLASLt Dense GEMM 算法搜索
+============================================================
+GPU: NVIDIA GeForce RTX 4090 (cc89)
+Mode: MODEL
+Model: Qwen2.5-14B-INT8
+dtype: fp16 -> fp16 (same input/output)
+warmup=25, repeat=50
+
+[1/4] 编译 CUDA 扩展...
+✓ Using existing: cublaslt_gemm_RTX4090_cc89_py312_cu129_x86_64.so
+[2/4] 加载 CUDA 扩展...
+✓ cuBLASLt 可用
+
+[3/4] 开始算法搜索...
+      NK 组合: 4 个, M 列表: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536]
+
+    NK 1/4: (7168, 5120)
+      → 算法数: 8, 有效: 8
+    NK 2/4: (5120, 5120)
+      → 算法数: 8, 有效: 8
+    NK 3/4: (27648, 5120)
+      → 算法数: 8, 有效: 8
+    NK 4/4: (5120, 13824)
+      → 算法数: 8, 有效: 8
+
+    搜索统计: 总计=44, 成功=44, 失败=0, 错误=0
+    成功率: 100.0%
+
+[4/4] 保存结果...
+    CSV: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/FP16/alg_search_Qwen2.5-14B-INT8.csv
+    JSON: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/FP16/alg_search_Qwen2.5-14B-INT8.json
+
+✓ 完成! 结果已保存到: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/FP16
+============================================================
+[W127 11:47:22.895045980 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+============================================================
+cuBLASLt Dense GEMM 算法搜索
+============================================================
+GPU: NVIDIA GeForce RTX 4090 (cc89)
+Mode: MODEL
+Model: Qwen2.5-14B-INT8
+dtype: bf16 -> bf16 (same input/output)
+warmup=25, repeat=50
+
+[1/4] 编译 CUDA 扩展...
+✓ Using existing: cublaslt_gemm_RTX4090_cc89_py312_cu129_x86_64.so
+[2/4] 加载 CUDA 扩展...
+✓ cuBLASLt 可用
+
+[3/4] 开始算法搜索...
+      NK 组合: 4 个, M 列表: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536]
+
+    NK 1/4: (7168, 5120)
+      → 算法数: 8, 有效: 8
+    NK 2/4: (5120, 5120)
+      → 算法数: 8, 有效: 8
+    NK 3/4: (27648, 5120)
+      → 算法数: 8, 有效: 8
+    NK 4/4: (5120, 13824)
+      → 算法数: 8, 有效: 8
+
+    搜索统计: 总计=44, 成功=44, 失败=0, 错误=0
+    成功率: 100.0%
+
+[4/4] 保存结果...
+    CSV: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/BF16/alg_search_Qwen2.5-14B-INT8.csv
+    JSON: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/BF16/alg_search_Qwen2.5-14B-INT8.json
+
+✓ 完成! 结果已保存到: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/BF16
+============================================================
+[W127 11:52:46.197815604 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+============================================================
+cuBLASLt Dense GEMM 算法搜索
+============================================================
+GPU: NVIDIA GeForce RTX 4090 (cc89)
+Mode: MODEL
+Model: Qwen2.5-14B-INT8
+dtype: int8 -> int8 (same input/output)
+warmup=25, repeat=50
+
+[1/4] 编译 CUDA 扩展...
+✓ Using existing: cublaslt_gemm_RTX4090_cc89_py312_cu129_x86_64.so
+[2/4] 加载 CUDA 扩展...
+✓ cuBLASLt 可用
+
+[3/4] 开始算法搜索...
+      NK 组合: 4 个, M 列表: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536]
+
+    NK 1/4: (7168, 5120)
+      → 算法数: 2, 有效: 2
+    NK 2/4: (5120, 5120)
+      → 算法数: 2, 有效: 2
+    NK 3/4: (27648, 5120)
+      → 算法数: 2, 有效: 2
+    NK 4/4: (5120, 13824)
+      → 算法数: 2, 有效: 2
+
+    搜索统计: 总计=44, 成功=44, 失败=0, 错误=0
+    成功率: 100.0%
+
+[4/4] 保存结果...
+    CSV: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/INT8/alg_search_Qwen2.5-14B-INT8.csv
+    JSON: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/INT8/alg_search_Qwen2.5-14B-INT8.json
+
+✓ 完成! 结果已保存到: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/INT8
+============================================================
+[W127 11:53:17.400886080 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+============================================================
+cuBLASLt Dense GEMM 算法搜索
+============================================================
+GPU: NVIDIA GeForce RTX 4090 (cc89)
+Mode: MODEL
+Model: Qwen2.5-14B-INT8
+dtype: fp8e4m3 -> fp8e4m3 (same input/output)
+warmup=25, repeat=50
+
+[1/4] 编译 CUDA 扩展...
+✓ Using existing: cublaslt_gemm_RTX4090_cc89_py312_cu129_x86_64.so
+[2/4] 加载 CUDA 扩展...
+✓ cuBLASLt 可用
+
+[3/4] 开始算法搜索...
+      NK 组合: 4 个, M 列表: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536]
+
+    NK 1/4: (7168, 5120)
+      → 算法数: 8, 有效: 8
+    NK 2/4: (5120, 5120)
+      → 算法数: 8, 有效: 8
+    NK 3/4: (27648, 5120)
+      → 算法数: 8, 有效: 8
+    NK 4/4: (5120, 13824)
+      → 算法数: 8, 有效: 8
+
+    搜索统计: 总计=44, 成功=44, 失败=0, 错误=0
+    成功率: 100.0%
+
+[4/4] 保存结果...
+    CSV: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/FP8/alg_search_Qwen2.5-14B-INT8.csv
+    JSON: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/FP8/alg_search_Qwen2.5-14B-INT8.json
+
+✓ 完成! 结果已保存到: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/FP8
+============================================================
+[W127 11:56:57.520939408 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+[INFO] dtype=all, 将测试: ['fp16', 'bf16', 'int8', 'fp8e4m3']
+============================================================
+SlideSparse Kernel Benchmark
+============================================================
+GPU: NVIDIA GeForce RTX 4090 (cc89)
+Mode: MODEL
+Model: Qwen2.5-14B-INT8
+M_list: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536]
+dtype: ['fp16', 'bf16', 'int8', 'fp8e4m3']
+Backend: cublaslt
+warmup=25, repeat=50
+============================================================
+
+============================================================
+Benchmark dtype=FP16
+============================================================
+
+[fp16] Running cuBLASLt Dense GEMM Search
+[cuBLASLt] Running: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search.py --dtype fp16 --model Qwen2.5-14B-INT8 --warmup 25 --repeat 50 --out_dir /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results --m_list 64,128,256,512,1024,2048,4096,8192,16384,32768,65536
+
+============================================================
+Benchmark dtype=BF16
+============================================================
+
+[bf16] Running cuBLASLt Dense GEMM Search
+[cuBLASLt] Running: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search.py --dtype bf16 --model Qwen2.5-14B-INT8 --warmup 25 --repeat 50 --out_dir /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results --m_list 64,128,256,512,1024,2048,4096,8192,16384,32768,65536
+
+============================================================
+Benchmark dtype=INT8
+============================================================
+
+[int8] Running cuBLASLt Dense GEMM Search
+[cuBLASLt] Running: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search.py --dtype int8 --model Qwen2.5-14B-INT8 --warmup 25 --repeat 50 --out_dir /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results --m_list 64,128,256,512,1024,2048,4096,8192,16384,32768,65536
+
+============================================================
+Benchmark dtype=FP8E4M3
+============================================================
+
+[fp8e4m3] Running cuBLASLt Dense GEMM Search
+[cuBLASLt] Running: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search.py --dtype fp8e4m3 --model Qwen2.5-14B-INT8 --warmup 25 --repeat 50 --out_dir /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results --m_list 64,128,256,512,1024,2048,4096,8192,16384,32768,65536
+
+============================================================
+Benchmark Complete!
+============================================================
+
+Results saved to:
+  - cuBLASLt:   /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results
+[W127 11:56:59.663346670 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+[SUCCESS] Qwen2.5-14B-INT8 完成 (936.4s)
+
+------------------------------------------------------------
+  cuBLASLt Model: Qwen2.5-14B-FP8
+------------------------------------------------------------
+[INFO] 执行: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/benchmark_entry.py --dtype all --warmup 25 --repeat 50 --m_list 64,128,256,512,1024,2048,4096,8192,16384,32768,65536 --backend cublaslt --model Qwen2.5-14B-FP8
+
+============================================================
+cuBLASLt Dense GEMM 算法搜索
+============================================================
+GPU: NVIDIA GeForce RTX 4090 (cc89)
+Mode: MODEL
+Model: Qwen2.5-14B-FP8
+dtype: fp16 -> fp16 (same input/output)
+warmup=25, repeat=50
+
+[1/4] 编译 CUDA 扩展...
+✓ Using existing: cublaslt_gemm_RTX4090_cc89_py312_cu129_x86_64.so
+[2/4] 加载 CUDA 扩展...
+✓ cuBLASLt 可用
+
+[3/4] 开始算法搜索...
+      NK 组合: 4 个, M 列表: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536]
+
+    NK 1/4: (7168, 5120)
+      → 算法数: 8, 有效: 8
+    NK 2/4: (5120, 5120)
+      → 算法数: 8, 有效: 8
+    NK 3/4: (27648, 5120)
+      → 算法数: 8, 有效: 8
+    NK 4/4: (5120, 13824)
+      → 算法数: 8, 有效: 8
+
+    搜索统计: 总计=44, 成功=44, 失败=0, 错误=0
+    成功率: 100.0%
+
+[4/4] 保存结果...
+    CSV: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/FP16/alg_search_Qwen2.5-14B-FP8.csv
+    JSON: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/FP16/alg_search_Qwen2.5-14B-FP8.json
+
+✓ 完成! 结果已保存到: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/FP16
+============================================================
+[W127 12:03:00.517711795 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+============================================================
+cuBLASLt Dense GEMM 算法搜索
+============================================================
+GPU: NVIDIA GeForce RTX 4090 (cc89)
+Mode: MODEL
+Model: Qwen2.5-14B-FP8
+dtype: bf16 -> bf16 (same input/output)
+warmup=25, repeat=50
+
+[1/4] 编译 CUDA 扩展...
+✓ Using existing: cublaslt_gemm_RTX4090_cc89_py312_cu129_x86_64.so
+[2/4] 加载 CUDA 扩展...
+✓ cuBLASLt 可用
+
+[3/4] 开始算法搜索...
+      NK 组合: 4 个, M 列表: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536]
+
+    NK 1/4: (7168, 5120)
+      → 算法数: 8, 有效: 8
+    NK 2/4: (5120, 5120)
+      → 算法数: 8, 有效: 8
+    NK 3/4: (27648, 5120)
+      → 算法数: 8, 有效: 8
+    NK 4/4: (5120, 13824)
+      → 算法数: 8, 有效: 8
+
+    搜索统计: 总计=44, 成功=44, 失败=0, 错误=0
+    成功率: 100.0%
+
+[4/4] 保存结果...
+    CSV: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/BF16/alg_search_Qwen2.5-14B-FP8.csv
+    JSON: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/BF16/alg_search_Qwen2.5-14B-FP8.json
+
+✓ 完成! 结果已保存到: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/BF16
+============================================================
+[W127 12:08:25.536136979 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+============================================================
+cuBLASLt Dense GEMM 算法搜索
+============================================================
+GPU: NVIDIA GeForce RTX 4090 (cc89)
+Mode: MODEL
+Model: Qwen2.5-14B-FP8
+dtype: int8 -> int8 (same input/output)
+warmup=25, repeat=50
+
+[1/4] 编译 CUDA 扩展...
+✓ Using existing: cublaslt_gemm_RTX4090_cc89_py312_cu129_x86_64.so
+[2/4] 加载 CUDA 扩展...
+✓ cuBLASLt 可用
+
+[3/4] 开始算法搜索...
+      NK 组合: 4 个, M 列表: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536]
+
+    NK 1/4: (7168, 5120)
+      → 算法数: 2, 有效: 2
+    NK 2/4: (5120, 5120)
+      → 算法数: 2, 有效: 2
+    NK 3/4: (27648, 5120)
+      → 算法数: 2, 有效: 2
+    NK 4/4: (5120, 13824)
+      → 算法数: 2, 有效: 2
+
+    搜索统计: 总计=44, 成功=44, 失败=0, 错误=0
+    成功率: 100.0%
+
+[4/4] 保存结果...
+    CSV: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/INT8/alg_search_Qwen2.5-14B-FP8.csv
+    JSON: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/INT8/alg_search_Qwen2.5-14B-FP8.json
+
+✓ 完成! 结果已保存到: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/INT8
+============================================================
+[W127 12:08:56.135389676 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+============================================================
+cuBLASLt Dense GEMM 算法搜索
+============================================================
+GPU: NVIDIA GeForce RTX 4090 (cc89)
+Mode: MODEL
+Model: Qwen2.5-14B-FP8
+dtype: fp8e4m3 -> fp8e4m3 (same input/output)
+warmup=25, repeat=50
+
+[1/4] 编译 CUDA 扩展...
+✓ Using existing: cublaslt_gemm_RTX4090_cc89_py312_cu129_x86_64.so
+[2/4] 加载 CUDA 扩展...
+✓ cuBLASLt 可用
+
+[3/4] 开始算法搜索...
+      NK 组合: 4 个, M 列表: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536]
+
+    NK 1/4: (7168, 5120)
+      → 算法数: 8, 有效: 8
+    NK 2/4: (5120, 5120)
+      → 算法数: 8, 有效: 8
+    NK 3/4: (27648, 5120)
+      → 算法数: 8, 有效: 8
+    NK 4/4: (5120, 13824)
+      → 算法数: 8, 有效: 8
+
+    搜索统计: 总计=44, 成功=44, 失败=0, 错误=0
+    成功率: 100.0%
+
+[4/4] 保存结果...
+    CSV: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/FP8/alg_search_Qwen2.5-14B-FP8.csv
+    JSON: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/FP8/alg_search_Qwen2.5-14B-FP8.json
+
+✓ 完成! 结果已保存到: /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results/RTX4090_cc89_py312_cu129_x86_64/FP8
+============================================================
+[W127 12:12:36.340246721 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+[INFO] dtype=all, 将测试: ['fp16', 'bf16', 'int8', 'fp8e4m3']
+============================================================
+SlideSparse Kernel Benchmark
+============================================================
+GPU: NVIDIA GeForce RTX 4090 (cc89)
+Mode: MODEL
+Model: Qwen2.5-14B-FP8
+M_list: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536]
+dtype: ['fp16', 'bf16', 'int8', 'fp8e4m3']
+Backend: cublaslt
+warmup=25, repeat=50
+============================================================
+
+============================================================
+Benchmark dtype=FP16
+============================================================
+
+[fp16] Running cuBLASLt Dense GEMM Search
+[cuBLASLt] Running: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search.py --dtype fp16 --model Qwen2.5-14B-FP8 --warmup 25 --repeat 50 --out_dir /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results --m_list 64,128,256,512,1024,2048,4096,8192,16384,32768,65536
+
+============================================================
+Benchmark dtype=BF16
+============================================================
+
+[bf16] Running cuBLASLt Dense GEMM Search
+[cuBLASLt] Running: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search.py --dtype bf16 --model Qwen2.5-14B-FP8 --warmup 25 --repeat 50 --out_dir /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results --m_list 64,128,256,512,1024,2048,4096,8192,16384,32768,65536
+
+============================================================
+Benchmark dtype=INT8
+============================================================
+
+[int8] Running cuBLASLt Dense GEMM Search
+[cuBLASLt] Running: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search.py --dtype int8 --model Qwen2.5-14B-FP8 --warmup 25 --repeat 50 --out_dir /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results --m_list 64,128,256,512,1024,2048,4096,8192,16384,32768,65536
+
+============================================================
+Benchmark dtype=FP8E4M3
+============================================================
+
+[fp8e4m3] Running cuBLASLt Dense GEMM Search
+[cuBLASLt] Running: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search.py --dtype fp8e4m3 --model Qwen2.5-14B-FP8 --warmup 25 --repeat 50 --out_dir /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results --m_list 64,128,256,512,1024,2048,4096,8192,16384,32768,65536
+
+============================================================
+Benchmark Complete!
+============================================================
+
+Results saved to:
+  - cuBLASLt:   /root/vllmbench/slidesparse/benchmark_kernel/cuBLASLt/alg_search_results
+[W127 12:12:38.426312537 AllocatorConfig.cpp:28] Warning: PYTORCH_CUDA_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())
+[SUCCESS] Qwen2.5-14B-FP8 完成 (938.9s)
+
+[INFO] cuBLASLt Model 统计: 成功 8, 失败 0
+
+----------------------------------------------------------------------
+TASK 1: cuBLASLt Model 测试 - SUCCESS
+Duration: 4589.8 seconds (76.5 minutes)
+----------------------------------------------------------------------
+
+
+======================================================================
+TASK 2: cuBLASLt Square 测试
+Started: 2026-01-27 12:12:38
+======================================================================
+
+
+------------------------------------------------------------
+  cuBLASLt Square 测试
+------------------------------------------------------------
+[INFO] 执行: /usr/bin/python3 /root/vllmbench/slidesparse/benchmark_kernel/benchmark_entry.py --dtype all --warmup 25 --repeat 50 --m_list 64,128,256,512,1024,2048,4096,8192,16384,32768,65536 --backend cublaslt --model square
+
+============================================================
+cuBLASLt Dense GEMM 算法搜索
+============================================================
+GPU: NVIDIA GeForce RTX 4090 (cc89)
+Mode: SQUARE
+Model: SQUARE
+dtype: fp16 -> fp16 (same input/output)
+warmup=25, repeat=50
+
+[1/4] 编译 CUDA 扩展...
+✓ Using existing: cublaslt_gemm_RTX4090_cc89_py312_cu129_x86_64.so
+[2/4] 加载 CUDA 扩展...
+✓ cuBLASLt 可用
+
+[3/4] 开始算法搜索...
+      M=N=K 列表: [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536]
+
+    NK 1/11: (64, 64)
+      → 算法数: 8, 有效: 8
+    NK 2/11: (128, 128)
+      → 算法数: 8, 有效: 8
+    NK 3/11: (256, 256)
+      → 算法数: 8, 有效: 8
+    NK 4/11: (512, 512)
+      → 算法数: 8, 有效: 8
+    NK 5/11: (1024, 1024)
+      → 算法数: 8, 有效: 8
+    NK 6/11: (2048, 2048)
+      → 算法数: 8, 有效: 8
+    NK 7/11: (4096, 4096)
+      → 算法数: 8, 有效: 8
+    NK 8/11: (8192, 8192)
+      → 算法数: 8, 有效: 8
+    NK 9/11: (16384, 16384)
+      → 算法数: 8, 有效: 8
+    NK 10/11: (32768, 32768)
+      → 算法数: 8, 有效: 8
+    NK 11/11: (65536, 65536)
+
+======================================================================
+收到中断信号 (signal 2)
+======================================================================
+[INFO] 状态已保存: /root/vllmbench/slidesparse/benchmark_kernel/kernel_bench_logs/kernel_bench_20260127_105608_status.json
