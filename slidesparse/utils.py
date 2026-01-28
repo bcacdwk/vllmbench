@@ -2404,8 +2404,10 @@ class ModelEntry:
     hf_org: str = "RedHatAI"
     
     @property
-    def hf_path(self) -> str:
-        """完整的 HuggingFace 路径"""
+    def hf_path(self) -> Optional[str]:
+        """完整的 HuggingFace 路径，本地生成的模型返回 None"""
+        if self.hf_name is None or self.hf_org is None:
+            return None
         return f"{self.hf_org}/{self.hf_name}"
     
     @property
@@ -2484,6 +2486,9 @@ class ModelRegistry:
         ("llama", "3.2", "3B", "fp8", "Llama-3.2-3B-Instruct-FP8-dynamic", "Llama3.2-3B-FP8"),
         # BitNet BF16 (microsoft)
         ("bitnet", "1.58", "2B", "bf16", "bitnet-b1.58-2B-4T-bf16", "BitNet-2B-BF16", "microsoft"),
+        # BitNet INT8/FP8 (本地量化生成，无 HF 路径)
+        ("bitnet", "1.58", "2B", "int8", None, "BitNet-2B-INT8", None),
+        ("bitnet", "1.58", "2B", "fp8", None, "BitNet-2B-FP8", None),
     ]
     
     def __init__(self, hf_org: str = "RedHatAI"):
@@ -2919,7 +2924,11 @@ class SlideSparseConfig:
         if self.L % 2 != 0:
             raise ValueError(f"L 必须为偶数，收到 L={self.L}")
         if self.L < 4:
-            raise ValueError(f"L 必须 >= 4，收到 L={self.L}")
+            import warnings
+            warnings.warn(
+                f"L={self.L} < 4，这是纯量化模式（无稀疏），slide 操作将被跳过",
+                UserWarning
+            )
         
         self.N = self.L // 2
         self.window_size = 4

@@ -324,13 +324,15 @@ def quant_and_prune_tensor_bitnet(
     ternary_grouped = ternary_padded.view(-1, L)
     original_grouped = original_padded.view(-1, L)
     
-    # Step 3: 应用剪枝
-    prune_mask = _build_prune_mask_with_ternary(
-        ternary_grouped, original_grouped, Z, L, mode
-    )
-    
-    if prune_mask.any():
-        ternary_grouped[prune_mask] = 0
+    # Step 3: 应用剪枝（当 L <= Z 时跳过，表示纯量化模式）
+    # 例如 Z=2, L=2 时，不做额外剪枝，只保留量化结果
+    if L > Z:
+        prune_mask = _build_prune_mask_with_ternary(
+            ternary_grouped, original_grouped, Z, L, mode
+        )
+        
+        if prune_mask.any():
+            ternary_grouped[prune_mask] = 0
     
     # 恢复形状
     ternary_final = ternary_grouped.view(N, -1)
