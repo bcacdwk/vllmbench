@@ -5601,3 +5601,893 @@ Processed prompts: 100%|██████████| 8192/8192 [01:05<00:00, 
 Processed prompts: 100%|██████████| 8192/8192 [01:05<00:00, 124.79it/s, est. speed input: 127784.31 toks/s, output: 124.79 toks/s]
 [rank0]:[W126 17:22:56.463017367 ProcessGroupNCCL.cpp:1524] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
 
+
+========== M=512 ==========
+Time: 2026-01-28 13:25:03
+Backend: cuSPARSELt (2:4)
+Checkpoint: /root/vllmbench/checkpoints_slidesparse/BitNet-2B-INT8-SlideSparse-2_4
+Params: prompt_len=512, output_len=1, num_prompts=128, max_num_seqs=1
+Command: vllm bench throughput --model /root/vllmbench/checkpoints_slidesparse/BitNet-2B-INT8-SlideSparse-2_4 --dataset-name random --input-len 512 --output-len 1 --num-prompts 128 --max-num-seqs 1 --max-model-len 513 --max-num-batched-tokens 513 --no-enable-chunked-prefill --gpu-memory-utilization 0.8 --disable-log-stats --output-json /root/vllmbench/slidesparse/tools/throughput_benchmark_results/prefill/B200_cc100_INT8_py312_cu129_x86_64/cusparselt/2_4/json/BitNet-2B-INT8_M512.json
+
+STDOUT:
+When dataset path is not set, it will default to random dataset
+WARNING 01-28 13:25:10 [arg_utils.py:1869] This model does not officially support disabling chunked prefill. Disabling this manually may cause the engine to crash or produce incorrect outputs.
+(EngineCore_DP0 pid=3214747) [INFO] Loading compress extension: cusparselt_compress_B200_cc100_py312_cu129_x86_64.so
+(EngineCore_DP0 pid=3214747) WARNING 01-28 13:25:25 [backends.py:609] Failed to read file <frozen os>
+(EngineCore_DP0 pid=3214747) WARNING 01-28 13:25:35 [flashinfer.py:363] Using TRTLLM prefill attention (auto-detected).
+Throughput: 32.42 requests/s, 16631.08 total tokens/s, 32.42 output tokens/s
+Total num prompt tokens:  65536
+Total num output tokens:  128
+
+STDERR:
+[2026-01-28 13:25:09] INFO kernels.py:578: Triton kernel custom ops registered
+[2026-01-28 13:25:10] INFO kernels.py:627: Optimization enabled: Only preloading kernels for model 'BitNet-2B-INT8'
+[2026-01-28 13:25:10] INFO kernels.py:109: Loaded tuned kernel for model: BitNet-2B-INT8
+[2026-01-28 13:25:10] INFO kernels.py:155: Dequant+bias kernel loaded for model: BitNet-2B-INT8
+[2026-01-28 13:25:10] INFO kernels.py:224: FP8 quant kernel loaded for model: BitNet-2B-INT8
+[2026-01-28 13:25:10] INFO kernels.py:348: INT8 quant kernel loaded for model: BitNet-2B-INT8
+[2026-01-28 13:25:10] INFO kernels.py:284: FP8 quant+slide kernel loaded for model: BitNet-2B-INT8
+[2026-01-28 13:25:10] INFO kernels.py:408: INT8 quant+slide kernel loaded for model: BitNet-2B-INT8
+[2026-01-28 13:25:10] INFO gemm_wrapper.py:157: Optimization enabled: Only loading GEMM configs for model 'BitNet-2B-INT8'
+[2026-01-28 13:25:10] INFO gemm_wrapper.py:172: Loaded algorithm configs: cuBLASLt=1, cuSPARSELt=1 models
+[2026-01-28 13:25:10] INFO gemm_wrapper.py:944: cuBLASLt FP8 custom op registered: slidesparse::cublaslt_fp8_mm
+[2026-01-28 13:25:10] INFO gemm_wrapper.py:1009: cuSPARSELt FP8 custom op registered: slidesparse::cusparselt_fp8_mm
+[2026-01-28 13:25:10] INFO gemm_wrapper.py:1075: cuBLASLt INT8 custom op registered: slidesparse::cublaslt_int8_mm
+[2026-01-28 13:25:10] INFO gemm_wrapper.py:1141: cuSPARSELt INT8 custom op registered: slidesparse::cusparselt_int8_mm
+[2026-01-28 13:25:16] INFO kernels.py:578: Triton kernel custom ops registered
+[2026-01-28 13:25:16] INFO kernels.py:627: Optimization enabled: Only preloading kernels for model 'BitNet-2B-INT8'
+[2026-01-28 13:25:16] INFO kernels.py:109: Loaded tuned kernel for model: BitNet-2B-INT8
+[2026-01-28 13:25:16] INFO kernels.py:155: Dequant+bias kernel loaded for model: BitNet-2B-INT8
+[2026-01-28 13:25:16] INFO kernels.py:224: FP8 quant kernel loaded for model: BitNet-2B-INT8
+[2026-01-28 13:25:16] INFO kernels.py:348: INT8 quant kernel loaded for model: BitNet-2B-INT8
+[2026-01-28 13:25:16] INFO kernels.py:284: FP8 quant+slide kernel loaded for model: BitNet-2B-INT8
+[2026-01-28 13:25:16] INFO kernels.py:408: INT8 quant+slide kernel loaded for model: BitNet-2B-INT8
+[2026-01-28 13:25:16] INFO gemm_wrapper.py:157: Optimization enabled: Only loading GEMM configs for model 'BitNet-2B-INT8'
+[2026-01-28 13:25:16] INFO gemm_wrapper.py:172: Loaded algorithm configs: cuBLASLt=1, cuSPARSELt=1 models
+[2026-01-28 13:25:16] INFO gemm_wrapper.py:944: cuBLASLt FP8 custom op registered: slidesparse::cublaslt_fp8_mm
+[2026-01-28 13:25:16] INFO gemm_wrapper.py:1009: cuSPARSELt FP8 custom op registered: slidesparse::cusparselt_fp8_mm
+[2026-01-28 13:25:16] INFO gemm_wrapper.py:1075: cuBLASLt INT8 custom op registered: slidesparse::cublaslt_int8_mm
+[2026-01-28 13:25:16] INFO gemm_wrapper.py:1141: cuSPARSELt INT8 custom op registered: slidesparse::cusparselt_int8_mm
+(EngineCore_DP0 pid=3214747) [2026-01-28 13:25:17] INFO SlideSparseLinearMethod_INT8.py:805: Wrapping CompressedTensorsW8A8Int8 with SlideSparse (cuSPARSELt)
+(EngineCore_DP0 pid=3214747) [2026-01-28 13:25:17] INFO gemm_wrapper.py:870: cusparselt GEMM extension loaded: cusparselt_gemm_B200_cc100_py312_cu129_x86_64.so
+(EngineCore_DP0 pid=3214747) [2026-01-28 13:25:17] INFO SlideSparseLinearMethod_INT8.py:452: SlideSparseInt8LinearOp initialized (kernel=cuSPARSELt)
+(EngineCore_DP0 pid=3214747) [2026-01-28 13:25:17] INFO SlideSparseLinearMethod_INT8.py:604: SlideSparseInt8LinearMethod: cuSPARSELt sparsity=2:4, expand_ratio=2.000
+(EngineCore_DP0 pid=3214747) [2026-01-28 13:25:17] INFO SlideSparseLinearMethod_INT8.py:621: Preloaded INT8 Triton kernels for model: BitNet-2B-INT8
+(EngineCore_DP0 pid=3214747) [2026-01-28 13:25:17] INFO SlideSparseLinearMethod_INT8.py:625: SlideSparseInt8LinearMethod initialized, kernel=cuSPARSELt, symmetric=True
+(EngineCore_DP0 pid=3214747) 
+Loading safetensors checkpoint shards:   0% Completed | 0/1 [00:00<?, ?it/s]
+(EngineCore_DP0 pid=3214747) 
+Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  2.23it/s]
+(EngineCore_DP0 pid=3214747) 
+Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  2.23it/s]
+(EngineCore_DP0 pid=3214747) 
+(EngineCore_DP0 pid=3214747) [2026-01-28 13:25:18] INFO SlideSparseLinearMethod_INT8.py:719: cuSPARSELt INT8 compression: [3840, 2560] -> 1D uint8
+(EngineCore_DP0 pid=3214747) [2026-01-28 13:25:18] INFO SlideSparseLinearMethod_INT8.py:729: cuSPARSELt INT8 compression done: 6144000 bytes
+(EngineCore_DP0 pid=3214747) [2026-01-28 13:25:18] INFO SlideSparseLinearMethod_INT8.py:719: cuSPARSELt INT8 compression: [2560, 2560] -> 1D uint8
+(EngineCore_DP0 pid=3214747) [2026-01-28 13:25:18] INFO SlideSparseLinearMethod_INT8.py:729: cuSPARSELt INT8 compression done: 4096000 bytes
+(EngineCore_DP0 pid=3214747) [2026-01-28 13:25:18] INFO SlideSparseLinearMethod_INT8.py:719: cuSPARSELt INT8 compression: [13824, 2560] -> 1D uint8
+(EngineCore_DP0 pid=3214747) [2026-01-28 13:25:18] INFO SlideSparseLinearMethod_INT8.py:729: cuSPARSELt INT8 compression done: 22118400 bytes
+(EngineCore_DP0 pid=3214747) [2026-01-28 13:25:18] INFO SlideSparseLinearMethod_INT8.py:719: cuSPARSELt INT8 compression: [2560, 6912] -> 1D uint8
+(EngineCore_DP0 pid=3214747) [2026-01-28 13:25:18] INFO SlideSparseLinearMethod_INT8.py:729: cuSPARSELt INT8 compression done: 11059200 bytes
+(EngineCore_DP0 pid=3214747) 2026-01-28 13:25:35,870 - INFO - autotuner.py:256 - flashinfer.jit: [Autotuner]: Autotuning process starts ...
+(EngineCore_DP0 pid=3214747) 2026-01-28 13:25:35,895 - INFO - autotuner.py:262 - flashinfer.jit: [Autotuner]: Autotuning process ends
+(EngineCore_DP0 pid=3214747) 
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):   0%|          | 0/2 [00:00<?, ?it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):  50%|█████     | 1/2 [00:00<00:00,  3.07it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE): 100%|██████████| 2/2 [00:00<00:00,  2.47it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE): 100%|██████████| 2/2 [00:00<00:00,  2.55it/s]
+(EngineCore_DP0 pid=3214747) 
+Capturing CUDA graphs (decode, FULL):   0%|          | 0/1 [00:00<?, ?it/s]
+Capturing CUDA graphs (decode, FULL): 100%|██████████| 1/1 [00:00<00:00, 14.57it/s]
+
+Adding requests:   0%|          | 0/128 [00:00<?, ?it/s]
+Adding requests:  59%|█████▊    | 75/128 [00:00<00:00, 743.88it/s]
+Adding requests: 100%|██████████| 128/128 [00:00<00:00, 755.73it/s]
+
+Processed prompts:   0%|          | 0/128 [00:00<?, ?it/s, est. speed input: 0.00 toks/s, output: 0.00 toks/s]
+Processed prompts:   1%|          | 1/128 [00:00<00:34,  3.73it/s, est. speed input: 1908.62 toks/s, output: 3.73 toks/s]
+Processed prompts:   4%|▍         | 5/128 [00:00<00:07, 15.67it/s, est. speed input: 6730.52 toks/s, output: 13.15 toks/s]
+Processed prompts:   7%|▋         | 9/128 [00:00<00:05, 22.81it/s, est. speed input: 9403.69 toks/s, output: 18.37 toks/s]
+Processed prompts:  10%|█         | 13/128 [00:00<00:04, 27.24it/s, est. speed input: 11083.39 toks/s, output: 21.65 toks/s]
+Processed prompts:  13%|█▎        | 17/128 [00:00<00:03, 30.12it/s, est. speed input: 12243.53 toks/s, output: 23.91 toks/s]
+Processed prompts:  16%|█▋        | 21/128 [00:00<00:03, 32.11it/s, est. speed input: 13102.80 toks/s, output: 25.59 toks/s]
+Processed prompts:  20%|█▉        | 25/128 [00:00<00:03, 33.45it/s, est. speed input: 13758.16 toks/s, output: 26.87 toks/s]
+Processed prompts:  23%|██▎       | 29/128 [00:01<00:02, 34.32it/s, est. speed input: 14269.16 toks/s, output: 27.87 toks/s]
+Processed prompts:  26%|██▌       | 33/128 [00:01<00:02, 34.97it/s, est. speed input: 14688.32 toks/s, output: 28.69 toks/s]
+Processed prompts:  29%|██▉       | 37/128 [00:01<00:02, 35.37it/s, est. speed input: 15029.13 toks/s, output: 29.35 toks/s]
+Processed prompts:  32%|███▏      | 41/128 [00:01<00:02, 35.69it/s, est. speed input: 15319.04 toks/s, output: 29.92 toks/s]
+Processed prompts:  35%|███▌      | 45/128 [00:01<00:02, 35.87it/s, est. speed input: 15561.39 toks/s, output: 30.39 toks/s]
+Processed prompts:  38%|███▊      | 49/128 [00:01<00:02, 36.09it/s, est. speed input: 15779.71 toks/s, output: 30.82 toks/s]
+Processed prompts:  41%|████▏     | 53/128 [00:01<00:02, 36.19it/s, est. speed input: 15965.10 toks/s, output: 31.18 toks/s]
+Processed prompts:  45%|████▍     | 57/128 [00:01<00:01, 36.25it/s, est. speed input: 16127.38 toks/s, output: 31.50 toks/s]
+Processed prompts:  48%|████▊     | 61/128 [00:01<00:01, 35.87it/s, est. speed input: 16234.67 toks/s, output: 31.71 toks/s]
+Processed prompts:  51%|█████     | 65/128 [00:02<00:01, 36.08it/s, est. speed input: 16368.72 toks/s, output: 31.97 toks/s]
+Processed prompts:  54%|█████▍    | 69/128 [00:02<00:01, 36.15it/s, est. speed input: 16482.99 toks/s, output: 32.19 toks/s]
+Processed prompts:  57%|█████▋    | 73/128 [00:02<00:01, 36.24it/s, est. speed input: 16588.80 toks/s, output: 32.40 toks/s]
+Processed prompts:  60%|██████    | 77/128 [00:02<00:01, 36.31it/s, est. speed input: 16686.14 toks/s, output: 32.59 toks/s]
+Processed prompts:  63%|██████▎   | 81/128 [00:02<00:01, 36.04it/s, est. speed input: 16751.79 toks/s, output: 32.72 toks/s]
+Processed prompts:  66%|██████▋   | 85/128 [00:02<00:01, 36.17it/s, est. speed input: 16833.37 toks/s, output: 32.88 toks/s]
+Processed prompts:  70%|██████▉   | 89/128 [00:02<00:01, 36.23it/s, est. speed input: 16906.28 toks/s, output: 33.02 toks/s]
+Processed prompts:  73%|███████▎  | 93/128 [00:02<00:00, 36.37it/s, est. speed input: 16979.64 toks/s, output: 33.16 toks/s]
+Processed prompts:  76%|███████▌  | 97/128 [00:02<00:00, 36.34it/s, est. speed input: 17039.98 toks/s, output: 33.28 toks/s]
+Processed prompts:  79%|███████▉  | 101/128 [00:03<00:00, 36.38it/s, est. speed input: 17099.39 toks/s, output: 33.40 toks/s]
+Processed prompts:  82%|████████▏ | 105/128 [00:03<00:00, 35.69it/s, est. speed input: 17113.97 toks/s, output: 33.43 toks/s]
+Processed prompts:  85%|████████▌ | 109/128 [00:03<00:00, 35.86it/s, est. speed input: 17163.38 toks/s, output: 33.52 toks/s]
+Processed prompts:  88%|████████▊ | 113/128 [00:03<00:00, 36.03it/s, est. speed input: 17212.17 toks/s, output: 33.62 toks/s]
+Processed prompts:  91%|█████████▏| 117/128 [00:03<00:00, 36.07it/s, est. speed input: 17253.78 toks/s, output: 33.70 toks/s]
+Processed prompts:  95%|█████████▍| 121/128 [00:03<00:00, 36.10it/s, est. speed input: 17292.63 toks/s, output: 33.77 toks/s]
+Processed prompts:  98%|█████████▊| 125/128 [00:03<00:00, 35.88it/s, est. speed input: 17317.98 toks/s, output: 33.82 toks/s]
+Processed prompts: 100%|██████████| 128/128 [00:03<00:00, 35.88it/s, est. speed input: 17347.39 toks/s, output: 33.88 toks/s]
+Processed prompts: 100%|██████████| 128/128 [00:03<00:00, 33.88it/s, est. speed input: 17347.39 toks/s, output: 33.88 toks/s]
+[rank0]:[W128 13:25:42.913259009 ProcessGroupNCCL.cpp:1524] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+
+
+========== M=1024 ==========
+Time: 2026-01-28 13:25:44
+Backend: cuSPARSELt (2:4)
+Checkpoint: /root/vllmbench/checkpoints_slidesparse/BitNet-2B-INT8-SlideSparse-2_4
+Params: prompt_len=1024, output_len=1, num_prompts=128, max_num_seqs=1
+Command: vllm bench throughput --model /root/vllmbench/checkpoints_slidesparse/BitNet-2B-INT8-SlideSparse-2_4 --dataset-name random --input-len 1024 --output-len 1 --num-prompts 128 --max-num-seqs 1 --max-model-len 1025 --max-num-batched-tokens 1025 --no-enable-chunked-prefill --gpu-memory-utilization 0.8 --disable-log-stats --output-json /root/vllmbench/slidesparse/tools/throughput_benchmark_results/prefill/B200_cc100_INT8_py312_cu129_x86_64/cusparselt/2_4/json/BitNet-2B-INT8_M1024.json
+
+STDOUT:
+When dataset path is not set, it will default to random dataset
+WARNING 01-28 13:25:51 [arg_utils.py:1869] This model does not officially support disabling chunked prefill. Disabling this manually may cause the engine to crash or produce incorrect outputs.
+(EngineCore_DP0 pid=3216009) [INFO] Loading compress extension: cusparselt_compress_B200_cc100_py312_cu129_x86_64.so
+(EngineCore_DP0 pid=3216009) WARNING 01-28 13:26:06 [backends.py:609] Failed to read file <frozen os>
+(EngineCore_DP0 pid=3216009) WARNING 01-28 13:26:16 [flashinfer.py:363] Using TRTLLM prefill attention (auto-detected).
+Throughput: 31.94 requests/s, 32733.51 total tokens/s, 31.94 output tokens/s
+Total num prompt tokens:  131072
+Total num output tokens:  128
+
+STDERR:
+[2026-01-28 13:25:51] INFO kernels.py:578: Triton kernel custom ops registered
+[2026-01-28 13:25:51] INFO kernels.py:627: Optimization enabled: Only preloading kernels for model 'BitNet-2B-INT8'
+[2026-01-28 13:25:51] INFO kernels.py:109: Loaded tuned kernel for model: BitNet-2B-INT8
+[2026-01-28 13:25:51] INFO kernels.py:155: Dequant+bias kernel loaded for model: BitNet-2B-INT8
+[2026-01-28 13:25:51] INFO kernels.py:224: FP8 quant kernel loaded for model: BitNet-2B-INT8
+[2026-01-28 13:25:51] INFO kernels.py:348: INT8 quant kernel loaded for model: BitNet-2B-INT8
+[2026-01-28 13:25:51] INFO kernels.py:284: FP8 quant+slide kernel loaded for model: BitNet-2B-INT8
+[2026-01-28 13:25:51] INFO kernels.py:408: INT8 quant+slide kernel loaded for model: BitNet-2B-INT8
+[2026-01-28 13:25:51] INFO gemm_wrapper.py:157: Optimization enabled: Only loading GEMM configs for model 'BitNet-2B-INT8'
+[2026-01-28 13:25:51] INFO gemm_wrapper.py:172: Loaded algorithm configs: cuBLASLt=1, cuSPARSELt=1 models
+[2026-01-28 13:25:51] INFO gemm_wrapper.py:944: cuBLASLt FP8 custom op registered: slidesparse::cublaslt_fp8_mm
+[2026-01-28 13:25:51] INFO gemm_wrapper.py:1009: cuSPARSELt FP8 custom op registered: slidesparse::cusparselt_fp8_mm
+[2026-01-28 13:25:51] INFO gemm_wrapper.py:1075: cuBLASLt INT8 custom op registered: slidesparse::cublaslt_int8_mm
+[2026-01-28 13:25:51] INFO gemm_wrapper.py:1141: cuSPARSELt INT8 custom op registered: slidesparse::cusparselt_int8_mm
+[2026-01-28 13:25:57] INFO kernels.py:578: Triton kernel custom ops registered
+[2026-01-28 13:25:58] INFO kernels.py:627: Optimization enabled: Only preloading kernels for model 'BitNet-2B-INT8'
+[2026-01-28 13:25:58] INFO kernels.py:109: Loaded tuned kernel for model: BitNet-2B-INT8
+[2026-01-28 13:25:58] INFO kernels.py:155: Dequant+bias kernel loaded for model: BitNet-2B-INT8
+[2026-01-28 13:25:58] INFO kernels.py:224: FP8 quant kernel loaded for model: BitNet-2B-INT8
+[2026-01-28 13:25:58] INFO kernels.py:348: INT8 quant kernel loaded for model: BitNet-2B-INT8
+[2026-01-28 13:25:58] INFO kernels.py:284: FP8 quant+slide kernel loaded for model: BitNet-2B-INT8
+[2026-01-28 13:25:58] INFO kernels.py:408: INT8 quant+slide kernel loaded for model: BitNet-2B-INT8
+[2026-01-28 13:25:58] INFO gemm_wrapper.py:157: Optimization enabled: Only loading GEMM configs for model 'BitNet-2B-INT8'
+[2026-01-28 13:25:58] INFO gemm_wrapper.py:172: Loaded algorithm configs: cuBLASLt=1, cuSPARSELt=1 models
+[2026-01-28 13:25:58] INFO gemm_wrapper.py:944: cuBLASLt FP8 custom op registered: slidesparse::cublaslt_fp8_mm
+[2026-01-28 13:25:58] INFO gemm_wrapper.py:1009: cuSPARSELt FP8 custom op registered: slidesparse::cusparselt_fp8_mm
+[2026-01-28 13:25:58] INFO gemm_wrapper.py:1075: cuBLASLt INT8 custom op registered: slidesparse::cublaslt_int8_mm
+[2026-01-28 13:25:58] INFO gemm_wrapper.py:1141: cuSPARSELt INT8 custom op registered: slidesparse::cusparselt_int8_mm
+(EngineCore_DP0 pid=3216009) [2026-01-28 13:25:59] INFO SlideSparseLinearMethod_INT8.py:805: Wrapping CompressedTensorsW8A8Int8 with SlideSparse (cuSPARSELt)
+(EngineCore_DP0 pid=3216009) [2026-01-28 13:25:59] INFO gemm_wrapper.py:870: cusparselt GEMM extension loaded: cusparselt_gemm_B200_cc100_py312_cu129_x86_64.so
+(EngineCore_DP0 pid=3216009) [2026-01-28 13:25:59] INFO SlideSparseLinearMethod_INT8.py:452: SlideSparseInt8LinearOp initialized (kernel=cuSPARSELt)
+(EngineCore_DP0 pid=3216009) [2026-01-28 13:25:59] INFO SlideSparseLinearMethod_INT8.py:604: SlideSparseInt8LinearMethod: cuSPARSELt sparsity=2:4, expand_ratio=2.000
+(EngineCore_DP0 pid=3216009) [2026-01-28 13:25:59] INFO SlideSparseLinearMethod_INT8.py:621: Preloaded INT8 Triton kernels for model: BitNet-2B-INT8
+(EngineCore_DP0 pid=3216009) [2026-01-28 13:25:59] INFO SlideSparseLinearMethod_INT8.py:625: SlideSparseInt8LinearMethod initialized, kernel=cuSPARSELt, symmetric=True
+(EngineCore_DP0 pid=3216009) 
+Loading safetensors checkpoint shards:   0% Completed | 0/1 [00:00<?, ?it/s]
+(EngineCore_DP0 pid=3216009) 
+Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  2.25it/s]
+(EngineCore_DP0 pid=3216009) 
+Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  2.25it/s]
+(EngineCore_DP0 pid=3216009) 
+(EngineCore_DP0 pid=3216009) [2026-01-28 13:26:00] INFO SlideSparseLinearMethod_INT8.py:719: cuSPARSELt INT8 compression: [3840, 2560] -> 1D uint8
+(EngineCore_DP0 pid=3216009) [2026-01-28 13:26:00] INFO SlideSparseLinearMethod_INT8.py:729: cuSPARSELt INT8 compression done: 6144000 bytes
+(EngineCore_DP0 pid=3216009) [2026-01-28 13:26:00] INFO SlideSparseLinearMethod_INT8.py:719: cuSPARSELt INT8 compression: [2560, 2560] -> 1D uint8
+(EngineCore_DP0 pid=3216009) [2026-01-28 13:26:00] INFO SlideSparseLinearMethod_INT8.py:729: cuSPARSELt INT8 compression done: 4096000 bytes
+(EngineCore_DP0 pid=3216009) [2026-01-28 13:26:00] INFO SlideSparseLinearMethod_INT8.py:719: cuSPARSELt INT8 compression: [13824, 2560] -> 1D uint8
+(EngineCore_DP0 pid=3216009) [2026-01-28 13:26:00] INFO SlideSparseLinearMethod_INT8.py:729: cuSPARSELt INT8 compression done: 22118400 bytes
+(EngineCore_DP0 pid=3216009) [2026-01-28 13:26:00] INFO SlideSparseLinearMethod_INT8.py:719: cuSPARSELt INT8 compression: [2560, 6912] -> 1D uint8
+(EngineCore_DP0 pid=3216009) [2026-01-28 13:26:00] INFO SlideSparseLinearMethod_INT8.py:729: cuSPARSELt INT8 compression done: 11059200 bytes
+(EngineCore_DP0 pid=3216009) 2026-01-28 13:26:16,411 - INFO - autotuner.py:256 - flashinfer.jit: [Autotuner]: Autotuning process starts ...
+(EngineCore_DP0 pid=3216009) 2026-01-28 13:26:16,436 - INFO - autotuner.py:262 - flashinfer.jit: [Autotuner]: Autotuning process ends
+(EngineCore_DP0 pid=3216009) 
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):   0%|          | 0/2 [00:00<?, ?it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE): 100%|██████████| 2/2 [00:00<00:00, 15.00it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE): 100%|██████████| 2/2 [00:00<00:00, 14.98it/s]
+(EngineCore_DP0 pid=3216009) 
+Capturing CUDA graphs (decode, FULL):   0%|          | 0/1 [00:00<?, ?it/s]
+Capturing CUDA graphs (decode, FULL): 100%|██████████| 1/1 [00:00<00:00, 14.97it/s]
+
+Adding requests:   0%|          | 0/128 [00:00<?, ?it/s]
+Adding requests:  31%|███▏      | 40/128 [00:00<00:00, 393.77it/s]
+Adding requests:  66%|██████▋   | 85/128 [00:00<00:00, 420.99it/s]
+Adding requests: 100%|██████████| 128/128 [00:00<00:00, 216.70it/s]
+Adding requests: 100%|██████████| 128/128 [00:00<00:00, 247.64it/s]
+
+Processed prompts:   0%|          | 0/128 [00:00<?, ?it/s, est. speed input: 0.00 toks/s, output: 0.00 toks/s]
+Processed prompts:   5%|▌         | 7/128 [00:00<00:01, 64.58it/s, est. speed input: 66130.05 toks/s, output: 64.58 toks/s]
+Processed prompts:  11%|█         | 14/128 [00:00<00:02, 43.94it/s, est. speed input: 47259.54 toks/s, output: 46.15 toks/s]
+Processed prompts:  15%|█▍        | 19/128 [00:00<00:02, 40.48it/s, est. speed input: 43909.30 toks/s, output: 42.88 toks/s]
+Processed prompts:  19%|█▉        | 24/128 [00:00<00:02, 38.69it/s, est. speed input: 42159.96 toks/s, output: 41.17 toks/s]
+Processed prompts:  22%|██▏       | 28/128 [00:00<00:02, 37.85it/s, est. speed input: 41291.82 toks/s, output: 40.32 toks/s]
+Processed prompts:  25%|██▌       | 32/128 [00:00<00:02, 37.23it/s, est. speed input: 40647.15 toks/s, output: 39.69 toks/s]
+Processed prompts:  28%|██▊       | 36/128 [00:00<00:02, 36.79it/s, est. speed input: 40155.24 toks/s, output: 39.21 toks/s]
+Processed prompts:  31%|███▏      | 40/128 [00:01<00:02, 36.42it/s, est. speed input: 39749.47 toks/s, output: 38.82 toks/s]
+Processed prompts:  34%|███▍      | 44/128 [00:01<00:02, 36.21it/s, est. speed input: 39436.33 toks/s, output: 38.51 toks/s]
+Processed prompts:  38%|███▊      | 48/128 [00:01<00:02, 36.06it/s, est. speed input: 39182.00 toks/s, output: 38.26 toks/s]
+Processed prompts:  41%|████      | 52/128 [00:01<00:02, 36.01it/s, est. speed input: 38983.57 toks/s, output: 38.07 toks/s]
+Processed prompts:  44%|████▍     | 56/128 [00:01<00:01, 36.01it/s, est. speed input: 38824.41 toks/s, output: 37.91 toks/s]
+Processed prompts:  47%|████▋     | 60/128 [00:01<00:01, 35.99it/s, est. speed input: 38684.51 toks/s, output: 37.78 toks/s]
+Processed prompts:  50%|█████     | 64/128 [00:01<00:01, 35.96it/s, est. speed input: 38557.79 toks/s, output: 37.65 toks/s]
+Processed prompts:  53%|█████▎    | 68/128 [00:01<00:01, 35.92it/s, est. speed input: 38441.34 toks/s, output: 37.54 toks/s]
+Processed prompts:  56%|█████▋    | 72/128 [00:01<00:01, 35.91it/s, est. speed input: 38343.99 toks/s, output: 37.45 toks/s]
+Processed prompts:  59%|█████▉    | 76/128 [00:02<00:01, 35.95it/s, est. speed input: 38264.67 toks/s, output: 37.37 toks/s]
+Processed prompts:  62%|██████▎   | 80/128 [00:02<00:01, 35.92it/s, est. speed input: 38183.39 toks/s, output: 37.29 toks/s]
+Processed prompts:  66%|██████▌   | 84/128 [00:02<00:01, 35.93it/s, est. speed input: 38116.69 toks/s, output: 37.22 toks/s]
+Processed prompts:  69%|██████▉   | 88/128 [00:02<00:01, 35.94it/s, est. speed input: 38056.30 toks/s, output: 37.16 toks/s]
+Processed prompts:  72%|███████▏  | 92/128 [00:02<00:01, 35.90it/s, est. speed input: 37992.82 toks/s, output: 37.10 toks/s]
+Processed prompts:  75%|███████▌  | 96/128 [00:02<00:00, 35.90it/s, est. speed input: 37940.03 toks/s, output: 37.05 toks/s]
+Processed prompts:  78%|███████▊  | 100/128 [00:02<00:00, 35.79it/s, est. speed input: 37875.05 toks/s, output: 36.99 toks/s]
+Processed prompts:  81%|████████▏ | 104/128 [00:02<00:00, 35.85it/s, est. speed input: 37834.62 toks/s, output: 36.95 toks/s]
+Processed prompts:  84%|████████▍ | 108/128 [00:02<00:00, 35.80it/s, est. speed input: 37786.11 toks/s, output: 36.90 toks/s]
+Processed prompts:  88%|████████▊ | 112/128 [00:03<00:00, 35.84it/s, est. speed input: 37749.42 toks/s, output: 36.86 toks/s]
+Processed prompts:  91%|█████████ | 116/128 [00:03<00:00, 35.84it/s, est. speed input: 37712.23 toks/s, output: 36.83 toks/s]
+Processed prompts:  94%|█████████▍| 120/128 [00:03<00:00, 35.36it/s, est. speed input: 37619.15 toks/s, output: 36.74 toks/s]
+Processed prompts:  97%|█████████▋| 124/128 [00:03<00:00, 35.46it/s, est. speed input: 37583.55 toks/s, output: 36.70 toks/s]
+Processed prompts: 100%|██████████| 128/128 [00:03<00:00, 35.56it/s, est. speed input: 37554.08 toks/s, output: 36.67 toks/s]
+Processed prompts: 100%|██████████| 128/128 [00:03<00:00, 35.56it/s, est. speed input: 37554.08 toks/s, output: 36.67 toks/s]
+Processed prompts: 100%|██████████| 128/128 [00:03<00:00, 36.67it/s, est. speed input: 37554.08 toks/s, output: 36.67 toks/s]
+[rank0]:[W128 13:26:22.367173620 ProcessGroupNCCL.cpp:1524] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+
+
+========== M=2048 ==========
+Time: 2026-01-28 13:26:23
+Backend: cuSPARSELt (2:4)
+Checkpoint: /root/vllmbench/checkpoints_slidesparse/BitNet-2B-INT8-SlideSparse-2_4
+Params: prompt_len=1024, output_len=1, num_prompts=256, max_num_seqs=2
+Command: vllm bench throughput --model /root/vllmbench/checkpoints_slidesparse/BitNet-2B-INT8-SlideSparse-2_4 --dataset-name random --input-len 1024 --output-len 1 --num-prompts 256 --max-num-seqs 2 --max-model-len 1025 --max-num-batched-tokens 2048 --no-enable-chunked-prefill --gpu-memory-utilization 0.8 --disable-log-stats --output-json /root/vllmbench/slidesparse/tools/throughput_benchmark_results/prefill/B200_cc100_INT8_py312_cu129_x86_64/cusparselt/2_4/json/BitNet-2B-INT8_M2048.json
+
+STDOUT:
+When dataset path is not set, it will default to random dataset
+WARNING 01-28 13:26:31 [arg_utils.py:1869] This model does not officially support disabling chunked prefill. Disabling this manually may cause the engine to crash or produce incorrect outputs.
+(EngineCore_DP0 pid=3217205) [INFO] Loading compress extension: cusparselt_compress_B200_cc100_py312_cu129_x86_64.so
+(EngineCore_DP0 pid=3217205) WARNING 01-28 13:26:46 [backends.py:609] Failed to read file <frozen os>
+(EngineCore_DP0 pid=3217205) WARNING 01-28 13:26:56 [flashinfer.py:363] Using TRTLLM prefill attention (auto-detected).
+Throughput: 65.61 requests/s, 67248.78 total tokens/s, 65.61 output tokens/s
+Total num prompt tokens:  262144
+Total num output tokens:  256
+
+STDERR:
+[2026-01-28 13:26:31] INFO kernels.py:578: Triton kernel custom ops registered
+[2026-01-28 13:26:31] INFO kernels.py:627: Optimization enabled: Only preloading kernels for model 'BitNet-2B-INT8'
+[2026-01-28 13:26:31] INFO kernels.py:109: Loaded tuned kernel for model: BitNet-2B-INT8
+[2026-01-28 13:26:31] INFO kernels.py:155: Dequant+bias kernel loaded for model: BitNet-2B-INT8
+[2026-01-28 13:26:31] INFO kernels.py:224: FP8 quant kernel loaded for model: BitNet-2B-INT8
+[2026-01-28 13:26:31] INFO kernels.py:348: INT8 quant kernel loaded for model: BitNet-2B-INT8
+[2026-01-28 13:26:31] INFO kernels.py:284: FP8 quant+slide kernel loaded for model: BitNet-2B-INT8
+[2026-01-28 13:26:31] INFO kernels.py:408: INT8 quant+slide kernel loaded for model: BitNet-2B-INT8
+[2026-01-28 13:26:31] INFO gemm_wrapper.py:157: Optimization enabled: Only loading GEMM configs for model 'BitNet-2B-INT8'
+[2026-01-28 13:26:31] INFO gemm_wrapper.py:172: Loaded algorithm configs: cuBLASLt=1, cuSPARSELt=1 models
+[2026-01-28 13:26:31] INFO gemm_wrapper.py:944: cuBLASLt FP8 custom op registered: slidesparse::cublaslt_fp8_mm
+[2026-01-28 13:26:31] INFO gemm_wrapper.py:1009: cuSPARSELt FP8 custom op registered: slidesparse::cusparselt_fp8_mm
+[2026-01-28 13:26:31] INFO gemm_wrapper.py:1075: cuBLASLt INT8 custom op registered: slidesparse::cublaslt_int8_mm
+[2026-01-28 13:26:31] INFO gemm_wrapper.py:1141: cuSPARSELt INT8 custom op registered: slidesparse::cusparselt_int8_mm
+[2026-01-28 13:26:37] INFO kernels.py:578: Triton kernel custom ops registered
+[2026-01-28 13:26:38] INFO kernels.py:627: Optimization enabled: Only preloading kernels for model 'BitNet-2B-INT8'
+[2026-01-28 13:26:38] INFO kernels.py:109: Loaded tuned kernel for model: BitNet-2B-INT8
+[2026-01-28 13:26:38] INFO kernels.py:155: Dequant+bias kernel loaded for model: BitNet-2B-INT8
+[2026-01-28 13:26:38] INFO kernels.py:224: FP8 quant kernel loaded for model: BitNet-2B-INT8
+[2026-01-28 13:26:38] INFO kernels.py:348: INT8 quant kernel loaded for model: BitNet-2B-INT8
+[2026-01-28 13:26:38] INFO kernels.py:284: FP8 quant+slide kernel loaded for model: BitNet-2B-INT8
+[2026-01-28 13:26:38] INFO kernels.py:408: INT8 quant+slide kernel loaded for model: BitNet-2B-INT8
+[2026-01-28 13:26:38] INFO gemm_wrapper.py:157: Optimization enabled: Only loading GEMM configs for model 'BitNet-2B-INT8'
+[2026-01-28 13:26:38] INFO gemm_wrapper.py:172: Loaded algorithm configs: cuBLASLt=1, cuSPARSELt=1 models
+[2026-01-28 13:26:38] INFO gemm_wrapper.py:944: cuBLASLt FP8 custom op registered: slidesparse::cublaslt_fp8_mm
+[2026-01-28 13:26:38] INFO gemm_wrapper.py:1009: cuSPARSELt FP8 custom op registered: slidesparse::cusparselt_fp8_mm
+[2026-01-28 13:26:38] INFO gemm_wrapper.py:1075: cuBLASLt INT8 custom op registered: slidesparse::cublaslt_int8_mm
+[2026-01-28 13:26:38] INFO gemm_wrapper.py:1141: cuSPARSELt INT8 custom op registered: slidesparse::cusparselt_int8_mm
+(EngineCore_DP0 pid=3217205) [2026-01-28 13:26:39] INFO SlideSparseLinearMethod_INT8.py:805: Wrapping CompressedTensorsW8A8Int8 with SlideSparse (cuSPARSELt)
+(EngineCore_DP0 pid=3217205) [2026-01-28 13:26:39] INFO gemm_wrapper.py:870: cusparselt GEMM extension loaded: cusparselt_gemm_B200_cc100_py312_cu129_x86_64.so
+(EngineCore_DP0 pid=3217205) [2026-01-28 13:26:39] INFO SlideSparseLinearMethod_INT8.py:452: SlideSparseInt8LinearOp initialized (kernel=cuSPARSELt)
+(EngineCore_DP0 pid=3217205) [2026-01-28 13:26:39] INFO SlideSparseLinearMethod_INT8.py:604: SlideSparseInt8LinearMethod: cuSPARSELt sparsity=2:4, expand_ratio=2.000
+(EngineCore_DP0 pid=3217205) [2026-01-28 13:26:39] INFO SlideSparseLinearMethod_INT8.py:621: Preloaded INT8 Triton kernels for model: BitNet-2B-INT8
+(EngineCore_DP0 pid=3217205) [2026-01-28 13:26:39] INFO SlideSparseLinearMethod_INT8.py:625: SlideSparseInt8LinearMethod initialized, kernel=cuSPARSELt, symmetric=True
+(EngineCore_DP0 pid=3217205) 
+Loading safetensors checkpoint shards:   0% Completed | 0/1 [00:00<?, ?it/s]
+(EngineCore_DP0 pid=3217205) 
+Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  2.25it/s]
+(EngineCore_DP0 pid=3217205) 
+Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  2.25it/s]
+(EngineCore_DP0 pid=3217205) 
+(EngineCore_DP0 pid=3217205) [2026-01-28 13:26:39] INFO SlideSparseLinearMethod_INT8.py:719: cuSPARSELt INT8 compression: [3840, 2560] -> 1D uint8
+(EngineCore_DP0 pid=3217205) [2026-01-28 13:26:39] INFO SlideSparseLinearMethod_INT8.py:729: cuSPARSELt INT8 compression done: 6144000 bytes
+(EngineCore_DP0 pid=3217205) [2026-01-28 13:26:39] INFO SlideSparseLinearMethod_INT8.py:719: cuSPARSELt INT8 compression: [2560, 2560] -> 1D uint8
+(EngineCore_DP0 pid=3217205) [2026-01-28 13:26:39] INFO SlideSparseLinearMethod_INT8.py:729: cuSPARSELt INT8 compression done: 4096000 bytes
+(EngineCore_DP0 pid=3217205) [2026-01-28 13:26:39] INFO SlideSparseLinearMethod_INT8.py:719: cuSPARSELt INT8 compression: [13824, 2560] -> 1D uint8
+(EngineCore_DP0 pid=3217205) [2026-01-28 13:26:39] INFO SlideSparseLinearMethod_INT8.py:729: cuSPARSELt INT8 compression done: 22118400 bytes
+(EngineCore_DP0 pid=3217205) [2026-01-28 13:26:39] INFO SlideSparseLinearMethod_INT8.py:719: cuSPARSELt INT8 compression: [2560, 6912] -> 1D uint8
+(EngineCore_DP0 pid=3217205) [2026-01-28 13:26:39] INFO SlideSparseLinearMethod_INT8.py:729: cuSPARSELt INT8 compression done: 11059200 bytes
+(EngineCore_DP0 pid=3217205) 2026-01-28 13:26:56,698 - INFO - autotuner.py:256 - flashinfer.jit: [Autotuner]: Autotuning process starts ...
+(EngineCore_DP0 pid=3217205) 2026-01-28 13:26:56,724 - INFO - autotuner.py:262 - flashinfer.jit: [Autotuner]: Autotuning process ends
+(EngineCore_DP0 pid=3217205) 
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):   0%|          | 0/3 [00:00<?, ?it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):  67%|██████▋   | 2/3 [00:00<00:00, 12.07it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE): 100%|██████████| 3/3 [00:00<00:00, 11.71it/s]
+(EngineCore_DP0 pid=3217205) 
+Capturing CUDA graphs (decode, FULL):   0%|          | 0/2 [00:00<?, ?it/s]
+Capturing CUDA graphs (decode, FULL): 100%|██████████| 2/2 [00:00<00:00, 16.09it/s]
+Capturing CUDA graphs (decode, FULL): 100%|██████████| 2/2 [00:00<00:00, 16.07it/s]
+
+Adding requests:   0%|          | 0/256 [00:00<?, ?it/s]
+Adding requests:   0%|          | 1/256 [00:00<00:51,  4.96it/s]
+Adding requests:  16%|█▌        | 41/256 [00:00<00:01, 167.95it/s]
+Adding requests:  33%|███▎      | 85/256 [00:00<00:00, 267.60it/s]
+Adding requests:  50%|█████     | 129/256 [00:00<00:00, 325.36it/s]
+Adding requests:  68%|██████▊   | 173/256 [00:00<00:00, 361.33it/s]
+Adding requests:  85%|████████▌ | 218/256 [00:00<00:00, 388.15it/s]
+Adding requests: 100%|██████████| 256/256 [00:00<00:00, 324.42it/s]
+
+Processed prompts:   0%|          | 0/256 [00:00<?, ?it/s, est. speed input: 0.00 toks/s, output: 0.00 toks/s]
+Processed prompts:  16%|█▋        | 42/256 [00:00<00:00, 354.74it/s, est. speed input: 363275.13 toks/s, output: 354.75 toks/s]
+Processed prompts:  30%|███       | 78/256 [00:00<00:01, 111.34it/s, est. speed input: 128221.62 toks/s, output: 125.22 toks/s]
+Processed prompts:  38%|███▊      | 97/256 [00:00<00:01, 97.68it/s, est. speed input: 113524.24 toks/s, output: 110.86 toks/s] 
+Processed prompts:  43%|████▎     | 111/256 [00:01<00:01, 89.95it/s, est. speed input: 106178.22 toks/s, output: 103.69 toks/s]
+Processed prompts:  48%|████▊     | 123/256 [00:01<00:01, 85.03it/s, est. speed input: 101709.50 toks/s, output: 99.33 toks/s] 
+Processed prompts:  52%|█████▏    | 133/256 [00:01<00:01, 81.77it/s, est. speed input: 98820.22 toks/s, output: 96.50 toks/s] 
+Processed prompts:  55%|█████▌    | 142/256 [00:01<00:01, 77.38it/s, est. speed input: 95818.22 toks/s, output: 93.57 toks/s]
+Processed prompts:  59%|█████▉    | 151/256 [00:01<00:01, 78.13it/s, est. speed input: 94916.38 toks/s, output: 92.69 toks/s]
+Processed prompts:  62%|██████▎   | 160/256 [00:01<00:01, 74.10it/s, est. speed input: 92599.80 toks/s, output: 90.43 toks/s]
+Processed prompts:  66%|██████▌   | 168/256 [00:01<00:01, 73.45it/s, est. speed input: 91446.17 toks/s, output: 89.30 toks/s]
+Processed prompts:  69%|██████▉   | 176/256 [00:01<00:01, 72.92it/s, est. speed input: 90417.56 toks/s, output: 88.30 toks/s]
+Processed prompts:  72%|███████▏  | 184/256 [00:02<00:00, 72.55it/s, est. speed input: 89506.54 toks/s, output: 87.41 toks/s]
+Processed prompts:  75%|███████▌  | 192/256 [00:02<00:00, 72.36it/s, est. speed input: 88707.40 toks/s, output: 86.63 toks/s]
+Processed prompts:  78%|███████▊  | 200/256 [00:02<00:00, 72.09it/s, est. speed input: 87958.55 toks/s, output: 85.90 toks/s]
+Processed prompts:  81%|████████▏ | 208/256 [00:02<00:00, 71.96it/s, est. speed input: 87289.47 toks/s, output: 85.24 toks/s]
+Processed prompts:  84%|████████▍ | 216/256 [00:02<00:00, 71.73it/s, est. speed input: 86656.04 toks/s, output: 84.62 toks/s]
+Processed prompts:  88%|████████▊ | 224/256 [00:02<00:00, 71.55it/s, est. speed input: 86071.60 toks/s, output: 84.05 toks/s]
+Processed prompts:  91%|█████████ | 232/256 [00:02<00:00, 71.52it/s, est. speed input: 85552.09 toks/s, output: 83.55 toks/s]
+Processed prompts:  94%|█████████▍| 240/256 [00:02<00:00, 71.61it/s, est. speed input: 85088.94 toks/s, output: 83.09 toks/s]
+Processed prompts:  97%|█████████▋| 248/256 [00:02<00:00, 71.65it/s, est. speed input: 84657.46 toks/s, output: 82.67 toks/s]
+Processed prompts: 100%|██████████| 256/256 [00:03<00:00, 71.60it/s, est. speed input: 84244.18 toks/s, output: 82.27 toks/s]
+Processed prompts: 100%|██████████| 256/256 [00:03<00:00, 71.60it/s, est. speed input: 84244.18 toks/s, output: 82.27 toks/s]
+Processed prompts: 100%|██████████| 256/256 [00:03<00:00, 82.27it/s, est. speed input: 84244.18 toks/s, output: 82.27 toks/s]
+[rank0]:[W128 13:27:02.791273297 ProcessGroupNCCL.cpp:1524] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+
+
+========== M=4096 ==========
+Time: 2026-01-28 13:27:04
+Backend: cuSPARSELt (2:4)
+Checkpoint: /root/vllmbench/checkpoints_slidesparse/BitNet-2B-INT8-SlideSparse-2_4
+Params: prompt_len=1024, output_len=1, num_prompts=512, max_num_seqs=4
+Command: vllm bench throughput --model /root/vllmbench/checkpoints_slidesparse/BitNet-2B-INT8-SlideSparse-2_4 --dataset-name random --input-len 1024 --output-len 1 --num-prompts 512 --max-num-seqs 4 --max-model-len 1025 --max-num-batched-tokens 4096 --no-enable-chunked-prefill --gpu-memory-utilization 0.8 --disable-log-stats --output-json /root/vllmbench/slidesparse/tools/throughput_benchmark_results/prefill/B200_cc100_INT8_py312_cu129_x86_64/cusparselt/2_4/json/BitNet-2B-INT8_M4096.json
+
+STDOUT:
+When dataset path is not set, it will default to random dataset
+WARNING 01-28 13:27:13 [arg_utils.py:1869] This model does not officially support disabling chunked prefill. Disabling this manually may cause the engine to crash or produce incorrect outputs.
+(EngineCore_DP0 pid=3218356) [INFO] Loading compress extension: cusparselt_compress_B200_cc100_py312_cu129_x86_64.so
+(EngineCore_DP0 pid=3218356) WARNING 01-28 13:27:28 [backends.py:609] Failed to read file <frozen os>
+(EngineCore_DP0 pid=3218356) WARNING 01-28 13:27:38 [flashinfer.py:363] Using TRTLLM prefill attention (auto-detected).
+Throughput: 133.11 requests/s, 136437.10 total tokens/s, 133.11 output tokens/s
+Total num prompt tokens:  524288
+Total num output tokens:  512
+
+STDERR:
+[2026-01-28 13:27:12] INFO kernels.py:578: Triton kernel custom ops registered
+[2026-01-28 13:27:13] INFO kernels.py:627: Optimization enabled: Only preloading kernels for model 'BitNet-2B-INT8'
+[2026-01-28 13:27:13] INFO kernels.py:109: Loaded tuned kernel for model: BitNet-2B-INT8
+[2026-01-28 13:27:13] INFO kernels.py:155: Dequant+bias kernel loaded for model: BitNet-2B-INT8
+[2026-01-28 13:27:13] INFO kernels.py:224: FP8 quant kernel loaded for model: BitNet-2B-INT8
+[2026-01-28 13:27:13] INFO kernels.py:348: INT8 quant kernel loaded for model: BitNet-2B-INT8
+[2026-01-28 13:27:13] INFO kernels.py:284: FP8 quant+slide kernel loaded for model: BitNet-2B-INT8
+[2026-01-28 13:27:13] INFO kernels.py:408: INT8 quant+slide kernel loaded for model: BitNet-2B-INT8
+[2026-01-28 13:27:13] INFO gemm_wrapper.py:157: Optimization enabled: Only loading GEMM configs for model 'BitNet-2B-INT8'
+[2026-01-28 13:27:13] INFO gemm_wrapper.py:172: Loaded algorithm configs: cuBLASLt=1, cuSPARSELt=1 models
+[2026-01-28 13:27:13] INFO gemm_wrapper.py:944: cuBLASLt FP8 custom op registered: slidesparse::cublaslt_fp8_mm
+[2026-01-28 13:27:13] INFO gemm_wrapper.py:1009: cuSPARSELt FP8 custom op registered: slidesparse::cusparselt_fp8_mm
+[2026-01-28 13:27:13] INFO gemm_wrapper.py:1075: cuBLASLt INT8 custom op registered: slidesparse::cublaslt_int8_mm
+[2026-01-28 13:27:13] INFO gemm_wrapper.py:1141: cuSPARSELt INT8 custom op registered: slidesparse::cusparselt_int8_mm
+[2026-01-28 13:27:19] INFO kernels.py:578: Triton kernel custom ops registered
+[2026-01-28 13:27:20] INFO kernels.py:627: Optimization enabled: Only preloading kernels for model 'BitNet-2B-INT8'
+[2026-01-28 13:27:20] INFO kernels.py:109: Loaded tuned kernel for model: BitNet-2B-INT8
+[2026-01-28 13:27:20] INFO kernels.py:155: Dequant+bias kernel loaded for model: BitNet-2B-INT8
+[2026-01-28 13:27:20] INFO kernels.py:224: FP8 quant kernel loaded for model: BitNet-2B-INT8
+[2026-01-28 13:27:20] INFO kernels.py:348: INT8 quant kernel loaded for model: BitNet-2B-INT8
+[2026-01-28 13:27:20] INFO kernels.py:284: FP8 quant+slide kernel loaded for model: BitNet-2B-INT8
+[2026-01-28 13:27:20] INFO kernels.py:408: INT8 quant+slide kernel loaded for model: BitNet-2B-INT8
+[2026-01-28 13:27:20] INFO gemm_wrapper.py:157: Optimization enabled: Only loading GEMM configs for model 'BitNet-2B-INT8'
+[2026-01-28 13:27:20] INFO gemm_wrapper.py:172: Loaded algorithm configs: cuBLASLt=1, cuSPARSELt=1 models
+[2026-01-28 13:27:20] INFO gemm_wrapper.py:944: cuBLASLt FP8 custom op registered: slidesparse::cublaslt_fp8_mm
+[2026-01-28 13:27:20] INFO gemm_wrapper.py:1009: cuSPARSELt FP8 custom op registered: slidesparse::cusparselt_fp8_mm
+[2026-01-28 13:27:20] INFO gemm_wrapper.py:1075: cuBLASLt INT8 custom op registered: slidesparse::cublaslt_int8_mm
+[2026-01-28 13:27:20] INFO gemm_wrapper.py:1141: cuSPARSELt INT8 custom op registered: slidesparse::cusparselt_int8_mm
+(EngineCore_DP0 pid=3218356) [2026-01-28 13:27:21] INFO SlideSparseLinearMethod_INT8.py:805: Wrapping CompressedTensorsW8A8Int8 with SlideSparse (cuSPARSELt)
+(EngineCore_DP0 pid=3218356) [2026-01-28 13:27:21] INFO gemm_wrapper.py:870: cusparselt GEMM extension loaded: cusparselt_gemm_B200_cc100_py312_cu129_x86_64.so
+(EngineCore_DP0 pid=3218356) [2026-01-28 13:27:21] INFO SlideSparseLinearMethod_INT8.py:452: SlideSparseInt8LinearOp initialized (kernel=cuSPARSELt)
+(EngineCore_DP0 pid=3218356) [2026-01-28 13:27:21] INFO SlideSparseLinearMethod_INT8.py:604: SlideSparseInt8LinearMethod: cuSPARSELt sparsity=2:4, expand_ratio=2.000
+(EngineCore_DP0 pid=3218356) [2026-01-28 13:27:21] INFO SlideSparseLinearMethod_INT8.py:621: Preloaded INT8 Triton kernels for model: BitNet-2B-INT8
+(EngineCore_DP0 pid=3218356) [2026-01-28 13:27:21] INFO SlideSparseLinearMethod_INT8.py:625: SlideSparseInt8LinearMethod initialized, kernel=cuSPARSELt, symmetric=True
+(EngineCore_DP0 pid=3218356) 
+Loading safetensors checkpoint shards:   0% Completed | 0/1 [00:00<?, ?it/s]
+(EngineCore_DP0 pid=3218356) 
+Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  2.25it/s]
+(EngineCore_DP0 pid=3218356) 
+Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  2.25it/s]
+(EngineCore_DP0 pid=3218356) 
+(EngineCore_DP0 pid=3218356) [2026-01-28 13:27:21] INFO SlideSparseLinearMethod_INT8.py:719: cuSPARSELt INT8 compression: [3840, 2560] -> 1D uint8
+(EngineCore_DP0 pid=3218356) [2026-01-28 13:27:21] INFO SlideSparseLinearMethod_INT8.py:729: cuSPARSELt INT8 compression done: 6144000 bytes
+(EngineCore_DP0 pid=3218356) [2026-01-28 13:27:21] INFO SlideSparseLinearMethod_INT8.py:719: cuSPARSELt INT8 compression: [2560, 2560] -> 1D uint8
+(EngineCore_DP0 pid=3218356) [2026-01-28 13:27:21] INFO SlideSparseLinearMethod_INT8.py:729: cuSPARSELt INT8 compression done: 4096000 bytes
+(EngineCore_DP0 pid=3218356) [2026-01-28 13:27:21] INFO SlideSparseLinearMethod_INT8.py:719: cuSPARSELt INT8 compression: [13824, 2560] -> 1D uint8
+(EngineCore_DP0 pid=3218356) [2026-01-28 13:27:21] INFO SlideSparseLinearMethod_INT8.py:729: cuSPARSELt INT8 compression done: 22118400 bytes
+(EngineCore_DP0 pid=3218356) [2026-01-28 13:27:21] INFO SlideSparseLinearMethod_INT8.py:719: cuSPARSELt INT8 compression: [2560, 6912] -> 1D uint8
+(EngineCore_DP0 pid=3218356) [2026-01-28 13:27:21] INFO SlideSparseLinearMethod_INT8.py:729: cuSPARSELt INT8 compression done: 11059200 bytes
+(EngineCore_DP0 pid=3218356) 2026-01-28 13:27:38,384 - INFO - autotuner.py:256 - flashinfer.jit: [Autotuner]: Autotuning process starts ...
+(EngineCore_DP0 pid=3218356) 2026-01-28 13:27:38,410 - INFO - autotuner.py:262 - flashinfer.jit: [Autotuner]: Autotuning process ends
+(EngineCore_DP0 pid=3218356) 
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):   0%|          | 0/4 [00:00<?, ?it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):  50%|█████     | 2/4 [00:00<00:00, 15.11it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE): 100%|██████████| 4/4 [00:00<00:00, 13.93it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE): 100%|██████████| 4/4 [00:00<00:00, 14.09it/s]
+(EngineCore_DP0 pid=3218356) 
+Capturing CUDA graphs (decode, FULL):   0%|          | 0/3 [00:00<?, ?it/s]
+Capturing CUDA graphs (decode, FULL):  67%|██████▋   | 2/3 [00:00<00:00, 15.73it/s]
+Capturing CUDA graphs (decode, FULL): 100%|██████████| 3/3 [00:00<00:00, 16.02it/s]
+
+Adding requests:   0%|          | 0/512 [00:00<?, ?it/s]
+Adding requests:   8%|▊         | 41/512 [00:00<00:01, 400.47it/s]
+Adding requests:  17%|█▋        | 86/512 [00:00<00:01, 424.90it/s]
+Adding requests:  26%|██▌       | 131/512 [00:00<00:00, 435.06it/s]
+Adding requests:  34%|███▍      | 175/512 [00:00<00:00, 434.98it/s]
+Adding requests:  43%|████▎     | 221/512 [00:00<00:00, 443.54it/s]
+Adding requests:  53%|█████▎    | 269/512 [00:00<00:00, 454.80it/s]
+Adding requests:  62%|██████▏   | 315/512 [00:00<00:00, 452.34it/s]
+Adding requests:  71%|███████   | 362/512 [00:00<00:00, 457.80it/s]
+Adding requests:  80%|████████  | 410/512 [00:00<00:00, 462.30it/s]
+Adding requests:  89%|████████▉ | 458/512 [00:01<00:00, 464.56it/s]
+Adding requests:  99%|█████████▊| 505/512 [00:01<00:00, 464.39it/s]
+Adding requests: 100%|██████████| 512/512 [00:01<00:00, 453.11it/s]
+
+Processed prompts:   0%|          | 0/512 [00:00<?, ?it/s, est. speed input: 0.00 toks/s, output: 0.00 toks/s]
+Processed prompts:  29%|██▊       | 146/512 [00:00<00:00, 1306.59it/s, est. speed input: 1338038.87 toks/s, output: 1306.61 toks/s]
+Processed prompts:  54%|█████▍    | 277/512 [00:01<00:00, 236.51it/s, est. speed input: 278212.50 toks/s, output: 271.69 toks/s]   
+Processed prompts:  66%|██████▋   | 340/512 [00:01<00:00, 197.94it/s, est. speed input: 236473.34 toks/s, output: 230.93 toks/s]
+Processed prompts:  74%|███████▍  | 381/512 [00:01<00:00, 181.95it/s, est. speed input: 220678.65 toks/s, output: 215.51 toks/s]
+Processed prompts:  80%|████████  | 411/512 [00:01<00:00, 170.78it/s, est. speed input: 211087.71 toks/s, output: 206.14 toks/s]
+Processed prompts:  85%|████████▍ | 435/512 [00:02<00:00, 165.11it/s, est. speed input: 205936.33 toks/s, output: 201.11 toks/s]
+Processed prompts:  89%|████████▉ | 456/512 [00:02<00:00, 160.39it/s, est. speed input: 201987.58 toks/s, output: 197.25 toks/s]
+Processed prompts:  93%|█████████▎| 475/512 [00:02<00:00, 155.00it/s, est. speed input: 198314.35 toks/s, output: 193.67 toks/s]
+Processed prompts:  96%|█████████▌| 492/512 [00:02<00:00, 154.09it/s, est. speed input: 196359.94 toks/s, output: 191.76 toks/s]
+Processed prompts:  99%|█████████▉| 509/512 [00:02<00:00, 153.33it/s, est. speed input: 194582.26 toks/s, output: 190.02 toks/s]
+Processed prompts: 100%|██████████| 512/512 [00:02<00:00, 153.33it/s, est. speed input: 193079.02 toks/s, output: 188.55 toks/s]
+Processed prompts: 100%|██████████| 512/512 [00:02<00:00, 188.55it/s, est. speed input: 193079.02 toks/s, output: 188.55 toks/s]
+[rank0]:[W128 13:27:44.522079812 ProcessGroupNCCL.cpp:1524] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+
+
+========== M=8192 ==========
+Time: 2026-01-28 13:27:46
+Backend: cuSPARSELt (2:4)
+Checkpoint: /root/vllmbench/checkpoints_slidesparse/BitNet-2B-INT8-SlideSparse-2_4
+Params: prompt_len=1024, output_len=1, num_prompts=1024, max_num_seqs=8
+Command: vllm bench throughput --model /root/vllmbench/checkpoints_slidesparse/BitNet-2B-INT8-SlideSparse-2_4 --dataset-name random --input-len 1024 --output-len 1 --num-prompts 1024 --max-num-seqs 8 --max-model-len 1025 --max-num-batched-tokens 8192 --no-enable-chunked-prefill --gpu-memory-utilization 0.8 --disable-log-stats --output-json /root/vllmbench/slidesparse/tools/throughput_benchmark_results/prefill/B200_cc100_INT8_py312_cu129_x86_64/cusparselt/2_4/json/BitNet-2B-INT8_M8192.json
+
+STDOUT:
+When dataset path is not set, it will default to random dataset
+WARNING 01-28 13:27:57 [arg_utils.py:1869] This model does not officially support disabling chunked prefill. Disabling this manually may cause the engine to crash or produce incorrect outputs.
+(EngineCore_DP0 pid=3219494) [INFO] Loading compress extension: cusparselt_compress_B200_cc100_py312_cu129_x86_64.so
+(EngineCore_DP0 pid=3219494) WARNING 01-28 13:28:12 [backends.py:609] Failed to read file <frozen os>
+(EngineCore_DP0 pid=3219494) WARNING 01-28 13:28:21 [flashinfer.py:363] Using TRTLLM prefill attention (auto-detected).
+Throughput: 253.18 requests/s, 259511.08 total tokens/s, 253.18 output tokens/s
+Total num prompt tokens:  1048576
+Total num output tokens:  1024
+
+STDERR:
+[2026-01-28 13:27:56] INFO kernels.py:578: Triton kernel custom ops registered
+[2026-01-28 13:27:57] INFO kernels.py:627: Optimization enabled: Only preloading kernels for model 'BitNet-2B-INT8'
+[2026-01-28 13:27:57] INFO kernels.py:109: Loaded tuned kernel for model: BitNet-2B-INT8
+[2026-01-28 13:27:57] INFO kernels.py:155: Dequant+bias kernel loaded for model: BitNet-2B-INT8
+[2026-01-28 13:27:57] INFO kernels.py:224: FP8 quant kernel loaded for model: BitNet-2B-INT8
+[2026-01-28 13:27:57] INFO kernels.py:348: INT8 quant kernel loaded for model: BitNet-2B-INT8
+[2026-01-28 13:27:57] INFO kernels.py:284: FP8 quant+slide kernel loaded for model: BitNet-2B-INT8
+[2026-01-28 13:27:57] INFO kernels.py:408: INT8 quant+slide kernel loaded for model: BitNet-2B-INT8
+[2026-01-28 13:27:57] INFO gemm_wrapper.py:157: Optimization enabled: Only loading GEMM configs for model 'BitNet-2B-INT8'
+[2026-01-28 13:27:57] INFO gemm_wrapper.py:172: Loaded algorithm configs: cuBLASLt=1, cuSPARSELt=1 models
+[2026-01-28 13:27:57] INFO gemm_wrapper.py:944: cuBLASLt FP8 custom op registered: slidesparse::cublaslt_fp8_mm
+[2026-01-28 13:27:57] INFO gemm_wrapper.py:1009: cuSPARSELt FP8 custom op registered: slidesparse::cusparselt_fp8_mm
+[2026-01-28 13:27:57] INFO gemm_wrapper.py:1075: cuBLASLt INT8 custom op registered: slidesparse::cublaslt_int8_mm
+[2026-01-28 13:27:57] INFO gemm_wrapper.py:1141: cuSPARSELt INT8 custom op registered: slidesparse::cusparselt_int8_mm
+[2026-01-28 13:28:03] INFO kernels.py:578: Triton kernel custom ops registered
+[2026-01-28 13:28:03] INFO kernels.py:627: Optimization enabled: Only preloading kernels for model 'BitNet-2B-INT8'
+[2026-01-28 13:28:03] INFO kernels.py:109: Loaded tuned kernel for model: BitNet-2B-INT8
+[2026-01-28 13:28:03] INFO kernels.py:155: Dequant+bias kernel loaded for model: BitNet-2B-INT8
+[2026-01-28 13:28:03] INFO kernels.py:224: FP8 quant kernel loaded for model: BitNet-2B-INT8
+[2026-01-28 13:28:03] INFO kernels.py:348: INT8 quant kernel loaded for model: BitNet-2B-INT8
+[2026-01-28 13:28:03] INFO kernels.py:284: FP8 quant+slide kernel loaded for model: BitNet-2B-INT8
+[2026-01-28 13:28:03] INFO kernels.py:408: INT8 quant+slide kernel loaded for model: BitNet-2B-INT8
+[2026-01-28 13:28:03] INFO gemm_wrapper.py:157: Optimization enabled: Only loading GEMM configs for model 'BitNet-2B-INT8'
+[2026-01-28 13:28:03] INFO gemm_wrapper.py:172: Loaded algorithm configs: cuBLASLt=1, cuSPARSELt=1 models
+[2026-01-28 13:28:03] INFO gemm_wrapper.py:944: cuBLASLt FP8 custom op registered: slidesparse::cublaslt_fp8_mm
+[2026-01-28 13:28:03] INFO gemm_wrapper.py:1009: cuSPARSELt FP8 custom op registered: slidesparse::cusparselt_fp8_mm
+[2026-01-28 13:28:03] INFO gemm_wrapper.py:1075: cuBLASLt INT8 custom op registered: slidesparse::cublaslt_int8_mm
+[2026-01-28 13:28:03] INFO gemm_wrapper.py:1141: cuSPARSELt INT8 custom op registered: slidesparse::cusparselt_int8_mm
+(EngineCore_DP0 pid=3219494) [2026-01-28 13:28:04] INFO SlideSparseLinearMethod_INT8.py:805: Wrapping CompressedTensorsW8A8Int8 with SlideSparse (cuSPARSELt)
+(EngineCore_DP0 pid=3219494) [2026-01-28 13:28:04] INFO gemm_wrapper.py:870: cusparselt GEMM extension loaded: cusparselt_gemm_B200_cc100_py312_cu129_x86_64.so
+(EngineCore_DP0 pid=3219494) [2026-01-28 13:28:04] INFO SlideSparseLinearMethod_INT8.py:452: SlideSparseInt8LinearOp initialized (kernel=cuSPARSELt)
+(EngineCore_DP0 pid=3219494) [2026-01-28 13:28:04] INFO SlideSparseLinearMethod_INT8.py:604: SlideSparseInt8LinearMethod: cuSPARSELt sparsity=2:4, expand_ratio=2.000
+(EngineCore_DP0 pid=3219494) [2026-01-28 13:28:04] INFO SlideSparseLinearMethod_INT8.py:621: Preloaded INT8 Triton kernels for model: BitNet-2B-INT8
+(EngineCore_DP0 pid=3219494) [2026-01-28 13:28:04] INFO SlideSparseLinearMethod_INT8.py:625: SlideSparseInt8LinearMethod initialized, kernel=cuSPARSELt, symmetric=True
+(EngineCore_DP0 pid=3219494) 
+Loading safetensors checkpoint shards:   0% Completed | 0/1 [00:00<?, ?it/s]
+(EngineCore_DP0 pid=3219494) 
+Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  2.23it/s]
+(EngineCore_DP0 pid=3219494) 
+Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  2.23it/s]
+(EngineCore_DP0 pid=3219494) 
+(EngineCore_DP0 pid=3219494) [2026-01-28 13:28:05] INFO SlideSparseLinearMethod_INT8.py:719: cuSPARSELt INT8 compression: [3840, 2560] -> 1D uint8
+(EngineCore_DP0 pid=3219494) [2026-01-28 13:28:05] INFO SlideSparseLinearMethod_INT8.py:729: cuSPARSELt INT8 compression done: 6144000 bytes
+(EngineCore_DP0 pid=3219494) [2026-01-28 13:28:05] INFO SlideSparseLinearMethod_INT8.py:719: cuSPARSELt INT8 compression: [2560, 2560] -> 1D uint8
+(EngineCore_DP0 pid=3219494) [2026-01-28 13:28:05] INFO SlideSparseLinearMethod_INT8.py:729: cuSPARSELt INT8 compression done: 4096000 bytes
+(EngineCore_DP0 pid=3219494) [2026-01-28 13:28:05] INFO SlideSparseLinearMethod_INT8.py:719: cuSPARSELt INT8 compression: [13824, 2560] -> 1D uint8
+(EngineCore_DP0 pid=3219494) [2026-01-28 13:28:05] INFO SlideSparseLinearMethod_INT8.py:729: cuSPARSELt INT8 compression done: 22118400 bytes
+(EngineCore_DP0 pid=3219494) [2026-01-28 13:28:05] INFO SlideSparseLinearMethod_INT8.py:719: cuSPARSELt INT8 compression: [2560, 6912] -> 1D uint8
+(EngineCore_DP0 pid=3219494) [2026-01-28 13:28:05] INFO SlideSparseLinearMethod_INT8.py:729: cuSPARSELt INT8 compression done: 11059200 bytes
+(EngineCore_DP0 pid=3219494) 2026-01-28 13:28:21,954 - INFO - autotuner.py:256 - flashinfer.jit: [Autotuner]: Autotuning process starts ...
+(EngineCore_DP0 pid=3219494) 2026-01-28 13:28:21,980 - INFO - autotuner.py:262 - flashinfer.jit: [Autotuner]: Autotuning process ends
+(EngineCore_DP0 pid=3219494) 
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):   0%|          | 0/5 [00:00<?, ?it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):  40%|████      | 2/5 [00:00<00:00, 15.57it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):  80%|████████  | 4/5 [00:00<00:00, 16.21it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE): 100%|██████████| 5/5 [00:00<00:00, 13.59it/s]
+(EngineCore_DP0 pid=3219494) 
+Capturing CUDA graphs (decode, FULL):   0%|          | 0/4 [00:00<?, ?it/s]
+Capturing CUDA graphs (decode, FULL):  50%|█████     | 2/4 [00:00<00:00, 15.35it/s]
+Capturing CUDA graphs (decode, FULL): 100%|██████████| 4/4 [00:00<00:00, 15.31it/s]
+Capturing CUDA graphs (decode, FULL): 100%|██████████| 4/4 [00:00<00:00, 15.31it/s]
+
+Adding requests:   0%|          | 0/1024 [00:00<?, ?it/s]
+Adding requests:   4%|▍         | 40/1024 [00:00<00:02, 397.12it/s]
+Adding requests:   8%|▊         | 85/1024 [00:00<00:02, 423.92it/s]
+Adding requests:  13%|█▎        | 130/1024 [00:00<00:02, 433.02it/s]
+Adding requests:  17%|█▋        | 174/1024 [00:00<00:01, 434.89it/s]
+Adding requests:  21%|██▏       | 220/1024 [00:00<00:01, 441.63it/s]
+Adding requests:  26%|██▌       | 268/1024 [00:00<00:01, 452.94it/s]
+Adding requests:  31%|███       | 314/1024 [00:00<00:01, 450.77it/s]
+Adding requests:  35%|███▌      | 360/1024 [00:00<00:01, 453.42it/s]
+Adding requests:  40%|███▉      | 407/1024 [00:00<00:01, 455.58it/s]
+Adding requests:  44%|████▍     | 454/1024 [00:01<00:01, 458.56it/s]
+Adding requests:  49%|████▉     | 500/1024 [00:01<00:01, 458.01it/s]
+Adding requests:  53%|█████▎    | 546/1024 [00:01<00:01, 454.39it/s]
+Adding requests:  58%|█████▊    | 595/1024 [00:01<00:00, 462.93it/s]
+Adding requests:  63%|██████▎   | 643/1024 [00:01<00:00, 465.09it/s]
+Adding requests:  68%|██████▊   | 692/1024 [00:01<00:00, 471.85it/s]
+Adding requests:  72%|███████▏  | 740/1024 [00:01<00:00, 472.89it/s]
+Adding requests:  77%|███████▋  | 788/1024 [00:01<00:00, 470.43it/s]
+Adding requests:  82%|████████▏ | 836/1024 [00:01<00:00, 459.72it/s]
+Adding requests:  86%|████████▋ | 884/1024 [00:01<00:00, 465.25it/s]
+Adding requests:  91%|█████████ | 933/1024 [00:02<00:00, 471.39it/s]
+Adding requests:  96%|█████████▌| 981/1024 [00:02<00:00, 471.22it/s]
+Adding requests: 100%|██████████| 1024/1024 [00:02<00:00, 459.98it/s]
+
+Processed prompts:   0%|          | 0/1024 [00:00<?, ?it/s, est. speed input: 0.00 toks/s, output: 0.00 toks/s]
+Processed prompts:  53%|█████▎    | 538/1024 [00:00<00:00, 5068.29it/s, est. speed input: 5190292.80 toks/s, output: 5068.38 toks/s]
+Processed prompts: 100%|██████████| 1024/1024 [00:01<00:00, 5068.29it/s, est. speed input: 577062.26 toks/s, output: 563.54 toks/s] 
+Processed prompts: 100%|██████████| 1024/1024 [00:01<00:00, 563.50it/s, est. speed input: 577062.26 toks/s, output: 563.54 toks/s] 
+[rank0]:[W128 13:28:28.571943084 ProcessGroupNCCL.cpp:1524] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+
+
+========== M=16384 ==========
+Time: 2026-01-28 13:28:30
+Backend: cuSPARSELt (2:4)
+Checkpoint: /root/vllmbench/checkpoints_slidesparse/BitNet-2B-INT8-SlideSparse-2_4
+Params: prompt_len=1024, output_len=1, num_prompts=2048, max_num_seqs=16
+Command: vllm bench throughput --model /root/vllmbench/checkpoints_slidesparse/BitNet-2B-INT8-SlideSparse-2_4 --dataset-name random --input-len 1024 --output-len 1 --num-prompts 2048 --max-num-seqs 16 --max-model-len 1025 --max-num-batched-tokens 16384 --no-enable-chunked-prefill --gpu-memory-utilization 0.8 --disable-log-stats --output-json /root/vllmbench/slidesparse/tools/throughput_benchmark_results/prefill/B200_cc100_INT8_py312_cu129_x86_64/cusparselt/2_4/json/BitNet-2B-INT8_M16384.json
+
+STDOUT:
+When dataset path is not set, it will default to random dataset
+WARNING 01-28 13:28:45 [arg_utils.py:1869] This model does not officially support disabling chunked prefill. Disabling this manually may cause the engine to crash or produce incorrect outputs.
+(EngineCore_DP0 pid=3220715) [INFO] Loading compress extension: cusparselt_compress_B200_cc100_py312_cu129_x86_64.so
+(EngineCore_DP0 pid=3220715) WARNING 01-28 13:29:01 [backends.py:609] Failed to read file <frozen os>
+(EngineCore_DP0 pid=3220715) WARNING 01-28 13:29:11 [flashinfer.py:363] Using TRTLLM prefill attention (auto-detected).
+Throughput: 315.34 requests/s, 323218.91 total tokens/s, 315.34 output tokens/s
+Total num prompt tokens:  2097152
+Total num output tokens:  2048
+
+STDERR:
+[2026-01-28 13:28:45] INFO kernels.py:578: Triton kernel custom ops registered
+[2026-01-28 13:28:45] INFO kernels.py:627: Optimization enabled: Only preloading kernels for model 'BitNet-2B-INT8'
+[2026-01-28 13:28:45] INFO kernels.py:109: Loaded tuned kernel for model: BitNet-2B-INT8
+[2026-01-28 13:28:45] INFO kernels.py:155: Dequant+bias kernel loaded for model: BitNet-2B-INT8
+[2026-01-28 13:28:45] INFO kernels.py:224: FP8 quant kernel loaded for model: BitNet-2B-INT8
+[2026-01-28 13:28:45] INFO kernels.py:348: INT8 quant kernel loaded for model: BitNet-2B-INT8
+[2026-01-28 13:28:45] INFO kernels.py:284: FP8 quant+slide kernel loaded for model: BitNet-2B-INT8
+[2026-01-28 13:28:45] INFO kernels.py:408: INT8 quant+slide kernel loaded for model: BitNet-2B-INT8
+[2026-01-28 13:28:45] INFO gemm_wrapper.py:157: Optimization enabled: Only loading GEMM configs for model 'BitNet-2B-INT8'
+[2026-01-28 13:28:45] INFO gemm_wrapper.py:172: Loaded algorithm configs: cuBLASLt=1, cuSPARSELt=1 models
+[2026-01-28 13:28:45] INFO gemm_wrapper.py:944: cuBLASLt FP8 custom op registered: slidesparse::cublaslt_fp8_mm
+[2026-01-28 13:28:45] INFO gemm_wrapper.py:1009: cuSPARSELt FP8 custom op registered: slidesparse::cusparselt_fp8_mm
+[2026-01-28 13:28:45] INFO gemm_wrapper.py:1075: cuBLASLt INT8 custom op registered: slidesparse::cublaslt_int8_mm
+[2026-01-28 13:28:45] INFO gemm_wrapper.py:1141: cuSPARSELt INT8 custom op registered: slidesparse::cusparselt_int8_mm
+[2026-01-28 13:28:52] INFO kernels.py:578: Triton kernel custom ops registered
+[2026-01-28 13:28:52] INFO kernels.py:627: Optimization enabled: Only preloading kernels for model 'BitNet-2B-INT8'
+[2026-01-28 13:28:52] INFO kernels.py:109: Loaded tuned kernel for model: BitNet-2B-INT8
+[2026-01-28 13:28:52] INFO kernels.py:155: Dequant+bias kernel loaded for model: BitNet-2B-INT8
+[2026-01-28 13:28:52] INFO kernels.py:224: FP8 quant kernel loaded for model: BitNet-2B-INT8
+[2026-01-28 13:28:52] INFO kernels.py:348: INT8 quant kernel loaded for model: BitNet-2B-INT8
+[2026-01-28 13:28:52] INFO kernels.py:284: FP8 quant+slide kernel loaded for model: BitNet-2B-INT8
+[2026-01-28 13:28:52] INFO kernels.py:408: INT8 quant+slide kernel loaded for model: BitNet-2B-INT8
+[2026-01-28 13:28:52] INFO gemm_wrapper.py:157: Optimization enabled: Only loading GEMM configs for model 'BitNet-2B-INT8'
+[2026-01-28 13:28:52] INFO gemm_wrapper.py:172: Loaded algorithm configs: cuBLASLt=1, cuSPARSELt=1 models
+[2026-01-28 13:28:52] INFO gemm_wrapper.py:944: cuBLASLt FP8 custom op registered: slidesparse::cublaslt_fp8_mm
+[2026-01-28 13:28:52] INFO gemm_wrapper.py:1009: cuSPARSELt FP8 custom op registered: slidesparse::cusparselt_fp8_mm
+[2026-01-28 13:28:52] INFO gemm_wrapper.py:1075: cuBLASLt INT8 custom op registered: slidesparse::cublaslt_int8_mm
+[2026-01-28 13:28:52] INFO gemm_wrapper.py:1141: cuSPARSELt INT8 custom op registered: slidesparse::cusparselt_int8_mm
+(EngineCore_DP0 pid=3220715) [2026-01-28 13:28:53] INFO SlideSparseLinearMethod_INT8.py:805: Wrapping CompressedTensorsW8A8Int8 with SlideSparse (cuSPARSELt)
+(EngineCore_DP0 pid=3220715) [2026-01-28 13:28:53] INFO gemm_wrapper.py:870: cusparselt GEMM extension loaded: cusparselt_gemm_B200_cc100_py312_cu129_x86_64.so
+(EngineCore_DP0 pid=3220715) [2026-01-28 13:28:53] INFO SlideSparseLinearMethod_INT8.py:452: SlideSparseInt8LinearOp initialized (kernel=cuSPARSELt)
+(EngineCore_DP0 pid=3220715) [2026-01-28 13:28:53] INFO SlideSparseLinearMethod_INT8.py:604: SlideSparseInt8LinearMethod: cuSPARSELt sparsity=2:4, expand_ratio=2.000
+(EngineCore_DP0 pid=3220715) [2026-01-28 13:28:53] INFO SlideSparseLinearMethod_INT8.py:621: Preloaded INT8 Triton kernels for model: BitNet-2B-INT8
+(EngineCore_DP0 pid=3220715) [2026-01-28 13:28:53] INFO SlideSparseLinearMethod_INT8.py:625: SlideSparseInt8LinearMethod initialized, kernel=cuSPARSELt, symmetric=True
+(EngineCore_DP0 pid=3220715) 
+Loading safetensors checkpoint shards:   0% Completed | 0/1 [00:00<?, ?it/s]
+(EngineCore_DP0 pid=3220715) 
+Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  2.25it/s]
+(EngineCore_DP0 pid=3220715) 
+Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  2.25it/s]
+(EngineCore_DP0 pid=3220715) 
+(EngineCore_DP0 pid=3220715) [2026-01-28 13:28:54] INFO SlideSparseLinearMethod_INT8.py:719: cuSPARSELt INT8 compression: [3840, 2560] -> 1D uint8
+(EngineCore_DP0 pid=3220715) [2026-01-28 13:28:54] INFO SlideSparseLinearMethod_INT8.py:729: cuSPARSELt INT8 compression done: 6144000 bytes
+(EngineCore_DP0 pid=3220715) [2026-01-28 13:28:54] INFO SlideSparseLinearMethod_INT8.py:719: cuSPARSELt INT8 compression: [2560, 2560] -> 1D uint8
+(EngineCore_DP0 pid=3220715) [2026-01-28 13:28:54] INFO SlideSparseLinearMethod_INT8.py:729: cuSPARSELt INT8 compression done: 4096000 bytes
+(EngineCore_DP0 pid=3220715) [2026-01-28 13:28:54] INFO SlideSparseLinearMethod_INT8.py:719: cuSPARSELt INT8 compression: [13824, 2560] -> 1D uint8
+(EngineCore_DP0 pid=3220715) [2026-01-28 13:28:54] INFO SlideSparseLinearMethod_INT8.py:729: cuSPARSELt INT8 compression done: 22118400 bytes
+(EngineCore_DP0 pid=3220715) [2026-01-28 13:28:54] INFO SlideSparseLinearMethod_INT8.py:719: cuSPARSELt INT8 compression: [2560, 6912] -> 1D uint8
+(EngineCore_DP0 pid=3220715) [2026-01-28 13:28:54] INFO SlideSparseLinearMethod_INT8.py:729: cuSPARSELt INT8 compression done: 11059200 bytes
+(EngineCore_DP0 pid=3220715) 2026-01-28 13:29:11,034 - INFO - autotuner.py:256 - flashinfer.jit: [Autotuner]: Autotuning process starts ...
+(EngineCore_DP0 pid=3220715) 2026-01-28 13:29:11,060 - INFO - autotuner.py:262 - flashinfer.jit: [Autotuner]: Autotuning process ends
+(EngineCore_DP0 pid=3220715) 
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):   0%|          | 0/7 [00:00<?, ?it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):  14%|█▍        | 1/7 [00:00<00:00,  9.88it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):  43%|████▎     | 3/7 [00:00<00:00, 13.53it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):  71%|███████▏  | 5/7 [00:00<00:00, 12.88it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE): 100%|██████████| 7/7 [00:00<00:00, 11.82it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE): 100%|██████████| 7/7 [00:00<00:00, 12.06it/s]
+(EngineCore_DP0 pid=3220715) 
+Capturing CUDA graphs (decode, FULL):   0%|          | 0/5 [00:00<?, ?it/s]
+Capturing CUDA graphs (decode, FULL):  40%|████      | 2/5 [00:00<00:00, 16.35it/s]
+Capturing CUDA graphs (decode, FULL):  80%|████████  | 4/5 [00:00<00:00, 16.68it/s]
+Capturing CUDA graphs (decode, FULL): 100%|██████████| 5/5 [00:00<00:00, 16.66it/s]
+
+Adding requests:   0%|          | 0/2048 [00:00<?, ?it/s]
+Adding requests:   2%|▏         | 40/2048 [00:00<00:05, 398.16it/s]
+Adding requests:   4%|▍         | 84/2048 [00:00<00:04, 422.28it/s]
+Adding requests:   6%|▋         | 128/2048 [00:00<00:04, 426.84it/s]
+Adding requests:   8%|▊         | 171/2048 [00:00<00:04, 426.09it/s]
+Adding requests:  10%|█         | 215/2048 [00:00<00:04, 429.23it/s]
+Adding requests:  13%|█▎        | 262/2048 [00:00<00:04, 441.62it/s]
+Adding requests:  15%|█▍        | 307/2048 [00:00<00:03, 444.21it/s]
+Adding requests:  17%|█▋        | 354/2048 [00:00<00:03, 450.40it/s]
+Adding requests:  20%|█▉        | 401/2048 [00:00<00:03, 455.74it/s]
+Adding requests:  22%|██▏       | 448/2048 [00:01<00:03, 458.92it/s]
+Adding requests:  24%|██▍       | 495/2048 [00:01<00:03, 461.36it/s]
+Adding requests:  26%|██▋       | 542/2048 [00:01<00:03, 452.08it/s]
+Adding requests:  29%|██▉       | 592/2048 [00:01<00:03, 464.00it/s]
+Adding requests:  31%|███       | 639/2048 [00:01<00:03, 461.58it/s]
+Adding requests:  34%|███▎      | 688/2048 [00:01<00:02, 468.22it/s]
+Adding requests:  36%|███▌      | 737/2048 [00:01<00:02, 472.39it/s]
+Adding requests:  38%|███▊      | 785/2048 [00:01<00:02, 467.42it/s]
+Adding requests:  41%|████      | 832/2048 [00:01<00:02, 458.71it/s]
+Adding requests:  43%|████▎     | 879/2048 [00:01<00:02, 461.44it/s]
+Adding requests:  45%|████▌     | 928/2048 [00:02<00:02, 467.71it/s]
+Adding requests:  48%|████▊     | 976/2048 [00:02<00:02, 470.20it/s]
+Adding requests:  50%|█████     | 1025/2048 [00:02<00:02, 473.13it/s]
+Adding requests:  52%|█████▏    | 1073/2048 [00:02<00:02, 468.17it/s]
+Adding requests:  55%|█████▍    | 1120/2048 [00:02<00:01, 466.79it/s]
+Adding requests:  57%|█████▋    | 1169/2048 [00:02<00:01, 472.96it/s]
+Adding requests:  60%|█████▉    | 1220/2048 [00:02<00:01, 481.48it/s]
+Adding requests:  62%|██████▏   | 1269/2048 [00:02<00:01, 472.75it/s]
+Adding requests:  64%|██████▍   | 1317/2048 [00:02<00:01, 473.54it/s]
+Adding requests:  67%|██████▋   | 1365/2048 [00:02<00:01, 475.15it/s]
+Adding requests:  69%|██████▉   | 1414/2048 [00:03<00:01, 477.76it/s]
+Adding requests:  71%|███████▏  | 1462/2048 [00:03<00:01, 478.04it/s]
+Adding requests:  74%|███████▍  | 1511/2048 [00:03<00:01, 479.55it/s]
+Adding requests:  76%|███████▌  | 1559/2048 [00:03<00:01, 478.61it/s]
+Adding requests:  79%|███████▊  | 1609/2048 [00:03<00:00, 483.82it/s]
+Adding requests:  81%|████████  | 1658/2048 [00:03<00:00, 480.35it/s]
+Adding requests:  83%|████████▎ | 1707/2048 [00:03<00:00, 466.73it/s]
+Adding requests:  86%|████████▌ | 1755/2048 [00:03<00:00, 469.55it/s]
+Adding requests:  88%|████████▊ | 1803/2048 [00:03<00:00, 467.83it/s]
+Adding requests:  90%|█████████ | 1851/2048 [00:03<00:00, 469.50it/s]
+Adding requests:  93%|█████████▎| 1899/2048 [00:04<00:00, 471.33it/s]
+Adding requests:  95%|█████████▌| 1947/2048 [00:04<00:00, 471.17it/s]
+Adding requests:  97%|█████████▋| 1995/2048 [00:04<00:00, 472.27it/s]
+Adding requests: 100%|█████████▉| 2044/2048 [00:04<00:00, 474.73it/s]
+Adding requests: 100%|██████████| 2048/2048 [00:04<00:00, 465.42it/s]
+
+Processed prompts:   0%|          | 0/2048 [00:00<?, ?it/s, est. speed input: 0.00 toks/s, output: 0.00 toks/s]
+Processed prompts:  68%|██████▊   | 1394/2048 [00:00<00:00, 12824.37it/s, est. speed input: 13132987.22 toks/s, output: 12824.54 toks/s]
+Processed prompts: 100%|██████████| 2048/2048 [00:02<00:00, 12824.37it/s, est. speed input: 1002039.49 toks/s, output: 978.55 toks/s]   
+Processed prompts: 100%|██████████| 2048/2048 [00:02<00:00, 978.50it/s, est. speed input: 1002039.49 toks/s, output: 978.55 toks/s]  
+[rank0]:[W128 13:29:20.247219098 ProcessGroupNCCL.cpp:1524] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+
+
+========== M=32768 ==========
+Time: 2026-01-28 13:29:21
+Backend: cuSPARSELt (2:4)
+Checkpoint: /root/vllmbench/checkpoints_slidesparse/BitNet-2B-INT8-SlideSparse-2_4
+Params: prompt_len=1024, output_len=1, num_prompts=4096, max_num_seqs=32
+Command: vllm bench throughput --model /root/vllmbench/checkpoints_slidesparse/BitNet-2B-INT8-SlideSparse-2_4 --dataset-name random --input-len 1024 --output-len 1 --num-prompts 4096 --max-num-seqs 32 --max-model-len 1025 --max-num-batched-tokens 32768 --no-enable-chunked-prefill --gpu-memory-utilization 0.8 --disable-log-stats --output-json /root/vllmbench/slidesparse/tools/throughput_benchmark_results/prefill/B200_cc100_INT8_py312_cu129_x86_64/cusparselt/2_4/json/BitNet-2B-INT8_M32768.json
+
+STDOUT:
+When dataset path is not set, it will default to random dataset
+WARNING 01-28 13:29:46 [arg_utils.py:1869] This model does not officially support disabling chunked prefill. Disabling this manually may cause the engine to crash or produce incorrect outputs.
+(EngineCore_DP0 pid=3222101) [INFO] Loading compress extension: cusparselt_compress_B200_cc100_py312_cu129_x86_64.so
+(EngineCore_DP0 pid=3222101) WARNING 01-28 13:30:01 [backends.py:609] Failed to read file <frozen os>
+(EngineCore_DP0 pid=3222101) WARNING 01-28 13:30:12 [flashinfer.py:363] Using TRTLLM prefill attention (auto-detected).
+Throughput: 336.08 requests/s, 344482.47 total tokens/s, 336.08 output tokens/s
+Total num prompt tokens:  4194304
+Total num output tokens:  4096
+
+STDERR:
+[2026-01-28 13:29:46] INFO kernels.py:578: Triton kernel custom ops registered
+[2026-01-28 13:29:46] INFO kernels.py:627: Optimization enabled: Only preloading kernels for model 'BitNet-2B-INT8'
+[2026-01-28 13:29:46] INFO kernels.py:109: Loaded tuned kernel for model: BitNet-2B-INT8
+[2026-01-28 13:29:46] INFO kernels.py:155: Dequant+bias kernel loaded for model: BitNet-2B-INT8
+[2026-01-28 13:29:46] INFO kernels.py:224: FP8 quant kernel loaded for model: BitNet-2B-INT8
+[2026-01-28 13:29:46] INFO kernels.py:348: INT8 quant kernel loaded for model: BitNet-2B-INT8
+[2026-01-28 13:29:46] INFO kernels.py:284: FP8 quant+slide kernel loaded for model: BitNet-2B-INT8
+[2026-01-28 13:29:46] INFO kernels.py:408: INT8 quant+slide kernel loaded for model: BitNet-2B-INT8
+[2026-01-28 13:29:46] INFO gemm_wrapper.py:157: Optimization enabled: Only loading GEMM configs for model 'BitNet-2B-INT8'
+[2026-01-28 13:29:46] INFO gemm_wrapper.py:172: Loaded algorithm configs: cuBLASLt=1, cuSPARSELt=1 models
+[2026-01-28 13:29:46] INFO gemm_wrapper.py:944: cuBLASLt FP8 custom op registered: slidesparse::cublaslt_fp8_mm
+[2026-01-28 13:29:46] INFO gemm_wrapper.py:1009: cuSPARSELt FP8 custom op registered: slidesparse::cusparselt_fp8_mm
+[2026-01-28 13:29:46] INFO gemm_wrapper.py:1075: cuBLASLt INT8 custom op registered: slidesparse::cublaslt_int8_mm
+[2026-01-28 13:29:46] INFO gemm_wrapper.py:1141: cuSPARSELt INT8 custom op registered: slidesparse::cusparselt_int8_mm
+[2026-01-28 13:29:53] INFO kernels.py:578: Triton kernel custom ops registered
+[2026-01-28 13:29:53] INFO kernels.py:627: Optimization enabled: Only preloading kernels for model 'BitNet-2B-INT8'
+[2026-01-28 13:29:53] INFO kernels.py:109: Loaded tuned kernel for model: BitNet-2B-INT8
+[2026-01-28 13:29:53] INFO kernels.py:155: Dequant+bias kernel loaded for model: BitNet-2B-INT8
+[2026-01-28 13:29:53] INFO kernels.py:224: FP8 quant kernel loaded for model: BitNet-2B-INT8
+[2026-01-28 13:29:53] INFO kernels.py:348: INT8 quant kernel loaded for model: BitNet-2B-INT8
+[2026-01-28 13:29:53] INFO kernels.py:284: FP8 quant+slide kernel loaded for model: BitNet-2B-INT8
+[2026-01-28 13:29:53] INFO kernels.py:408: INT8 quant+slide kernel loaded for model: BitNet-2B-INT8
+[2026-01-28 13:29:53] INFO gemm_wrapper.py:157: Optimization enabled: Only loading GEMM configs for model 'BitNet-2B-INT8'
+[2026-01-28 13:29:53] INFO gemm_wrapper.py:172: Loaded algorithm configs: cuBLASLt=1, cuSPARSELt=1 models
+[2026-01-28 13:29:53] INFO gemm_wrapper.py:944: cuBLASLt FP8 custom op registered: slidesparse::cublaslt_fp8_mm
+[2026-01-28 13:29:53] INFO gemm_wrapper.py:1009: cuSPARSELt FP8 custom op registered: slidesparse::cusparselt_fp8_mm
+[2026-01-28 13:29:53] INFO gemm_wrapper.py:1075: cuBLASLt INT8 custom op registered: slidesparse::cublaslt_int8_mm
+[2026-01-28 13:29:53] INFO gemm_wrapper.py:1141: cuSPARSELt INT8 custom op registered: slidesparse::cusparselt_int8_mm
+(EngineCore_DP0 pid=3222101) [2026-01-28 13:29:54] INFO SlideSparseLinearMethod_INT8.py:805: Wrapping CompressedTensorsW8A8Int8 with SlideSparse (cuSPARSELt)
+(EngineCore_DP0 pid=3222101) [2026-01-28 13:29:54] INFO gemm_wrapper.py:870: cusparselt GEMM extension loaded: cusparselt_gemm_B200_cc100_py312_cu129_x86_64.so
+(EngineCore_DP0 pid=3222101) [2026-01-28 13:29:54] INFO SlideSparseLinearMethod_INT8.py:452: SlideSparseInt8LinearOp initialized (kernel=cuSPARSELt)
+(EngineCore_DP0 pid=3222101) [2026-01-28 13:29:54] INFO SlideSparseLinearMethod_INT8.py:604: SlideSparseInt8LinearMethod: cuSPARSELt sparsity=2:4, expand_ratio=2.000
+(EngineCore_DP0 pid=3222101) [2026-01-28 13:29:54] INFO SlideSparseLinearMethod_INT8.py:621: Preloaded INT8 Triton kernels for model: BitNet-2B-INT8
+(EngineCore_DP0 pid=3222101) [2026-01-28 13:29:54] INFO SlideSparseLinearMethod_INT8.py:625: SlideSparseInt8LinearMethod initialized, kernel=cuSPARSELt, symmetric=True
+(EngineCore_DP0 pid=3222101) 
+Loading safetensors checkpoint shards:   0% Completed | 0/1 [00:00<?, ?it/s]
+(EngineCore_DP0 pid=3222101) 
+Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  2.24it/s]
+(EngineCore_DP0 pid=3222101) 
+Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  2.24it/s]
+(EngineCore_DP0 pid=3222101) 
+(EngineCore_DP0 pid=3222101) [2026-01-28 13:29:55] INFO SlideSparseLinearMethod_INT8.py:719: cuSPARSELt INT8 compression: [3840, 2560] -> 1D uint8
+(EngineCore_DP0 pid=3222101) [2026-01-28 13:29:55] INFO SlideSparseLinearMethod_INT8.py:729: cuSPARSELt INT8 compression done: 6144000 bytes
+(EngineCore_DP0 pid=3222101) [2026-01-28 13:29:55] INFO SlideSparseLinearMethod_INT8.py:719: cuSPARSELt INT8 compression: [2560, 2560] -> 1D uint8
+(EngineCore_DP0 pid=3222101) [2026-01-28 13:29:55] INFO SlideSparseLinearMethod_INT8.py:729: cuSPARSELt INT8 compression done: 4096000 bytes
+(EngineCore_DP0 pid=3222101) [2026-01-28 13:29:55] INFO SlideSparseLinearMethod_INT8.py:719: cuSPARSELt INT8 compression: [13824, 2560] -> 1D uint8
+(EngineCore_DP0 pid=3222101) [2026-01-28 13:29:55] INFO SlideSparseLinearMethod_INT8.py:729: cuSPARSELt INT8 compression done: 22118400 bytes
+(EngineCore_DP0 pid=3222101) [2026-01-28 13:29:55] INFO SlideSparseLinearMethod_INT8.py:719: cuSPARSELt INT8 compression: [2560, 6912] -> 1D uint8
+(EngineCore_DP0 pid=3222101) [2026-01-28 13:29:55] INFO SlideSparseLinearMethod_INT8.py:729: cuSPARSELt INT8 compression done: 11059200 bytes
+(EngineCore_DP0 pid=3222101) [rank0]:W0128 13:30:06.735000 3222101 torch/_inductor/codegen/triton_combo_kernel.py:110] ComboKernels: 1 large pointwise nodes are separated
+(EngineCore_DP0 pid=3222101) [rank0]:W0128 13:30:06.818000 3222101 torch/_inductor/codegen/triton_combo_kernel.py:110] ComboKernels: 1 large pointwise nodes are separated
+(EngineCore_DP0 pid=3222101) [rank0]:W0128 13:30:07.934000 3222101 torch/_inductor/codegen/triton_combo_kernel.py:110] ComboKernels: 1 large pointwise nodes are separated
+(EngineCore_DP0 pid=3222101) [rank0]:W0128 13:30:08.064000 3222101 torch/_inductor/codegen/triton_combo_kernel.py:110] ComboKernels: 1 large pointwise nodes are separated
+(EngineCore_DP0 pid=3222101) 2026-01-28 13:30:12,003 - INFO - autotuner.py:256 - flashinfer.jit: [Autotuner]: Autotuning process starts ...
+(EngineCore_DP0 pid=3222101) 2026-01-28 13:30:12,031 - INFO - autotuner.py:262 - flashinfer.jit: [Autotuner]: Autotuning process ends
+(EngineCore_DP0 pid=3222101) 
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):   0%|          | 0/11 [00:00<?, ?it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):  18%|█▊        | 2/11 [00:00<00:00, 14.00it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):  36%|███▋      | 4/11 [00:00<00:00, 14.67it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):  55%|█████▍    | 6/11 [00:00<00:00, 14.80it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):  73%|███████▎  | 8/11 [00:00<00:00, 15.44it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE):  91%|█████████ | 10/11 [00:00<00:00, 15.72it/s]
+Capturing CUDA graphs (mixed prefill-decode, PIECEWISE): 100%|██████████| 11/11 [00:00<00:00, 14.81it/s]
+(EngineCore_DP0 pid=3222101) 
+Capturing CUDA graphs (decode, FULL):   0%|          | 0/7 [00:00<?, ?it/s]
+Capturing CUDA graphs (decode, FULL):  29%|██▊       | 2/7 [00:00<00:00, 15.40it/s]
+Capturing CUDA graphs (decode, FULL):  57%|█████▋    | 4/7 [00:00<00:00, 15.30it/s]
+Capturing CUDA graphs (decode, FULL):  86%|████████▌ | 6/7 [00:00<00:00, 15.03it/s]
+Capturing CUDA graphs (decode, FULL): 100%|██████████| 7/7 [00:00<00:00, 15.18it/s]
+
+Adding requests:   0%|          | 0/4096 [00:00<?, ?it/s]
+Adding requests:   1%|          | 41/4096 [00:00<00:10, 403.11it/s]
+Adding requests:   2%|▏         | 85/4096 [00:00<00:09, 422.93it/s]
+Adding requests:   3%|▎         | 130/4096 [00:00<00:09, 433.99it/s]
+Adding requests:   4%|▍         | 175/4096 [00:00<00:08, 436.30it/s]
+Adding requests:   5%|▌         | 221/4096 [00:00<00:08, 444.23it/s]
+Adding requests:   7%|▋         | 270/4096 [00:00<00:08, 456.28it/s]
+Adding requests:   8%|▊         | 316/4096 [00:00<00:08, 452.46it/s]
+Adding requests:   9%|▉         | 364/4096 [00:00<00:08, 458.87it/s]
+Adding requests:  10%|█         | 411/4096 [00:00<00:07, 460.87it/s]
+Adding requests:  11%|█         | 459/4096 [00:01<00:07, 464.96it/s]
+Adding requests:  12%|█▏        | 506/4096 [00:01<00:07, 464.60it/s]
+Adding requests:  14%|█▎        | 553/4096 [00:01<00:07, 458.81it/s]
+Adding requests:  15%|█▍        | 601/4096 [00:01<00:07, 464.08it/s]
+Adding requests:  16%|█▌        | 651/4096 [00:01<00:07, 471.77it/s]
+Adding requests:  17%|█▋        | 702/4096 [00:01<00:07, 480.44it/s]
+Adding requests:  18%|█▊        | 751/4096 [00:01<00:06, 479.34it/s]
+Adding requests:  20%|█▉        | 799/4096 [00:01<00:06, 476.74it/s]
+Adding requests:  21%|██        | 847/4096 [00:01<00:06, 467.77it/s]
+Adding requests:  22%|██▏       | 897/4096 [00:01<00:06, 476.98it/s]
+Adding requests:  23%|██▎       | 945/4096 [00:02<00:06, 469.86it/s]
+Adding requests:  24%|██▍       | 994/4096 [00:02<00:06, 474.07it/s]
+Adding requests:  25%|██▌       | 1043/4096 [00:02<00:06, 476.17it/s]
+Adding requests:  27%|██▋       | 1091/4096 [00:02<00:06, 474.45it/s]
+Adding requests:  28%|██▊       | 1139/4096 [00:02<00:06, 469.36it/s]
+Adding requests:  29%|██▉       | 1191/4096 [00:02<00:06, 482.22it/s]
+Adding requests:  30%|███       | 1240/4096 [00:02<00:05, 482.74it/s]
+Adding requests:  31%|███▏      | 1289/4096 [00:02<00:05, 478.12it/s]
+Adding requests:  33%|███▎      | 1339/4096 [00:02<00:05, 483.01it/s]
+Adding requests:  34%|███▍      | 1388/4096 [00:02<00:05, 483.06it/s]
+Adding requests:  35%|███▌      | 1437/4096 [00:03<00:05, 481.16it/s]
+Adding requests:  36%|███▋      | 1486/4096 [00:03<00:05, 483.33it/s]
+Adding requests:  37%|███▋      | 1535/4096 [00:03<00:05, 484.71it/s]
+Adding requests:  39%|███▊      | 1584/4096 [00:03<00:05, 485.69it/s]
+Adding requests:  40%|███▉      | 1634/4096 [00:03<00:05, 489.76it/s]
+Adding requests:  41%|████      | 1683/4096 [00:03<00:05, 474.92it/s]
+Adding requests:  42%|████▏     | 1732/4096 [00:03<00:04, 477.43it/s]
+Adding requests:  43%|████▎     | 1780/4096 [00:03<00:04, 474.58it/s]
+Adding requests:  45%|████▍     | 1829/4096 [00:03<00:04, 477.77it/s]
+Adding requests:  46%|████▌     | 1878/4096 [00:03<00:04, 479.37it/s]
+Adding requests:  47%|████▋     | 1926/4096 [00:04<00:04, 479.02it/s]
+Adding requests:  48%|████▊     | 1974/4096 [00:04<00:04, 479.26it/s]
+Adding requests:  49%|████▉     | 2022/4096 [00:04<00:04, 472.71it/s]
+Adding requests:  51%|█████     | 2072/4096 [00:04<00:04, 479.29it/s]
+Adding requests:  52%|█████▏    | 2120/4096 [00:04<00:04, 476.63it/s]
+Adding requests:  53%|█████▎    | 2168/4096 [00:04<00:04, 472.63it/s]
+Adding requests:  54%|█████▍    | 2216/4096 [00:04<00:03, 471.57it/s]
+Adding requests:  55%|█████▌    | 2265/4096 [00:04<00:03, 473.99it/s]
+Adding requests:  57%|█████▋    | 2315/4096 [00:04<00:03, 479.51it/s]
+Adding requests:  58%|█████▊    | 2363/4096 [00:05<00:03, 477.41it/s]
+Adding requests:  59%|█████▉    | 2411/4096 [00:05<00:03, 476.25it/s]
+Adding requests:  60%|██████    | 2461/4096 [00:05<00:03, 480.85it/s]
+Adding requests:  61%|██████▏   | 2510/4096 [00:05<00:03, 478.53it/s]
+Adding requests:  62%|██████▎   | 2560/4096 [00:05<00:03, 483.90it/s]
+Adding requests:  64%|██████▎   | 2609/4096 [00:05<00:03, 482.41it/s]
+Adding requests:  65%|██████▍   | 2659/4096 [00:05<00:02, 485.97it/s]
+Adding requests:  66%|██████▌   | 2708/4096 [00:05<00:02, 479.94it/s]
+Adding requests:  67%|██████▋   | 2757/4096 [00:05<00:02, 480.59it/s]
+Adding requests:  69%|██████▊   | 2806/4096 [00:05<00:02, 477.15it/s]
+Adding requests:  70%|██████▉   | 2855/4096 [00:06<00:02, 479.07it/s]
+Adding requests:  71%|███████   | 2905/4096 [00:06<00:02, 482.75it/s]
+Adding requests:  72%|███████▏  | 2954/4096 [00:06<00:02, 478.12it/s]
+Adding requests:  73%|███████▎  | 3003/4096 [00:06<00:02, 479.77it/s]
+Adding requests:  74%|███████▍  | 3051/4096 [00:06<00:02, 478.69it/s]
+Adding requests:  76%|███████▌  | 3099/4096 [00:06<00:02, 476.09it/s]
+Adding requests:  77%|███████▋  | 3147/4096 [00:06<00:02, 473.80it/s]
+Adding requests:  78%|███████▊  | 3196/4096 [00:06<00:01, 475.41it/s]
+Adding requests:  79%|███████▉  | 3244/4096 [00:06<00:01, 463.35it/s]
+Adding requests:  80%|████████  | 3292/4096 [00:06<00:01, 467.60it/s]
+Adding requests:  82%|████████▏ | 3339/4096 [00:07<00:01, 451.15it/s]
+Adding requests:  83%|████████▎ | 3388/4096 [00:07<00:01, 459.37it/s]
+Adding requests:  84%|████████▍ | 3437/4096 [00:07<00:01, 466.42it/s]
+Adding requests:  85%|████████▌ | 3484/4096 [00:07<00:01, 459.57it/s]
+Adding requests:  86%|████████▌ | 3532/4096 [00:07<00:01, 463.27it/s]
+Adding requests:  87%|████████▋ | 3580/4096 [00:07<00:01, 466.17it/s]
+Adding requests:  89%|████████▊ | 3627/4096 [00:07<00:01, 465.31it/s]
+Adding requests:  90%|████████▉ | 3676/4096 [00:07<00:00, 470.12it/s]
+Adding requests:  91%|█████████ | 3724/4096 [00:07<00:00, 471.50it/s]
+Adding requests:  92%|█████████▏| 3773/4096 [00:07<00:00, 476.78it/s]
+Adding requests:  93%|█████████▎| 3822/4096 [00:08<00:00, 478.83it/s]
+Adding requests:  95%|█████████▍| 3873/4096 [00:08<00:00, 485.15it/s]
+Adding requests:  96%|█████████▌| 3922/4096 [00:08<00:00, 483.63it/s]
+Adding requests:  97%|█████████▋| 3971/4096 [00:08<00:00, 481.79it/s]
+Adding requests:  98%|█████████▊| 4020/4096 [00:08<00:00, 482.30it/s]
+Adding requests:  99%|█████████▉| 4069/4096 [00:08<00:00, 475.56it/s]
+Adding requests: 100%|██████████| 4096/4096 [00:08<00:00, 473.25it/s]
+
+Processed prompts:   0%|          | 0/4096 [00:00<?, ?it/s, est. speed input: 0.00 toks/s, output: 0.00 toks/s]
+Processed prompts:  71%|███████   | 2903/4096 [00:00<00:00, 22552.36it/s, est. speed input: 23094985.94 toks/s, output: 22552.69 toks/s]
+Processed prompts: 100%|██████████| 4096/4096 [00:03<00:00, 22552.36it/s, est. speed input: 1187979.82 toks/s, output: 1160.13 toks/s]  
+Processed prompts: 100%|██████████| 4096/4096 [00:03<00:00, 1160.09it/s, est. speed input: 1187979.82 toks/s, output: 1160.13 toks/s] 
+[rank0]:[W128 13:30:27.416342380 ProcessGroupNCCL.cpp:1524] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+
