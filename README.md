@@ -1193,46 +1193,87 @@ Each JSON file records:
 
 ### 12.1 Kernel-Level Performance
 
-Kernel benchmarks demonstrate consistent speedups proportional to sparsity ratio across all tested GPU platforms:
+Kernel-level benchmarks comprehensively evaluate SlideSparse GEMM performance across **6 GPU platforms** (RTX 4090, H100, B200, RTX 5080, GB10, A100), **5 precisions** (FP8, INT8, FP16, BF16, FP4), and **8 sparsity configurations** (2:4, 2:6, 2:8, 2:10, 2:12, 2:14, 2:16, 2:∞). Full results are available in **Appendix A** (square GEMM benchmarks) and **Appendix B** (model-specific GEMM benchmarks) in PDF format.
 
-| Sparsity | Theoretical Speedup | A100 (sm80)  | H100 (sm90) | B200 (sm100) | RTX 4090 (sm89) |
-| -------- | ------------------- | ------------ | ----------- | ------------ | --------------- |
-| 2:4      | 2.00×              | ~1.8-2.0×   | ~1.9-2.0×  | ~2.0×       | ~1.9-2.0×      |
-| 2:6      | 1.50×              | ~1.4-1.5×   | ~1.4-1.5×  | ~1.5×       | ~1.4-1.5×      |
-| 2:8      | 1.33×              | ~1.25-1.33× | ~1.3-1.33× | ~1.33×      | ~1.28-1.33×    |
-| 2:10     | 1.25×              | ~1.2-1.25×  | ~1.2-1.25× | ~1.25×      | ~1.2-1.25×     |
+**Key Observations from Square GEMM Benchmarks (Appendix A):**
 
-**Key Observations:**
+- **FP8 Precision**: At large M dimensions (M≥4096), RTX 4090 achieves near-theoretical speedups: 2:4 reaches 1.87-2.08×, 2:6 reaches 1.40-1.51×, 2:8 reaches 1.27-1.37×, and 2:10 reaches 1.18-1.28×. H100 and B200 show similar trends but with slightly lower peak speedups (H100: 2:4 at 1.53-1.73×; B200: 2:4 at 1.51-1.85×). At small M dimensions (M≤1024), overhead dominates and speedups may fall below 1.0× due to insufficient parallelism to hide the transformation cost.
 
-- Speedups closely match theoretical expectations across all hardware
-- Newer architectures (Hopper, Blackwell) show slightly better efficiency
-- Consumer GPUs achieve comparable speedups to datacenter GPUs
+- **INT8 Precision**: B200 demonstrates exceptional INT8 performance with 2:4 achieving up to 6.47× speedup at M=8192 (significantly exceeding the theoretical 2× due to favorable memory access patterns). RTX 4090 shows moderate INT8 speedups (2:4 at 1.49-2.06× for large M). A100 and H100 maintain consistent but modest speedups across sparsity levels.
+
+- **FP16/BF16 Precision**: RTX 4090 achieves strong FP16/BF16 speedups at large M: 2:4 reaches 1.83-2.01×, 2:6 reaches 1.33-1.51×, 2:8 reaches 1.16-1.33×. H100 shows relatively lower speedups for FP16/BF16 (2:4 at 0.97-1.59×) due to its optimized dense GEMM baseline. B200 and RTX 5080 maintain consistent speedup patterns similar to FP8.
+
+- **Low-Sparsity Configurations (2:12 through 2:∞)**: These configurations generally show speedups below 1.0× or marginal improvements at most M dimensions, as expected since the overhead of the sliding transformation exceeds the benefit from reduced computation. However, at very large M (M≥8192), some configurations still achieve modest speedups (e.g., RTX 4090 2:12 at 1.17-1.22× for FP8).
+
+**Key Observations from Model-Specific GEMM Benchmarks (Appendix B):**
+
+- **Model Size Impact**: Larger models (Qwen2.5-7B, Qwen2.5-14B) consistently show higher speedups than smaller models (Llama3.2-1B) due to larger K dimensions providing better parallelism. For example, on RTX 4090 with FP8 at M=16384: Qwen2.5-14B achieves 2:4 at 2.10× while Llama3.2-1B achieves 2:4 at 2.00×.
+
+- **Architecture Differences**: H100 and B200 show more conservative speedup ratios compared to RTX 4090, likely due to their highly optimized dense cuBLASLt baselines. The RTX 5080 and GB10 (DGX Spark) show intermediate performance characteristics.
+
+- **Sparsity-Speedup Correlation**: Across all models and GPUs, the speedup monotonically decreases as sparsity ratio increases (2:4 > 2:6 > 2:8 > 2:10 > ...), closely following theoretical predictions. At large M, most GPUs achieve 85-100% of the theoretical speedup for high-sparsity configurations (2:4, 2:6, 2:8).
 
 ### 12.2 End-to-End Performance
 
-End-to-end throughput improvements vary by model size, inference stage, and batch configuration:
+End-to-end benchmarks evaluate complete LLM inference throughput with SlideSparse integrated into vLLM, measuring both **Prefill** (compute-bound) and **Decode** (memory-bound) stages. Results cover **6 GPUs**, **5 models**, and **2 quantization schemes** (FP8, INT8). Full results are available in **Appendix C** (Prefill) and **Appendix D** (Decode) in PDF format.
 
-**Prefill Stage (Compute-Bound):**
+**Prefill Stage Observations (Appendix C):**
 
-- Larger models (7B, 14B) show more consistent speedups due to higher compute-to-overhead ratio
-- Speedups closely track kernel-level improvements
-- Long-context scenarios (M=32768, 65536) show the best alignment with theoretical speedups
-- Example: Qwen2.5-7B with 2:8 sparsity achieves ~1.28-1.32× Prefill speedup
+- **FP8 Prefill Performance**: At long context lengths (M≥8192), speedups align well with kernel-level results:
+  - RTX 4090: Qwen2.5-7B achieves 2:4 at 1.50-1.55×, 2:6 at 1.25-1.30×, 2:8 at 1.17-1.19× for M=8192-32768
+  - H100: Qwen2.5-14B achieves 2:4 at 1.30-1.31×, 2:6 at 1.07-1.08×, 2:8 at 1.00-1.01× for M≥4096
+  - B200: Shows consistent 2:4 speedups of 1.19-1.28× across all models at long contexts
+  - RTX 5080: Demonstrates excellent efficiency with 2:4 at 1.32-1.52×, 2:6 at 1.14-1.24× for M≥2048
+  - GB10 (DGX Spark): Achieves moderate speedups (2:4 at 1.04-1.16×) but lower than datacenter GPUs
 
-**Decode Stage (Memory-Bound):**
+- **INT8 Prefill Performance**: A100 shows exceptional INT8 Prefill speedups: Qwen2.5-7B achieves 2:4 at 1.63-1.75×, 2:6 at 1.34-1.41×, 2:8 at 1.26-1.34× for M≥2048. RTX 4090 INT8 closely follows FP8 patterns. H100 and B200 show more modest INT8 speedups, generally matching or slightly below their FP8 results.
 
-- Speedups are more modest due to memory bandwidth limitations dominating the workload
-- Still demonstrates meaningful improvements for high-concurrency scenarios (M=256, 512)
-- torch.compile provides additional benefits when supported
-- Example: Qwen2.5-7B with 2:8 sparsity achieves ~1.15-1.25× Decode speedup
+- **Short Context Behavior**: At small M (M≤1024), Prefill speedups are often below 1.0× or near 1.0× due to insufficient compute to amortize the transformation overhead. This is expected and consistent with kernel-level observations.
+
+**Decode Stage Observations (Appendix D):**
+
+- **Memory-Bound Characteristics**: Decode is inherently memory-bound with small batch sizes (M=64-512), resulting in more modest speedups compared to Prefill:
+  - FP8 Decode on RTX 4090: 2:4 achieves 1.04-1.25× across models, with larger models (Qwen2.5-7B, Qwen2.5-14B) showing better speedups
+  - H100 Decode: Relatively consistent 1.00-1.30× for 2:4 across all configurations
+  - B200 Decode: Shows stable 1.00-1.16× speedups for 2:4
+
+- **INT8 Decode Performance**: Generally shows slightly better speedups than FP8 for Decode:
+  - A100: 2:4 achieves 1.09-1.40×, 2:6 achieves 1.06-1.23×, consistently outperforming FP8
+  - RTX 4090: INT8 Decode shows 1.03-1.34× for 2:4, comparable to FP8
+  - B200: INT8 Decode maintains 1.05-1.36× for 2:4, similar to FP8 patterns
+
+- **High-Concurrency Benefits**: At M=256-512 (higher batch sizes), Decode speedups approach those of Prefill, demonstrating that memory bandwidth bottleneck is alleviated with increased parallelism.
+
+**Cross-Platform Summary:**
+
+- RTX 4090 provides the best absolute speedup ratios due to its less optimized dense baseline, making it ideal for demonstrating SlideSparse benefits
+- H100 and B200 show more conservative but consistent improvements, reflecting their highly tuned dense GEMM implementations
+- RTX 5080 achieves excellent efficiency, often matching or exceeding RTX 4090 speedups
+- GB10 (DGX Spark) provides moderate speedups suitable for edge/embedded deployment scenarios
+- A100 demonstrates strong INT8 performance, making it a good choice for INT8 quantized sparse models
 
 ### 12.3 Result Data Location
 
-All raw benchmark results are preserved for transparency and reproducibility:
+All benchmark results are organized for transparency and reproducibility:
 
+**Human-Readable PDF Tables (Recommended):**
+- **Appendix A - Square GEMM Kernel Benchmarks**: `slidesparse/tools/appendix_tables_pdf/appendix_a_square_{precision}.pdf`
+- **Appendix B - Model-Specific GEMM Kernel Benchmarks**: `slidesparse/tools/appendix_tables_pdf/appendix_b_model_kernel_{precision}.pdf`
+- **Appendix C - End-to-End Prefill Benchmarks**: `slidesparse/tools/appendix_tables_pdf/appendix_c_prefill_{precision}.pdf`
+- **Appendix D - End-to-End Decode Benchmarks**: `slidesparse/tools/appendix_tables_pdf/appendix_d_decode_{precision}.pdf`
+
+**CSV Data Files:**
+- **Kernel-level CSV data**: `slidesparse/tools/appendix_tables/appendix_a_*.csv` and `appendix_b_*.csv`
+- **End-to-end CSV data**: `slidesparse/tools/appendix_tables/appendix_c_*.csv` and `appendix_d_*.csv`
+
+**Raw Benchmark Outputs:**
 - **Kernel results**: `slidesparse/benchmark_kernel/kernel_speedup_results/{GPU_ID}/`
 - **End-to-end results**: `slidesparse/tools/end2end_speedup_results/{GPU}/`
 - **Raw logs**: `slidesparse/tools/throughput_benchmark_results/`
+
+**Result Generation Scripts:**
+- **Generate appendix tables**: `slidesparse/tools/generate_appendix_tables.py`
+- **Convert CSV to PDF**: `slidesparse/tools/csv_to_pdf_table.py`
 
 ### 12.4 Mathematical Correctness Verification
 
