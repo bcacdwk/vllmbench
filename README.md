@@ -630,8 +630,11 @@ python prepare_for_kernel_bench.py --task 1,1,1,1,1,1
 For targeted testing of specific configurations:
 
 ```bash
-python benchmark_entry.py --backend cublaslt --mode square --dtype fp8e4m3 --M 1024,2048,4096
-python benchmark_entry.py --backend cusparselt --mode model --sparsity 2_8 --dtype int8
+# Square mode (M=N=K): omit --model or use --model square
+python benchmark_entry.py --dtype fp8e4m3 --backend cublaslt --m_list 1024,2048,4096
+
+# Model-based mode: specify --model with a model name, use --Lmax or --sparsity for sparsity config
+python benchmark_entry.py --model Qwen2.5-7B --dtype int8 --backend cusparselt --sparsity 2_8
 ```
 
 ### 7.3 M Dimension Configurations
@@ -756,7 +759,7 @@ python throughput_benchmark.py \
 For preparing optimal algorithm configurations on new hardware:
 
 ```bash
-python offline_autotune_algsearch.py --model qwen2.5-7b-fp8 --backend cusparselt --sparsity 2_8
+python offline_autotune_algsearch.py --model Qwen2.5-7B --dtype fp8 --Lmax 8
 ```
 
 ### 8.4 BitNet-Specific Benchmarking
@@ -1126,15 +1129,15 @@ cd slidesparse/search
 
 # cuBLASLt algorithm search
 cd cuBLASLt_AlgSearch
-python alg_search.py --model qwen2.5-7b --dtype fp8
+python alg_search.py --model Qwen2.5-7B --dtype fp8
 
-# cuSPARSELt algorithm search
+# cuSPARSELt algorithm search (use --Lmax for sparsity configuration)
 cd cuSPARSELt_AlgSearch
-python alg_search.py --model qwen2.5-7b --dtype fp8 --sparsity 2_8
+python alg_search.py --model Qwen2.5-7B --dtype fp8 --Lmax 8
 
 # Layout search (for validation/exploration)
 cd cuBLASLt_LayoutSearch
-python layout_search.py --model qwen2.5-7b --dtype fp8
+python layout_search.py --model Qwen2.5-7B --dtype fp8
 ```
 
 ### 11.4 Online Algorithm Lookup
