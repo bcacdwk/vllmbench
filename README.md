@@ -844,7 +844,7 @@ The pruning stage applies Z:L sparsity constraints to the model weights:
 Input/Output:
 - Input: Dense weight tensor `[N, K]`
 - Parameters: Z (zeros per window), L (window size), pruning mode
-- Output: Sparse weight tensor `[N, K]` satisfying Z:L sparsity constraint
+- Output: Pruned weight tensor `[N, K]` satisfying Z:L sparsity constraint
 
 **Stage 2: Sliding (`slide.py`)** — Shape: `[N, K] → [N, K']` where `K' = K × expand_ratio`
 
@@ -852,7 +852,7 @@ The sliding stage is the core SlideSparse transformation:
 
 1. **Padding**: K must be divisible by `4 × L_source` for cuSPARSELt alignment. The formula is:
    ```
-   K_padded = ceil(K / (4 × L)) × (4 × L)
+   K_padded = ⌈K / (4 × L)⌉ × (4 × L)
    ```
 
 2. **Parameter Calculation**:
