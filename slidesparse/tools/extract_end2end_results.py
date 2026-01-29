@@ -66,12 +66,13 @@ from slidesparse.tools.utils import (
 # 6个硬件平台
 HARDWARE_LIST = ["A100", "B200", "H100", "RTX4090", "RTX5080", "GB10"]
 
-# 8个模型 (4个 base × 2种量化)
+# 10个模型 (5个 base × 2种量化)
 MODELS = [
     "Llama3.2-1B-INT8", "Llama3.2-1B-FP8",
     "Llama3.2-3B-INT8", "Llama3.2-3B-FP8",
     "Qwen2.5-7B-INT8", "Qwen2.5-7B-FP8",
     "Qwen2.5-14B-INT8", "Qwen2.5-14B-FP8",
+    "BitNet-2B-INT8", "BitNet-2B-FP8",
 ]
 
 # 测试阶段

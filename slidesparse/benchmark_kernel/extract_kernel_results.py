@@ -80,7 +80,7 @@ from slidesparse.benchmark_kernel.utils import (
 # 配置常量
 # =============================================================================
 
-# 模型列表（包括可能的 BitNet）
+# 模型列表（包括BitNet）
 MODELS = [
     "Llama3.2-1B-INT8", "Llama3.2-1B-FP8",
     "Llama3.2-3B-INT8", "Llama3.2-3B-FP8",
