@@ -1,65 +1,45 @@
 # SPDX-License-Identifier: Apache-2.0
 # SlideSparse: Sparse Acceleration for LLM Inference
 """
-SlideSparse 外挂模块 - vLLM 集成
-
-此模块实现 SlideSparse 稀疏加速方法与 vLLM 的集成，包括:
-- cuBLASLt Dense 基线 (Phase 3)
-- cuSPARSELt Sparse 加速 (Phase 6)
-
-目录结构:
-- core/: 核心逻辑 (LinearMethod, Config)
-- kernels/: Kernel 实现 (Triton, cuBLASLt, cuSPARSELt)
-- offline/: 离线工具链 (prune, slide, compress)
-- test/: 测试脚本
-- utils.py: 统一工具库（硬件检测、文件命名、模块加载）
-
-快速开始:
-=========
-在使用 cuBLASLt 或 cuSPARSELt kernel 之前，必须先初始化：
-
-    from slidesparse import init_slidesparse
-    init_slidesparse("Llama3.2-1B-FP8")  # 设置当前模型名
-    
-    # 然后使用 SlideSparse kernel...
+SlideSparse Plugin Module - vLLM Integration
 """
 
 __version__ = "0.1.0"
 
-# 核心初始化函数（从 core 导入）
+# Core initialization functions (imported from core)
 from .core import (
     init_slidesparse,
     get_algo_config_manager,
 )
 
-# 导出统一工具库的核心功能
+# Export core utilities from unified utility library
 from .utils import (
-    # 硬件信息
+    # Hardware info
     hw_info,
     HardwareInfo,
     
-    # 文件名构建
+    # Filename building
     build_filename,
     build_stem,
     build_dir_name,
     
-    # 文件查找
+    # File finding
     find_file,
     find_files,
     find_dir,
     
-    # 模块加载
+    # Module loading
     load_module,
     
-    # 数据保存/加载
+    # Data save/load
     save_json,
     load_json,
     save_csv,
     
-    # 目录管理
+    # Directory management
     ensure_result_dir,
     
-    # 便捷函数
+    # Convenience functions
     get_gpu_name,
     get_gpu_cc,
     get_python_version_tag,

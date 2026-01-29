@@ -2,58 +2,58 @@
 # -*- coding: utf-8 -*-
 # SPDX-License-Identifier: Apache-2.0
 """
-SlideSparse Kernel Benchmark 统一入口
+SlideSparse Kernel Benchmark Entry Point
 
-测试 cuBLASLt (Dense) vs cuSPARSELt (Sparse) 的性能差异
+Test performance difference: cuBLASLt (Dense) vs cuSPARSELt (Sparse)
 
-两种运行模式:
-=============
-1. Model-based 模式: 指定 --model <model_name>，从模型 checkpoint 提取真实 NK 尺寸
-   - 支持 --Lmax 参数：自动生成 L=4,6,...,Lmax 的所有 slided NK
-2. Square 模式: --model 不指定或指定为 "square"，M=N=K=[64, 128, ..., 16384]
-
-核心功能:
-=========
-- 对 cuBLASLt dense GEMM 和 cuSPARSELt sparse GEMM 进行算法搜索
-- 支持多种稀疏度配置：
-  - --Lmax: 自动生成 2_4, 2_6, ..., 2_Lmax 以及 2_inf（推荐）
-  - --sparsity: 手动指定稀疏度列表（兼容旧用法）
-- 计算并输出加速比 (Sparse / Dense)
-
-支持的数据类型:
-===============
-- FP16:    FP16 输入, FP32 计算, FP16 输出
-- BF16:    BF16 输入, FP32 计算, BF16 输出
-- INT8:    INT8 输入, INT32 计算, INT8 输出
-- FP8E4M3: FP8 输入, FP32 计算, FP8 输出
-- FP4E2M1: FP4 输入, FP32 计算, FP4 输出
-- all:     测试所有支持的类型
-
-Sparsity 参数说明:
+Two running modes:
 ==================
-格式: {Z}_{L} 表示每 L 个元素保留 Z 个非零值
-- 2_4:  K_factor = 1.00, 标准 2:4 稀疏 (50% 非零)
-- 2_6:  K_factor = 1.33 (33% 非零)
-- 2_8:  K_factor = 1.50 (25% 非零)
-- 2_10: K_factor = 1.60 (20% 非零)
-- 2_inf: K_factor = 2.00 (理论上限, 全稀疏)
+1. Model-based mode: Specify --model <model_name>, extract real NK dimensions from checkpoint
+   - Supports --Lmax: Auto-generate L=4,6,...,Lmax slided NK values
+2. Square mode: No --model or --model "square", M=N=K=[64, 128, ..., 16384]
 
-用法示例:
-=========
-# Model-based 模式（推荐使用 --Lmax）
+Core features:
+==============
+- Algorithm search for cuBLASLt dense GEMM and cuSPARSELt sparse GEMM
+- Multiple sparsity configurations:
+  - --Lmax: Auto-generate 2_4, 2_6, ..., 2_Lmax and 2_inf (recommended)
+  - --sparsity: Manually specify sparsity list (legacy)
+- Calculate and output speedup (Sparse / Dense)
+
+Supported data types:
+=====================
+- FP16:    FP16 input, FP32 compute, FP16 output
+- BF16:    BF16 input, FP32 compute, BF16 output
+- INT8:    INT8 input, INT32 compute, INT8 output
+- FP8E4M3: FP8 input, FP32 compute, FP8 output
+- FP4E2M1: FP4 input, FP32 compute, FP4 output
+- all:     Test all supported types
+
+Sparsity parameter:
+===================
+Format: {Z}_{L} means keep Z non-zeros per L elements
+- 2_4:  K_factor = 1.00, standard 2:4 sparsity (50% non-zero)
+- 2_6:  K_factor = 1.33 (33% non-zero)
+- 2_8:  K_factor = 1.50 (25% non-zero)
+- 2_10: K_factor = 1.60 (20% non-zero)
+- 2_inf: K_factor = 2.00 (theoretical max, full sparse)
+
+Usage examples:
+===============
+# Model-based mode (recommend --Lmax)
 python benchmark_entry.py --model Qwen2.5-0.5B --dtype fp8e4m3 --Lmax 8
-# 等效于 --sparsity 2_4,2_6,2_8,2_inf
+# Equivalent to --sparsity 2_4,2_6,2_8,2_inf
 
-# Square 模式 (不指定 --model)
+# Square mode (no --model)
 python benchmark_entry.py --dtype all -- --Lmax 10
 
-# 测试所有 dtype（使用默认 sparsity=2_4）
+# Test all dtype (default sparsity=2_4)
 python benchmark_entry.py --model square --dtype all
 
-# 手动指定稀疏度（兼容旧用法）
+# Manual sparsity (legacy)
 python benchmark_entry.py --model Llama3.2-1B --dtype fp8e4m3 --sparsity 2_4,2_8
 
-# 只测试 cuBLASLt (无需 sparsity)
+# Test cuBLASLt only (no sparsity needed)
 python benchmark_entry.py --model Llama3.2-1B --dtype all --backend cublaslt
 
 
@@ -69,7 +69,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-# 添加路径
+# Add path
 SCRIPT_DIR = Path(__file__).parent.absolute()
 SLIDESPARSE_DIR = SCRIPT_DIR.parent
 PROJECT_ROOT = SLIDESPARSE_DIR.parent
@@ -108,7 +108,7 @@ from slidesparse.benchmark_kernel.utils import (
 
 
 # =============================================================================
-# 子脚本路径
+# Sub-script Paths
 # =============================================================================
 
 CUBLASLT_SCRIPT = SCRIPT_DIR / "cuBLASLt" / "alg_search.py"
@@ -116,12 +116,12 @@ CUSPARSELT_SCRIPT = SCRIPT_DIR / "cuSPARSELt" / "alg_search.py"
 
 
 # =============================================================================
-# 工具函数
+# Utility Functions
 # =============================================================================
 
 def run_cublaslt_search(
     dtype: str,
-    model: str,  # 现在始终传入 model name（可以是 "square"）
+    model: str,  # Always pass model name (can be "square")
     m_list: List[int],
     warmup: int,
     repeat: int,
@@ -129,10 +129,10 @@ def run_cublaslt_search(
     out_dir: Path,
 ) -> Tuple[int, Optional[Path]]:
     """
-    运行 cuBLASLt 搜索
+    Run cuBLASLt search
     
     Returns:
-        (return_code, json_path): 返回码和 JSON 结果文件路径
+        (return_code, json_path): Return code and JSON result file path
     """
     cmd = [
         sys.executable, str(CUBLASLT_SCRIPT),
@@ -150,7 +150,7 @@ def run_cublaslt_search(
     print(f"[cuBLASLt] Running: {' '.join(cmd)}")
     result = subprocess.run(cmd)
     
-    # 获取结果文件路径（新结构：hw_folder/dtype_folder/file）
+    # Get result file path (new structure: hw_folder/dtype_folder/file)
     if result.returncode == 0:
         result_dir = build_output_dir(out_dir, dtype)
         json_filename = build_result_filename("alg_search", model.upper(), "json")
@@ -163,7 +163,7 @@ def run_cublaslt_search(
 
 def run_cusparselt_search(
     dtype: str,
-    model: str,  # 现在始终传入 model name（可以是 "square"）
+    model: str,  # Always pass model name (can be "square")
     sparsity: str,
     m_list: List[int],
     warmup: int,
@@ -174,10 +174,10 @@ def run_cusparselt_search(
     no_api_search: bool = False,
 ) -> Tuple[int, Optional[Path]]:
     """
-    运行 cuSPARSELt 搜索
+    Run cuSPARSELt search
     
     Returns:
-        (return_code, json_path): 返回码和 JSON 结果文件路径
+        (return_code, json_path): Return code and JSON result file path
     """
     cmd = [
         sys.executable, str(CUSPARSELT_SCRIPT),
@@ -202,7 +202,7 @@ def run_cusparselt_search(
     print(f"[cuSPARSELt] Running: {' '.join(cmd)}")
     result = subprocess.run(cmd)
     
-    # 获取结果文件路径（新结构：hw_folder/dtype_folder/file）
+    # Get result file path (new structure: hw_folder/dtype_folder/file)
     if result.returncode == 0:
         result_dir = build_output_dir(out_dir, dtype)
         json_filename = build_result_filename("alg_search", model.upper(), "json", sparsity)
@@ -214,7 +214,7 @@ def run_cusparselt_search(
 
 
 def load_json_results(json_path: Path) -> Optional[Dict]:
-    """加载 JSON 结果文件"""
+    """Load JSON result file"""
     try:
         with open(json_path, 'r') as f:
             return json.load(f)
@@ -232,10 +232,10 @@ def compute_and_save_speedup(
     output_dir: Path,
 ) -> Optional[Path]:
     """
-    计算并保存加速比结果
+    Compute and save speedup results
     
     Returns:
-        保存的 CSV 文件路径
+        Saved CSV file path
     """
     cublaslt_data = load_json_results(cublaslt_json)
     cusparselt_data = load_json_results(cusparselt_json)
@@ -253,7 +253,7 @@ def compute_and_save_speedup(
     
     k_factor = get_k_expansion_factor(sparsity)
     
-    # 构建 CSV
+    # Build CSV
     lines = [
         f"# GPU: {hw_info.gpu_full_name}",
         f"# Model: {model_name}",
@@ -263,11 +263,11 @@ def compute_and_save_speedup(
         "M,N,K,K_slide,cublaslt_tops,cusparselt_tops,speedup,cublaslt_lat_us,cusparselt_lat_us,cublaslt_alg_id,cusparselt_alg_id,cusparselt_split_k",
     ]
     
-    # 构建索引: (M, N, K) -> result
-    # JSON 结构: { "nk_entries": { "(N,K)": { "alg_by_m": { "M": {...} } } } }
+    # Build index: (M, N, K) -> result
+    # JSON structure: { "nk_entries": { "(N,K)": { "alg_by_m": { "M": {...} } } } }
     cublaslt_index = {}
     for nk_key, nk_data in cublaslt_data.get("nk_entries", {}).items():
-        # nk_key 格式: "(N,K)" -> 解析出 N, K
+        # nk_key format: "(N,K)" -> parse N, K
         try:
             nk_str = nk_key.strip("()")
             N, K = map(int, nk_str.split(","))
@@ -281,7 +281,7 @@ def compute_and_save_speedup(
     
     cusparselt_index = {}
     for nk_key, nk_data in cusparselt_data.get("nk_entries", {}).items():
-        # nk_key 格式: "(N,K)"
+        # nk_key format: "(N,K)"
         try:
             nk_str = nk_key.strip("()")
             N, K = map(int, nk_str.split(","))
@@ -297,7 +297,7 @@ def compute_and_save_speedup(
                     "orig_K": K,
                 }
     
-    # 生成结果行
+    # Generate result rows
     result_rows = []
     for (M, N, K), dense in sorted(cublaslt_index.items()):
         K_slide = calculate_k_slide(K, sparsity, dtype=dtype)
@@ -325,7 +325,7 @@ def compute_and_save_speedup(
                 "sparse_split_k": sparse_split_k,
             })
     
-    # 按 M, N, K 排序
+    # Sort by M, N, K
     result_rows.sort(key=lambda x: (x["M"], x["N"], x["K"]))
     
     for row in result_rows:
@@ -343,12 +343,12 @@ def compute_and_save_speedup(
 
 
 def print_speedup_summary(csv_path: Path):
-    """打印加速比摘要"""
+    """Print speedup summary"""
     try:
         lines = csv_path.read_text().strip().split("\n")
         data_lines = [l for l in lines if not l.startswith("#") and l.strip() and "," in l]
         
-        if len(data_lines) < 2:  # 至少需要 header + 1 行数据
+        if len(data_lines) < 2:  # Need at least header + 1 data line
             return
         
         header = data_lines[0].split(",")
@@ -399,91 +399,91 @@ def print_speedup_summary(csv_path: Path):
 
 
 # =============================================================================
-# 主流程
+# Main Flow
 # =============================================================================
 
 def parse_args():
     p = argparse.ArgumentParser(
-        description="SlideSparse Kernel Benchmark 统一入口",
+        description="SlideSparse Kernel Benchmark Entry Point",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-示例:
-  # Model-based 模式（推荐使用 --Lmax）
+Examples:
+  # Model-based mode (recommend --Lmax)
   python benchmark_entry.py --model Qwen2.5-0.5B --dtype fp8e4m3 --Lmax 8
-  # 等效于 --sparsity 2_4,2_6,2_8,2_inf
+  # Equivalent to --sparsity 2_4,2_6,2_8,2_inf
   
-  # Square 模式 (不指定 --model)
+  # Square mode (no --model)
   python benchmark_entry.py --dtype int8 --Lmax 10
   
-  # 只测试标准 2:4 稀疏（默认）
+  # Test standard 2:4 sparsity only (default)
   python benchmark_entry.py --model Llama3.2-1B --dtype bf16
   
-  # 只测试 cuBLASLt（无需指定 sparsity）
+  # Test cuBLASLt only (no sparsity needed)
   python benchmark_entry.py --model Qwen2.5-0.5B --dtype all --backend cublaslt
   
-  # 手动指定稀疏度（兼容旧用法）
+  # Manual sparsity (legacy)
   python benchmark_entry.py --model Llama3.2-1B --dtype fp8e4m3 --sparsity 2_4,2_8
         """
     )
     
-    # 模式选择
+    # Mode selection
     p.add_argument("--model", type=str, default=None,
-                   help="模型名称（不指定或指定 'square' 进入 Square 模式）")
+                   help="Model name (no value or 'square' enters Square mode)")
     p.add_argument("--dtype", type=str, required=True,
                    choices=SUPPORTED_DTYPES + ["all"],
-                   help="数据类型 (fp16, bf16, int8, fp8e4m3, fp4e2m1, all)")
+                   help="Data type (fp16, bf16, int8, fp8e4m3, fp4e2m1, all)")
     
-    # 稀疏度配置（Lmax 和 sparsity 二选一）
+    # Sparsity config (Lmax and sparsity mutually exclusive)
     sparsity_group = p.add_mutually_exclusive_group()
     sparsity_group.add_argument("--Lmax", type=int, default=None,
-                   help="最大 L 值。自动生成 2_4, 2_6, ..., 2_Lmax 以及 2_inf。"
-                        "例如 --Lmax 8 等效于 --sparsity 2_4,2_6,2_8,2_inf")
+                   help="Max L value. Auto-generate 2_4, 2_6, ..., 2_Lmax and 2_inf. "
+                        "e.g., --Lmax 8 equals --sparsity 2_4,2_6,2_8,2_inf")
     sparsity_group.add_argument("--sparsity", type=str, default=None,
-                   help="手动指定稀疏度列表，逗号分隔 (2_4, 2_6, 2_8, 2_10, 2_inf)")
+                   help="Manual sparsity list, comma-separated (2_4, 2_6, 2_8, 2_10, 2_inf)")
     
     p.add_argument("--backend", type=str, default="all",
                    choices=["all", "cublaslt", "cusparselt"],
-                   help="测试后端")
+                   help="Test backend")
     
-    # M 列表控制
+    # M list control
     p.add_argument("--M-quick", action="store_true", dest="m_quick",
-                   help="使用快速 M 列表 (仅 Model-based 模式有效)")
+                   help="Use quick M list (Model-based mode only)")
     p.add_argument("--m_list", type=str, default=None,
-                   help="自定义 M 列表，逗号分隔 (Square 模式: M=N=K 使用此列表)")
+                   help="Custom M list, comma-separated (Square mode: M=N=K uses this list)")
     
-    # 测试参数
+    # Test parameters
     p.add_argument("--warmup", type=int, default=25)
     p.add_argument("--repeat", type=int, default=100)
     
-    # 编译控制
+    # Compilation control
     p.add_argument("--compile", action="store_true", dest="force_compile",
-                   help="强制重新编译 CUDA 扩展")
+                   help="Force recompile CUDA extensions")
     
-    # cuSPARSELt 选项
+    # cuSPARSELt options
     p.add_argument("--no_segment_k", action="store_true",
-                   help="禁用 Segment-K 测试")
+                   help="Disable Segment-K test")
     p.add_argument("--no_api_search", action="store_true",
-                   help="禁用官方 API 搜索对比")
+                   help="Disable official API search comparison")
     
-    # 输出控制
+    # Output control
     p.add_argument("--dry-run", action="store_true",
-                   help="只打印命令，不执行")
+                   help="Print commands only, don't execute")
     p.add_argument("--no-speedup", action="store_true", dest="no_speedup",
-                   help="不计算 speedup")
+                   help="Don't calculate speedup")
     
     return p.parse_args()
 
 
 def run_benchmark_for_dtype(args, dtype: str, m_list: List[int], model_name: str, sparsity_list: List[str]):
-    """为单个 dtype 运行 benchmark"""
+    """Run benchmark for a single dtype"""
     
-    # 检查 dtype 支持
+    # Check dtype support
     supported, reason = check_dtype_support(dtype)
     if not supported:
         print(f"[SKIP] {dtype}: {reason}")
         return
     
-    # 检查 cuSPARSELt 支持
+    # Check cuSPARSELt support
     backend = args.backend
     if backend in ("all", "cusparselt"):
         cusparselt_ok, cusparselt_reason = check_cusparselt_support()
@@ -493,21 +493,21 @@ def run_benchmark_for_dtype(args, dtype: str, m_list: List[int], model_name: str
                 return
             else:
                 print(f"[WARN] {cusparselt_reason}")
-                print("[INFO] 将只测试 cuBLASLt")
+                print("[INFO] Will only test cuBLASLt")
                 backend = "cublaslt"
     
-    # 输出目录
+    # Output directory
     out_dir = SCRIPT_DIR
     cublaslt_json_path = None
     cusparselt_json_paths = {}
     
-    # 显示配置
+    # Display config
     print()
     print(f"{'=' * 60}")
     print(f"Benchmark dtype={dtype.upper()}")
     print(f"{'=' * 60}")
     
-    # 运行 cuBLASLt
+    # Run cuBLASLt
     if backend in ("all", "cublaslt"):
         print()
         print(f"[{dtype}] Running cuBLASLt Dense GEMM Search")
@@ -526,7 +526,7 @@ def run_benchmark_for_dtype(args, dtype: str, m_list: List[int], model_name: str
             print(f"[ERROR] cuBLASLt search failed with code {ret}")
             return
     
-    # 运行 cuSPARSELt
+    # Run cuSPARSELt
     if backend in ("all", "cusparselt"):
         for sparsity in sparsity_list:
             print()
@@ -553,7 +553,7 @@ def run_benchmark_for_dtype(args, dtype: str, m_list: List[int], model_name: str
             else:
                 cusparselt_json_paths[sparsity] = json_path
     
-    # 计算 speedup
+    # Compute speedup
     if backend == "all" and not args.no_speedup:
         speedup_dir = out_dir / "speedup_results"
         
@@ -578,52 +578,52 @@ def run_benchmark_for_dtype(args, dtype: str, m_list: List[int], model_name: str
 def main():
     args = parse_args()
     
-    # 确定要测试的 dtype 列表
+    # Determine dtype list to test
     if args.dtype == "all":
         dtype_list = get_supported_dtypes_for_gpu()
-        print(f"[INFO] dtype=all, 将测试: {dtype_list}")
+        print(f"[INFO] dtype=all, will test: {dtype_list}")
     else:
         dtype_list = [args.dtype]
     
-    # 统一 m_list 处理逻辑（两种模式完全一致）
+    # Unified m_list processing (same for both modes)
     if args.m_list:
         m_list = [int(x.strip()) for x in args.m_list.split(",")]
     elif args.m_quick:
         m_list = list(M_QUICK_LIST)
     else:
-        m_list = list(M_QUICK_LIST)  # 默认: [16, 128, 1024, 4096, 16384]
+        m_list = list(M_QUICK_LIST)  # Default: [16, 128, 1024, 4096, 16384]
     
     m_list = [pad_to_alignment(m) for m in m_list]
     
-    # 生成稀疏度列表：--Lmax 优先，否则使用 --sparsity，默认 ["2_4"]
+    # Generate sparsity list: --Lmax priority, else --sparsity, default ["2_4"]
     if args.Lmax is not None:
-        # 使用 Lmax 自动生成稀疏度列表（与参考代码一致 + 2_inf）
+        # Use Lmax to auto-generate sparsity list (same as reference + 2_inf)
         sparsity_list = get_sparsity_list_for_benchmark(args.Lmax)
-        print(f"[INFO] Lmax={args.Lmax}, 稀疏度列表: {sparsity_list}")
+        print(f"[INFO] Lmax={args.Lmax}, sparsity list: {sparsity_list}")
     elif args.sparsity:
-        # 手动指定稀疏度（兼容旧用法）
+        # Manual sparsity (legacy)
         sparsity_list = [s.strip() for s in args.sparsity.split(",")]
     else:
-        # 默认：只测试标准 2:4 稀疏
+        # Default: only test standard 2:4 sparsity
         sparsity_list = ["2_4"]
     
-    # 使用 get_nk_list_for_benchmark 统一判断模式和获取 model_name
-    # 这样确保模型路径查找逻辑与子脚本一致
+    # Use get_nk_list_for_benchmark to determine mode and get model_name
+    # This ensures model path lookup logic matches sub-scripts
     is_square_mode = (args.model is None or args.model.lower() == "square")
     
     if is_square_mode:
-        # Square 模式
+        # Square mode
         model_name = "SQUARE"
         mode = "square"
     else:
-        # Model-based 模式：使用 get_nk_list_for_benchmark 获取正确的 model_name
-        # 注意：这里我们不传入 L_max，因为 L_max 只影响稀疏度列表，不影响 model_name
+        # Model-based mode: use get_nk_list_for_benchmark to get correct model_name
+        # Note: we don't pass L_max here, as L_max only affects sparsity list, not model_name
         _, model_name, mode = get_nk_list_for_benchmark(
             model=args.model,
             m_list=m_list if is_square_mode else None,
         )
     
-    # 显示配置
+    # Display config
     print("=" * 60)
     print("SlideSparse Kernel Benchmark")
     print("=" * 60)
@@ -642,14 +642,14 @@ def main():
     print("=" * 60)
     
     if args.dry_run:
-        print("[DRY-RUN] 不执行，只显示配置")
+        print("[DRY-RUN] Not executing, only showing config")
         return
     
-    # 为每个 dtype 运行 benchmark
+    # Run benchmark for each dtype
     for dtype in dtype_list:
         run_benchmark_for_dtype(args, dtype, m_list, model_name, sparsity_list)
     
-    # 输出目录
+    # Output directory
     out_dir = SCRIPT_DIR
     
     print()

@@ -2,61 +2,61 @@
 """
 SlideSparse FP8 Linear Method
 
-本模块是 SlideSparse FP8 的核心，通过外挂方式替换 vLLM 的 FP8 Linear 计算路径。
+This module is the core of SlideSparse FP8, replacing vLLM's FP8 Linear compute path via plugin.
 
-架构说明
-========
-SlideSparse 通过包装 vLLM 原有的 CompressedTensorsW8A8Fp8 scheme 实现外挂：
-- create_weights: 委托给原始 scheme
-- process_weights_after_loading: 委托给原始 scheme + cuSPARSELt 在线压缩
-- apply_weights: 替换为 SlideSparse 的 kernel 路径
+Architecture
+============
+SlideSparse wraps vLLM's original CompressedTensorsW8A8Fp8 scheme:
+- create_weights: delegates to original scheme
+- process_weights_after_loading: delegates to original scheme + cuSPARSELt online compression
+- apply_weights: replaces with SlideSparse kernel path
 
-三条 Kernel 路径（通过环境变量选择）
-====================================
-1. CUTLASS (默认 fallback)
-   - 直接调用 vLLM 的 cutlass_scaled_mm，融合 GEMM + dequant + bias
-   - 权重形状: [K, N]（vLLM 转置后）
+Three Kernel Paths (selected via env vars)
+==========================================
+1. CUTLASS (default fallback)
+   - Directly calls vLLM's cutlass_scaled_mm, fused GEMM + dequant + bias
+   - Weight shape: [K, N] (transposed by vLLM)
    
 2. cuBLASLt (USE_CUBLASLT=1)
-   - GEMM: cuBLASLt FP8 矩阵乘法（无 scale/bias 融合）
-   - Dequant+Bias: 外挂 Triton kernel
-   - 权重形状: [N, K]（跳过 vLLM 转置，保持原始行主序）
+   - GEMM: cuBLASLt FP8 matmul (no scale/bias fusion)
+   - Dequant+Bias: plugin Triton kernel
+   - Weight shape: [N, K] (skip vLLM transpose, keep original row-major)
    
 3. cuSPARSELt (USE_CUSPARSELT=1)
-   - GEMM: cuSPARSELt 2:4 稀疏 FP8 矩阵乘法（无 scale/bias 融合）
-   - Dequant+Bias: 外挂 Triton kernel
-   - 权重形状: weight_compressed [compressed_size] uint8 1D（在线压缩后）
-   - 需要配置 SPARSITY 环境变量（默认 2_8）
+   - GEMM: cuSPARSELt 2:4 sparse FP8 matmul (no scale/bias fusion)
+   - Dequant+Bias: plugin Triton kernel
+   - Weight shape: weight_compressed [compressed_size] uint8 1D (after online compression)
+   - Requires SPARSITY env var (default 2_8)
 
-维度命名约定
-============
+Dimension Naming Convention
+===========================
 GEMM: output[M, N] = input[M, K] @ weight[K, N]
 
-cuBLASLt 路径:
-- M, K, N: 算法维度（GEMM 的语义维度）
-- M_pad: M 的 16 对齐版本
-- K_pad: K 的 32 对齐版本
+cuBLASLt path:
+- M, K, N: algorithm dimensions (GEMM semantic dimensions)
+- M_pad: M aligned to 16
+- K_pad: K aligned to 32
 
-cuSPARSELt 路径:
-- M, K, N: 原始算法维度
-- K_slide: slide 扩展后的 K 维度（K_slide = K * expand_ratio）
-- M_pad: M 的 16 对齐版本
-- K_slide_pad: K_slide 的 32 对齐版本
-- weight_compressed: cuSPARSELt 压缩后的 1D uint8 tensor
+cuSPARSELt path:
+- M, K, N: original algorithm dimensions
+- K_slide: K dimension after slide expansion (K_slide = K * expand_ratio)
+- M_pad: M aligned to 16
+- K_slide_pad: K_slide aligned to 32
+- weight_compressed: cuSPARSELt compressed 1D uint8 tensor
 
-Padding 策略:
-- M_pad: Quant kernel 内部完成 16 对齐，输出 [M_pad, K_pad] 或 [M_pad, K_slide_pad]
-- K_pad/K_slide_pad: Quant kernel 内部完成 32 对齐
-- GEMM 在 padded 维度上计算，Dequant 前截断回原始 M
+Padding Strategy:
+- M_pad: Quant kernel handles 16-alignment internally, outputs [M_pad, K_pad] or [M_pad, K_slide_pad]
+- K_pad/K_slide_pad: Quant kernel handles 32-alignment internally
+- GEMM computes on padded dimensions, truncates back to original M before Dequant
 
-环境变量
-========
-- DISABLE_SLIDESPARSE=1   : 完全禁用 SlideSparse，使用 vLLM 原生路径
-- USE_CUBLASLT=1          : 使用 cuBLASLt kernel
-- USE_CUSPARSELT=1        : 使用 cuSPARSELt kernel（与 USE_CUBLASLT 互斥）
-- INNER_DTYPE_32=1        : GEMM 使用高精度累加（FP8→FP32）
-- SPARSITY=2_L            : 稀疏格式（仅 cuSPARSELt 时生效，L=4,6,8,10,... 默认 2_8）
-- SLIDESPARSE_PROFILE=1   : 启用 SlideSparse 计时诊断
+Environment Variables
+=====================
+- DISABLE_SLIDESPARSE=1   : Completely disable SlideSparse, use vLLM native path
+- USE_CUBLASLT=1          : Use cuBLASLt kernel
+- USE_CUSPARSELT=1        : Use cuSPARSELt kernel (mutually exclusive with USE_CUBLASLT)
+- INNER_DTYPE_32=1        : GEMM uses high-precision accumulation (FP8->FP32)
+- SPARSITY=2_L            : Sparsity format (only for cuSPARSELt, L=4,6,8,10,... default 2_8)
+- SLIDESPARSE_PROFILE=1   : Enable SlideSparse profiling
 """
 
 from typing import Optional
@@ -102,18 +102,18 @@ logger = init_logger(__name__)
 
 
 # ============================================================================
-# 辅助函数：获取当前模型名
+# Helper Function: Get Current Model Name
 # ============================================================================
 
 def _get_current_model_name() -> str:
     """
-    从 AlgorithmConfigManager 获取当前基础模型名（不带 -SlideSparse- 后缀）
+    Get current base model name from AlgorithmConfigManager (without -SlideSparse- suffix)
     
-    返回的名字直接对应:
-    - Triton kernel 文件名后缀
-    - GEMM 配置 JSON 中的 model_name
+    Returned name directly maps to:
+    - Triton kernel filename suffix
+    - model_name in GEMM config JSON
     
-    如果没有设置，抛出明确的错误提示
+    If not set, raises clear error
     """
     manager = get_algo_config_manager()
     model_name = manager.get_model_name()
@@ -126,23 +126,23 @@ def _get_current_model_name() -> str:
 
 
 # ============================================================================
-# FP8 Linear 函数（三条 Kernel 路径）
+# FP8 Linear Functions (Three Kernel Paths)
 # ============================================================================
 #
-# 三个函数内部完成 quant + GEMM + dequant:
+# Three functions complete quant + GEMM + dequant internally:
 #   - cuBLASLt_FP8_linear:   quant_only + cuBLASLt dense GEMM + Triton dequant
 #   - cuSPARSELt_FP8_linear: quant_slide + cuSPARSELt 2:4 sparse GEMM + Triton dequant
-#   - cutlass_FP8_linear:    vLLM QuantFP8 + cutlass_scaled_mm (融合 dequant)
+#   - cutlass_FP8_linear:    vLLM QuantFP8 + cutlass_scaled_mm (fused dequant)
 #
-# cuBLASLt 和 cuSPARSELt 计算流程:
+# cuBLASLt and cuSPARSELt compute flow:
 #   1. Quant:   qinput[M,K], scale_a = quant_only/quant_slide(input)
 #   2. GEMM:    inner[M,N] = weight @ qinput
 #   3. Dequant: out[M,N] = inner * scale_a * scale_b + bias
 #
-#   4. Padding 处理:
-#   - Quant kernel 输出 padded 维度
-#   - GEMM 在 padded 维度计算
-#   - Dequant 前截断回原始 M（切片无数据拷贝）
+#   4. Padding handling:
+#   - Quant kernel outputs padded dimensions
+#   - GEMM computes on padded dimensions
+#   - Truncate back to original M before Dequant (slice has no data copy)
 # ============================================================================
 
 def cuBLASLt_FP8_linear(
@@ -161,27 +161,27 @@ def cuBLASLt_FP8_linear(
     """
     cuBLASLt FP8 GEMM + Triton Dequant
     
-    数据流:
+    Data flow:
         input[M, K] BF16
-            ↓ quant_only_fp8_kernel
+            | quant_only_fp8_kernel
         qinput[M_pad, K_pad] FP8, scale_a[M_pad]
-            ↓ cublaslt_fp8_mm
+            | cublaslt_fp8_mm
         gemm_out[M_pad, N] BF16/FP32
-            ↓ 截断 [:M, :]
+            | truncate [:M, :]
         gemm_out[M, N], scale_a[M]
-            ↓ dequant_bias_kernel
+            | dequant_bias_kernel
         output[M, N] out_dtype
     """
     M = input.shape[0]
     
     # Quant: [M, K] -> [M_pad, K_pad]
-    # cuBLASLt 路径始终使用 Triton quant kernel（需要 padding）
+    # cuBLASLt path always uses Triton quant kernel (requires padding)
     if input.dtype != current_platform.fp8_dtype():
         with ProfileTimer("cuBLASLt.quant"):
             qinput, scale_a_pad = quant_only_fp8_kernel(input, model_name)
     else:
-        # 静态量化：input 已是 FP8，但没有 padding
-        # cuBLASLt GEMM wrapper 期望 padded 维度，所以不支持静态量化
+        # Static quantization: input is already FP8, but no padding
+        # cuBLASLt GEMM wrapper expects padded dimensions, so static quant not supported
         raise NotImplementedError(
             "cuBLASLt with static quantization is not supported. "
             "Use CUTLASS path or dynamic quantization."
@@ -225,22 +225,22 @@ def cuSPARSELt_FP8_linear(
     """
     cuSPARSELt 2:4 Sparse FP8 GEMM + Triton Dequant
     
-    数据流:
+    Data flow:
         input[M, K] BF16
-            ↓ quant_slide_fp8_kernel
+            | quant_slide_fp8_kernel
         qinput[M_pad, K_slide_pad] FP8, scale_a[M_pad]
-            ↓ cusparselt_fp8_mm
+            | cusparselt_fp8_mm
         gemm_out[M_pad, N] BF16/FP32
-            ↓ 截断 [:M, :]
+            | truncate [:M, :]
         gemm_out[M, N], scale_a[M]
-            ↓ dequant_bias_kernel
+            | dequant_bias_kernel
         output[M, N] out_dtype
     
     Args:
         slide_weight_compressed: [compressed_size] uint8 1D
-        slide_weight_N: 权重 N 维度
-        slide_weight_K: 权重 K_slide 维度（slide 扩展后，已 32 对齐）
-        L: 稀疏组大小（默认 8）
+        slide_weight_N: weight N dimension
+        slide_weight_K: weight K_slide dimension (after slide expansion, 32-aligned)
+        L: sparsity group size (default 8)
     """
     
     if slide_weight_N is None or slide_weight_K is None:
@@ -259,7 +259,7 @@ def cuSPARSELt_FP8_linear(
             "cuSPARSELt with static quantization is not supported yet."
         )
     
-    # 验证维度一致性：qinput 的 K 维度应与 weight 的 K 维度匹配
+    # Verify dimension consistency: qinput K dim should match weight K dim
     K_slide_pad = qinput.shape[1]
     if K_slide_pad != slide_weight_K:
         raise ValueError(
@@ -306,16 +306,16 @@ def cutlass_FP8_linear(
     input_scale_ub: Optional[torch.Tensor] = None,
 ) -> torch.Tensor:
     """
-    vLLM CUTLASS（融合 GEMM + Dequant + Bias）
+    vLLM CUTLASS (fused GEMM + Dequant + Bias)
     
-    数据流:
+    Data flow:
         input[M, K] BF16
-            ↓ QuantFP8
+            | QuantFP8
         qinput[M, K] FP8, scale_a
-            ↓ cutlass_scaled_mm（融合 dequant + bias）
+            | cutlass_scaled_mm (fused dequant + bias)
         output[M, N] out_dtype
     """
-    # Quant（使用 vLLM 原生 QuantFP8）
+    # Quant (using vLLM native QuantFP8)
     if input.dtype != current_platform.fp8_dtype():
         with ProfileTimer("CUTLASS.quant"):
             qinput, scale_a = quant_fn(input, input_scale, input_scale_ub)
@@ -344,13 +344,13 @@ class SlideSparseFp8LinearOp:
     """
     SlideSparse FP8 Linear Operation
     
-    根据环境变量选择 kernel 路径：
+    Selects kernel path based on env vars:
     - USE_CUBLASLT=1: cuBLASLt_FP8_linear
     - USE_CUSPARSELT=1: cuSPARSELt_FP8_linear
-    - 默认: cutlass_FP8_linear
+    - Default: cutlass_FP8_linear
     
-    注意: Triton kernel 采用懒加载模式，首次调用 apply 时才加载，
-    因为 kernel 是 model-specific 的，需要知道当前模型名。
+    Note: Triton kernels use lazy loading, loaded on first apply call
+    because kernels are model-specific, need current model name.
     """
     
     def __init__(
@@ -361,22 +361,22 @@ class SlideSparseFp8LinearOp:
         self.act_quant_static = act_quant_static
         self.act_quant_group_shape = act_quant_group_shape
         
-        # 创建 QuantFP8 实例（CUTLASS 路径使用）
+        # Create QuantFP8 instance (used by CUTLASS path)
         self.quant_fp8 = QuantFP8(
             static=act_quant_static,
             group_shape=act_quant_group_shape,
             num_token_padding=None,
         )
         
-        # 确定 kernel 路径（缓存环境变量判断结果）
+        # Determine kernel path (cache env var check result)
         self._use_cublaslt = is_cublaslt_enabled()
         self._use_cusparselt = is_cusparselt_enabled()
         
-        # 缓存 inner_dtype（环境变量在进程生命周期内不变）
+        # Cache inner_dtype (env vars don't change within process lifetime)
         self._inner_dtype_str = "fp32" if is_inner_dtype_32() else "bf16"
         
-        # 只预加载 GEMM extension（model-agnostic）
-        # Triton kernel 懒加载（需要 model_name）
+        # Only preload GEMM extension (model-agnostic)
+        # Triton kernels lazy-loaded (need model_name)
         if self._use_cublaslt:
             self._kernel_name = "cuBLASLt"
             self._linear_fn = cuBLASLt_FP8_linear
@@ -407,25 +407,25 @@ class SlideSparseFp8LinearOp:
         L: int = 8,
     ) -> torch.Tensor:
         """
-        执行 FP8 Linear 操作
+        Execute FP8 Linear operation
         
         Args:
             input: [..., K] BF16
-            weight: 权重（形状取决于 kernel 路径）
+            weight: weight (shape depends on kernel path)
             weight_scale: [N] FP32
-            out_dtype: 输出类型
-            input_scale: 静态量化 scale
-            input_scale_ub: 静态量化 scale 上界
+            out_dtype: output type
+            input_scale: static quantization scale
+            input_scale_ub: static quantization scale upper bound
             bias: [N]
-            slide_weight_N: cuSPARSELt 专用，N 维度
-            slide_weight_K: cuSPARSELt 专用，K_slide 维度
-            L: cuSPARSELt 专用，稀疏组大小
+            slide_weight_N: cuSPARSELt specific, N dimension
+            slide_weight_K: cuSPARSELt specific, K_slide dimension
+            L: cuSPARSELt specific, sparsity group size
         """
-        # 获取 input 形状信息
+        # Get input shape info
         input_shape = input.shape
         input_ndim = input.dim()
         
-        # 展平为 2D（如果已经是 2D 则直接使用，避免不必要的 view 调用）
+        # Flatten to 2D (use directly if already 2D, avoid unnecessary view call)
         if input_ndim == 2:
             input_2d = input
             M = input_shape[0]
@@ -433,18 +433,18 @@ class SlideSparseFp8LinearOp:
             input_2d = input.view(-1, input_shape[-1])
             M = input_2d.shape[0]
         
-        # 推断输出 N 维度（根据已缓存的 kernel 路径判断，避免 weight.dim() 调用）
-        # - cuSPARSELt: N 由 slide_weight_N 参数提供（weight 是压缩后的 1D）
-        # - cuBLASLt:   weight [N, K]，N 在 dim=0
-        # - CUTLASS:    weight [K, N]，N 在 dim=1
+        # Infer output N dimension (based on cached kernel path, avoid weight.dim() call)
+        # - cuSPARSELt: N provided by slide_weight_N param (weight is compressed 1D)
+        # - cuBLASLt:   weight [N, K], N at dim=0
+        # - CUTLASS:    weight [K, N], N at dim=1
         if self._use_cusparselt:
-            output_N = slide_weight_N  # 调用者保证 slide_weight_N 有效
+            output_N = slide_weight_N  # Caller guarantees slide_weight_N is valid
         elif self._use_cublaslt:
             output_N = weight.shape[0]
         else:
             output_N = weight.shape[1]
         
-        # 构建 output_shape（针对常见的 2D 输入优化，避免 list unpacking）
+        # Build output_shape (optimized for common 2D input, avoid list unpacking)
         if input_ndim == 2:
             output_shape = [M, output_N]
         else:
@@ -453,7 +453,7 @@ class SlideSparseFp8LinearOp:
         if out_dtype is None:
             out_dtype = input.dtype
         
-        # 公共参数
+        # Common args
         common_args = dict(
             input=input_2d,
             out_dtype=out_dtype,
@@ -464,9 +464,9 @@ class SlideSparseFp8LinearOp:
             input_scale_ub=input_scale_ub,
         )
         
-        # 调用选定的 kernel 路径
+        # Call selected kernel path
         if self._use_cusparselt:
-            # cuSPARSELt 需要 model_name 加载 Triton kernels
+            # cuSPARSELt needs model_name to load Triton kernels
             model_name = _get_current_model_name()
             return self._linear_fn(
                 **common_args,
@@ -478,7 +478,7 @@ class SlideSparseFp8LinearOp:
                 L=L,
             )
         elif self._use_cublaslt:
-            # cuBLASLt 需要 model_name 加载 Triton kernels
+            # cuBLASLt needs model_name to load Triton kernels
             model_name = _get_current_model_name()
             return self._linear_fn(
                 **common_args,
@@ -487,7 +487,7 @@ class SlideSparseFp8LinearOp:
                 model_name=model_name,
             )
         else:
-            # CUTLASS 路径不需要 model_name（使用 vLLM 原生 kernel）
+            # CUTLASS path doesn't need model_name (uses vLLM native kernel)
             return self._linear_fn(
                 **common_args,
                 weight=weight,
@@ -503,17 +503,17 @@ class SlideSparseFp8LinearMethod:
     """
     SlideSparse FP8 Linear Method
     
-    包装 vLLM 原有的 CompressedTensorsW8A8Fp8 scheme：
-    - create_weights: 委托给原始 scheme
-    - process_weights_after_loading: 委托 + cuBLASLt/cuSPARSELt 后处理
-    - apply_weights: 使用 SlideSparseFp8LinearOp
+    Wraps vLLM's original CompressedTensorsW8A8Fp8 scheme:
+    - create_weights: delegates to original scheme
+    - process_weights_after_loading: delegates + cuBLASLt/cuSPARSELt post-processing
+    - apply_weights: uses SlideSparseFp8LinearOp
     
-    权重形状变化:
-        原始 checkpoint: [N, K] 或 [N, K_slide]（slidesparse checkpoint）
-        vLLM 加载后: [N, K] 或 [N, K_slide]
-        CUTLASS 路径: weight.t() -> [K, N]
-        cuBLASLt 路径: 保持 [N, K]
-        cuSPARSELt 路径: [N, K_slide] -> compress -> [compressed_size] uint8 1D
+    Weight shape changes:
+        Original checkpoint: [N, K] or [N, K_slide] (slidesparse checkpoint)
+        After vLLM load: [N, K] or [N, K_slide]
+        CUTLASS path: weight.t() -> [K, N]
+        cuBLASLt path: keeps [N, K]
+        cuSPARSELt path: [N, K_slide] -> compress -> [compressed_size] uint8 1D
     """
     
     def __init__(self, original_scheme):
@@ -526,13 +526,13 @@ class SlideSparseFp8LinearMethod:
         self._use_cublaslt = is_cublaslt_enabled()
         self._use_cusparselt = is_cusparselt_enabled()
         
-        # 创建 SlideSparse Op
+        # Create SlideSparse Op
         self.slidesparse_fp8_linear = SlideSparseFp8LinearOp(
             act_quant_static=self.is_static_input_scheme,
             act_quant_group_shape=self.act_q_group_shape,
         )
         
-        # cuSPARSELt 稀疏配置
+        # cuSPARSELt sparsity config
         if self._use_cusparselt:
             Z, L, self._expand_ratio = get_sparsity_config()
             self._sparsity_config = SlideSparseConfig(Z=Z, L=L)
@@ -541,11 +541,11 @@ class SlideSparseFp8LinearMethod:
                 f"sparsity={Z}:{L}, expand_ratio={self._expand_ratio:.3f}"
             )
         
-        # 预加载 Triton kernels（torch.compile 兼容）
+        # Preload Triton kernels (torch.compile compatible)
         import os
         model_name = os.environ.get("SLIDESPARSE_MODEL_NAME")
         if model_name and (self._use_cublaslt or self._use_cusparselt):
-            # dequant_bias kernel 是 cuBLASLt 和 cuSPARSELt 共享的
+            # dequant_bias kernel is shared by cuBLASLt and cuSPARSELt
             _load_dequant_bias_kernel(model_name)
             
             if self._use_cublaslt:
@@ -574,14 +574,14 @@ class SlideSparseFp8LinearMethod:
         **kwargs,
     ):
         """
-        创建权重参数
+        Create weight parameters
         
-        cuSPARSELt 路径：扩展 input_size 以匹配 slide 后的 checkpoint 权重
-        其他路径：直接委托给原始 scheme
+        cuSPARSELt path: expand input_size to match slide checkpoint weight
+        Other paths: directly delegate to original scheme
         """
         if self._use_cusparselt:
-            # cuSPARSELt: 扩展 input_size 以匹配 slide 后的 K 维度
-            # checkpoint 中的权重已经是 [N, K_slide]，需要匹配
+            # cuSPARSELt: expand input_size to match K dimension after slide
+            # Checkpoint weight is already [N, K_slide], need to match
             _, input_size_per_partition_slide = compute_output_k(
                 input_size_per_partition, self._sparsity_config
             )
@@ -600,7 +600,7 @@ class SlideSparseFp8LinearMethod:
                 **kwargs,
             )
         else:
-            # CUTLASS / cuBLASLt: 直接委托
+            # CUTLASS / cuBLASLt: directly delegate
             return self.original_scheme.create_weights(
                 layer=layer,
                 input_size_per_partition=input_size_per_partition,
@@ -614,21 +614,21 @@ class SlideSparseFp8LinearMethod:
     
     def process_weights_after_loading(self, layer: Module) -> None:
         """
-        权重加载后处理
+        Post-load weight processing
         
-        处理逻辑:
-        - CUTLASS: 委托给原始 scheme（执行 weight.t()）
-        - cuBLASLt: 原始 scheme + 转置回 [N, K]
-        - cuSPARSELt: 原始 scheme + 转置回 [N, K_slide] + 在线压缩
+        Processing logic:
+        - CUTLASS: delegates to original scheme (executes weight.t())
+        - cuBLASLt: original scheme + transpose back to [N, K]
+        - cuSPARSELt: original scheme + transpose back to [N, K_slide] + online compression
         """
-        # 所有路径都先调用原始 scheme
+        # All paths first call original scheme
         self.original_scheme.process_weights_after_loading(layer)
         
         if not self._use_cublaslt and not self._use_cusparselt:
-            # CUTLASS 路径：直接返回
+            # CUTLASS path: return directly
             return
         
-        # cuBLASLt / cuSPARSELt：转置回 [N, K] 或 [N, K_slide]
+        # cuBLASLt / cuSPARSELt: transpose back to [N, K] or [N, K_slide]
         from torch.nn import Parameter
         weight_transposed = layer.weight.data.t()
         layer.weight = Parameter(weight_transposed, requires_grad=False)
@@ -638,10 +638,10 @@ class SlideSparseFp8LinearMethod:
     
     def _compress_weight_online(self, layer: Module) -> None:
         """
-        cuSPARSELt 在线压缩
+        cuSPARSELt online compression
         
-        输入: layer.weight [N, K_slide] FP8
-        输出: layer.weight [compressed_size] uint8 1D
+        Input: layer.weight [N, K_slide] FP8
+        Output: layer.weight [compressed_size] uint8 1D
               layer.slide_weight_N: N
               layer.slide_weight_K: K_slide
         """
@@ -707,15 +707,15 @@ class SlideSparseFp8LinearMethod:
 
 
 # ============================================================================
-# 工厂函数
+# Factory Function
 # ============================================================================
 
 def wrap_scheme_fp8(original_scheme):
     """
-    FP8 scheme 包装入口
+    FP8 scheme wrapper entry point
     
-    只包装 W8A8Fp8 scheme，其他 scheme 原样返回。
-    内部由 SlideSparseFp8LinearOp 根据环境变量选择 kernel 路径。
+    Only wraps W8A8Fp8 scheme, returns others as-is.
+    SlideSparseFp8LinearOp internally selects kernel path based on env vars.
     """
     scheme_name = type(original_scheme).__name__
     if "W8A8Fp8" not in scheme_name:
@@ -738,19 +738,19 @@ def wrap_scheme_fp8(original_scheme):
 
 
 # ============================================================================
-# 导出
+# Exports
 # ============================================================================
 
 __all__ = [
-    # Linear 函数
+    # Linear functions
     "cuBLASLt_FP8_linear",
     "cuSPARSELt_FP8_linear",
     "cutlass_FP8_linear",
     
-    # Op 和 Method 类
+    # Op and Method classes
     "SlideSparseFp8LinearOp",
     "SlideSparseFp8LinearMethod",
     
-    # 工厂函数
+    # Factory function
     "wrap_scheme_fp8",
 ]

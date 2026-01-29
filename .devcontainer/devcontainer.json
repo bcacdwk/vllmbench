@@ -1,25 +1,25 @@
 {
-    // Dev Container 显示名称
+    // Dev Container display name
     "name": "Slidesparse vllm benchmark",
 
-    // 使用本地构建的开发镜像
+    // Use locally built dev image
     "image": "bcacdwk/vllmbench:universal",
 
-    // [重要] 自动检测镜像更新，删除使用旧镜像的容器
-    // 原理：比较现有容器的镜像ID与最新镜像ID，不匹配则删除旧容器
-    "initializeCommand": "bash -c 'LATEST=$(docker images -q bcacdwk/vllmbench:universal 2>/dev/null); for CID in $(docker ps -aq --filter label=devcontainer.local_folder=$(pwd)); do CIMG=$(docker inspect $CID --format \"{{.Image}}\" 2>/dev/null); if [[ \"$CIMG\" != *\"$LATEST\"* ]] && [ -n \"$LATEST\" ]; then echo \"🔄 检测到镜像更新，删除旧容器 $CID...\"; docker rm -f $CID 2>/dev/null || true; fi; done; echo \"✅ 镜像检查完成\"'",
+    // [Important] Auto-detect image updates, delete containers using old image
+    // Logic: Compare container image ID with latest image ID, delete if mismatch
+    "initializeCommand": "bash -c 'LATEST=$(docker images -q bcacdwk/vllmbench:universal 2>/dev/null); for CID in $(docker ps -aq --filter label=devcontainer.local_folder=$(pwd)); do CIMG=$(docker inspect $CID --format \"{{.Image}}\" 2>/dev/null); if [[ \"$CIMG\" != *\"$LATEST\"* ]] && [ -n \"$LATEST\" ]; then echo \"🔄 Image update detected, removing old container $CID...\"; docker rm -f $CID 2>/dev/null || true; fi; done; echo \"✅ Image check completed\"'",
 
-    // 容器中的默认用户，使用 root 便于安装系统依赖
+    // Default user in container, use root for system dependencies
     "remoteUser": "root",
-    // 容器内的工作目录，对应本地仓库挂载位置
+    // Working directory in container, where local repo is mounted
     "workspaceFolder": "/root/vllmbench",
     
-    // [关键配置] 增强运行参数
+    // [Key Config] Enhanced run arguments
     "runArgs": [
-        // 使用宿主机网络栈：解决 K8s/内网 DNS 解析失败、Copilot 超时等问题
+        // Use host network stack: fix K8s/intranet DNS issues, Copilot timeouts
         "--network=host",
         
-        // --- GPU 和系统权限配置 ---
+        // --- GPU and System Permission Config ---
         "--gpus=all",
         "--privileged",
         "--cap-add=SYS_ADMIN",
@@ -39,7 +39,7 @@
         "NVIDIA_DRIVER_CAPABILITIES": "compute,utility"
     },
 
-    // 将本地仓库目录挂载到容器，保持代码同步
+    // Mount local repo to container for code sync
     "mounts": [
         {
             "type": "bind",
@@ -66,13 +66,13 @@
         }
     },
     
-    // 容器首次创建后执行：可编辑安装 vLLM 源码 + 安装额外依赖
-    // pip install -e . 会创建软链接，修改 Python/Triton 代码后立即生效
-    // 环境变量 VLLM_USE_PRECOMPILED / VLLM_PRECOMPILED_WHEEL_* 已在 Dockerfile 中设置
-    // 关键：先安装构建依赖（不升级torch），再使用 --no-build-isolation 避免重新安装 torch
-    "postCreateCommand": "pip install cmake ninja packaging 'setuptools>=77.0.3,<81.0.0' 'setuptools-scm>=8.0' wheel jinja2 torch && pip install -e . --no-build-isolation && pip install -r requirements.txt && echo '=== 验证 vLLM 安装 ===' && python3 -c \"import vllm; print('✅ vllm:', vllm.__file__)\" && python3 -c \"import vllm._C; print('✅ vllm._C:', vllm._C.__file__)\"",
-    // 容器启动后执行：启用 GPU 持久化模式、创建 python 软链接并打印状态
+    // Run after container creation: editable install vLLM + extra deps
+    // pip install -e . creates symlinks, Python/Triton changes take effect immediately
+    // Env vars VLLM_USE_PRECOMPILED / VLLM_PRECOMPILED_WHEEL_* set in Dockerfile
+    // Key: Install build deps first (without upgrading torch), then use --no-build-isolation
+    "postCreateCommand": "pip install cmake ninja packaging 'setuptools>=77.0.3,<81.0.0' 'setuptools-scm>=8.0' wheel jinja2 torch && pip install -e . --no-build-isolation && pip install -r requirements.txt && echo '=== Verify vLLM Installation ===' && python3 -c \"import vllm; print('✅ vllm:', vllm.__file__)\" && python3 -c \"import vllm._C; print('✅ vllm._C:', vllm._C.__file__)\"",
+    // Run after container start: enable GPU persistence mode, create python symlink
     "postStartCommand": "bash -lc 'nvidia-smi -pm 1 2>/dev/null || true; ln -sf /usr/bin/python3 /usr/local/bin/python 2>/dev/null || true; nvidia-smi'",
-    // 阻止 Dev Container 重写入口命令
+    // Prevent Dev Container from overwriting entry command
     "overrideCommand": true
 }

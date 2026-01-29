@@ -1,23 +1,23 @@
 # SPDX-License-Identifier: Apache-2.0
 """
-SlideSparse 计时诊断模块
+SlideSparse Profiling Module
 
-通过环境变量 SLIDESPARSE_PROFILE=1 启用。
+Enabled via SLIDESPARSE_PROFILE=1 env var.
 
-使用方式:
-=========
+Usage:
+======
     with ProfileTimer("operation_name"):
-        # 需要计时的代码
+        # Code to time
         ...
 
-    # 每次 apply 后调用
+    # Call after each apply
     profile_step()
 
-注意事项:
-=========
-- 启用 profiling 会破坏 CUDA Graph，必须使用 eager 模式
-- 异步计时机制，批量同步减少 GPU pipeline 阻塞
-- torch.compile 追踪时自动禁用（返回 nullcontext）
+Notes:
+======
+- Enabling profiling breaks CUDA Graph, must use eager mode
+- Async timing with batch sync to reduce GPU pipeline stalls
+- Auto-disabled during torch.compile tracing (returns nullcontext)
 """
 
 import os
@@ -28,27 +28,27 @@ import torch
 
 
 # ============================================================================
-# 配置常量
+# Configuration Constants
 # ============================================================================
 
 _PROFILE_ENABLED = os.environ.get("SLIDESPARSE_PROFILE", "0") == "1"
-_PROFILE_PRINT_INTERVAL = 1000  # 每 N 次调用打印一次统计
-_PENDING_FLUSH_THRESHOLD = 1000  # 积累多少个 events 后批量同步
+_PROFILE_PRINT_INTERVAL = 1000  # Print stats every N calls
+_PENDING_FLUSH_THRESHOLD = 1000  # Batch sync after N events
 
 
 # ============================================================================
-# 全局状态
+# Global State
 # ============================================================================
 
 _profile_data = defaultdict(lambda: {"count": 0, "total_ms": 0.0})
 _profile_call_count = 0
 
-# 异步计时：存储 pending 的 CUDA events，延迟同步
+# Async timing: store pending CUDA events, lazy sync
 _pending_events: list = []  # [(name, start_event, end_event), ...]
 
 
 # ============================================================================
-# ProfileTimer 实现
+# ProfileTimer Implementation
 # ============================================================================
 
 class _ProfileTimerImpl:
@@ -86,7 +86,7 @@ def ProfileTimer(name: str, enabled: bool = True):
 
 
 # ============================================================================
-# 事件处理函数
+# Event Processing Functions
 # ============================================================================
 
 def _flush_pending_events():
@@ -117,7 +117,7 @@ def profile_step():
 
 
 # ============================================================================
-# 统计输出函数
+# Statistics Output Functions
 # ============================================================================
 
 def print_profile_stats():
@@ -133,7 +133,7 @@ def print_profile_stats():
     print(f"{'Operation':<40} {'Count':>10} {'Total(ms)':>12} {'Avg(us)':>10}")
     print(f"{'-' * 80}")
     
-    # 按 total_ms 降序排列
+    # Sort by total_ms descending
     sorted_items = sorted(_profile_data.items(), key=lambda x: -x[1]["total_ms"])
     
     for name, data in sorted_items:
@@ -146,7 +146,7 @@ def print_profile_stats():
 
 
 def reset_profile_stats():
-    """重置计时统计（会丢弃所有未 flush 的 pending events）"""
+    """Reset profiling stats (discards all unflushed pending events)"""
     global _profile_call_count, _pending_events
     _profile_data.clear()
     _profile_call_count = 0
@@ -154,7 +154,7 @@ def reset_profile_stats():
 
 
 # ============================================================================
-# 导出
+# Exports
 # ============================================================================
 
 __all__ = [

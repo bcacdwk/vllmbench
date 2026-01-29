@@ -1,11 +1,11 @@
 # =============================================================================
-# vLLM Kernel 开发专用镜像
+# vLLM Kernel Development Image
 #
-# 设计思路：
-# 1. 基座：继承 vLLM 官方镜像，复用已有的 PyTorch、Triton 和 uv 环境。
-# 2. 补全：安装 nvcc 和 cuda-libraries-dev，补全编译 .cu 文件所需的完整头文件。
-# 3. 劫持：卸载预装的 vLLM 包，为挂载本地源码并执行 pip install -e . 腾出空间。
-# 4. 加速：利用 uv 包管理器和 ccache 缓存，最大化缩短构建和重编时间。
+# Design:
+# 1. Base: Inherit from official vLLM image, reuse PyTorch, Triton and uv.
+# 2. Complete: Install nvcc and cuda-libraries-dev for .cu compilation.
+# 3. Override: Uninstall pre-installed vLLM for local source mounting.
+# 4. Accelerate: Use uv package manager and ccache for faster builds.
 # =============================================================================
 FROM vllm/vllm-openai:v0.13.0
 
@@ -13,16 +13,16 @@ USER root
 ENV DEBIAN_FRONTEND=noninteractive
 
 # -----------------------------------------------------------------------------
-# 1. 基础配置：APT 缓存与源
+# 1. Basic Config: APT Cache
 # -----------------------------------------------------------------------------
-# 配置 APT 保持下载的包缓存，加速后续重复构建
+# Configure APT to keep downloaded packages for faster rebuilds
 RUN rm -f /etc/apt/apt.conf.d/docker-clean; echo 'Binary::apt::APT::Keep-Downloaded-Packages "true";' > /etc/apt/apt.conf.d/keep-cache
 
 # -----------------------------------------------------------------------------
-# 2. 安装 CUDA 开发环境与系统工具
+# 2. Install CUDA Dev Environment & System Tools
 # -----------------------------------------------------------------------------
-# 安装编译所需的编译器、CMake、Ninja 以及 CUDA 核心头文件
-# 特别补充 libnccl-dev 以确保分布式通信库能正确链接
+# Install compilers, CMake, Ninja and CUDA headers
+# Add libnccl-dev for distributed communication
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
     apt-get update && apt-get install -y --no-install-recommends \
@@ -33,18 +33,18 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     libnccl-dev \
     ccache \
     fonts-noto-cjk fonts-wqy-zenhei \
-    # 性能分析工具 (按需保留)
+    # Profiling tools (optional)
     nsight-compute-2025.3.0 \
     nsight-systems-2025.3.2
 
-# 启用 ccache 以加速 C++ 代码的增量编译
+# Enable ccache for incremental C++ compilation
 ENV PATH="/usr/lib/ccache:${PATH}"
 ENV CCACHE_DIR=/root/.ccache
 
 # -----------------------------------------------------------------------------
-# 3. 安装依赖库：cuSPARSELt (自定义 Kernel 依赖)
+# 3. Install Dependencies: cuSPARSELt (Custom Kernel Dependency)
 # -----------------------------------------------------------------------------
-# 根据架构自动选择安装 cuSPARSELt 0.8.1
+# Auto-select cuSPARSELt 0.8.1 based on architecture
 RUN export ARCH=$(dpkg --print-architecture) && \
     apt-get update && \
     apt-get remove -y libcusparselt0 libcusparselt-dev || true && \
@@ -65,58 +65,58 @@ RUN export ARCH=$(dpkg --print-architecture) && \
     echo "✅ cuSPARSELt 0.8.1 installed"
 
 # -----------------------------------------------------------------------------
-# 4. 环境清理：卸载冲突包
+# 4. Cleanup: Uninstall Conflicting Packages
 # -----------------------------------------------------------------------------
-# 使用 uv (比 pip 快) 卸载镜像预置的 vLLM，防止 Python 导入路径混淆
-# 这一步至关重要，确保后续 pip install -e . 生效
+# Use uv (faster than pip) to uninstall pre-installed vLLM
+# Critical for pip install -e . to work properly
 RUN uv pip uninstall --system vllm
 
-# 卸载 pip 安装的 cusparselt，强制使用系统级安装的版本
+# Uninstall pip-installed cusparselt, use system version instead
 RUN uv pip uninstall --system nvidia-cusparselt-cu12 || true
 
 # -----------------------------------------------------------------------------
-# 5. 编译参数调优
+# 5. Build Configuration
 # -----------------------------------------------------------------------------
-# 限制目标 CUDA 架构，显著减少 JIT 编译时间 (根据实际 GPU 型号调整)
+# Limit target CUDA architectures to reduce JIT compile time
 # 8.0=A100, 9.0=H100/H200, 10.0=B100/B200
 ENV TORCH_CUDA_ARCH_LIST="8.0;9.0;10.0"
 
-# 控制编译并发数：
-# MAX_JOBS 控制 Ninja 并行文件数，NVCC_THREADS 控制编译器内部线程
-# 同时限制以防止内存溢出 (OOM)
+# Control compilation parallelism:
+# MAX_JOBS for Ninja parallel files, NVCC_THREADS for compiler threads
+# Limit both to prevent OOM
 ENV MAX_JOBS=4
 ENV NVCC_THREADS=8
 
-# 修正动态库搜索路径
-# 优先加载 /usr/local/nvidia 以兼容云环境可能挂载的宿主机驱动
+# Fix dynamic library search path
+# Prioritize /usr/local/nvidia for cloud environments with host driver mounts
 ENV LD_LIBRARY_PATH=/usr/local/nvidia/lib64:/usr/local/cuda/lib64:$LD_LIBRARY_PATH
 
-# 使用系统 ptxas 替代 Triton 内置版本
-# 解决新架构（如 GB10/sm_121a）在旧版 Triton 中不支持的问题
-# 安全性：如果路径不存在，Triton 会自动回退到内置 ptxas
+# Use system ptxas instead of Triton's built-in version
+# Fix unsupported arch (e.g., GB10/sm_121a) in older Triton
+# Safe: Triton falls back to built-in ptxas if path doesn't exist
 ENV TRITON_PTXAS_PATH=/usr/local/cuda/bin/ptxas
 
 # -----------------------------------------------------------------------------
-# 6. vLLM 预编译模式配置
+# 6. vLLM Precompiled Mode Config
 # -----------------------------------------------------------------------------
-# 启用预编译模式：仅编译 Python 层修改，C++ 核心库直接下载官方编译好的 Wheel
+# Enable precompiled mode: only compile Python changes, download official C++ wheels
 ENV VLLM_USE_PRECOMPILED=1
 
-# 指定 v0.13.0 版本的官方 Commit Hash (来源: git rev-parse HEAD)
+# Official commit hash for v0.13.0 (from: git rev-parse HEAD)
 ENV VLLM_PRECOMPILED_WHEEL_COMMIT=72506c98349d6bcd32b4e33eec7b5513453c1502
 
-# 指定 CUDA 版本变体 (推荐使用 cu12 以保证兼容性)
+# CUDA version variant (cu12 recommended for compatibility)
 ENV VLLM_PRECOMPILED_WHEEL_VARIANT=cu12
 
 # -----------------------------------------------------------------------------
-# 7. 工作空间与工具配置
+# 7. Workspace & Tools Config
 # -----------------------------------------------------------------------------
 WORKDIR /root/vllmbench
 
-# 复制 vllmbench 源代码到镜像中
+# Copy vllmbench source code into image
 COPY . /root/vllmbench/
 
-# 配置 uv 行为：增加超时容错，使用 Copy 模式避免 Docker 缓存层的硬链接错误
+# Configure uv: increase timeout, use copy mode to avoid hardlink errors in Docker layers
 ENV UV_HTTP_TIMEOUT=500
 ENV UV_LINK_MODE=copy
 

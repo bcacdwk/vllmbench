@@ -2,67 +2,67 @@
 """
 SlideSparse INT8 Linear Method
 
-本模块是 SlideSparse INT8 的核心，通过外挂方式替换 vLLM 的 INT8 Linear 计算路径。
+This module is the core of SlideSparse INT8, replacing vLLM's INT8 Linear compute path via plugin.
 
-架构说明
-========
-SlideSparse 通过包装 vLLM 原有的 CompressedTensorsW8A8Int8 scheme 实现外挂：
-- create_weights: 委托给原始 scheme
-- process_weights_after_loading: 委托给原始 scheme + cuSPARSELt 在线压缩
-- apply_weights: 替换为 SlideSparse 的 kernel 路径
+Architecture
+============
+SlideSparse wraps vLLM's original CompressedTensorsW8A8Int8 scheme:
+- create_weights: delegates to original scheme
+- process_weights_after_loading: delegates to original scheme + cuSPARSELt online compression
+- apply_weights: replaces with SlideSparse kernel path
 
-三条 Kernel 路径（通过环境变量选择）
-====================================
-1. CUTLASS (默认 fallback)
-   - 直接调用 vLLM 的 cutlass_scaled_mm / cutlass_scaled_mm_azp
-   - 融合 GEMM + dequant + bias
-   - 支持对称和非对称量化
-   - 权重形状: [K, N]（vLLM 转置后）
+Three Kernel Paths (selected via env vars)
+==========================================
+1. CUTLASS (default fallback)
+   - Directly calls vLLM's cutlass_scaled_mm / cutlass_scaled_mm_azp
+   - Fused GEMM + dequant + bias
+   - Supports symmetric and asymmetric quantization
+   - Weight shape: [K, N] (transposed by vLLM)
    
 2. cuBLASLt (USE_CUBLASLT=1)
-   - GEMM: cuBLASLt INT8 矩阵乘法（输出固定为 INT32）
-   - Dequant+Bias: 外挂 Triton kernel
-   - 权重形状: [N, K]（跳过 vLLM 转置，保持原始行主序）
-   - 注意：cuBLASLt INT8 只支持对称量化
+   - GEMM: cuBLASLt INT8 matmul (output fixed INT32)
+   - Dequant+Bias: plugin Triton kernel
+   - Weight shape: [N, K] (skip vLLM transpose, keep original row-major)
+   - Note: cuBLASLt INT8 only supports symmetric quantization
    
 3. cuSPARSELt (USE_CUSPARSELT=1)
-   - GEMM: cuSPARSELt 2:4 稀疏 INT8 矩阵乘法
-   - Dequant+Bias: 外挂 Triton kernel
-   - 权重形状: weight_compressed [compressed_size] uint8 1D（在线压缩后）
-   - 注意：cuSPARSELt INT8 只支持对称量化，输出可以是 BF16 或 INT32（不支持 FP32）
+   - GEMM: cuSPARSELt 2:4 sparse INT8 matmul
+   - Dequant+Bias: plugin Triton kernel
+   - Weight shape: weight_compressed [compressed_size] uint8 1D (after online compression)
+   - Note: cuSPARSELt INT8 only supports symmetric quantization, output can be BF16 or INT32 (not FP32)
 
-维度命名约定
-============
+Dimension Naming Convention
+===========================
 GEMM: output[M, N] = input[M, K] @ weight[K, N]
 
-cuBLASLt 路径:
-- M, K, N: 算法维度（GEMM 的语义维度）
-- M_pad: M 的 16 对齐版本
-- K_pad: K 的 32 对齐版本
-- 输出固定为 INT32
+cuBLASLt path:
+- M, K, N: algorithm dimensions (GEMM semantic dimensions)
+- M_pad: M aligned to 16
+- K_pad: K aligned to 32
+- Output fixed INT32
 
-cuSPARSELt 路径:
-- M, K, N: 原始算法维度
-- K_slide: slide 扩展后的 K 维度
-- M_pad: M 的 16 对齐版本
-- K_slide_pad: K_slide 的 32 对齐版本
-- 输出可以是 BF16 或 INT32
+cuSPARSELt path:
+- M, K, N: original algorithm dimensions
+- K_slide: K dimension after slide expansion
+- M_pad: M aligned to 16
+- K_slide_pad: K_slide aligned to 32
+- Output can be BF16 or INT32
 
-INT8 vs FP8 关键差异
-====================
-1. cuBLASLt INT8 输出固定为 INT32（FP8 可选 BF16/FP32）
-2. cuSPARSELt INT8 不支持 FP32 输出（FP8 支持）
-3. INT8 支持非对称量化（需要 azp），但 cuBLASLt/cuSPARSELt 路径不支持
-4. vLLM 使用 ops.scaled_int8_quant 而非 QuantFP8
+INT8 vs FP8 Key Differences
+===========================
+1. cuBLASLt INT8 output fixed INT32 (FP8 can choose BF16/FP32)
+2. cuSPARSELt INT8 does not support FP32 output (FP8 does)
+3. INT8 supports asymmetric quantization (needs azp), but cuBLASLt/cuSPARSELt paths don't
+4. vLLM uses ops.scaled_int8_quant instead of QuantFP8
 
-环境变量
-========
-- DISABLE_SLIDESPARSE=1   : 完全禁用 SlideSparse，使用 vLLM 原生路径
-- USE_CUBLASLT=1          : 使用 cuBLASLt kernel
-- USE_CUSPARSELT=1        : 使用 cuSPARSELt kernel（与 USE_CUBLASLT 互斥）
-- INNER_DTYPE_32=1        : GEMM 使用高精度累加（INT8→INT32）
-- SPARSITY=2_L            : 稀疏格式（仅 cuSPARSELt 时生效）
-- SLIDESPARSE_PROFILE=1   : 启用 SlideSparse 计时诊断
+Environment Variables
+=====================
+- DISABLE_SLIDESPARSE=1   : Completely disable SlideSparse, use vLLM native path
+- USE_CUBLASLT=1          : Use cuBLASLt kernel
+- USE_CUSPARSELT=1        : Use cuSPARSELt kernel (mutually exclusive with USE_CUBLASLT)
+- INNER_DTYPE_32=1        : GEMM uses high-precision accumulation (INT8->INT32)
+- SPARSITY=2_L            : Sparsity format (only for cuSPARSELt)
+- SLIDESPARSE_PROFILE=1   : Enable SlideSparse profiling
 """
 
 from typing import Optional
@@ -103,18 +103,18 @@ logger = init_logger(__name__)
 
 
 # ============================================================================
-# 辅助函数：获取当前模型名
+# Helper Function: Get Current Model Name
 # ============================================================================
 
 def _get_current_model_name() -> str:
     """
-    从 AlgorithmConfigManager 获取当前基础模型名（不带 -SlideSparse- 后缀）
+    Get current base model name from AlgorithmConfigManager (without -SlideSparse- suffix)
     
-    返回的名字直接对应:
-    - Triton kernel 文件名后缀
-    - GEMM 配置 JSON 中的 model_name
+    Returned name directly maps to:
+    - Triton kernel filename suffix
+    - model_name in GEMM config JSON
     
-    如果没有设置，抛出明确的错误提示
+    If not set, raises clear error
     """
     manager = get_algo_config_manager()
     model_name = manager.get_model_name()
@@ -127,20 +127,20 @@ def _get_current_model_name() -> str:
 
 
 # ============================================================================
-# INT8 Linear 函数（三条 Kernel 路径）
+# INT8 Linear Functions (Three Kernel Paths)
 # ============================================================================
 #
-# 三个函数内部完成 quant + GEMM + dequant:
+# Three functions complete quant + GEMM + dequant internally:
 #   - cuBLASLt_INT8_linear:   quant_only + cuBLASLt dense GEMM + Triton dequant
 #   - cuSPARSELt_INT8_linear: quant_slide + cuSPARSELt 2:4 sparse GEMM + Triton dequant
 #   - cutlass_INT8_linear:    vLLM ops.scaled_int8_quant + cutlass_scaled_mm
 #
-# cuBLASLt 和 cuSPARSELt 计算流程:
+# cuBLASLt and cuSPARSELt compute flow:
 #   1. Quant:   qinput[M,K], scale_a = quant_only/quant_slide(input)
 #   2. GEMM:    inner[M,N] = weight @ qinput
 #   3. Dequant: out[M,N] = inner * scale_a * scale_b + bias
 #
-# CUTLASS 计算流程:
+# CUTLASS compute flow:
 #   1. Quant:   qinput, scale_a, azp = ops.scaled_int8_quant(input, ...)
 #   2. GEMM:    output = cutlass_scaled_mm[_azp](qinput, weight, scale_a, scale_b, ...)
 # ============================================================================
@@ -163,22 +163,22 @@ def cuBLASLt_INT8_linear(
     """
     cuBLASLt INT8 GEMM + Triton Dequant
     
-    数据流:
+    Data flow:
         input[M, K] BF16
-            ↓ quant_only_int8_kernel (对称量化)
+            | quant_only_int8_kernel (symmetric quantization)
         qinput[M_pad, K_pad] INT8, scale_a[M_pad]
-            ↓ cublaslt_int8_mm (输出固定为 INT32)
+            | cublaslt_int8_mm (output fixed INT32)
         gemm_out[M_pad, N] INT32
-            ↓ 截断 [:M, :]
+            | truncate [:M, :]
         gemm_out[M, N], scale_a[M]
-            ↓ dequant_bias_kernel
+            | dequant_bias_kernel
         output[M, N] out_dtype
     
     Note:
-        cuBLASLt INT8 只支持对称量化。
-        非对称量化请使用 CUTLASS 路径。
+        cuBLASLt INT8 only supports symmetric quantization.
+        Use CUTLASS path for asymmetric quantization.
     """
-    # cuBLASLt 只支持对称量化
+    # cuBLASLt only supports symmetric quantization
     if not input_symmetric:
         raise NotImplementedError(
             "cuBLASLt INT8 does not support asymmetric quantization. "
@@ -188,19 +188,19 @@ def cuBLASLt_INT8_linear(
     M = input.shape[0]
     
     # Quant: [M, K] -> [M_pad, K_pad]
-    # cuBLASLt 路径使用 Triton INT8 quant kernel（对称量化）
+    # cuBLASLt path uses Triton INT8 quant kernel (symmetric quantization)
     if input.dtype != torch.int8:
         with ProfileTimer("cuBLASLt.quant"):
             qinput, scale_a_pad = quant_only_int8_kernel(input, model_name)
     else:
-        # 静态量化：input 已是 INT8，但没有 padding
+        # Static quantization: input is already INT8, but no padding
         raise NotImplementedError(
             "cuBLASLt with static quantization is not supported. "
             "Use CUTLASS path or dynamic quantization."
         )
     
     # GEMM: [M_pad, K_pad] @ [N, K_pad].T -> [M_pad, N] INT32
-    # 注意：cuBLASLt INT8 输出固定为 INT32，inner_dtype_str 被忽略
+    # Note: cuBLASLt INT8 output fixed INT32, inner_dtype_str is ignored
     with ProfileTimer("cuBLASLt.gemm"):
         gemm_out_pad = cublaslt_int8_mm_op(weight, qinput, "int32")
     
@@ -248,20 +248,20 @@ def cuSPARSELt_INT8_linear(
         gemm_out[M_pad, N] BF16/INT32
             ↓ 截断 [:M, :]
         gemm_out[M, N], scale_a[M]
-            ↓ dequant_bias_kernel
+            | dequant_bias_kernel
         output[M, N] out_dtype
     
     Args:
         slide_weight_compressed: [compressed_size] uint8 1D
-        slide_weight_N: 权重 N 维度
-        slide_weight_K: 权重 K_slide 维度
-        L: 稀疏组大小（默认 8）
+        slide_weight_N: weight N dimension
+        slide_weight_K: weight K_slide dimension
+        L: sparsity group size (default 8)
     
     Note:
-        cuSPARSELt INT8 只支持对称量化。
-        cuSPARSELt INT8 不支持 FP32 输出，只能是 BF16 或 INT32。
+        cuSPARSELt INT8 only supports symmetric quantization.
+        cuSPARSELt INT8 does not support FP32 output, only BF16 or INT32.
     """
-    # cuSPARSELt 只支持对称量化
+    # cuSPARSELt only supports symmetric quantization
     if not input_symmetric:
         raise NotImplementedError(
             "cuSPARSELt INT8 does not support asymmetric quantization. "
@@ -273,7 +273,7 @@ def cuSPARSELt_INT8_linear(
             "cuSPARSELt requires slide_weight_N and slide_weight_K."
         )
     
-    # cuSPARSELt INT8 不支持 FP32 输出
+    # cuSPARSELt INT8 does not support FP32 output
     if inner_dtype_str == "fp32":
         raise ValueError(
             "cuSPARSELt INT8 does not support FP32 output. "
@@ -292,7 +292,7 @@ def cuSPARSELt_INT8_linear(
             "cuSPARSELt with static quantization is not supported yet."
         )
     
-    # 验证维度一致性
+    # Verify dimension consistency
     K_slide_pad = qinput.shape[1]
     if K_slide_pad != slide_weight_K:
         raise ValueError(
@@ -340,18 +340,18 @@ def cutlass_INT8_linear(
     input_symmetric: bool = True,
 ) -> torch.Tensor:
     """
-    vLLM CUTLASS INT8（融合 GEMM + Dequant + Bias）
+    vLLM CUTLASS INT8 (fused GEMM + Dequant + Bias)
     
-    数据流:
+    Data flow:
         input[M, K] BF16
-            ↓ ops.scaled_int8_quant
+            | ops.scaled_int8_quant
         qinput[M, K] INT8, scale_a, x_zp
-            ↓ cutlass_scaled_mm / cutlass_scaled_mm_azp
+            | cutlass_scaled_mm / cutlass_scaled_mm_azp
         output[M, N] out_dtype
     
-    支持对称和非对称量化。
+    Supports symmetric and asymmetric quantization.
     """
-    # Quant（使用 vLLM 原生 ops.scaled_int8_quant）
+    # Quant (using vLLM native ops.scaled_int8_quant)
     if input.dtype != torch.int8:
         with ProfileTimer("CUTLASS.quant"):
             x_q, x_s, x_zp = ops.scaled_int8_quant(
@@ -361,13 +361,13 @@ def cutlass_INT8_linear(
                 symmetric=input_symmetric
             )
     else:
-        # 静态量化：input 已是 INT8
+        # Static quantization: input is already INT8
         x_q, x_s, x_zp = input, input_scale, input_zero_point
     
-    # CUTLASS 融合 GEMM + Dequant + Bias
+    # CUTLASS fused GEMM + Dequant + Bias
     with ProfileTimer("CUTLASS.scaled_mm"):
         if x_zp is not None:
-            # 非对称量化
+            # Asymmetric quantization
             # Currently, static is always per-tensor and dynamic is per-token
             static = input_zero_point is not None
             azp = None if static else x_zp
@@ -382,7 +382,7 @@ def cutlass_INT8_linear(
                 bias=bias,
             )
         else:
-            # 对称量化
+            # Symmetric quantization
             output = ops.cutlass_scaled_mm(
                 x_q, weight, out_dtype=out_dtype,
                 scale_a=x_s, scale_b=weight_scale, bias=bias
@@ -403,12 +403,12 @@ class SlideSparseInt8LinearOp:
     """
     SlideSparse INT8 Linear Operation
     
-    根据环境变量选择 kernel 路径：
+    Selects kernel path based on env vars:
     - USE_CUBLASLT=1: cuBLASLt_INT8_linear
     - USE_CUSPARSELT=1: cuSPARSELt_INT8_linear
-    - 默认: cutlass_INT8_linear
+    - Default: cutlass_INT8_linear
     
-    注意：cuBLASLt 和 cuSPARSELt 路径只支持对称量化。
+    Note: cuBLASLt and cuSPARSELt paths only support symmetric quantization.
     """
     
     def __init__(
@@ -419,15 +419,15 @@ class SlideSparseInt8LinearOp:
         self.act_quant_static = act_quant_static
         self.input_symmetric = input_symmetric
         
-        # 确定 kernel 路径（缓存环境变量判断结果）
+        # Determine kernel path (cache env var check result)
         self._use_cublaslt = is_cublaslt_enabled()
         self._use_cusparselt = is_cusparselt_enabled()
         
-        # 缓存 inner_dtype
-        # 注意：cuBLASLt INT8 输出固定为 INT32，此设置仅对 cuSPARSELt 有效
+        # Cache inner_dtype
+        # Note: cuBLASLt INT8 output fixed INT32, this setting only for cuSPARSELt
         self._inner_dtype_str = "int32" if is_inner_dtype_32() else "bf16"
         
-        # 非对称量化时，强制使用 CUTLASS
+        # Force CUTLASS for asymmetric quantization
         if not input_symmetric and (self._use_cublaslt or self._use_cusparselt):
             logger.warning_once(
                 "Asymmetric INT8 quantization detected. "
@@ -469,27 +469,27 @@ class SlideSparseInt8LinearOp:
         L: int = 8,
     ) -> torch.Tensor:
         """
-        执行 INT8 Linear 操作
+        Execute INT8 Linear operation
         
         Args:
             input: [..., K] BF16
-            weight: 权重（形状取决于 kernel 路径）
+            weight: weight (shape depends on kernel path)
             weight_scale: [N] FP32
-            out_dtype: 输出类型
-            input_scale: 静态量化 scale
-            input_zero_point: 非对称量化零点
+            out_dtype: output type
+            input_scale: static quantization scale
+            input_zero_point: asymmetric quantization zero point
             azp_adj: AZP adjustment term
-            input_symmetric: 是否对称量化
+            input_symmetric: whether symmetric quantization
             bias: [N]
-            slide_weight_N: cuSPARSELt 专用，N 维度
-            slide_weight_K: cuSPARSELt 专用，K_slide 维度
-            L: cuSPARSELt 专用，稀疏组大小
+            slide_weight_N: cuSPARSELt specific, N dimension
+            slide_weight_K: cuSPARSELt specific, K_slide dimension
+            L: cuSPARSELt specific, sparsity group size
         """
-        # 获取 input 形状信息
+        # Get input shape info
         input_shape = input.shape
         input_ndim = input.dim()
         
-        # 展平为 2D
+        # Flatten to 2D
         if input_ndim == 2:
             input_2d = input
             M = input_shape[0]
@@ -497,7 +497,7 @@ class SlideSparseInt8LinearOp:
             input_2d = input.view(-1, input_shape[-1])
             M = input_2d.shape[0]
         
-        # 推断输出 N 维度
+        # Infer output N dimension
         if self._use_cusparselt:
             output_N = slide_weight_N
         elif self._use_cublaslt:
@@ -505,7 +505,7 @@ class SlideSparseInt8LinearOp:
         else:
             output_N = weight.shape[1]
         
-        # 构建 output_shape
+        # Build output_shape
         if input_ndim == 2:
             output_shape = [M, output_N]
         else:
@@ -514,7 +514,7 @@ class SlideSparseInt8LinearOp:
         if out_dtype is None:
             out_dtype = input.dtype
         
-        # 公共参数
+        # Common args
         common_args = dict(
             input=input_2d,
             out_dtype=out_dtype,
@@ -527,9 +527,9 @@ class SlideSparseInt8LinearOp:
             input_symmetric=input_symmetric,
         )
         
-        # 调用选定的 kernel 路径
+        # Call selected kernel path
         if self._use_cusparselt:
-            # cuSPARSELt 需要 model_name 加载 Triton kernels
+            # cuSPARSELt needs model_name to load Triton kernels
             model_name = _get_current_model_name()
             return self._linear_fn(
                 **common_args,
@@ -541,7 +541,7 @@ class SlideSparseInt8LinearOp:
                 L=L,
             )
         elif self._use_cublaslt:
-            # cuBLASLt 需要 model_name 加载 Triton kernels
+            # cuBLASLt needs model_name to load Triton kernels
             model_name = _get_current_model_name()
             return self._linear_fn(
                 **common_args,
@@ -550,7 +550,7 @@ class SlideSparseInt8LinearOp:
                 model_name=model_name,
             )
         else:
-            # CUTLASS 路径不需要 model_name（使用 vLLM 原生 kernel）
+            # CUTLASS path doesn't need model_name (uses vLLM native kernel)
             return self._linear_fn(
                 **common_args,
                 weight=weight,
@@ -565,17 +565,17 @@ class SlideSparseInt8LinearMethod:
     """
     SlideSparse INT8 Linear Method
     
-    包装 vLLM 原有的 CompressedTensorsW8A8Int8 scheme：
-    - create_weights: 委托给原始 scheme
-    - process_weights_after_loading: 委托 + cuBLASLt/cuSPARSELt 后处理
-    - apply_weights: 使用 SlideSparseInt8LinearOp
+    Wraps vLLM's original CompressedTensorsW8A8Int8 scheme:
+    - create_weights: delegates to original scheme
+    - process_weights_after_loading: delegates + cuBLASLt/cuSPARSELt post-processing
+    - apply_weights: uses SlideSparseInt8LinearOp
     
-    权重形状变化:
-        原始 checkpoint: [N, K] 或 [N, K_slide]（slidesparse checkpoint）
-        vLLM 加载后: [N, K] 或 [N, K_slide]
-        CUTLASS 路径: weight.t() -> [K, N]
-        cuBLASLt 路径: 保持 [N, K]
-        cuSPARSELt 路径: [N, K_slide] -> compress -> [compressed_size] uint8 1D
+    Weight shape changes:
+        Original checkpoint: [N, K] or [N, K_slide] (slidesparse checkpoint)
+        After vLLM load: [N, K] or [N, K_slide]
+        CUTLASS path: weight.t() -> [K, N]
+        cuBLASLt path: keeps [N, K]
+        cuSPARSELt path: [N, K_slide] -> compress -> [compressed_size] uint8 1D
     """
     
     def __init__(self, original_scheme):
@@ -587,17 +587,17 @@ class SlideSparseInt8LinearMethod:
         self._use_cublaslt = is_cublaslt_enabled()
         self._use_cusparselt = is_cusparselt_enabled()
         
-        # 创建 SlideSparse Op
+        # Create SlideSparse Op
         self.slidesparse_int8_linear = SlideSparseInt8LinearOp(
             act_quant_static=self.is_static_input_scheme,
             input_symmetric=self.input_symmetric,
         )
         
-        # 更新 kernel 路径（Op 可能因非对称量化而 fallback）
+        # Update kernel path (Op may fallback due to asymmetric quantization)
         self._use_cublaslt = self.slidesparse_int8_linear._use_cublaslt
         self._use_cusparselt = self.slidesparse_int8_linear._use_cusparselt
         
-        # cuSPARSELt 稀疏配置
+        # cuSPARSELt sparsity config
         if self._use_cusparselt:
             Z, L, self._expand_ratio = get_sparsity_config()
             self._sparsity_config = SlideSparseConfig(Z=Z, L=L)
@@ -606,11 +606,11 @@ class SlideSparseInt8LinearMethod:
                 f"sparsity={Z}:{L}, expand_ratio={self._expand_ratio:.3f}"
             )
         
-        # 预加载 Triton kernels（torch.compile 兼容）
+        # Preload Triton kernels (torch.compile compatible)
         import os
         model_name = os.environ.get("SLIDESPARSE_MODEL_NAME")
         if model_name and (self._use_cublaslt or self._use_cusparselt):
-            # dequant_bias kernel 是 cuBLASLt 和 cuSPARSELt 共享的
+            # dequant_bias kernel is shared by cuBLASLt and cuSPARSELt
             _load_dequant_bias_kernel(model_name)
             
             if self._use_cublaslt:
@@ -638,16 +638,16 @@ class SlideSparseInt8LinearMethod:
         **kwargs,
     ):
         """
-        创建权重参数
+        Create weight parameters
         
-        cuSPARSELt 路径：扩展 input_size 以匹配 slide 后的 checkpoint 权重
-        其他路径：直接委托给原始 scheme
+        cuSPARSELt path: expand input_size to match slide checkpoint weight
+        Other paths: directly delegate to original scheme
         
         Note:
-            INT8 scheme 的 create_weights 签名与 FP8 略有不同。
+            INT8 scheme create_weights signature differs slightly from FP8.
         """
         if self._use_cusparselt:
-            # cuSPARSELt: 扩展 input_size 以匹配 slide 后的 K 维度
+            # cuSPARSELt: expand input_size to match K dimension after slide
             _, input_size_per_partition_slide = compute_output_k(
                 input_size_per_partition, self._sparsity_config
             )
@@ -661,7 +661,7 @@ class SlideSparseInt8LinearMethod:
                 **kwargs,
             )
         else:
-            # CUTLASS / cuBLASLt: 直接委托
+            # CUTLASS / cuBLASLt: directly delegate
             return self.original_scheme.create_weights(
                 layer=layer,
                 output_partition_sizes=output_partition_sizes,
@@ -673,21 +673,21 @@ class SlideSparseInt8LinearMethod:
     
     def process_weights_after_loading(self, layer: Module) -> None:
         """
-        权重加载后处理
+        Post-load weight processing
         
-        处理逻辑:
-        - CUTLASS: 委托给原始 scheme（执行 weight.t() 和 azp_adj 计算）
-        - cuBLASLt: 原始 scheme + 转置回 [N, K]
-        - cuSPARSELt: 原始 scheme + 转置回 [N, K_slide] + 在线压缩
+        Processing logic:
+        - CUTLASS: delegates to original scheme (executes weight.t() and azp_adj calculation)
+        - cuBLASLt: original scheme + transpose back to [N, K]
+        - cuSPARSELt: original scheme + transpose back to [N, K_slide] + online compression
         """
-        # 所有路径都先调用原始 scheme
+        # All paths first call original scheme
         self.original_scheme.process_weights_after_loading(layer)
         
         if not self._use_cublaslt and not self._use_cusparselt:
-            # CUTLASS 路径：直接返回
+            # CUTLASS path: return directly
             return
         
-        # cuBLASLt / cuSPARSELt：转置回 [N, K] 或 [N, K_slide]
+        # cuBLASLt / cuSPARSELt: transpose back to [N, K] or [N, K_slide]
         from torch.nn import Parameter
         weight_transposed = layer.weight.data.t()
         layer.weight = Parameter(weight_transposed, requires_grad=False)
@@ -697,10 +697,10 @@ class SlideSparseInt8LinearMethod:
     
     def _compress_weight_online(self, layer: Module) -> None:
         """
-        cuSPARSELt 在线压缩
+        cuSPARSELt online compression
         
-        输入: layer.weight [N, K_slide] INT8
-        输出: layer.weight [compressed_size] uint8 1D
+        Input: layer.weight [N, K_slide] INT8
+        Output: layer.weight [compressed_size] uint8 1D
               layer.slide_weight_N: N
               layer.slide_weight_K: K_slide
         """
@@ -771,15 +771,15 @@ class SlideSparseInt8LinearMethod:
 
 
 # ============================================================================
-# 工厂函数
+# Factory Function
 # ============================================================================
 
 def wrap_scheme_int8(original_scheme):
     """
-    INT8 scheme 包装入口
+    INT8 scheme wrapper entry point
     
-    只包装 W8A8Int8 scheme，其他 scheme 原样返回。
-    内部由 SlideSparseInt8LinearOp 根据环境变量选择 kernel 路径。
+    Only wraps W8A8Int8 scheme, returns others as-is.
+    SlideSparseInt8LinearOp internally selects kernel path based on env vars.
     """
     scheme_name = type(original_scheme).__name__
     if "W8A8Int8" not in scheme_name:
@@ -788,11 +788,11 @@ def wrap_scheme_int8(original_scheme):
         )
         return original_scheme
     
-    # 判断实际使用的 backend
+    # Determine actual backend used
     use_cublaslt = is_cublaslt_enabled()
     use_cusparselt = is_cusparselt_enabled()
     
-    # 非对称量化时强制 CUTLASS
+    # Force CUTLASS for asymmetric quantization
     if not original_scheme.input_symmetric and (use_cublaslt or use_cusparselt):
         backend = "CUTLASS (asymmetric fallback)"
     elif use_cublaslt:
@@ -809,19 +809,19 @@ def wrap_scheme_int8(original_scheme):
 
 
 # ============================================================================
-# 导出
+# Exports
 # ============================================================================
 
 __all__ = [
-    # Linear 函数
+    # Linear functions
     "cuBLASLt_INT8_linear",
     "cuSPARSELt_INT8_linear",
     "cutlass_INT8_linear",
     
-    # Op 和 Method 类
+    # Op and Method classes
     "SlideSparseInt8LinearOp",
     "SlideSparseInt8LinearMethod",
     
-    # 工厂函数
+    # Factory function
     "wrap_scheme_int8",
 ]

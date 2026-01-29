@@ -1,4 +1,4 @@
-# SlideSparse: Enabling Arbitrary Structured Sparsity for Hardware-Accelerated LLM Inference
+# SlideSparse: Fast and Flexible \(2N-2\):2N Structured Sparsity
 
 <p align="center">
   <em>Bridging Arbitrary Sparsity Ratios to 2:4 Structured Sparsity Hardware Acceleration</em>
@@ -29,53 +29,48 @@
 
 ## 1. Overview
 
-**SlideSparse** is a novel algorithm that enables models with **arbitrary sparsity ratios** (e.g., 2:6, 2:8, 2:10) to leverage NVIDIA's 2:4 structured sparsity hardware acceleration introduced in the Ampere architecture. By performing an offline transformation on model weights along the K dimension, SlideSparse converts weights that satisfy relaxed sparsity constraints into a format compatible with the cuSPARSELt backend, thereby achieving latency reductions proportional to the underlying sparsity ratio.
+**SlideSparse** is a novel algorithm that enables models with **arbitrary sparsity ratios** (e.g., 2:6, 2:8, 2:10) to leverage NVIDIA's 2:4 structured sparsity hardware acceleration introduced in the Ampere architecture. By performing an offline transformation on model weights along the hidden dimension (K in A[M,K] * W[N,K]), SlideSparse converts weights that satisfy relaxed sparsity constraints into a format compatible with the cuSPARSELt backend, thereby achieving latency reductions proportional to the underlying sparsity ratio.
 
 In large language model (LLM) inference, **GEMM (General Matrix Multiplication) operations account for approximately 70-80% of total computation time**. Sparse computation represents one of the most promising approaches to accelerate these operations. Our baseline comparison is against dense GEMM using cuBLASLt—the most widely adopted high-performance BLAS library—which serves as the "denominator" for all our speedup calculations. The experimental control group uses the native 2:4 sparse GEMM via cuSPARSELt, which NVIDIA officially claims achieves 2× acceleration.
 
 ### Motivation
 
-NVIDIA's Ampere and subsequent GPU architectures provide dedicated hardware support for 2:4 structured sparsity, which theoretically offers a 2× computational speedup for GEMM operations. However, this acceleration is rigidly constrained to exactly 50% sparsity (2 zeros in every 4 consecutive elements). Many practical sparse models exhibit different sparsity patterns (e.g., 33% for 2:6, 25% for 2:8), leaving significant hardware acceleration potential untapped.
+NVIDIA's Ampere and subsequent GPU architectures provide dedicated hardware support for 2:4 structured sparsity, which theoretically offers a 2× computational speedup for GEMM operations. However, this acceleration is rigidly constrained to 50% sparsity (at least 2 zeros in every 4 consecutive elements). Many practical sparse models exhibit different sparsity patterns (e.g., 33% for 2:6, 25% for 2:8), leaving significant hardware acceleration potential untapped.
 
 SlideSparse addresses this limitation by introducing an **overlapping sliding window transformation** that maps arbitrary Z:L sparsity patterns to the 2:4 format, enabling proportional speedups for any compatible sparsity ratio. The core insight is that models with lower sparsity ratios (e.g., 25% for 2:8) can still benefit from structured sparsity hardware—achieving latency reductions that precisely match their zero element percentage.
 
 ### Core Principle
 
-Our sparsity notation uses a **Z:L format**, where Z represents the number of zeros and L represents the window length of consecutive elements. This differs slightly from conventional sparsity definitions—we define sparsity as the ratio of zeros to total elements within the window (Z/L).
+Our sparsity notation uses a **Z:L format**, where Z represents the number of zeros and L represents the window length of consecutive elements. This differs slightly from conventional sparsity definitions—we define sparsity as the ratio of zeros to total elements within the window (Z/L). Notably, the N:L remark is used in our papaer, where N denotes Non-zeros, so 4:6 or 6:8 in N:L remark is equally to 2:6 or 2:8 in this repository.
 
 For a model with Z:L sparsity (Z zeros in every L consecutive elements):
 
 | Original Sparsity | Zero Ratio | Expected Latency Reduction | Expected Speedup | K Expansion |
-|-------------------|------------|----------------------------|------------------|-------------|
-| 2:4 | 50% | 50% | 2.00× | 1.00× |
-| 2:6 | 33% | 33% | 1.50× | 1.33× |
-| 2:8 | 25% | 25% | 1.33× | 1.50× |
-| 2:10 | 20% | 20% | 1.25× | 1.67× |
-| 2:∞ (Dense) | 0% | 0% | 1.00× | 2.00× |
+| ----------------- | ---------- | -------------------------- | ---------------- | ----------- |
+| 2:4               | 50%        | 50%                        | 2.00×           | 1.00×      |
+| 2:6               | 33%        | 33%                        | 1.50×           | 1.33×      |
+| 2:8               | 25%        | 25%                        | 1.33×           | 1.50×      |
+| 2:10              | 20%        | 20%                        | 1.25×           | 1.67×      |
+| 2:∞ (Dense)      | 0%         | 0%                         | 1.00×           | 2.00×      |
 
 The theoretical speedup directly corresponds to the sparsity ratio: X% sparsity enables X% compute skip, achieving the maximum possible benefit from that sparsity level. While the speedup ratio for lower sparsity (e.g., 1.25× for 2:10) may appear modest, **this represents the theoretical ceiling for that sparsity level**—mathematically, having X% zeros can skip at most X% of computation.
 
-The **2:∞ (Dense) mode** serves as an important experimental validation: it demonstrates the mathematical soundness of SlideSparse by artificially inserting zeros into a fully dense weight matrix and then using sparsity to skip them. The 2× K expansion (doubling K, then halving via 2:4 compression) results in a theoretical 1.00× speedup (no net change), confirming that the algorithm correctly handles boundary cases where no actual zeros exist in the original weights.
+The **2:∞ (Dense) mode** serves as an important experimental validation: it demonstrates the mathematical soundness of SlideSparse by artificially inserting zeros into a fully dense weight matrix and then using sparsity to skip them. The 2× K expansion (doubling K, then halving via 2:4 compression) results in a theoretical 1× speedup (no net change), confirming that the algorithm correctly handles boundary cases where no actual zeros exist in the original weights.
 
 ---
 
 ## 2. Key Contributions
 
 1. **Arbitrary Sparsity Adaptation**: SlideSparse breaks the rigid 50% sparsity constraint of 2:4 hardware, supporting 2:4, 2:6, 2:8, 2:10, and beyond, as well as finer-grained patterns like 1:2, 1:3, 1:4. This enables a much wider range of sparse models to benefit from hardware acceleration.
-
 2. **Theoretically Optimal Hardware Utilization**: The algorithm guarantees that X% sparsity translates to X% latency reduction, fully exploiting the "zero-skipping" capability of the hardware. This represents the mathematical optimum—having X% zeros allows skipping exactly X% of computation, and SlideSparse achieves this ceiling.
-
 3. **Hardware Compatibility**: SlideSparse requires **no hardware modifications** and directly leverages existing NVIDIA 2:4 sparse tensor cores via the cuSPARSELt library. It works on any GPU from Ampere (sm80) onwards, including consumer, datacenter, and embedded platforms.
-
-4. **End-to-End Integration**: Complete integration with the vLLM v0.13.0 inference framework, supporting both FP8 and INT8 quantization. The implementation employs operator fusion (fused_quant_slide + sparse_GEMM + fused_dequant_bias) to minimize the overhead introduced by the sliding transformation. The additional quantization and sliding operations are fused into the activation quantization step, nearly eliminating overhead from the transformation.
-
+4. **End-to-End Integration**: Complete integration with the vLLM v0.13.0 inference framework, supporting both FP8 and INT8 quantization. The implementation employs operator fusion (fused quant slide + sparse GEMM + fused dequant bias) to minimize the overhead introduced by the sliding transformation. The additional quantization and sliding operations are fused into the activation quantization step, nearly eliminating overhead from the transformation.
 5. **Comprehensive Validation**: Extensive benchmarking across:
    - **6 GPU platforms** spanning consumer, datacenter, and embedded systems (A100, H100, B200, RTX 4090, RTX 5080, DGX Spark GB10)
    - **5 data precisions** (FP16, BF16, FP8 E4M3, INT8, FP4 E2M1)
    - **5 model architectures** (Llama3.2-1B, Llama3.2-3B, Qwen2.5-7B, Qwen2.5-14B, BitNet1.58-2B)
-   - **4 sparsity configurations** (2:4, 2:6, 2:8, 2:10)
+   - **8 sparsity configurations** (2:4, 2:6, 2:8, 2:10, 2:12, 2:14, 2:16, 2:∞)
    - All results are fully reproducible with provided scripts and Docker images
-
 6. **Production-Ready Deployment**: The entire codebase is packaged into Docker images supporting both x86_64 and aarch64 architectures with CUDA 12.9. Source code is hosted in this repository, enabling direct reproduction without environment configuration challenges.
 
 ---
@@ -85,6 +80,7 @@ The **2:∞ (Dense) mode** serves as an important experimental validation: it de
 ### 3.1 Relaxed Structured Sparsity (Z:L Sparsity)
 
 SlideSparse defines a generalized sparsity format **Z:L**, where:
+
 - **L** is the window size (number of consecutive elements)
 - **Z** is the minimum number of zeros within each window
 - **N = L - Z** is the maximum number of non-zero elements per window
@@ -92,6 +88,7 @@ SlideSparse defines a generalized sparsity format **Z:L**, where:
 The hardware-supported 2:4 sparsity is a special case where Z=2, L=4. SlideSparse generalizes this to support any Z:L' pattern where L' = L + k×(L-Z) for k = 0, 1, 2, 3, ...
 
 This means the following sparsity patterns are naturally supported:
+
 - **2:4** (k=0): Standard hardware-native 50% sparsity
 - **2:6** (k=1): 33% sparsity, 1.5× potential speedup
 - **2:8** (k=2): 25% sparsity, 1.33× potential speedup
@@ -117,6 +114,7 @@ Expanded sequence:  [a₁ 0 a₂ a₃ | a₂ a₃ 0 a₄ | 0 a₄ a₅ a₆]
 ```
 
 **Key Parameters and Formulas:**
+
 - **Window size** = L_target = 4 (for 2:4 hardware)
 - **Stride** = L_target - Z_target = 4 - 2 = 2 (non-zero elements per target window)
 - **Number of windows** = (L_source - Z_source) / Stride = (8 - 2) / 2 = 3
@@ -127,13 +125,14 @@ Expanded sequence:  [a₁ 0 a₂ a₃ | a₂ a₃ 0 a₄ | 0 a₄ a₅ a₆]
 The sliding operation expands the K dimension of weight matrices. Subsequently, cuSPARSELt's 2:4 compression halves this expanded dimension:
 
 | Source Sparsity | Expansion Ratio | Original K | Expanded K' | Compressed K'' (Final) |
-|-----------------|-----------------|------------|-------------|------------------------|
-| 2:4 | 1.00× | 4096 | 4096 | 2048 |
-| 2:6 | 1.33× | 4096 | 5460 | 2730 |
-| 2:8 | 1.50× | 4096 | 6144 | 3072 |
-| 2:10 | 1.67× | 4096 | 6826 | 3413 |
+| --------------- | --------------- | ---------- | ----------- | ---------------------- |
+| 2:4             | 1.00×          | 4096       | 4096        | 2048                   |
+| 2:6             | 1.33×          | 4096       | 5460        | 2730                   |
+| 2:8             | 1.50×          | 4096       | 6144        | 3072                   |
+| 2:10            | 1.67×          | 4096       | 6826        | 3413                   |
 
 **Expected Latency Analysis (2:8 Sparsity Example):**
+
 - Original: 8 elements with 2 zeros, 6 non-zeros
 - Required windows: ⌈6/2⌉ = 3 groups of 2:4 sparse operations
 - Expanded total length: 3 × 4 = 12 elements
@@ -143,6 +142,7 @@ The sliding operation expands the K dimension of weight matrices. Subsequently, 
 ### 3.4 Greedy Residual Allocation
 
 SlideSparse employs a greedy residual allocation strategy during the sliding transformation that ensures:
+
 1. **Complete coverage**: All zero elements in the original matrix are preserved
 2. **Constraint satisfaction**: Non-zero elements are distributed to positions satisfying the target 2:4 sparsity constraints
 3. **Minimization**: The expanded total length is minimized to reduce computational overhead
@@ -151,14 +151,14 @@ SlideSparse employs a greedy residual allocation strategy during the sliding tra
 
 For hardware supporting Z:L sparsity acceleration (L elements with at least Z zeros, at most N=L-Z non-zeros):
 
-| Parameter | Formula | Description |
-|-----------|---------|-------------|
-| Acceleration ratio | L / N | e.g., 2:4 → 4/2 = 2×, 3:4 → 4/1 = 4× |
-| Supported formats | Z:L', where L' = L + k×N | k = 0, 1, 2, 3, ... |
-| Window size | L (or divisors of L) | Target hardware window |
-| Stride | N = L - Z | Non-zeros per window |
-| Overlap width | Z | Zeros shared between windows |
-| Latency ratio | (L' - Z) / L' | Relative to dense baseline |
+| Parameter          | Formula                   | Description                              |
+| ------------------ | ------------------------- | ---------------------------------------- |
+| Acceleration ratio | L / N                     | e.g., 2:4 → 4/2 = 2×, 3:4 → 4/1 = 4× |
+| Supported formats  | Z:L', where L' = L + k×N | k = 0, 1, 2, 3, ...                      |
+| Window size        | L (or divisors of L)      | Target hardware window                   |
+| Stride             | N = L - Z                 | Non-zeros per window                     |
+| Overlap width      | Z                         | Zeros shared between windows             |
+| Latency ratio      | (L' - Z) / L'             | Relative to dense baseline               |
 
 ---
 
@@ -169,8 +169,7 @@ All SlideSparse-specific implementations are contained within the `slidesparse/`
 ```
 slidesparse/
 ├── __init__.py
-├── utils.py                          # Unified utilities for hardware info, file naming, module loading
-│
+├── utils.py                          # Unified utilities for SlideSparse
 ├── core/                             # Core implementation of SlideSparse LinearMethods
 │   ├── __init__.py
 │   ├── config.py                     # Environment variable configuration management
@@ -197,7 +196,7 @@ slidesparse/
 │   │   ├── basic_quant_slide_triton.py
 │   │   ├── run_benchmark.py
 │   │   └── benchmark_result/
-│   └── fused_dequant_bias_triton/    # Fused dequant+bias Triton kernel
+│   └── fused_dequant_bias_triton/    # Fused dequant+bias Triton kernel (for both)
 │       ├── autotune_autogen_dequant_bias.py
 │       ├── basic_dequant_bias_triton.py
 │       └── run_benchmark.py
@@ -263,26 +262,15 @@ slidesparse/
 │   ├── cusparselt_compress.cu        # CUDA compression kernel
 │   └── test_correctness/             # Correctness verification tests
 │
-├── test/                             # Integration tests for vLLM
-│   ├── utils.py
-│   ├── run_all_suite.sh
-│   ├── FP8_vllm/                     # FP8 integration tests
-│   │   ├── test_01_bridge.py         # Bridge/registration tests
-│   │   ├── test_02_kernel.py         # Kernel correctness tests
-│   │   ├── test_03_inference.py      # End-to-end inference tests
-│   │   └── test_04_throughput.py     # Throughput validation tests
-│   └── INT8_vllm/                    # INT8 integration tests
-│       ├── test_01_bridge.py
-│       ├── test_02_kernel.py
-│       ├── test_03_inference.py
-│       └── test_04_throughput.py
-│
-└── docs/                             # Technical documentation
-    ├── framework_overview.md         # vLLM framework overview
-    ├── framework_vllmcore.md         # vLLM core architecture
-    ├── framework_lineargemm.md       # Linear layer and GEMM details
-    ├── framework_slidesparse.md      # SlideSparse implementation guide
-    └── fp8_gemm_integration_analysis.md  # FP8 GEMM integration analysis
+└── test/                             # Integration tests for vLLM
+    ├── utils.py
+    ├── run_all_suite.sh
+    ├── FP8_vllm/                     # FP8 integration tests
+    │   ├── test_01_bridge.py         # Bridge/registration tests
+    │   ├── test_02_kernel.py         # Kernel correctness tests
+    │   ├── test_03_inference.py      # End-to-end inference tests
+    │   └── test_04_throughput.py     # Throughput validation tests
+    └── INT8_vllm/                    # INT8 integration tests
 ```
 
 ### 4.1 Core Module (`core/`)
@@ -290,11 +278,8 @@ slidesparse/
 The `core/` directory contains the heart of SlideSparse's implementation:
 
 - **`SlideSparseLinearMethod_FP8.py` and `SlideSparseLinearMethod_INT8.py`**: These implement the `LinearMethodBase` interface from vLLM, modifying the `apply()` method to replace the standard Quant+GEMM+Dequant chain with our custom backend. The key functions exported include `SlideSparseFp8LinearMethod`, `SlideSparseInt8LinearMethod`, `wrap_scheme_fp8()`, and `wrap_scheme_int8()`.
-
-- **`gemm_wrapper.py`**: Wraps both cuBLASLt and cuSPARSELt GEMM implementations and provides the crucial **online algorithm configuration lookup** functionality via the `AlgorithmConfigManager` class. This enables O(1) runtime lookup of pre-computed optimal algorithm configurations.
-
+- **`gemm_wrapper.py`**: Wraps both cuBLASLt and cuSPARSELt GEMM implementations and provides the **online algorithm configuration lookup** functionality via the `AlgorithmConfigManager` class. This enables O(1) runtime lookup of pre-computed optimal algorithm configurations.
 - **`kernels.py`**: Manages the loading of Triton kernels for quantization and dequantization operations. It handles three kernel types: `quant_only` (for cuBLASLt path), `quant_slide` (for cuSPARSELt path), and `dequant_bias` (shared by both paths).
-
 - **`profiler.py`**: Provides performance profiling utilities to capture and print kernel execution times during end-to-end inference, useful for performance analysis and debugging.
 
 ### 4.2 CUDA/Triton Source (`csrc/`)
@@ -302,10 +287,10 @@ The `core/` directory contains the heart of SlideSparse's implementation:
 The `csrc/` directory contains all low-level kernel implementations:
 
 - **Triton Kernels**: Each Triton kernel directory contains:
+
   - `autotune_autogen_*.py`: Integrates automatic parameter tuning with automatic Triton code generation. These scripts generate model-specific Triton code with if-else branches that enable O(1) complexity lookup of optimal configurations based on actual GEMM dimensions (N, K are known from model parameters; M varies during inference).
   - `basic_*_triton.py`: Fallback implementations without model-specific tuning.
   - `run_benchmark.py`: Benchmarking scripts where the baseline is pure memory copy performance. Our implementations achieve near-theoretical memory bandwidth utilization.
-
 - **CUDA GEMM Libraries**: `cublaslt_gemm/` and `cusparselt_gemm/` contain CUDA source files and build scripts for the GEMM wrapper libraries.
 
 The `fused_quant_slide_triton/` kernel deserves special attention—it has been deeply optimized using double buffering and 1D program allocation strategies to ensure that even on consumer GPUs with smaller L2 caches, there are no cache pressure or overflow issues. Benchmark results in `benchmark_result/` demonstrate that for 2:8 sparsity (1.5× K expansion), the latency ratio is approximately 1.5× as well, meaning the computational overhead is completely masked by memory I/O.
@@ -313,6 +298,7 @@ The `fused_quant_slide_triton/` kernel deserves special attention—it has been 
 ### 4.3 Search and Optimization (`search/`)
 
 The `search/` directory contains offline algorithm search tools, organized into four categories:
+
 - **cuBLASLt_AlgSearch** and **cuSPARSELt_AlgSearch**: Search for optimal algorithm IDs for each (M, N, K) configuration
 - **cuBLASLt_LayoutSearch** and **cuSPARSELt_LayoutSearch**: Explore the 8 possible GEMM layout configurations
 
@@ -321,6 +307,7 @@ The algorithm search results are stored in `alg_search_results/` subdirectories,
 ### 4.4 Testing (`test/`)
 
 The test suite is organized by data type (FP8 and INT8), with four progressive test stages:
+
 1. **test_01_bridge.py**: Verifies that the SlideSparse bridge file correctly registers with vLLM's quantization framework
 2. **test_02_kernel.py**: Tests individual kernel correctness for all three backends (CUTLASS, cuBLASLt, cuSPARSELt)
 3. **test_03_inference.py**: Validates end-to-end inference output correctness
@@ -331,11 +318,12 @@ The test suite is organized by data type (FP8 and INT8), with four progressive t
 SlideSparse maintains **minimal invasiveness** to the vLLM codebase. Only two files are modified:
 
 1. **`vllm/model_executor/layers/quantization/slidesparse.py`** (New file)
+
    - Bridge file that imports SlideSparse modules into vLLM's quantization framework
    - Exports configuration functions (`is_slidesparse_enabled()`, `is_cublaslt_enabled()`, `is_cusparselt_enabled()`, `get_sparsity_config()`, etc.) and LinearMethod wrappers
    - All logic resides in the external `slidesparse/` module; this file only handles imports and forwarding
-
 2. **`vllm/model_executor/layers/quantization/compressed_tensors/compressed_tensors.py`** (Modified)
+
    - Added SlideSparse wrapping in the `get_scheme()` method
    - When `is_slidesparse_enabled()` returns True and the scheme is `CompressedTensorsW8A8Fp8` or `CompressedTensorsW8A8Int8`, the scheme is wrapped with `wrap_scheme_fp8()` or `wrap_scheme_int8()` respectively
    - This transparently hooks FP8 and INT8 schemes when SlideSparse is enabled via environment variables
@@ -343,6 +331,7 @@ SlideSparse maintains **minimal invasiveness** to the vLLM codebase. Only two fi
 ### 4.6 Utility Design Philosophy
 
 We have made extensive efforts to unify utilities in the top-level `utils.py` file, avoiding redundant implementations. Each subdirectory has its own `utils.py` that may extend or specialize the top-level utilities for specific needs. The `slidesparse/utils.py` provides:
+
 - `HardwareInfo`: A singleton class that caches all hardware information (GPU name, compute capability, CUDA version, architecture)
 - `FileNameBuilder`: Standardized file naming following the pattern `{prefix}_{GPU}_{CC}[_{dtype}]_{PyVer}_{CUDAVer}_{Arch}.{ext}`
 - `FileFinder`: File discovery with fuzzy matching support
@@ -356,16 +345,17 @@ We have made extensive efforts to unify utilities in the top-level `utils.py` fi
 
 SlideSparse has been validated across 6 GPU platforms spanning multiple architectures, demonstrating the systematic nature of our implementation:
 
-| GPU | Architecture | Compute Capability | Memory | Platform Type | Hardware Architecture |
-|-----|--------------|-------------------|--------|---------------|----------------------|
-| NVIDIA A100 80GB PCIe | Ampere | sm80 | 80 GB HBM2e | Cloud/Datacenter | x86_64 |
-| NVIDIA H100 80GB PCIe | Hopper | sm90 | 80 GB HBM3 | Cloud/Datacenter | x86_64 |
-| NVIDIA B200 180GB SXM | Blackwell | sm100 | 180 GB HBM3e | Cloud/Datacenter | x86_64 |
-| NVIDIA RTX 4090 | Ada Lovelace | sm89 | 24 GB GDDR6X | Consumer | x86_64 |
-| NVIDIA RTX 5080 | Blackwell | sm120 | 16 GB GDDR7 | Consumer | x86_64 |
-| NVIDIA DGX Spark (GB10) | Blackwell | sm121 | 128 GB Unified | Embedded/Mobile | aarch64 |
+| GPU                     | Architecture | Compute Capability | Memory         | Platform Type    | Hardware Architecture |
+| ----------------------- | ------------ | ------------------ | -------------- | ---------------- | --------------------- |
+| NVIDIA A100 80GB PCIe   | Ampere       | sm80               | 80 GB HBM2e    | Cloud/Datacenter | x86_64                |
+| NVIDIA H100 80GB PCIe   | Hopper       | sm90               | 80 GB HBM3     | Cloud/Datacenter | x86_64                |
+| NVIDIA B200 180GB SXM   | Blackwell    | sm100              | 180 GB HBM3e   | Cloud/Datacenter | x86_64                |
+| NVIDIA RTX 4090         | Ada Lovelace | sm89               | 24 GB GDDR6X   | Consumer         | x86_64                |
+| NVIDIA RTX 5080         | Blackwell    | sm120              | 16 GB GDDR7    | Consumer         | x86_64                |
+| NVIDIA DGX Spark (GB10) | Blackwell    | sm121              | 128 GB Unified | Embedded/Mobile  | aarch64               |
 
 This selection covers:
+
 - **GPU Generations**: Ampere (sm80), Ada Lovelace (sm89), Hopper (sm90), Blackwell (sm100/120/121)
 - **Platform Types**: Consumer GPUs, cloud/datacenter GPUs, and embedded/mobile devices
 - **Hardware Architectures**: Both x86_64 (AMD64) and aarch64 (ARM64)
@@ -377,15 +367,16 @@ The implementation supports both **x86_64** and **aarch64** hardware architectur
 
 Kernel-level benchmarking covers 5 precision types, representing the full spectrum of inference-relevant data formats:
 
-| Precision | Description | cuBLASLt | cuSPARSELt | Hardware Requirement | Primary Use Case |
-|-----------|-------------|----------|------------|---------------------|------------------|
-| FP16 | Half-precision float | ✓ | ✓ | Ampere+ (sm80+) | Most common precision, general inference |
-| BF16 | Brain floating-point | ✓ | ✓ | Ampere+ (sm80+) | Training-oriented, better dynamic range |
-| INT8 | 8-bit integer | ✓ | ✓ | Ampere+ (sm80+) | W8A8 quantized inference |
-| FP8 E4M3 | 8-bit float (4-bit exp, 3-bit mantissa) | ✓ | ✓ | Ada Lovelace+ (sm89+) | Low-precision quantized inference |
-| FP4 E2M1 | 4-bit float (2-bit exp, 1-bit mantissa) | ✓ | ✓ | Blackwell+ (sm100+) | Future trend, ultra-low precision |
+| Precision | Description                             | cuBLASLt | cuSPARSELt | Hardware Requirement  | Primary Use Case                         |
+| --------- | --------------------------------------- | -------- | ---------- | --------------------- | ---------------------------------------- |
+| FP16      | Half-precision float                    | ✓       | ✓         | Ampere+ (sm80+)       | Most common precision, general inference |
+| BF16      | Brain floating-point                    | ✓       | ✓         | Ampere+ (sm80+)       | Training-oriented, better dynamic range  |
+| INT8      | 8-bit integer                           | ✓       | ✓         | Ampere+ (sm80+)       | W8A8 quantized inference                 |
+| FP8 E4M3  | 8-bit float (4-bit exp, 3-bit mantissa) | ✓       | ✓         | Ada Lovelace+ (sm89+) | Low-precision quantized inference        |
+| FP4 E2M1  | 4-bit float (2-bit exp, 1-bit mantissa) | ✓       | ✓         | Blackwell+ (sm100+)   | Future trend, ultra-low precision        |
 
 **Precision Selection Rationale:**
+
 - **FP16**: The most widely deployed precision for LLM inference
 - **BF16**: Preferred for training and transfer learning scenarios due to its larger dynamic range
 - **INT8**: The standard for W8A8 (weight and activation 8-bit) quantization schemes
@@ -394,16 +385,16 @@ Kernel-level benchmarking covers 5 precision types, representing the full spectr
 
 ### 5.3 Sparsity Configurations
 
-| Sparsity | Zero Ratio | K Expansion | Theoretical Speedup | Supported |
-|----------|------------|-------------|---------------------|-----------|
-| 2:4 | 50% | 1.00× | 2.00× | ✓ |
-| 2:6 | 33% | 1.33× | 1.50× | ✓ |
-| 2:8 | 25% | 1.50× | 1.33× | ✓ |
-| 2:10 | 20% | 1.67× | 1.25× | ✓ |
-| 2:12 | 17% | 1.83× | 1.20× | ✓ (Extended testing) |
-| 2:14 | 14% | 2.00× | 1.17× | ✓ (Extended testing) |
-| 2:16 | 12.5% | 2.17× | 1.14× | ✓ (Extended testing) |
-| 2:∞ (Dense) | 0% | 2.00× | 1.00× | ✓ (Experimental validation) |
+| Sparsity     | Zero Ratio | K Expansion | Theoretical Speedup | Supported                    |
+| ------------ | ---------- | ----------- | ------------------- | ---------------------------- |
+| 2:4          | 50%        | 1.00×      | 2.00×              | ✓                           |
+| 2:6          | 33%        | 1.33×      | 1.50×              | ✓                           |
+| 2:8          | 25%        | 1.50×      | 1.33×              | ✓                           |
+| 2:10         | 20%        | 1.67×      | 1.25×              | ✓                           |
+| 2:12         | 17%        | 1.83×      | 1.20×              | ✓ (Extended testing)        |
+| 2:14         | 14%        | 2.00×      | 1.17×              | ✓ (Extended testing)        |
+| 2:16         | 12.5%      | 2.17×      | 1.14×              | ✓ (Extended testing)        |
+| 2:∞ (Dense) | 0%         | 2.00×      | 1.00×              | ✓ (Experimental validation) |
 
 **Note on 2:∞ Dense Mode**: This experimental mode serves as a mathematical validation of the SlideSparse algorithm. It artificially inserts zeros into a fully dense weight matrix and then uses the 2:4 sparsity mechanism to skip them. The 2× K expansion (doubling K through sliding, then halving via 2:4 compression) results in a theoretical 1.00× speedup (no net change), confirming that the algorithm correctly handles the boundary case where no actual zeros exist in the original weights.
 
@@ -413,15 +404,16 @@ Kernel-level benchmarking covers 5 precision types, representing the full spectr
 
 End-to-end testing covers 5 model architectures in both FP8 and INT8 quantization formats:
 
-| Model | Parameters | Architecture | FP8 | INT8 | Notes |
-|-------|------------|--------------|-----|------|-------|
-| Llama3.2-1B | 1B | Llama | ✓ | ✓ | Small model, fits on consumer GPUs |
-| Llama3.2-3B | 3B | Llama | ✓ | ✓ | Medium model |
-| Qwen2.5-7B | 7B | Qwen | ✓ | ✓ | Large model, requires datacenter/high-end consumer GPU |
-| Qwen2.5-14B | 14B | Qwen | ✓ | ✓ | Extra-large model, datacenter GPU recommended |
-| BitNet1.58-2B | 2B | BitNet (Ternary 1.58-bit) | ✓ | ✓ | Novel ternary quantization architecture |
+| Model         | Parameters | Architecture              | FP8 | INT8 | Notes                                                  |
+| ------------- | ---------- | ------------------------- | --- | ---- | ------------------------------------------------------ |
+| Llama3.2-1B   | 1B         | Llama                     | ✓  | ✓   | Small model, fits on consumer GPUs                     |
+| Llama3.2-3B   | 3B         | Llama                     | ✓  | ✓   | Medium model                                           |
+| Qwen2.5-7B    | 7B         | Qwen                      | ✓  | ✓   | Large model, requires datacenter/high-end consumer GPU |
+| Qwen2.5-14B   | 14B        | Qwen                      | ✓  | ✓   | Extra-large model, datacenter GPU recommended          |
+| BitNet1.58-2B | 2B         | BitNet (Ternary 1.58-bit) | ✓  | ✓   | Novel ternary quantization architecture                |
 
 **Model Variant Summary:**
+
 - **10 base models**: 5 model architectures × 2 precision formats (FP8, INT8)
 - **40 sparse variants**: 10 base models × 4 sparsity configurations (2:4, 2:6, 2:8, 2:10)
 - **Total: 50 model variants** evaluated across all supported GPUs
@@ -432,12 +424,12 @@ End-to-end testing covers 5 model architectures in both FP8 and INT8 quantizatio
 
 For each model, the following linear layers are processed and benchmarked:
 
-| Linear Layer | Model Location | Typical Dimensions |
-|-------------|----------------|-------------------|
-| Wqkv | `self_attn.qkv_proj` | `[3×H, H]` or `[(Q+2×KV), H]` |
-| Wo | `self_attn.o_proj` | `[H, H]` |
-| W13 | `mlp.gate_up_proj` | `[2×I, H]` |
-| W2 | `mlp.down_proj` | `[H, I]` |
+| Linear Layer | Model Location         | Typical Dimensions                  |
+| ------------ | ---------------------- | ----------------------------------- |
+| Wqkv         | `self_attn.qkv_proj` | `[3×H, H]` or `[(Q+2×KV), H]` |
+| Wo           | `self_attn.o_proj`   | `[H, H]`                          |
+| W13          | `mlp.gate_up_proj`   | `[2×I, H]`                       |
+| W2           | `mlp.down_proj`      | `[H, I]`                          |
 
 Where H is the hidden dimension and I is the intermediate (MLP) dimension. These four linear layer types represent the computational bottleneck in transformer inference.
 
@@ -447,7 +439,7 @@ Where H is the hidden dimension and I is the intermediate (MLP) dimension. These
 
 ### 6.1 Environment Setup
 
-SlideSparse is integrated with vLLM v0.13.0 and requires CUDA 12.9+ with cuSPARSELt support.
+SlideSparse is integrated with vLLM v0.13.0 and requires CUDA 12.9+ with cuSPARSELt 0.8.1.
 
 #### 6.1.1 Development Workflow Overview
 
@@ -492,7 +484,8 @@ After installation, modifications to Python files in `vllm/` and `slidesparse/` 
 
 #### 6.1.3 Architecture Support
 
-We provide Docker images for both hardware architectures:
+We provide Docker images for both hardware architectures (will be released after publication)
+
 - **x86_64 (AMD64)**: For standard servers, workstations, and cloud instances
 - **aarch64 (ARM64)**: For ARM-based systems like NVIDIA DGX Spark (GB10)
 
@@ -500,20 +493,20 @@ We provide Docker images for both hardware architectures:
 
 SlideSparse behavior is controlled through environment variables:
 
-| Variable | Values | Description |
-|----------|--------|-------------|
-| `DISABLE_SLIDESPARSE` | 0/1 | Disable SlideSparse entirely, use vLLM native path |
-| `USE_CUBLASLT` | 0/1 | Enable cuBLASLt dense GEMM backend (baseline) |
-| `USE_CUSPARSELT` | 0/1 | Enable cuSPARSELt sparse GEMM backend (accelerated) |
-| `SPARSITY` | 2_4, 2_6, 2_8, 2_10, 2_inf | Sparsity configuration (cuSPARSELt only). 2_inf is experimental. |
-| `INNER_DTYPE_32` | 0/1 | Use high-precision accumulation (FP8→FP32, INT8→INT32) |
-| `SLIDESPARSE_PROFILE` | 0/1 | Enable kernel timing diagnostics via profiler.py |
+| Variable                | Values                | Description                                                      |
+| ----------------------- | --------------------- | ---------------------------------------------------------------- |
+| `DISABLE_SLIDESPARSE` | 0/1                   | Disable SlideSparse entirely, use vLLM native path               |
+| `USE_CUBLASLT`        | 0/1                   | Enable cuBLASLt dense GEMM backend (baseline)                    |
+| `USE_CUSPARSELT`      | 0/1                   | Enable cuSPARSELt sparse GEMM backend (accelerated)              |
+| `SPARSITY`            | 2_4, 2_6, ... , 2_inf | Sparsity configuration (cuSPARSELt only). 2_inf is experimental. |
+| `SLIDESPARSE_PROFILE` | 0/1                   | Enable kernel timing diagnostics via profiler.py                 |
 
 **Backend Selection Logic:**
+
 - If `DISABLE_SLIDESPARSE=1`: Use vLLM's native CUTLASS path
 - If `USE_CUBLASLT=1`: Use cuBLASLt dense GEMM (our baseline)
 - If `USE_CUSPARSELT=1`: Use cuSPARSELt sparse GEMM (our accelerated path)
-- Default (no variables set): SlideSparse is enabled with cuBLASLt backend
+- Default (no variables set): SlideSparse is enabled with CUTLASS backend provided by vLLM
 
 **Example Usage:**
 
@@ -536,19 +529,22 @@ SLIDESPARSE_PROFILE=1 USE_CUSPARSELT=1 SPARSITY=2_8 vllm serve model_path
 SlideSparse provides three backend paths for FP8 and INT8 linear layers:
 
 **Path 1: CUTLASS (Fallback)**
+
 - Uses vLLM's native `cutlass_scaled_mm` function
 - Activated when `DISABLE_SLIDESPARSE=1`
 - Note: CUTLASS compilation may have sm version limitations
 
 **Path 2: cuBLASLt (Dense Baseline)**
+
 - Our implemented dense GEMM baseline
 - Pipeline: `Triton quant_only` → `cuBLASLt FP8/INT8 GEMM` → `Triton dequant_bias`
 - Activated with `USE_CUBLASLT=1`
 
 **Path 3: cuSPARSELt (Sparse Accelerated)**
+
 - Our sparse GEMM acceleration path
 - Pipeline: `Triton fused_quant_slide` → `cuSPARSELt 2:4 sparse GEMM` → `Triton dequant_bias`
-- Activated with `USE_CUSPARSELT=1` and `SPARSITY=2_X`
+- Activated with `USE_CUSPARSELT=1` and `SPARSITY=2_L`
 
 ### 6.4 Quick Start
 
@@ -579,7 +575,7 @@ To support vLLM's full graph compilation, SlideSparse registers custom operators
 - Triton kernels are registered with proper signatures
 - Algorithm lookup is made compile-friendly through pre-loading at module import time
 
-**Important Note**: Due to the newness of the DGX Spark GB10 hardware, it is the only platform that requires eager mode execution. This results in approximately 30% Decode performance degradation compared to compiled mode on other platforms.
+**Important Note**: Due to the newness of the DGX Spark GB10 hardware, it is the only platform that requires eager mode execution. This results in approximately 30% performance degradation compared to compiled mode on other platforms.
 
 ### 6.6 Algorithm Configuration Caching
 
@@ -601,7 +597,6 @@ Kernel-level benchmarks measure raw GEMM performance isolated from end-to-end in
 Two benchmark modes are provided:
 
 1. **Square Mode**: Tests M=N=K configurations (where M, N, K all equal the same value) for systematic performance analysis. This mode is useful for understanding hardware characteristics and comparing performance across different problem sizes in a controlled manner.
-
 2. **Model Mode**: Tests actual (N, K) dimensions extracted from target model linear layers. This mode directly reflects the real-world GEMM shapes encountered during inference and enables direct comparison with end-to-end results.
 
 ### 7.2 Benchmark Entry Points
@@ -641,10 +636,10 @@ python benchmark_entry.py --model Qwen2.5-7B --dtype int8 --backend cusparselt -
 
 The M dimension (batch size × sequence length for activations) is systematically varied to capture performance across different workload sizes:
 
-| Mode | M Values | Purpose |
-|------|----------|---------|
-| Square | 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384 | Systematic analysis |
-| Model | 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768 | Real-world workloads |
+| Mode   | M Values                                                | Purpose              |
+| ------ | ------------------------------------------------------- | -------------------- |
+| Square | 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384        | Systematic analysis  |
+| Model  | 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768 | Real-world workloads |
 
 ### 7.4 K Dimension Handling for Sparsity
 
@@ -671,6 +666,7 @@ Each benchmark records comprehensive performance data:
 ### 7.6 Model-Specific Analysis
 
 For Model Mode benchmarks, we recognize that during actual inference, a single M value triggers four different (N, K) linear layer pairs simultaneously. Therefore, we aggregate results by:
+
 1. Recording absolute latency for each individual (M, N, K) combination
 2. Summing latencies across all four (N, K) pairs for the same M
 3. Computing total speedup as the ratio of summed baseline latency to summed sparse latency
@@ -687,6 +683,7 @@ python extract_kernel_results.py
 ```
 
 The extracted results include:
+
 - Per-precision latency tables
 - Cross-sparsity speedup comparisons
 - Model-aggregated performance summaries
@@ -815,9 +812,11 @@ To maximize the fairness of our comparisons, we implement several optimizations:
 4. **Repetition**: Multiple iterations are averaged to reduce measurement variance
 
 **Matrix Layout Convention (TN+CC+C):**
+
 ```
 D[M,N]_row = D[N,M]_col = W[K,N]_col^T × A[K,M]_col = W[N,K]_row^T × A[M,K]_row
 ```
+
 - **T/N**: First operand (Weight) is transposed; second operand (Activation) is not transposed
 - **C/R**: Both inputs are column-major; output is column-major
 - This layout showed stable performance with minimal variation across different problem sizes
@@ -845,6 +844,7 @@ The pruning stage applies Z:L sparsity constraints to the model weights:
 - **Random Mode**: Randomly selects Z positions within each window to zero out. Useful for baseline comparisons and analysis.
 
 Input/Output:
+
 - Input: Dense weight tensor `[N, K]`
 - Parameters: Z (zeros per window), L (window size), pruning mode
 - Output: Pruned weight tensor `[N, K]` satisfying Z:L sparsity constraint
@@ -854,25 +854,24 @@ Input/Output:
 The sliding stage is the core SlideSparse transformation:
 
 1. **Padding**: K must be divisible by `4 × L_source` for cuSPARSELt alignment. The formula is:
+
    ```
    K_padded = ⌈K / (4 × L)⌉ × (4 × L)
    ```
-
 2. **Parameter Calculation**:
+
    - Stride = L_target - Z_target = 4 - 2 = 2
    - Number of windows = (L_source - Z_source) / Stride
    - Expansion ratio = (num_windows × L_target) / L_source
-
 3. **Window Extraction**: For each window `i` in the original sequence, extract positions `[i×stride, i×stride+L_target)`
-
 4. **Concatenation**: Concatenate all windows to form the expanded weight
 
-**Stage 3: Compression (`compress.py`)** — Shape: `[N, K'] → [N, K'/2]`
+**Stage 3: Compression (`compress.py`)** — Shape: `[N, K'] → 1D`
 
 The compression stage calls cuSPARSELt's compression routines to produce the final hardware-compatible format:
 
 - Input: Slided weight `[N, K']` satisfying 2:4 sparsity
-- Output: Compressed weight `[N, K'/2]` (non-zero elements only) and metadata `[N, K'/8]` (sparse pattern information)
+- Output: Compressed weight `1D tensor` (non-zero elements only)
 
 The compression is implemented via `cusparselt_compress.cu` which wraps the cuSPARSELt compression API.
 
@@ -937,10 +936,6 @@ While this work primarily focuses on demonstrating inference acceleration, we ac
 
 Our current implementation uses magnitude pruning for demonstration purposes. Based on existing literature, 2:6 sparsity can maintain satisfactory model quality. Future work includes sparsity-aware training and fine-tuning for accuracy recovery.
 
-### 9.6 GEMM Mathematical Verification
-
-Throughout the conversion pipeline, all operations maintain mathematical correctness. We provide `--verify` flags that ensure numerical consistency between cuSPARSELt and cuBLASLt backends. The only precision loss comes from the pruning operation itself; all subsequent transformations (slide, compress, GEMM) produce bit-exact results.
-
 ---
 
 ## 10. vLLM Integration Architecture
@@ -958,11 +953,13 @@ SlideSparse follows a **minimal invasion principle**, modifying only two files i
 vLLM employs a two-layer architecture for quantization:
 
 **Layer 1: Config + LinearMethod (Glue Layer)**
+
 - `CompressedTensorsConfig`: Parses model configuration and dispatches to appropriate schemes
 - `CompressedTensorsLinearMethod`: Implements `LinearMethodBase` interface, delegates all operations to the underlying Scheme
 - This layer handles configuration parsing but performs no computation
 
 **Layer 2: Scheme (Implementation Layer)**
+
 - `CompressedTensorsScheme`: Abstract base class defining the quantization interface
 - Concrete implementations (e.g., `CompressedTensorsW8A8Fp8`, `CompressedTensorsW8A8Int8`): Handle actual weight management and computation
 - Includes internal `LinearOp` classes that wrap kernel calls
@@ -1020,11 +1017,10 @@ SlideSparse intercepts at the Scheme level, wrapping the original schemes to rep
 
 The core integration is through `SlideSparseLinearMethod_FP8.py` and `SlideSparseLinearMethod_INT8.py`, which implement vLLM's `LinearMethodBase` interface:
 
-- **`create_weights()`**: Delegates to the original scheme to create weight parameters. For compressed weights, calculates the correct shape `[N, K'/2]` based on sparsity configuration.
-
+- **`create_weights()`**: Delegates to the original scheme to create weight parameters. For compressed weights, calculates the correct shape `[N, K']` based on sparsity configuration.
 - **`process_weights_after_loading()`**: Extends the original processing with optional cuSPARSELt compression if weights are not pre-compressed.
-
 - **`apply_weights()` (Key Method)**: Replaces the original Quant+GEMM+Dequant chain:
+
   - For cuBLASLt: `quant_only` → `cuBLASLt GEMM` → `dequant_bias`
   - For cuSPARSELt: `fused_quant_slide` → `cuSPARSELt sparse GEMM` → `dequant_bias`
 
@@ -1033,12 +1029,14 @@ The core integration is through `SlideSparseLinearMethod_FP8.py` and `SlideSpars
 To minimize overhead from the sliding transformation, SlideSparse employs operator fusion. The sliding transformation expands the K dimension (e.g., 1.5× for 2:8 sparsity), which naively would introduce corresponding memory bandwidth overhead. Our fusion strategy addresses this:
 
 **Fused Quant + Slide Kernel (`fused_quant_slide_triton/`):**
+
 - Combines FP16/BF16 → FP8/INT8 quantization with sliding window expansion in a single memory pass
 - Implements double buffering to hide memory latency
 - Uses 1D program allocation to manage L2 cache efficiently, avoiding pressure on consumer GPUs with smaller caches
 - **Result**: For 2:8 sparsity (1.5× K expansion), the latency overhead is approximately 1.5× compared to quantization alone—achieving near-theoretical memory bandwidth utilization with computational overhead completely masked by I/O
 
 **Fused Dequant + Bias Kernel (`fused_dequant_bias_triton/`):**
+
 - Combines INT32/FP32 → BF16/FP16 dequantization with bias addition
 - Shared between cuBLASLt and cuSPARSELt paths (no sliding needed at output)
 
@@ -1047,16 +1045,19 @@ To minimize overhead from the sliding transformation, SlideSparse employs operat
 vLLM uses `torch.compile` for full graph compilation to maximize performance. SlideSparse ensures compatibility through several mechanisms:
 
 **Custom Operator Registration:**
+
 - GEMM wrappers are registered via `torch.library` with namespace `"slidesparse"`
 - Each operator provides both a real implementation (actual kernel execution) and a fake implementation (returns correctly-shaped empty tensors for tracing)
 - Triton kernels are registered with proper function signatures
 
 **Compile-Friendly Algorithm Lookup:**
+
 - Algorithm configurations are loaded at module import time, not during graph tracing
 - Lookup uses pure Python dictionary operations that `torch.compile` can handle
 - No filesystem operations or dynamic module loading during the compilation phase
 
 **Platform-Specific Notes:**
+
 - DGX Spark GB10 (sm121) currently requires **eager mode** due to limited torch.compile support for this new architecture
 - This results in approximately 30% Decode performance degradation compared to compiled mode on other platforms
 
@@ -1070,12 +1071,14 @@ D[M,N]_row = D[N,M]_col = W[K,N]_col^T × A[K,M]_col
 ```
 
 **Layout Notation:**
+
 - **T/N**: Transpose (T) or No-transpose (N) for each operand
 - **C/R**: Column-major (C) or Row-major (R) for memory layout
 - **TN**: First operand (Weight) is transposed; second operand (Activation) is not transposed
 - **CC+C**: Both inputs are column-major; output is column-major
 
 This layout was selected because:
+
 1. It showed consistent performance across all tested problem sizes
 2. It aligns with NVIDIA's documentation recommendations
 3. Some alternative layouts exhibited performance instability on certain matrix dimensions
@@ -1102,6 +1105,7 @@ Both cuBLASLt and cuSPARSELt are closed-source libraries that support multiple a
 ### 11.2 Search Methodology
 
 **Algorithm ID Search Process:**
+
 1. **Enumerate Model Shapes**: Extract all (N, K) pairs from target model linear layers (typically 4 pairs per model)
 2. **M Value Sweep**: For each M value in the test range, iterate through all available algorithm IDs
 3. **Timing Measurement**: Execute 100+ iterations with proper warmup (10+ iterations) to obtain stable latency measurements
@@ -1110,12 +1114,14 @@ Both cuBLASLt and cuSPARSELt are closed-source libraries that support multiple a
 
 **Layout Search Process:**
 We systematically tested 8 layout configurations:
+
 - **NN+RC+C, NN+RC+R**: No transpose for either operand, row-major A, column-major B
 - **NT+RR+C, NT+RR+R**: No transpose for A, transpose B
 - **TN+CC+C, TN+CC+R**: Transpose A, no transpose for B (selected configuration)
 - **TT+CR+C, TT+CR+R**: Transpose both operands
 
 After comprehensive testing, we standardized on **TN+CC+C** due to:
+
 - Consistent performance across all tested problem sizes
 - Minimal variation on edge cases
 - Alignment with NVIDIA documentation recommendations
@@ -1154,12 +1160,14 @@ The `AlgorithmConfigManager` class in `gemm_wrapper.py` provides O(1) runtime lo
 Beyond GEMM algorithm search, we also autotune the three Triton kernels:
 
 **Autotuning Parameters:**
+
 - Block sizes (BLOCK_M, BLOCK_N, BLOCK_K)
 - Number of warps
 - Number of pipeline stages
 
 **Autotune Scripts (`autotune_autogen_*.py`):**
 These scripts generate model-specific Triton code with embedded if-else branches that select optimal parameters based on runtime dimensions:
+
 - N and K are known at model load time (static for each linear layer)
 - M varies during inference and is matched to pre-tuned ranges
 
@@ -1174,6 +1182,7 @@ search/
 ```
 
 Each JSON file records:
+
 - Algorithm count (total available algorithms)
 - Top-3 algorithm IDs with their latencies
 - Detailed configuration information for reproducibility
@@ -1186,14 +1195,15 @@ Each JSON file records:
 
 Kernel benchmarks demonstrate consistent speedups proportional to sparsity ratio across all tested GPU platforms:
 
-| Sparsity | Theoretical Speedup | A100 (sm80) | H100 (sm90) | B200 (sm100) | RTX 4090 (sm89) |
-|----------|---------------------|-------------|-------------|--------------|-----------------|
-| 2:4 | 2.00× | ~1.8-2.0× | ~1.9-2.0× | ~2.0× | ~1.9-2.0× |
-| 2:6 | 1.50× | ~1.4-1.5× | ~1.4-1.5× | ~1.5× | ~1.4-1.5× |
-| 2:8 | 1.33× | ~1.25-1.33× | ~1.3-1.33× | ~1.33× | ~1.28-1.33× |
-| 2:10 | 1.25× | ~1.2-1.25× | ~1.2-1.25× | ~1.25× | ~1.2-1.25× |
+| Sparsity | Theoretical Speedup | A100 (sm80)  | H100 (sm90) | B200 (sm100) | RTX 4090 (sm89) |
+| -------- | ------------------- | ------------ | ----------- | ------------ | --------------- |
+| 2:4      | 2.00×              | ~1.8-2.0×   | ~1.9-2.0×  | ~2.0×       | ~1.9-2.0×      |
+| 2:6      | 1.50×              | ~1.4-1.5×   | ~1.4-1.5×  | ~1.5×       | ~1.4-1.5×      |
+| 2:8      | 1.33×              | ~1.25-1.33× | ~1.3-1.33× | ~1.33×      | ~1.28-1.33×    |
+| 2:10     | 1.25×              | ~1.2-1.25×  | ~1.2-1.25× | ~1.25×      | ~1.2-1.25×     |
 
 **Key Observations:**
+
 - Speedups closely match theoretical expectations across all hardware
 - Newer architectures (Hopper, Blackwell) show slightly better efficiency
 - Consumer GPUs achieve comparable speedups to datacenter GPUs
@@ -1203,12 +1213,14 @@ Kernel benchmarks demonstrate consistent speedups proportional to sparsity ratio
 End-to-end throughput improvements vary by model size, inference stage, and batch configuration:
 
 **Prefill Stage (Compute-Bound):**
+
 - Larger models (7B, 14B) show more consistent speedups due to higher compute-to-overhead ratio
 - Speedups closely track kernel-level improvements
 - Long-context scenarios (M=32768, 65536) show the best alignment with theoretical speedups
 - Example: Qwen2.5-7B with 2:8 sparsity achieves ~1.28-1.32× Prefill speedup
 
 **Decode Stage (Memory-Bound):**
+
 - Speedups are more modest due to memory bandwidth limitations dominating the workload
 - Still demonstrates meaningful improvements for high-concurrency scenarios (M=256, 512)
 - torch.compile provides additional benefits when supported
@@ -1237,6 +1249,7 @@ All GEMM operations are validated with `--verify` flags to ensure numerical cons
 ### 13.1 Complete Reproduction Pipeline
 
 **Kernel-Level Benchmarks:**
+
 ```bash
 cd slidesparse/benchmark_kernel
 
@@ -1248,6 +1261,7 @@ python extract_kernel_results.py
 ```
 
 **End-to-End Benchmarks:**
+
 ```bash
 cd slidesparse/tools
 
@@ -1259,6 +1273,7 @@ python extract_end2end_results.py
 ```
 
 **BitNet Benchmarks:**
+
 ```bash
 cd slidesparse/tools
 python prepare_for_bitnet_bench.py --task 1,1,1,1,1
@@ -1313,25 +1328,26 @@ docker run --gpus all -v /path/to/models:/models -it <image>
 
 Several edge cases result in incomplete benchmark data:
 
-| Issue | Affected Configuration | Root Cause |
-|-------|----------------------|------------|
-| Triton Index Overflow | M=65536, Qwen2.5-7B | INT32 indexing limit exceeded for large linear layers |
-| OOM | 7B/14B models on RTX 4090/5080 | Insufficient VRAM (24GB/16GB) for large models |
-| FP4 Illegal Address | Specific M,N,K with FP4 | cuBLASLt/cuSPARSELt API limitations |
-| FP4 Illegal Instruction | Certain dimensions | API implementation bugs |
+| Issue                   | Affected Configuration         | Root Cause                                            |
+| ----------------------- | ------------------------------ | ----------------------------------------------------- |
+| Triton Index Overflow   | M=65536, Qwen2.5-7B            | INT32 indexing limit exceeded for large linear layers |
+| OOM                     | 7B/14B models on RTX 4090/5080 | Insufficient VRAM (24GB/16GB) for large models        |
+| FP4 Illegal Address     | Specific M,N,K with FP4        | cuBLASLt/cuSPARSELt API limitations                   |
+| FP4 Illegal Instruction | Certain dimensions             | API implementation bugs                               |
 
 ### 14.2 Hardware Requirements
 
-| Feature | Minimum Requirement |
-|---------|-------------------|
-| 2:4 Sparse Acceleration | Ampere (sm80) or later |
-| FP8 Support | Ada Lovelace (sm89) or later |
-| FP4 Support | Blackwell (sm100) or later |
-| Full torch.compile | All platforms except GB10 |
+| Feature                 | Minimum Requirement          |
+| ----------------------- | ---------------------------- |
+| 2:4 Sparse Acceleration | Ampere (sm80) or later       |
+| FP8 Support             | Ada Lovelace (sm89) or later |
+| FP4 Support             | Blackwell (sm100) or later   |
+| Full torch.compile      | All platforms except GB10    |
 
 ### 14.3 Platform-Specific Notes
 
 **DGX Spark GB10 (sm121)**:
+
 - Requires eager mode execution (torch.compile not fully supported)
 - Approximately 30% Decode performance penalty compared to compiled mode
 - Unique aarch64 architecture requires separate Docker image
@@ -1369,9 +1385,10 @@ This project is licensed under the Apache License 2.0. See the [LICENSE](LICENSE
 
 ## Acknowledgments
 
-This work builds upon the vLLM inference framework (v0.13.0) and leverages NVIDIA's cuSPARSELt library for structured sparsity acceleration. We acknowledge the contributions of the open-source community in advancing efficient LLM inference.
+This work builds upon the vLLM inference framework (v0.13.0) and leverages NVIDIA's cuSPARSELt library (v0.8.1) for structured sparsity acceleration. We acknowledge the contributions of the open-source community in advancing efficient LLM inference.
 
 **Key Dependencies:**
+
 - vLLM: High-throughput LLM inference engine
 - cuSPARSELt: NVIDIA's structured sparsity library
 - cuBLASLt: NVIDIA's high-performance BLAS library
@@ -1384,31 +1401,31 @@ This work builds upon the vLLM inference framework (v0.13.0) and leverages NVIDI
 
 ### Environment Variables Summary
 
-| Variable | Purpose | Example |
-|----------|---------|---------|
-| `DISABLE_SLIDESPARSE=1` | Use vLLM native path | Debugging |
-| `USE_CUBLASLT=1` | Dense GEMM baseline | Performance comparison |
-| `USE_CUSPARSELT=1` | Sparse GEMM acceleration | Production |
-| `SPARSITY=2_8` | Select sparsity level | 2_4, 2_6, 2_8, 2_10 |
-| `SLIDESPARSE_PROFILE=1` | Enable profiling | Performance analysis |
+| Variable                  | Purpose                  | Example                |
+| ------------------------- | ------------------------ | ---------------------- |
+| `DISABLE_SLIDESPARSE=1` | Use vLLM native path     | Debugging              |
+| `USE_CUBLASLT=1`        | Dense GEMM baseline      | Performance comparison |
+| `USE_CUSPARSELT=1`      | Sparse GEMM acceleration | Production             |
+| `SPARSITY=2_8`          | Select sparsity level    | 2_4, 2_6, 2_8, 2_10    |
+| `SLIDESPARSE_PROFILE=1` | Enable profiling         | Performance analysis   |
 
 ### Key Entry Points
 
-| Purpose | Script Location |
-|---------|-----------------|
-| Kernel benchmarks | `slidesparse/benchmark_kernel/prepare_for_kernel_bench.py` |
-| End-to-end benchmarks | `slidesparse/tools/prepare_for_vllm_bench.py` |
-| BitNet benchmarks | `slidesparse/tools/prepare_for_bitnet_bench.py` |
-| Model conversion | `slidesparse/weight_convert/weight_convert_entry.py` |
-| Offline autotuning | `slidesparse/tools/offline_autotune_algsearch.py` |
-| Model download | `slidesparse/tools/model_download.py` |
-| Result extraction | `slidesparse/tools/extract_end2end_results.py`, `slidesparse/benchmark_kernel/extract_kernel_results.py` |
+| Purpose               | Script Location                                                                                              |
+| --------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Kernel benchmarks     | `slidesparse/benchmark_kernel/prepare_for_kernel_bench.py`                                                 |
+| End-to-end benchmarks | `slidesparse/tools/prepare_for_vllm_bench.py`                                                              |
+| BitNet benchmarks     | `slidesparse/tools/prepare_for_bitnet_bench.py`                                                            |
+| Model conversion      | `slidesparse/weight_convert/weight_convert_entry.py`                                                       |
+| Offline autotuning    | `slidesparse/tools/offline_autotune_algsearch.py`                                                          |
+| Model download        | `slidesparse/tools/model_download.py`                                                                      |
+| Result extraction     | `slidesparse/tools/extract_end2end_results.py`, `slidesparse/benchmark_kernel/extract_kernel_results.py` |
 
 ### Sparsity Configuration Quick Reference
 
 | Sparsity | Zero Ratio | K Expansion | Theoretical Speedup |
-|----------|------------|-------------|---------------------|
-| 2:4 | 50% | 1.00× | 2.00× |
-| 2:6 | 33% | 1.33× | 1.50× |
-| 2:8 | 25% | 1.50× | 1.33× |
-| 2:10 | 20% | 1.67× | 1.25× |
+| -------- | ---------- | ----------- | ------------------- |
+| 2:4      | 50%        | 1.00×      | 2.00×              |
+| 2:6      | 33%        | 1.33×      | 1.50×              |
+| 2:8      | 25%        | 1.50×      | 1.33×              |
+| 2:10     | 20%        | 1.67×      | 1.25×              |

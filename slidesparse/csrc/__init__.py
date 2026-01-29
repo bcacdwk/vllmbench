@@ -2,15 +2,15 @@
 """
 SlideSparse CSRC Package
 
-提供 CUDA/Triton 扩展的编译工具和内核模块。
+Provides CUDA/Triton extension compilation tools and kernel modules.
 
-子模块
-======
-- utils: 编译工具（NVCC flags, build_cuda_extension 等）
-- cublaslt_gemm: cuBLASLt FP8 GEMM 扩展
-- fused_dequant_bias_triton: Triton 融合反量化偏置内核
-- fused_quant_slide_triton: Triton 融合量化滑动内核
-- quant_only_triton: Triton 纯量化内核（无 slide）
+Submodules
+==========
+- utils: Build tools (NVCC flags, build_cuda_extension, etc.)
+- cublaslt_gemm: cuBLASLt FP8 GEMM extension
+- fused_dequant_bias_triton: Triton fused dequant+bias kernel
+- fused_quant_slide_triton: Triton fused quant+slide kernel
+- quant_only_triton: Triton quant-only kernel (no slide)
 """
 
 from .utils import (

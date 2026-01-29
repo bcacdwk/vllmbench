@@ -1,26 +1,26 @@
 # SPDX-License-Identifier: Apache-2.0
 """
-SlideSparse Triton Kernel 加载模块
+SlideSparse Triton Kernel Loading Module
 
-包含:
-- Dequant + Bias kernel（FP8/INT8 共享）
-- FP8 Quant kernels（quant_only, quant_slide）
-- INT8 Quant kernels（quant_only, quant_slide）
+Contains:
+- Dequant + Bias kernel (FP8/INT8 shared)
+- FP8 Quant kernels (quant_only, quant_slide)
+- INT8 Quant kernels (quant_only, quant_slide)
 
-torch.compile 兼容策略（方案 1+4）:
-=================================
-1. 模块导入时预加载：扫描 build 目录，预加载所有已编译的 tuned kernel
-2. 编译期保护：如果缓存未命中且处于 torch.compile 追踪期间，抛出明确错误
+torch.compile compatibility strategy (approach 1+4):
+===================================================
+1. Preload at module import: scan build dir, preload all compiled tuned kernels
+2. Compile-time guard: if cache miss during torch.compile tracing, raise clear error
 
-这确保:
-- 子进程导入模块时自动完成预加载
-- 热路径上只有字典读取，无文件系统操作
-- 边界情况（如新模型未预编译）给出友好错误提示
+This ensures:
+- Subprocesses auto-complete preload when importing module
+- Hot path only has dict reads, no filesystem ops
+- Edge cases (e.g., new model not precompiled) get friendly error
 
-目录结构:
+Directory structure:
     build/{hw_dir_name}/{kernel_name}_tuned_{model_name}.py
     
-例如:
+Example:
     build/RTX5080_cc120_py312_cu129_x86_64/dequant_bias_tuned_Llama3.2-1B-FP8.py
 """
 
@@ -37,23 +37,23 @@ from slidesparse.utils import load_tuned_module, build_hw_dir_name
 
 logger = init_logger(__name__)
 
-# Custom Op Library（与 gemm_wrapper 共享同一个 library）
-# 注意：这里用 FRAGMENT 模式追加到已有的 slidesparse library
+# Custom Op Library (shared with gemm_wrapper)
+# Note: using FRAGMENT mode to append to existing slidesparse library
 _triton_lib = Library("slidesparse", "FRAGMENT")
 
 
 # ============================================================================
-# 目录配置
+# Directory Configuration
 # ============================================================================
 
 _CSRC_DIR = Path(__file__).parent.parent / "csrc"
 
 
 # ============================================================================
-# Kernel 搜索配置
+# Kernel Search Configuration
 # ============================================================================
 
-# Basic kernel 文件名映射
+# Basic kernel filename mapping
 _BASIC_KERNEL_FILES = {
     "dequant_bias": "basic_dequant_bias_triton.py",
     "quant_only":   "basic_quant_only_triton.py",
@@ -62,7 +62,7 @@ _BASIC_KERNEL_FILES = {
 
 
 def _load_basic_kernel(kernel_dir: Path, kernel_type: str) -> object:
-    """加载 basic kernel 模块（无 model-specific tuning）"""
+    """Load basic kernel module (no model-specific tuning)"""
     if kernel_type not in _BASIC_KERNEL_FILES:
         raise ValueError(f"Unknown kernel type: {kernel_type}")
     
@@ -86,24 +86,24 @@ def _search_kernel(
     model_name: str,
 ) -> object:
     """
-    搜索并加载 kernel 模块
+    Search and load kernel module
     
-    搜索顺序:
-    1. 首先尝试加载 tuned kernel: build/{hw_dir}/{tuned_prefix}_{model_name}.py
-    2. 如果找不到，fallback 到 basic kernel: basic_{kernel_type}_triton.py
+    Search order:
+    1. First try tuned kernel: build/{hw_dir}/{tuned_prefix}_{model_name}.py
+    2. If not found, fallback to basic kernel: basic_{kernel_type}_triton.py
     
     Args:
-        kernel_dir: kernel 目录（如 csrc/fused_dequant_bias_triton）
-        kernel_type: kernel 类型（dequant_bias, quant_only, quant_slide）
-        tuned_prefix: tuned 文件前缀（如 dequant_bias_tuned）
-        model_name: 模型名称（应为基础名，不带 -SlideSparse- 后缀）
+        kernel_dir: kernel directory (e.g., csrc/fused_dequant_bias_triton)
+        kernel_type: kernel type (dequant_bias, quant_only, quant_slide)
+        tuned_prefix: tuned file prefix (e.g., dequant_bias_tuned)
+        model_name: model name (should be base name without -SlideSparse- suffix)
     
     Returns:
-        加载的模块对象
+        Loaded module object
     """
     build_dir = kernel_dir / "build"
     
-    # 1. 尝试加载 tuned kernel
+    # 1. Try to load tuned kernel
     try:
         module = load_tuned_module(tuned_prefix, model_name, build_dir)
         logger.info_once(f"Loaded tuned kernel for model: {model_name}")
@@ -111,25 +111,25 @@ def _search_kernel(
     except FileNotFoundError:
         pass
     
-    # 2. Fallback 到 basic kernel
+    # 2. Fallback to basic kernel
     logger.warning(f"Tuned kernel not found for {model_name}, using basic kernel")
     return _load_basic_kernel(kernel_dir, kernel_type)
 
 
 # ============================================================================
-# Dequant + Bias Kernel（FP8/INT8 共享）
+# Dequant + Bias Kernel (FP8/INT8 shared)
 # ============================================================================
 
-# 缓存: model_name -> kernel function
+# Cache: model_name -> kernel function
 _dequant_bias_cache: Dict[str, Callable] = {}
 
 
 def _load_dequant_bias_kernel(model_name: str) -> Callable:
-    """加载 Triton dequant+bias kernel（按 model 懒加载）"""
+    """Load Triton dequant+bias kernel (lazy load per model)"""
     if model_name in _dequant_bias_cache:
         return _dequant_bias_cache[model_name]
     
-    # 编译期保护：如果缓存未命中且在 torch.compile 追踪期间，抛出明确错误
+    # Compile-time guard: if cache miss during torch.compile tracing, raise clear error
     if torch.compiler.is_compiling():
         raise RuntimeError(
             f"Triton kernel 'dequant_bias' for model '{model_name}' was not preloaded!\n"
@@ -149,7 +149,7 @@ def _load_dequant_bias_kernel(model_name: str) -> Callable:
     )
     
     fn = module.dequant_bias_triton
-    # 修复模块名，避免 Dynamo 尝试 import 非法名称（如 Llama3.2-1B-FP8 中的 . 会被解析为包分隔符）
+    # Fix module name to avoid Dynamo trying to import invalid names (e.g., '.' in Llama3.2-1B-FP8 is parsed as package separator)
     fn.__module__ = "slidesparse.core.kernels"
     _dequant_bias_cache[model_name] = fn
     logger.info_once(f"Dequant+bias kernel loaded for model: {model_name}")
@@ -167,18 +167,18 @@ def dequant_bias_kernel(
     """
     Dequant + Bias: output = gemm_output * scale_a * scale_b + bias
     
-    支持 BF16、FP32、INT32 输入（自动检测）
-    通过 torch.library custom op 调用，确保 torch.compile 兼容。
+    Supports BF16, FP32, INT32 input (auto-detect)
+    Called via torch.library custom op for torch.compile compatibility.
     
     Args:
-        gemm_output: GEMM 输出
-        scale_a: 激活 scale
-        scale_b: 权重 scale  
-        bias: 可选的 bias
-        out_dtype: 输出类型
-        model_name: 模型名称（用于加载对应的 tuned kernel）
+        gemm_output: GEMM output
+        scale_a: activation scale
+        scale_b: weight scale  
+        bias: optional bias
+        out_dtype: output type
+        model_name: model name (for loading corresponding tuned kernel)
     """
-    # 将 torch.dtype 转换为字符串（custom op schema 要求）
+    # Convert torch.dtype to string (required by custom op schema)
     out_dtype_str = str(out_dtype).replace("torch.", "")
     return torch.ops.slidesparse.dequant_bias(
         gemm_output, scale_a, scale_b, bias, out_dtype_str, model_name
@@ -186,19 +186,19 @@ def dequant_bias_kernel(
 
 
 # ============================================================================
-# FP8 Quant Only Kernel - cuBLASLt 专用
+# FP8 Quant Only Kernel - cuBLASLt specific
 # ============================================================================
 
-# 缓存: model_name -> kernel function
+# Cache: model_name -> kernel function
 _quant_only_fp8_cache: Dict[str, Callable] = {}
 
 
 def _load_quant_only_fp8_kernel(model_name: str) -> Callable:
-    """加载 Triton FP8 quant kernel（按 model 懒加载）"""
+    """Load Triton FP8 quant kernel (lazy load per model)"""
     if model_name in _quant_only_fp8_cache:
         return _quant_only_fp8_cache[model_name]
     
-    # 编译期保护
+    # Compile-time guard
     if torch.compiler.is_compiling():
         raise RuntimeError(
             f"Triton kernel 'quant_only_fp8' for model '{model_name}' was not preloaded!\n"
@@ -218,7 +218,7 @@ def _load_quant_only_fp8_kernel(model_name: str) -> Callable:
     )
     
     fn = module.quant_only_fp8_triton
-    # 修复模块名，避免 Dynamo 尝试 import 非法名称
+    # Fix module name to avoid Dynamo trying to import invalid names
     fn.__module__ = "slidesparse.core.kernels"
     _quant_only_fp8_cache[model_name] = fn
     logger.info_once(f"FP8 quant kernel loaded for model: {model_name}")
@@ -232,33 +232,33 @@ def quant_only_fp8_kernel(
     """
     FP8 Per-token Quantization
     
-    通过 torch.library custom op 调用，确保 torch.compile 兼容。
+    Called via torch.library custom op for torch.compile compatibility.
     
     Args:
         input: [M, K] BF16
-        model_name: 模型名称（用于加载对应的 tuned kernel）
+        model_name: model name (for loading corresponding tuned kernel)
         
     Returns:
-        qinput: [M_pad, K_pad] FP8，M_pad=ceil16(M), K_pad=ceil32(K)
-        scale_a: [M_pad] FP32，padding 区域为 1.0
+        qinput: [M_pad, K_pad] FP8, M_pad=ceil16(M), K_pad=ceil32(K)
+        scale_a: [M_pad] FP32, padding region is 1.0
     """
     return torch.ops.slidesparse.quant_only_fp8(input, model_name)
 
 
 # ============================================================================
-# FP8 Quant + Slide Kernel - cuSPARSELt 专用
+# FP8 Quant + Slide Kernel - cuSPARSELt specific
 # ============================================================================
 
-# 缓存: model_name -> kernel function
+# Cache: model_name -> kernel function
 _quant_slide_fp8_cache: Dict[str, Callable] = {}
 
 
 def _load_quant_slide_fp8_kernel(model_name: str) -> Callable:
-    """加载 Triton FP8 quant+slide kernel（按 model 懒加载）"""
+    """Load Triton FP8 quant+slide kernel (lazy load per model)"""
     if model_name in _quant_slide_fp8_cache:
         return _quant_slide_fp8_cache[model_name]
     
-    # 编译期保护
+    # Compile-time guard
     if torch.compiler.is_compiling():
         raise RuntimeError(
             f"Triton kernel 'quant_slide_fp8' for model '{model_name}' was not preloaded!\n"
@@ -278,7 +278,7 @@ def _load_quant_slide_fp8_kernel(model_name: str) -> Callable:
     )
     
     fn = module.quant_slide_fp8_triton
-    # 修复模块名，避免 Dynamo 尝试 import 非法名称
+    # Fix module name to avoid Dynamo trying to import invalid names
     fn.__module__ = "slidesparse.core.kernels"
     _quant_slide_fp8_cache[model_name] = fn
     logger.info_once(f"FP8 quant+slide kernel loaded for model: {model_name}")
@@ -293,36 +293,36 @@ def quant_slide_fp8_kernel(
     """
     FP8 Per-token Quantization + SlideSparse Slide
     
-    通过 torch.library custom op 调用，确保 torch.compile 兼容。
+    Called via torch.library custom op for torch.compile compatibility.
     
     Args:
         input: [M, K] BF16
-        model_name: 模型名称（用于加载对应的 tuned kernel）
-        L: 稀疏组大小（默认 8）
+        model_name: model name (for loading corresponding tuned kernel)
+        L: sparsity group size (default 8)
         
     Returns:
         qinput: [M_pad, K_slide_pad] FP8
                 M_pad=ceil16(M), K_slide_pad=ceil32(K_slide)
                 K_slide = K * (L - 2) / (L / 2) = K * 2 * (L - 2) / L
-        scale_a: [M_pad] FP32，padding 区域为 1.0
+        scale_a: [M_pad] FP32, padding region is 1.0
     """
     return torch.ops.slidesparse.quant_slide_fp8(input, model_name, L)
 
 
 # ============================================================================
-# INT8 Quant Only Kernel - cuBLASLt 专用
+# INT8 Quant Only Kernel - cuBLASLt specific
 # ============================================================================
 
-# 缓存: model_name -> kernel function
+# Cache: model_name -> kernel function
 _quant_only_int8_cache: Dict[str, Callable] = {}
 
 
 def _load_quant_only_int8_kernel(model_name: str) -> Callable:
-    """加载 Triton INT8 quant kernel（按 model 懒加载）"""
+    """Load Triton INT8 quant kernel (lazy load per model)"""
     if model_name in _quant_only_int8_cache:
         return _quant_only_int8_cache[model_name]
     
-    # 编译期保护
+    # Compile-time guard
     if torch.compiler.is_compiling():
         raise RuntimeError(
             f"Triton kernel 'quant_only_int8' for model '{model_name}' was not preloaded!\n"
@@ -342,7 +342,7 @@ def _load_quant_only_int8_kernel(model_name: str) -> Callable:
     )
     
     fn = module.quant_only_int8_triton
-    # 修复模块名，避免 Dynamo 尝试 import 非法名称
+    # Fix module name to avoid Dynamo trying to import invalid names
     fn.__module__ = "slidesparse.core.kernels"
     _quant_only_int8_cache[model_name] = fn
     logger.info_once(f"INT8 quant kernel loaded for model: {model_name}")
@@ -356,33 +356,33 @@ def quant_only_int8_kernel(
     """
     INT8 Per-token Quantization (Symmetric)
     
-    通过 torch.library custom op 调用，确保 torch.compile 兼容。
+    Called via torch.library custom op for torch.compile compatibility.
     
     Args:
         input: [M, K] BF16
-        model_name: 模型名称（用于加载对应的 tuned kernel）
+        model_name: model name (for loading corresponding tuned kernel)
         
     Returns:
-        qinput: [M_pad, K_pad] INT8，M_pad=ceil16(M), K_pad=ceil32(K)
-        scale_a: [M_pad] FP32，padding 区域为 1.0
+        qinput: [M_pad, K_pad] INT8, M_pad=ceil16(M), K_pad=ceil32(K)
+        scale_a: [M_pad] FP32, padding region is 1.0
     """
     return torch.ops.slidesparse.quant_only_int8(input, model_name)
 
 
 # ============================================================================
-# INT8 Quant + Slide Kernel - cuSPARSELt 专用
+# INT8 Quant + Slide Kernel - cuSPARSELt specific
 # ============================================================================
 
-# 缓存: model_name -> kernel function
+# Cache: model_name -> kernel function
 _quant_slide_int8_cache: Dict[str, Callable] = {}
 
 
 def _load_quant_slide_int8_kernel(model_name: str) -> Callable:
-    """加载 Triton INT8 quant+slide kernel（按 model 懒加载）"""
+    """Load Triton INT8 quant+slide kernel (lazy load per model)"""
     if model_name in _quant_slide_int8_cache:
         return _quant_slide_int8_cache[model_name]
     
-    # 编译期保护
+    # Compile-time guard
     if torch.compiler.is_compiling():
         raise RuntimeError(
             f"Triton kernel 'quant_slide_int8' for model '{model_name}' was not preloaded!\n"
@@ -402,7 +402,7 @@ def _load_quant_slide_int8_kernel(model_name: str) -> Callable:
     )
     
     fn = module.quant_slide_int8_triton
-    # 修复模块名，避免 Dynamo 尝试 import 非法名称
+    # Fix module name to avoid Dynamo trying to import invalid names
     fn.__module__ = "slidesparse.core.kernels"
     _quant_slide_int8_cache[model_name] = fn
     logger.info_once(f"INT8 quant+slide kernel loaded for model: {model_name}")
@@ -417,42 +417,42 @@ def quant_slide_int8_kernel(
     """
     INT8 Per-token Quantization + SlideSparse Slide (Symmetric)
     
-    通过 torch.library custom op 调用，确保 torch.compile 兼容。
+    Called via torch.library custom op for torch.compile compatibility.
     
     Args:
         input: [M, K] BF16
-        model_name: 模型名称（用于加载对应的 tuned kernel）
-        L: 稀疏组大小（默认 8）
+        model_name: model name (for loading corresponding tuned kernel)
+        L: sparsity group size (default 8)
         
     Returns:
         qinput: [M_pad, K_slide_pad] INT8
                 M_pad=ceil16(M), K_slide_pad=ceil32(K_slide)
-        scale_a: [M_pad] FP32，padding 区域为 1.0
+        scale_a: [M_pad] FP32, padding region is 1.0
     """
     return torch.ops.slidesparse.quant_slide_int8(input, model_name, L)
 
 
 # ============================================================================
-# Custom Op 注册（torch.compile 兼容）
+# Custom Op Registration (torch.compile compatible)
 # ============================================================================
 #
-# 为 Triton kernel 注册 torch.library custom op：
-# - 实际实现：调用预加载的 Triton kernel
-# - fake 实现：返回正确形状的空 tensor，用于 Dynamo 追踪
+# Register torch.library custom ops for Triton kernels:
+# - Real impl: calls preloaded Triton kernel
+# - Fake impl: returns empty tensor with correct shape, for Dynamo tracing
 # ============================================================================
 
 def _ceil16(x: int) -> int:
-    """向上取整到 16 的倍数"""
+    """Round up to multiple of 16"""
     return (x + 15) // 16 * 16
 
 
 def _ceil32(x: int) -> int:
-    """向上取整到 32 的倍数"""
+    """Round up to multiple of 32"""
     return (x + 31) // 32 * 32
 
 
 def _register_triton_custom_ops():
-    """注册所有 Triton kernel 的 custom op"""
+    """Register all Triton kernel custom ops"""
     
     # ========== dequant_bias ==========
     _triton_lib.define(
@@ -460,7 +460,7 @@ def _register_triton_custom_ops():
         "Tensor? bias, str out_dtype_str, str model_name) -> Tensor"
     )
     
-    # dtype 字符串映射
+    # dtype string mapping
     _dtype_map = {
         "bfloat16": torch.bfloat16,
         "float16": torch.float16,
@@ -472,7 +472,7 @@ def _register_triton_custom_ops():
     
     def _dequant_bias_impl(gemm_output, scale_a, scale_b, bias, out_dtype_str, model_name):
         if bias is None:
-            # 在 Graph 内部创建 dummy bias，确保 CUDAGraph 正确管理其生命周期
+            # Create dummy bias inside Graph to ensure CUDAGraph manages its lifetime
             bias = torch.zeros(
                 gemm_output.shape[1],
                 dtype=gemm_output.dtype,
@@ -578,31 +578,32 @@ def _register_triton_custom_ops():
     logger.info_once("Triton kernel custom ops registered")
 
 
-# 模块加载时注册 custom ops
+# Register custom ops at module load
 _register_triton_custom_ops()
 
 
 # ============================================================================
-# 模块预加载
+# Module Preload
 # ============================================================================
 
 def _preload_all_kernels() -> None:
     """
-    扫描 build 目录，预加载所有已编译的 tuned kernel
+    Scan build directory and preload all compiled tuned kernels
     
-    在模块导入时调用，确保:
-    1. 子进程导入模块时自动完成预加载
-    2. 热路径上只有字典读取，无文件系统操作
+    Called at module import to ensure:
+    1. Subprocesses auto-complete preload when importing module
+    2. Hot path only has dict reads, no filesystem ops
     
-    优化:
-    如果环境变量 SLIDESPARSE_MODEL_NAME 存在，则只加载该模型对应的 kernel。
-    这显著减少了启动时间和内存占用。如果指定模型未找到，打印警告回退到全量加载，
-    以避免"配置错误但默默执行低效路径"的隐患。
+    Optimization:
+    If env var SLIDESPARSE_MODEL_NAME exists, only load kernels for that model.
+    This significantly reduces startup time and memory usage. If specified model
+    not found, prints warning and falls back to full scan to avoid "config error
+    but silently runs inefficient path" issue.
     """
     try:
         hw_dir = build_hw_dir_name()
     except Exception as e:
-        # 如果无法确定硬件目录（如 GPU 不可用），跳过预加载
+        # Skip preload if cannot determine hardware directory (e.g., GPU unavailable)
         logger.debug(f"Skipping kernel preload: {e}")
         return
     
@@ -617,22 +618,22 @@ def _preload_all_kernels() -> None:
 
 
 def _preload_target_model_kernels(target_model_name: str) -> None:
-    """针对特定模型的定向预加载
+    """Targeted preload for specific model
     
     Args:
-        target_model_name: 基础模型名（SLIDESPARSE_MODEL_NAME 现在严格不带 slide 后缀）
+        target_model_name: base model name (SLIDESPARSE_MODEL_NAME now strictly without slide suffix)
     """
-    # target_model_name 现在已经是基础名，无需再提取
+    # target_model_name is now base name, no need to extract
     model_name = target_model_name
     logger.info(f"Optimization enabled: Only preloading kernels for model '{model_name}'")
     
-    # 尝试加载各类 kernel
+    # Try to load various kernels
     
     # 1. Dequant Bias
     try:
         _load_dequant_bias_kernel(model_name)
     except Exception as e:
-        # 不要 fallback，明确警告
+        # Don't fallback, warn explicitly
         logger.warning(f"Target dequant_bias kernel for '{model_name}' not found: {e}")
 
     # 2. Quant Only (FP8 & INT8)
@@ -659,14 +660,14 @@ def _preload_target_model_kernels(target_model_name: str) -> None:
 
 
 def _preload_scan_all_kernels(hw_dir: str) -> None:
-    """全量扫描 build 目录加载所有 kernel (原始逻辑)"""
+    """Full scan of build directory to load all kernels (original logic)"""
     preloaded_count = 0
     
-    # 1. 扫描 dequant_bias kernels
+    # 1. Scan dequant_bias kernels
     dequant_build_dir = _CSRC_DIR / "fused_dequant_bias_triton" / "build" / hw_dir
     if dequant_build_dir.exists():
         for kernel_file in dequant_build_dir.glob("dequant_bias_tuned_*.py"):
-            # 从文件名提取 model_name: dequant_bias_tuned_{model_name}.py
+            # Extract model_name from filename: dequant_bias_tuned_{model_name}.py
             stem = kernel_file.stem  # e.g., "dequant_bias_tuned_Llama3.2-1B-FP8"
             prefix = "dequant_bias_tuned_"
             if stem.startswith(prefix):
@@ -677,7 +678,7 @@ def _preload_scan_all_kernels(hw_dir: str) -> None:
                 except Exception as e:
                     logger.debug(f"Failed to preload dequant_bias for {model_name}: {e}")
     
-    # 2. 扫描 quant_only kernels（同时加载 FP8 和 INT8）
+    # 2. Scan quant_only kernels (load both FP8 and INT8)
     quant_only_build_dir = _CSRC_DIR / "quant_only_triton" / "build" / hw_dir
     if quant_only_build_dir.exists():
         for kernel_file in quant_only_build_dir.glob("quant_only_tuned_*.py"):
@@ -696,7 +697,7 @@ def _preload_scan_all_kernels(hw_dir: str) -> None:
                 except Exception as e:
                     logger.debug(f"Failed to preload quant_only_int8 for {model_name}: {e}")
     
-    # 3. 扫描 quant_slide kernels（同时加载 FP8 和 INT8）
+    # 3. Scan quant_slide kernels (load both FP8 and INT8)
     quant_slide_build_dir = _CSRC_DIR / "fused_quant_slide_triton" / "build" / hw_dir
     if quant_slide_build_dir.exists():
         for kernel_file in quant_slide_build_dir.glob("quant_slide_tuned_*.py"):
@@ -719,12 +720,12 @@ def _preload_scan_all_kernels(hw_dir: str) -> None:
         logger.info(f"Preloaded {preloaded_count} Triton kernels from {hw_dir}")
 
 
-# 模块导入时执行预加载
+# Execute preload at module import
 _preload_all_kernels()
 
 
 # ============================================================================
-# 导出
+# Exports
 # ============================================================================
 
 __all__ = [
@@ -737,7 +738,7 @@ __all__ = [
     # Preload
     "_preload_all_kernels",
     
-    # Dequant kernel（共享）
+    # Dequant kernel (shared)
     "_load_dequant_bias_kernel",
     "dequant_bias_kernel",
     

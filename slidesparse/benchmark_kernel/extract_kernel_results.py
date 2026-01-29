@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
 """
-SlideSparse Kernel Benchmark 结果提取脚本
+SlideSparse Kernel Benchmark Result Extraction Script
 
-从 cuBLASLt 和 cuSPARSELt 的 alg_search_results 中提取 TOPS 和 Latency 数据，
-计算加速比 (cuBLAS / cuSPARSE)，生成汇总 CSV。
+Extract TOPS and Latency data from cuBLASLt and cuSPARSELt alg_search_results,
+calculate speedup (cuBLAS / cuSPARSE), generate summary CSV.
 
-输出目录结构:
+Output directory structure:
     kernel_speedup_results/
     ├── {hw_folder}/
     │   ├── tops/{dtype}/
@@ -14,25 +14,25 @@ SlideSparse Kernel Benchmark 结果提取脚本
     │   │   ├── tops_SQUARE.csv
     │   │   └── ...
     │   ├── latency/{dtype}/
-    │   │   ├── latency_Llama3.2-1B-INT8.csv        # 所有 MNK
-    │   │   ├── total_latency_Llama3.2-1B-INT8.csv  # 按 M 汇总（仅 model）
+    │   │   ├── latency_Llama3.2-1B-INT8.csv        # All MNK
+    │   │   ├── total_latency_Llama3.2-1B-INT8.csv  # Summarized by M (model only)
     │   │   ├── latency_SQUARE.csv
     │   │   └── ...
     │   └── speedup/{dtype}/
-    │       ├── speedup_Llama3.2-1B-INT8.csv        # 所有 MNK
-    │       ├── total_speedup_Llama3.2-1B-INT8.csv  # 按 M 汇总（仅 model）
+    │       ├── speedup_Llama3.2-1B-INT8.csv        # All MNK
+    │       ├── total_speedup_Llama3.2-1B-INT8.csv  # Summarized by M (model only)
     │       ├── speedup_SQUARE.csv
     │       └── ...
     └── ...
 
 Usage:
-    # 提取所有结果
+    # Extract all results
     python3 extract_kernel_results.py
     
-    # 只提取特定 dtype
+    # Extract specific dtype only
     python3 extract_kernel_results.py --dtype fp8e4m3
     
-    # 只提取特定模型
+    # Extract specific model only
     python3 extract_kernel_results.py --model Llama3.2-1B-INT8
 """
 
@@ -46,7 +46,7 @@ from dataclasses import dataclass, field
 from collections import defaultdict
 
 # =============================================================================
-# 路径设置
+# Path Setup
 # =============================================================================
 
 _SCRIPT_DIR = Path(__file__).parent
@@ -77,10 +77,10 @@ from slidesparse.benchmark_kernel.utils import (
 
 
 # =============================================================================
-# 配置常量
+# Config Constants
 # =============================================================================
 
-# 模型列表（包括BitNet）
+# Model list (including BitNet)
 MODELS = [
     "Llama3.2-1B-INT8", "Llama3.2-1B-FP8",
     "Llama3.2-3B-INT8", "Llama3.2-3B-FP8",
@@ -89,26 +89,26 @@ MODELS = [
     "BitNet-2B-INT8", "BitNet-2B-FP8",
 ]
 
-# 5种精度
+# 5 precision types
 DTYPES = ["fp16", "bf16", "int8", "fp8e4m3", "fp4e2m1"]
 
-# 稀疏度列表 (高稀疏 + 低稀疏)
+# Sparsity list (high + low sparsity)
 SPARSITY_LIST = ["2_4", "2_6", "2_8", "2_10", "2_12", "2_14", "2_16", "2_inf"]
 
-# 源数据目录
+# Source data directories
 CUBLASLT_DIR = _SCRIPT_DIR / "cuBLASLt" / "alg_search_results"
 CUSPARSELT_DIR = _SCRIPT_DIR / "cuSPARSELt" / "alg_search_results"
 
-# 输出目录
+# Output directory
 OUTPUT_DIR = _SCRIPT_DIR / "kernel_speedup_results"
 
 
 # =============================================================================
-# 工具函数
+# Utility Functions
 # =============================================================================
 
 def load_json_results(json_path: Optional[Path]) -> Optional[Dict]:
-    """加载 JSON 结果文件"""
+    """Load JSON result file"""
     if json_path is None or not json_path.exists():
         return None
     try:
@@ -120,10 +120,10 @@ def load_json_results(json_path: Optional[Path]) -> Optional[Dict]:
 
 def get_nk_list_from_json(data: Dict) -> List[Tuple[int, int]]:
     """
-    从 JSON meta 中获取完整的 NK 列表
+    Get complete NK list from JSON meta
     
     Returns:
-        [(N, K), ...] 列表
+        [(N, K), ...] list
     """
     if not data:
         return []
@@ -137,7 +137,7 @@ def get_nk_list_from_json(data: Dict) -> List[Tuple[int, int]]:
 
 def build_index_from_json(data: Dict) -> Dict[Tuple[int, int, int], Dict]:
     """
-    从 JSON 数据构建索引
+    Build index from JSON data
     
     Returns:
         {(M, N, K): result_dict}
@@ -162,7 +162,7 @@ def build_index_from_json(data: Dict) -> Dict[Tuple[int, int, int], Dict]:
 
 
 def find_cublaslt_json(hw_folder: str, model_name: str, dtype: str) -> Optional[Path]:
-    """查找 cuBLASLt JSON 文件"""
+    """Find cuBLASLt JSON file"""
     dtype_folder = build_dtype_folder_name(dtype)
     json_filename = build_result_filename("alg_search", model_name, "json")
     
@@ -171,7 +171,7 @@ def find_cublaslt_json(hw_folder: str, model_name: str, dtype: str) -> Optional[
 
 
 def find_cusparselt_json(hw_folder: str, model_name: str, dtype: str, sparsity: str) -> Optional[Path]:
-    """查找 cuSPARSELt JSON 文件"""
+    """Find cuSPARSELt JSON file"""
     dtype_folder = build_dtype_folder_name(dtype)
     json_filename = build_result_filename("alg_search", model_name, "json", sparsity)
     
@@ -180,12 +180,12 @@ def find_cusparselt_json(hw_folder: str, model_name: str, dtype: str, sparsity: 
 
 
 # =============================================================================
-# 数据结构
+# Data Structures
 # =============================================================================
 
 @dataclass
 class ExtractedRow:
-    """一行提取的数据（对应一个 MNK 组合）"""
+    """One extracted row (for one MNK combination)"""
     m_value: int
     n_value: int
     k_value: int
@@ -197,14 +197,14 @@ class ExtractedRow:
 
 @dataclass
 class TotalRow:
-    """按 M 汇总的数据（所有 NK 相加）"""
+    """Summarized data by M (sum of all NK)"""
     m_value: int
-    cublas_total_lat: Optional[float]  # 所有 NK 的 cuBLAS latency 之和
-    cusparse_total_lat: Dict[str, Optional[float]]  # sparsity -> 所有 NK latency 之和
+    cublas_total_lat: Optional[float]  # Sum of cuBLAS latency for all NK
+    cusparse_total_lat: Dict[str, Optional[float]]  # sparsity -> sum of latency for all NK
 
 
 # =============================================================================
-# 数据提取
+# Data Extraction
 # =============================================================================
 
 def extract_model_data(
@@ -214,20 +214,20 @@ def extract_model_data(
     sparsity_list: List[str],
 ) -> Tuple[List[ExtractedRow], List[Tuple[int, int]]]:
     """
-    提取单个模型的所有数据
+    Extract all data for a single model
     
     Returns:
-        (rows, nk_list): 提取的数据行列表 和 完整的 NK 列表
+        (rows, nk_list): Extracted data rows and complete NK list
     """
-    # 加载 cuBLASLt 数据
+    # Load cuBLASLt data
     cublas_json_path = find_cublaslt_json(hw_folder, model_name, dtype)
     cublas_data = load_json_results(cublas_json_path)
     cublas_index = build_index_from_json(cublas_data)
     
-    # 获取完整的 NK 列表（从 cuBLASLt JSON meta）
+    # Get complete NK list (from cuBLASLt JSON meta)
     nk_list = get_nk_list_from_json(cublas_data)
     
-    # 加载 cuSPARSELt 数据（每个稀疏度）
+    # Load cuSPARSELt data (for each sparsity)
     cusparse_data_map = {}  # sparsity -> json_data
     cusparse_indices = {}   # sparsity -> index
     
@@ -237,25 +237,25 @@ def extract_model_data(
         if sp_data:
             cusparse_data_map[sp] = sp_data
             cusparse_indices[sp] = build_index_from_json(sp_data)
-            # 如果 cuBLASLt 没有 NK 列表，尝试从 cuSPARSELt 获取
+            # If cuBLASLt has no NK list, try to get from cuSPARSELt
             if not nk_list:
                 nk_list = get_nk_list_from_json(sp_data)
     
     if not cublas_index and not cusparse_indices:
         return [], []
     
-    # 收集所有唯一的 (M, N, K) 组合（从 cuBLASLt）
+    # Collect all unique (M, N, K) combinations (from cuBLASLt)
     rows = []
     for (M, N, K), cublas_result in sorted(cublas_index.items()):
         cublas_tops = cublas_result.get("tops")
         cublas_lat = cublas_result.get("lat_us")
         
-        # 收集各稀疏度的结果
+        # Collect results for each sparsity
         cusparse_tops = {}
         cusparse_lat = {}
         
         for sp in sparsity_list:
-            # 计算 K_slide
+            # Calculate K_slide
             K_slide = calculate_k_slide(K, sp, dtype=dtype)
             
             sp_index = cusparse_indices.get(sp, {})
@@ -289,29 +289,29 @@ def compute_total_rows(
     sparsity_list: List[str],
 ) -> List[TotalRow]:
     """
-    计算按 M 汇总的数据（所有 NK 的 latency 相加）
+    Compute summarized data by M (sum latency of all NK)
     
-    规则：
-    - 如果某个 M 下，任意一个 NK pair 的 cuBLAS 缺失，整个 cuBLAS total 留空
-    - 如果某个 M 下，任意一个 NK pair 的某稀疏度 cuSPARSE 缺失，该稀疏度 total 留空
+    Rules:
+    - If any NK pair's cuBLAS is missing for a given M, leave cuBLAS total empty
+    - If any NK pair's cuSPARSE for a sparsity is missing, leave that sparsity total empty
     
     Args:
-        rows: 提取的数据行
-        nk_list: 完整的 NK 列表（定义了该模型应该有多少个 NK）
-        sparsity_list: 稀疏度列表
+        rows: Extracted data rows
+        nk_list: Complete NK list (defines how many NK pairs the model should have)
+        sparsity_list: Sparsity list
     
     Returns:
-        TotalRow 列表（按 M 排序）
+        TotalRow list (sorted by M)
     """
     if not nk_list or len(nk_list) == 0:
         return []
     
-    # 按 M 分组
+    # Group by M
     m_to_rows: Dict[int, List[ExtractedRow]] = defaultdict(list)
     for row in rows:
         m_to_rows[row.m_value].append(row)
     
-    # 构建 NK 集合用于检查完整性
+    # Build NK set for completeness check
     nk_set = set(nk_list)
     expected_nk_count = len(nk_list)
     
@@ -319,13 +319,13 @@ def compute_total_rows(
     for m in sorted(m_to_rows.keys()):
         m_rows = m_to_rows[m]
         
-        # 检查该 M 下是否有完整的 NK 列表
+        # Check if this M has complete NK list
         actual_nk_set = {(row.n_value, row.k_value) for row in m_rows}
         
-        # cuBLAS total：所有 NK 都必须有数据
+        # cuBLAS total: all NK must have data
         cublas_total = None
         if actual_nk_set == nk_set:
-            # 检查所有行的 cuBLAS latency 是否都存在
+            # Check if all rows have cuBLAS latency
             all_cublas_valid = all(
                 row.cublas_lat_us is not None and row.cublas_lat_us > 0
                 for row in m_rows
@@ -333,11 +333,11 @@ def compute_total_rows(
             if all_cublas_valid:
                 cublas_total = sum(row.cublas_lat_us for row in m_rows)
         
-        # cuSPARSE total：每个稀疏度独立检查
+        # cuSPARSE total: check each sparsity independently
         cusparse_totals = {}
         for sp in sparsity_list:
             if actual_nk_set == nk_set:
-                # 检查所有行的该稀疏度 cuSPARSE latency 是否都存在
+                # Check if all rows have this sparsity's cuSPARSE latency
                 all_sp_valid = all(
                     row.cusparse_lat_us.get(sp) is not None and row.cusparse_lat_us.get(sp) > 0
                     for row in m_rows
@@ -359,21 +359,21 @@ def compute_total_rows(
 
 
 # =============================================================================
-# CSV 写入函数
+# CSV Write Functions
 # =============================================================================
 
 def write_tops_csv(rows: List[ExtractedRow], output_path: Path, sparsity_list: List[str]) -> int:
     """
-    写入 TOPS CSV
+    Write TOPS CSV
     
     Returns:
-        有效数据行数
+        Valid data row count
     """
     output_path.parent.mkdir(parents=True, exist_ok=True)
     
     valid_count = 0
     with open(output_path, "w") as f:
-        # 表头
+        # Header
         header = ["M", "N", "K", "cuBLAS"]
         for sp in sparsity_list:
             header.append(f"cuSPARSE_{sp}")
@@ -401,16 +401,16 @@ def write_tops_csv(rows: List[ExtractedRow], output_path: Path, sparsity_list: L
 
 def write_latency_csv(rows: List[ExtractedRow], output_path: Path, sparsity_list: List[str]) -> int:
     """
-    写入 Latency CSV（单位：微秒）
+    Write Latency CSV (unit: microseconds)
     
     Returns:
-        有效数据行数
+        Valid data row count
     """
     output_path.parent.mkdir(parents=True, exist_ok=True)
     
     valid_count = 0
     with open(output_path, "w") as f:
-        # 表头
+        # Header
         header = ["M", "N", "K", "cuBLAS"]
         for sp in sparsity_list:
             header.append(f"cuSPARSE_{sp}")
@@ -438,16 +438,16 @@ def write_latency_csv(rows: List[ExtractedRow], output_path: Path, sparsity_list
 
 def write_total_latency_csv(total_rows: List[TotalRow], output_path: Path, sparsity_list: List[str]) -> int:
     """
-    写入 Total Latency CSV（按 M 汇总，单位：微秒）
+    Write Total Latency CSV (summarized by M, unit: microseconds)
     
     Returns:
-        有效数据行数
+        Valid data row count
     """
     output_path.parent.mkdir(parents=True, exist_ok=True)
     
     valid_count = 0
     with open(output_path, "w") as f:
-        # 表头（没有 N, K 列）
+        # Header (no N, K columns)
         header = ["M", "cuBLAS"]
         for sp in sparsity_list:
             header.append(f"cuSPARSE_{sp}")
@@ -473,35 +473,35 @@ def write_total_latency_csv(total_rows: List[TotalRow], output_path: Path, spars
 
 def write_speedup_csv(rows: List[ExtractedRow], output_path: Path, sparsity_list: List[str]) -> int:
     """
-    写入 Speedup CSV
+    Write Speedup CSV
     
-    加速比 = cuBLAS_latency / cuSPARSE_latency
-    （latency 越小越好，所以 cuBLAS 除以 cuSPARSE，>1 表示 cuSPARSE 更快）
+    Speedup = cuBLAS_latency / cuSPARSE_latency
+    (lower latency is better, so cuBLAS/cuSPARSE, >1 means cuSPARSE is faster)
     
     Returns:
-        有效数据行数
+        Valid data row count
     """
     output_path.parent.mkdir(parents=True, exist_ok=True)
     
     valid_count = 0
     with open(output_path, "w") as f:
-        # 表头
+        # Header
         header = ["M", "N", "K", "cuBLAS"]
         for sp in sparsity_list:
             header.append(f"cuSPARSE_{sp}")
         f.write(",".join(header) + "\n")
         
         for row in rows:
-            # 如果 cuBLAS latency 缺失，整行 speedup 留空（只输出 MNK）
+            # If cuBLAS latency missing, leave entire speedup row empty (only output MNK)
             if row.cublas_lat_us is None or row.cublas_lat_us <= 0:
                 values = [
                     str(row.m_value),
                     str(row.n_value),
                     str(row.k_value),
-                    "",  # cuBLAS 列留空
+                    "",  # cuBLAS column empty
                 ]
                 for sp in sparsity_list:
-                    values.append("")  # 所有 cuSPARSE 列留空
+                    values.append("")  # All cuSPARSE columns empty
                 f.write(",".join(values) + "\n")
                 continue
             
@@ -509,13 +509,13 @@ def write_speedup_csv(rows: List[ExtractedRow], output_path: Path, sparsity_list
                 str(row.m_value),
                 str(row.n_value),
                 str(row.k_value),
-                "1.00",  # cuBLAS 作为基准 = 1.00
+                "1.00",  # cuBLAS as baseline = 1.00
             ]
             
             for sp in sparsity_list:
                 sp_lat = row.cusparse_lat_us.get(sp)
                 if sp_lat is not None and sp_lat > 0:
-                    # 加速比 = cuBLAS_lat / cuSPARSE_lat
+                    # Speedup = cuBLAS_lat / cuSPARSE_lat
                     speedup = row.cublas_lat_us / sp_lat
                     values.append(f"{speedup:.2f}")
                 else:
@@ -529,25 +529,25 @@ def write_speedup_csv(rows: List[ExtractedRow], output_path: Path, sparsity_list
 
 def write_total_speedup_csv(total_rows: List[TotalRow], output_path: Path, sparsity_list: List[str]) -> int:
     """
-    写入 Total Speedup CSV（按 M 汇总）
+    Write Total Speedup CSV (summarized by M)
     
-    加速比 = cuBLAS_total_lat / cuSPARSE_total_lat
+    Speedup = cuBLAS_total_lat / cuSPARSE_total_lat
     
     Returns:
-        有效数据行数
+        Valid data row count
     """
     output_path.parent.mkdir(parents=True, exist_ok=True)
     
     valid_count = 0
     with open(output_path, "w") as f:
-        # 表头（没有 N, K 列）
+        # Header (no N, K columns)
         header = ["M", "cuBLAS"]
         for sp in sparsity_list:
             header.append(f"cuSPARSE_{sp}")
         f.write(",".join(header) + "\n")
         
         for row in total_rows:
-            # 如果 cuBLAS total 缺失，整行留空（只输出 M）
+            # If cuBLAS total missing, leave entire row empty (only output M)
             if row.cublas_total_lat is None or row.cublas_total_lat <= 0:
                 values = [str(row.m_value), ""]
                 for sp in sparsity_list:
@@ -557,7 +557,7 @@ def write_total_speedup_csv(total_rows: List[TotalRow], output_path: Path, spars
             
             values = [
                 str(row.m_value),
-                "1.00",  # cuBLAS 作为基准 = 1.00
+                "1.00",  # cuBLAS as baseline = 1.00
             ]
             
             for sp in sparsity_list:
@@ -575,7 +575,7 @@ def write_total_speedup_csv(total_rows: List[TotalRow], output_path: Path, spars
 
 
 # =============================================================================
-# 处理单个模型
+# Process Single Model
 # =============================================================================
 
 def process_model(
@@ -587,12 +587,12 @@ def process_model(
     is_square: bool = False,
 ) -> bool:
     """
-    处理单个模型的所有数据
+    Process all data for a single model
     
     Returns:
-        是否有有效数据
+        Whether valid data exists
     """
-    # 提取数据
+    # Extract data
     rows, nk_list = extract_model_data(hw_folder, model_name, dtype, sparsity_list)
     
     if not rows:
@@ -600,22 +600,22 @@ def process_model(
     
     dtype_folder = build_dtype_folder_name(dtype)
     
-    # 1. 写入 TOPS
+    # 1. Write TOPS
     tops_dir = output_base / hw_folder / "tops" / dtype_folder
     tops_csv = tops_dir / f"tops_{model_name}.csv"
     write_tops_csv(rows, tops_csv, sparsity_list)
     
-    # 2. 写入 Latency
+    # 2. Write Latency
     latency_dir = output_base / hw_folder / "latency" / dtype_folder
     latency_csv = latency_dir / f"latency_{model_name}.csv"
     write_latency_csv(rows, latency_csv, sparsity_list)
     
-    # 3. 写入 Speedup
+    # 3. Write Speedup
     speedup_dir = output_base / hw_folder / "speedup" / dtype_folder
     speedup_csv = speedup_dir / f"speedup_{model_name}.csv"
     write_speedup_csv(rows, speedup_csv, sparsity_list)
     
-    # 4. 对于非 SQUARE 模型，计算并写入 Total
+    # 4. For non-SQUARE models, compute and write Total
     if not is_square and nk_list and len(nk_list) > 1:
         total_rows = compute_total_rows(rows, nk_list, sparsity_list)
         
@@ -632,20 +632,20 @@ def process_model(
 
 
 # =============================================================================
-# 查找可用数据
+# Find Available Data
 # =============================================================================
 
 def find_available_hw_folders() -> List[str]:
-    """查找可用的硬件文件夹"""
+    """Find available hardware folders"""
     hw_folders = set()
     
-    # 从 cuBLASLt 目录查找
+    # Search from cuBLASLt directory
     if CUBLASLT_DIR.exists():
         for d in CUBLASLT_DIR.iterdir():
             if d.is_dir() and not d.name.startswith("."):
                 hw_folders.add(d.name)
     
-    # 从 cuSPARSELt 目录查找
+    # Search from cuSPARSELt directory
     if CUSPARSELT_DIR.exists():
         for d in CUSPARSELT_DIR.iterdir():
             if d.is_dir() and not d.name.startswith("."):
@@ -655,7 +655,7 @@ def find_available_hw_folders() -> List[str]:
 
 
 def find_available_dtypes(hw_folder: str) -> List[str]:
-    """查找某硬件下可用的 dtype"""
+    """Find available dtypes for a hardware"""
     dtypes = set()
     
     cublas_hw_dir = CUBLASLT_DIR / hw_folder
@@ -670,7 +670,7 @@ def find_available_dtypes(hw_folder: str) -> List[str]:
             if d.is_dir() and not d.name.startswith("."):
                 dtypes.add(d.name.lower())
     
-    # 标准化 dtype 名称
+    # Normalize dtype names
     dtype_map = {
         "fp16": "fp16",
         "bf16": "bf16",
@@ -690,11 +690,11 @@ def find_available_dtypes(hw_folder: str) -> List[str]:
 
 
 def find_available_models(hw_folder: str, dtype: str) -> List[str]:
-    """查找某硬件、某 dtype 下可用的模型"""
+    """Find available models for a hardware and dtype"""
     models = set()
     dtype_folder = build_dtype_folder_name(dtype)
     
-    # 从 cuBLASLt 查找
+    # Search from cuBLASLt
     cublas_dir = CUBLASLT_DIR / hw_folder / dtype_folder
     if cublas_dir.exists():
         for f in cublas_dir.iterdir():
@@ -707,30 +707,30 @@ def find_available_models(hw_folder: str, dtype: str) -> List[str]:
 
 
 # =============================================================================
-# 主函数
+# Main Function
 # =============================================================================
 
 def main():
     parser = argparse.ArgumentParser(
-        description="从 kernel benchmark 结果提取 TOPS, Latency, Speedup"
+        description="Extract TOPS, Latency, Speedup from kernel benchmark results"
     )
     parser.add_argument(
         "--dtype",
         type=str,
         default=None,
-        help=f"指定 dtype，默认自动检测"
+        help=f"Specify dtype, default auto-detect"
     )
     parser.add_argument(
         "--model",
         type=str,
         default=None,
-        help="指定模型名（包括 SQUARE），默认自动检测"
+        help="Specify model name (including SQUARE), default auto-detect"
     )
     parser.add_argument(
         "--sparsity",
         type=str,
         default=None,
-        help=f"指定稀疏度列表（逗号分隔），默认: {','.join(SPARSITY_LIST)}"
+        help=f"Specify sparsity list (comma-separated), default: {','.join(SPARSITY_LIST)}"
     )
     
     args = parser.parse_args()
@@ -738,52 +738,52 @@ def main():
     # 解析稀疏度列表
     sparsity_list = args.sparsity.split(",") if args.sparsity else SPARSITY_LIST
     
-    # 查找可用的硬件文件夹
+    # Find available hardware folders
     hw_folders = find_available_hw_folders()
     
     if not hw_folders:
-        print_error("未找到任何结果目录")
-        print_info(f"cuBLASLt 目录: {CUBLASLT_DIR}")
-        print_info(f"cuSPARSELt 目录: {CUSPARSELT_DIR}")
+        print_error("No result directory found")
+        print_info(f"cuBLASLt dir: {CUBLASLT_DIR}")
+        print_info(f"cuSPARSELt dir: {CUSPARSELT_DIR}")
         return 1
     
     print()
     print("=" * 70)
-    print("SlideSparse Kernel Benchmark 结果提取")
+    print("SlideSparse Kernel Benchmark Result Extraction")
     print("=" * 70)
     print()
-    print_info(f"硬件文件夹: {hw_folders}")
-    print_info(f"稀疏度: {sparsity_list}")
-    print_info(f"输出目录: {OUTPUT_DIR}")
+    print_info(f"Hardware folders: {hw_folders}")
+    print_info(f"Sparsity: {sparsity_list}")
+    print_info(f"Output dir: {OUTPUT_DIR}")
     print()
     
     total_success = 0
     total_skip = 0
     
     for hw_folder in hw_folders:
-        print_header(f"处理硬件: {hw_folder}")
+        print_header(f"Processing hardware: {hw_folder}")
         
-        # 确定 dtype 列表
+        # Determine dtype list
         if args.dtype:
             dtype_list = [args.dtype]
         else:
             dtype_list = find_available_dtypes(hw_folder)
         
         if not dtype_list:
-            print_warning(f"  未找到任何 dtype 数据")
+            print_warning(f"  No dtype data found")
             continue
         
         for dtype in dtype_list:
             print_subheader(f"dtype: {dtype}")
             
-            # 确定模型列表
+            # Determine model list
             if args.model:
                 model_list = [args.model]
             else:
                 model_list = find_available_models(hw_folder, dtype)
             
             if not model_list:
-                print_warning(f"    未找到任何模型数据")
+                print_warning(f"    No model data found")
                 continue
             
             for model in model_list:
@@ -806,25 +806,25 @@ def main():
                         print_success(f"    {model}: tops + latency + speedup + total_latency + total_speedup")
                 else:
                     total_skip += 1
-                    print_warning(f"    {model}: 无数据")
+                    print_warning(f"    {model}: no data")
     
     print()
     print("=" * 70)
-    print("提取完成!")
+    print("Extraction Complete!")
     print("=" * 70)
     print()
-    print_success(f"成功: {total_success} 个模型")
+    print_success(f"Success: {total_success} models")
     if total_skip > 0:
-        print_warning(f"跳过: {total_skip} 个模型（无数据）")
+        print_warning(f"Skipped: {total_skip} models (no data)")
     print()
-    print_info(f"结果保存在: {OUTPUT_DIR}")
+    print_info(f"Results saved in: {OUTPUT_DIR}")
     print()
-    print("输出结构:")
+    print("Output structure:")
     print(f"  {OUTPUT_DIR}/{{hw}}/tops/{{dtype}}/tops_*.csv")
     print(f"  {OUTPUT_DIR}/{{hw}}/latency/{{dtype}}/latency_*.csv")
-    print(f"  {OUTPUT_DIR}/{{hw}}/latency/{{dtype}}/total_latency_*.csv  (仅 model)")
+    print(f"  {OUTPUT_DIR}/{{hw}}/latency/{{dtype}}/total_latency_*.csv  (model only)")
     print(f"  {OUTPUT_DIR}/{{hw}}/speedup/{{dtype}}/speedup_*.csv")
-    print(f"  {OUTPUT_DIR}/{{hw}}/speedup/{{dtype}}/total_speedup_*.csv  (仅 model)")
+    print(f"  {OUTPUT_DIR}/{{hw}}/speedup/{{dtype}}/total_speedup_*.csv  (model only)")
     
     return 0
 
